@@ -1,0 +1,11 @@
+/target
+**/*.rs.bk
+Cargo.lock
+/bin
+pkg/
+pkg-sync/
+pkg-async/
+wasm-pack.log
+# Copied from pkg-web by `npm run build:playground` (index.html is tracked).
+playground/rust_sass_wasm.js
+playground/rust_sass_wasm_bg.wasm

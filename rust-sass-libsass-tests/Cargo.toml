@@ -1,0 +1,29 @@
+[package]
+name = "rust-sass-libsass-tests"
+description = "C-ABI contract tests for rust-sass-libsass, runnable against upstream libsass"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+# Test harness, never published (matches spec/pb-gen/wasm).
+publish = false
+
+[features]
+# Default: link the workspace adapter's freshly built shared library.
+default = ["rust-impl"]
+rust-impl = ["dep:rust-sass-libsass"]
+# Upstream leg: `cargo test -p rust-sass-libsass-tests --no-default-features
+# --features upstream [LIBSASS_LIB_DIR=...]` links the upstream libsass build
+# (default dir: ../libsass/lib next to the workspace) instead.
+upstream = []
+# Workspace-graph consistency only: forwards to the adapter's stub `async`
+# feature so the build-dependency edge also resolves `rust-sass` async. The
+# tests themselves are sync; see docs/ref/libsass.md. Weak (`?`) so the
+# optional build-dependency is not force-enabled when `rust-impl` is off.
+async = ["rust-sass-libsass?/async"]
+
+[build-dependencies]
+# Ensures the adapter cdylib exists before tests link it (rust-impl leg only).
+rust-sass-libsass = { workspace = true, optional = true }

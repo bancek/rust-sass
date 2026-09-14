@@ -1,0 +1,38 @@
+{
+  "name": "sass-embedded-rust",
+  "version": "0.0.0",
+  "description": "sass-embedded-compatible host API backed by the rust-sass embedded compiler.",
+  "license": "MIT",
+  "main": "dist/lib/index.js",
+  "types": "dist/types/index.d.ts",
+  "files": [
+    "dist/**/*",
+    "LICENSE",
+    "README.md"
+  ],
+  "exports": {
+    "import": {
+      "types": "./dist/types/index.m.d.ts",
+      "default": "./dist/lib/index.mjs"
+    },
+    "types": "./dist/types/index.d.ts",
+    "default": "./dist/lib/index.js"
+  },
+  "dependencies": {
+    "@bufbuild/protobuf": "2.13.0",
+    "colorjs.io": "0.5.2",
+    "immutable": "5.1.9",
+    "rxjs": "7.8.2",
+    "supports-color": "8.1.1",
+    "sync-child-process": "1.0.2",
+    "varint": "6.0.0"
+  },
+  "devDependencies": {
+    "sass-embedded": "1.104.0"
+  },
+  "scripts": {
+    "build": "node build.mjs",
+    "test": "node test/test.mjs && node test/coexistence.mjs",
+    "clean": "rm -rf dist platform"
+  }
+}

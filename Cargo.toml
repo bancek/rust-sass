@@ -1,0 +1,74 @@
+[workspace]
+resolver = "3"
+members = [
+    "rust-sass",
+    "rust-sass-macros",
+    "rust-sass-cli",
+    "rust-sass-embedded",
+    "rust-sass-embedded-pb",
+    "rust-sass-embedded-pb-gen",
+    "rust-sass-spec",
+    "rust-sass-wasm",
+    "rust-sass-libsass",
+    "rust-sass-libsass-tests",
+]
+
+[profile.release]
+incremental = false
+lto = "fat"
+codegen-units = 1
+
+[profile.release-with-debug]
+inherits = "release"
+debug = true
+
+# Shared package metadata: versions track the pinned dart-sass version and
+# move in lockstep (see docs/porting.md step 7).
+[workspace.package]
+version = "1.104.0"
+edition = "2021"
+license = "MIT"
+authors = ["Luka Zakrajšek <luka@bancek.net>"]
+repository = "https://github.com/bancek/rust-sass"
+rust-version = "1.92"
+
+# Unified dependencies. Rule: versions live here; features stay at the use
+# site, except serde/derive which every serde user wants.
+[workspace.dependencies]
+base64 = "0.23.1"
+bumpalo = "3.20.3"
+clap = "4.6.6"
+crossbeam-channel = "0.5.17"
+futures = "0.3.34"
+futures-test = "0.3.34"
+getrandom = "0.4.3"
+indexmap = "2.14.2"
+js-sys = "0.3.105"
+libc = "0.2.189"
+log = "0.4.34"
+mimalloc = "0.1.52"
+percent-encoding = "2.3.2"
+proc-macro2 = "1.0.107"
+prost = "0.14.4"
+prost-build = "0.14.4"
+quote = "1.0.47"
+rand = "0.10.2"
+regex = "1.13.1"
+rust-sass = { path = "rust-sass", version = "1.104.0" }
+rust-sass-embedded = { path = "rust-sass-embedded", version = "1.104.0" }
+rust-sass-embedded-pb = { path = "rust-sass-embedded-pb", version = "1.104.0" }
+rust-sass-libsass = { path = "rust-sass-libsass", version = "1.104.0" }
+rust-sass-macros = { path = "rust-sass-macros", version = "1.104.0" }
+ryu = "1.0.23"
+serde = { version = "1.0.229", features = ["derive"] }
+serde-wasm-bindgen = "0.6.5"
+serde_json = "1.0.151"
+syn = "2.0.119"
+tempfile = "3.27.0"
+thiserror = "2.0.20"
+url = "2.5.8"
+wasm-bindgen = "0.2.128"
+wasm-bindgen-futures = "0.4.78"
+wasm-bindgen-test = "0.3.78"
+web-sys = "0.3.105"
+yaml_serde = "0.10.7"

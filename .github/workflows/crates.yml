@@ -1,0 +1,79 @@
+name: crates
+
+# crates.io releases for the publishable workspace crates, in dependency
+# order (each publishes only after its path-deps resolve on the index):
+# rust-sass-macros, rust-sass-embedded-pb, rust-sass, rust-sass-libsass,
+# rust-sass-embedded, rust-sass-cli. Never-published harness crates
+# (spec, libsass-tests, pb-gen, wasm) carry `publish = false`.
+#
+# Auth is OIDC trusted publishing (no token anywhere): one manual
+# prerequisite, done once on crates.io while still private — register a
+# pending trusted publisher (this repo + workflow identity) for each of the
+# 6 names. Every run rehearses packaging via `cargo package --list`; only
+# final tags (no `-` suffix) write to the registry.
+#
+# NOTE: the rehearsal is deliberately NOT `cargo publish --dry-run`: dry-run
+# resolves path-deps against the crates.io index, so every dependent fails
+# with "no matching package" until its deps are actually published (i.e.
+# until the first release). `--list` proves manifest/file health without
+# the index; the ordered real publish below is the true gate.
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    name: Publish crates
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash
+    permissions:
+      contents: read
+      id-token: write # crates.io OIDC trusted publishing
+    steps:
+      # No submodules: registry packages are path-deps only.
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.92.0
+      # TODO temporarily disabled while repo is private
+      # - uses: Swatinem/rust-cache@v2
+      - name: List packaged files (all crates, in order)
+        run: |
+          for crate in rust-sass-macros rust-sass-embedded-pb rust-sass rust-sass-libsass rust-sass-embedded rust-sass-cli; do
+            cargo package --list -p "$crate"
+          done
+      - name: Check workspace version matches tag
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          ver=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -n 1)
+          base="${GITHUB_REF_NAME#v}"
+          base="${base%%-*}"
+          if [ "$ver" != "$base" ]; then
+            echo "workspace version $ver != tag base version $base"
+            exit 1
+          fi
+      # Real publish (tags only; cargo has no channels — prereleases are
+      # inherently opt-in, so no `next` equivalent is needed). Dependents
+      # resolve only once their path-deps are visible on the sparse index —
+      # retry each a few times rather than failing on propagation lag.
+      - name: Publish crates (tags only)
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          for crate in rust-sass-macros rust-sass-embedded-pb rust-sass rust-sass-libsass rust-sass-embedded rust-sass-cli; do
+            ok=""
+            for i in 1 2 3; do
+              if cargo publish -p "$crate"; then ok=1; break; else sleep 60; fi
+            done
+            if [ -z "$ok" ]; then echo "failed to publish $crate"; exit 1; fi
+          done

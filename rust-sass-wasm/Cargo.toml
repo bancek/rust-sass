@@ -1,0 +1,49 @@
+[package]
+name = "rust-sass-wasm"
+description = "Modern JS Sass API compiled to WebAssembly via rust-sass"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+publish = false
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[features]
+async = ["rust-sass/async"]
+# Forward rust-sass's `glibc-math`: `math::pow` then uses a Rust port of glibc's
+# e_pow.c instead of the platform libm, so wasm (which has no libm) matches the
+# native libm the spec goldens were produced against. See rust-sass/Cargo.toml.
+glibc-math = ["rust-sass/glibc-math"]
+
+[dependencies]
+futures.workspace = true
+getrandom = { workspace = true, features = ["wasm_js"] }
+indexmap = { workspace = true, features = ["serde"] }
+js-sys.workspace = true
+log.workspace = true
+rust-sass-macros.workspace = true
+rust-sass.workspace = true
+serde-wasm-bindgen.workspace = true
+serde.workspace = true
+wasm-bindgen-futures.workspace = true
+wasm-bindgen.workspace = true
+web-sys = { workspace = true, features = ["console"] }
+
+[dev-dependencies]
+wasm-bindgen-test.workspace = true
+
+[package.metadata.wasm-pack.profile.release]
+# wasm-opt = false
+wasm-opt = [
+    "--simplify-locals",          # Replaces local.get/set with stack values
+    "--coalesce-locals",          # Merges overlapping variables to save local registers
+    "--local-cse",                # Common Subexpression Elimination inside functions
+    "--code-folding",             # Merges duplicate instruction sequences
+    "--precompute",               # Computes constant expressions at compile time
+    "--optimize-instructions",    # Peephole math & bitwise optimizations
+    "--vacuum"                    # Cleans up the resulting remnants
+]

@@ -1,0 +1,40 @@
+[package]
+name = "rust-sass"
+description = "Rust port of Dart Sass: the Sass CSS preprocessor as a library"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+bumpalo = { workspace = true, features = ["boxed"] }
+futures.workspace = true
+indexmap.workspace = true
+log.workspace = true
+percent-encoding.workspace = true
+rand.workspace = true
+rust-sass-macros.workspace = true
+ryu.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+url.workspace = true
+
+[features]
+# Sync is the default. `async` opts into the async expansion (flows to
+# rust-sass-macros, whose mode follows this single feature).
+sync = []
+async = ["rust-sass-macros/async"]
+# `math::pow` normally uses the platform libm (`f64::powf`), which is what the
+# spec goldens were produced against. On wasm32 there is no libm: `f64::powf`
+# lowers to compiler_builtins' fdlibm, which rounds the wrong way on ~28
+# last-ULP color specs. Enabling this instead uses a Rust port of glibc's
+# e_pow.c (non-FMA), which bit-matches native macOS/glibc libm on every
+# conversion input. rust-sass-wasm / rust-sass-spec forward it as `glibc-math`.
+glibc-math = []
+
+[dev-dependencies]
+futures-test.workspace = true
+tempfile.workspace = true

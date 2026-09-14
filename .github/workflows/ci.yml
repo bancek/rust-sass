@@ -1,0 +1,79 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # Builds, clippy (both legs) and unit tests (both legs) on all three OSes.
+  # OS-gated code (`cfg(windows)`, …) and OS-sensitive behavior (fs paths,
+  # symlinks, case) are invisible to an ubuntu-only gate — the win32 npm
+  # matrix jobs only run `cargo build`, so this is the one place test targets
+  # and clippy compile for macOS and Windows. The release spec suite stays
+  # ubuntu-only (job `spec` below): it needs the LTO release build, which is
+  # too pricey to triplicate while caches stay disabled.
+  test:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          submodules: recursive
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.92.0
+          components: clippy
+      # TODO temporarily disabled while repo is private
+      # - uses: Swatinem/rust-cache@v2
+      - name: Build
+        run: |
+          # libsass first: rust-sass-libsass-tests links the prebuilt
+          # libsass.so from target/<profile>/, so it must exist before
+          # the workspace build runs that crate's build script.
+          cargo build -p rust-sass-libsass
+          cargo build --workspace
+      - name: Clippy (sync)
+        run: cargo clippy --workspace --all-targets -- -D warnings
+      - name: Clippy (async)
+        run: cargo clippy --workspace --all-targets --features async -- -D warnings
+      - name: Unit tests (sync)
+        run: |
+          cargo test -p rust-sass
+          cargo test -p rust-sass-macros
+          cargo test -p rust-sass-embedded
+      - name: Unit tests (async)
+        run: |
+          cargo test -p rust-sass --features async
+          cargo test -p rust-sass-macros --features async
+          cargo test -p rust-sass-embedded --features async
+      - name: glibc-math check leg
+        run: cargo check -p rust-sass --all-targets --features glibc-math
+
+  spec:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          submodules: recursive
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.92.0
+      # TODO temporarily disabled while repo is private
+      # - uses: Swatinem/rust-cache@v2
+      - name: Build
+        run: |
+          cargo build -p rust-sass-libsass
+          cargo build --workspace
+      - name: sass-spec suite
+        run: cargo test -p rust-sass-spec --test runner_test --release -- --ignored

@@ -1,0 +1,25 @@
+[package]
+name = "rust-sass-embedded"
+description = "Sass embedded-protocol server for rust-sass"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[features]
+async = ["rust-sass/async"]
+
+[dependencies]
+crossbeam-channel.workspace = true
+futures.workspace = true
+indexmap.workspace = true
+prost.workspace = true
+rust-sass-embedded-pb.workspace = true
+rust-sass-macros.workspace = true
+rust-sass.workspace = true
+
+[dev-dependencies]
+futures-test.workspace = true
+tempfile.workspace = true

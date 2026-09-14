@@ -1,0 +1,38 @@
+{
+  "name": "rust-sass-wasm",
+  "version": "1.104.0",
+  "description": "Sass compiled to WebAssembly via the Rust port, exposing the modern JS API.",
+  "license": "MIT",
+  "main": "index.js",
+  "types": "index.d.ts",
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "dependencies": {
+    "colorjs.io": "0.5.2",
+    "immutable": "5.1.9"
+  },
+  "files": [
+    "*.js",
+    "*.mjs",
+    "*.d.ts",
+    "bin/**/*",
+    "cli/**/*",
+    "io/**/*",
+    "value/**/*",
+    "LICENSE",
+    "README.md",
+    "pkg-sync/**/*",
+    "pkg-async/**/*"
+  ],
+  "bin": {
+    "sass": "bin/sass.js"
+  },
+  "exports": {
+    ".": {
+      "import": "./index.mjs",
+      "require": "./index.js"
+    },
+    "./package.json": "./package.json"
+  }
+}

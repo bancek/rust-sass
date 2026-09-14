@@ -1,0 +1,26 @@
+[package]
+name = "rust-sass-spec"
+description = "sass-spec suite runner for rust-sass"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+publish = false
+
+[features]
+async = ["rust-sass/async"]
+# Forward rust-sass's `glibc-math`: `math::pow` then uses a Rust port of glibc's
+# e_pow.c instead of the platform libm, so wasm (which has no libm) matches the
+# native libm the spec goldens were produced against. See rust-sass/Cargo.toml.
+glibc-math = ["rust-sass/glibc-math"]
+
+[dependencies]
+bumpalo.workspace = true
+futures.workspace = true
+regex.workspace = true
+rust-sass-macros.workspace = true
+rust-sass.workspace = true
+serde.workspace = true
+yaml_serde.workspace = true

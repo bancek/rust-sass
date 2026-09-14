@@ -1,0 +1,105 @@
+name: wasm
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    name: Build, test and publish rust-sass-wasm
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash
+        working-directory: rust-sass-wasm
+    permissions:
+      contents: write # Tags: `gh release upload`
+      # TODO enable
+      # id-token: write # Tags: npm trusted publishing
+    steps:
+      # No full submodules: the wasm build needs workspace crates + npm
+      # oracles only. The one exception is the `sass` language-spec
+      # submodule — `deprecations.test.ts` reads `sass/spec/deprecations.yaml`.
+      - uses: actions/checkout@v7
+      - name: Check out the sass language spec
+        working-directory: ${{ github.workspace }}
+        run: git submodule update --init sass
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.92.0
+          targets: wasm32-unknown-unknown
+      - name: Install wasm-pack
+        run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 26
+          registry-url: 'https://registry.npmjs.org'
+          # cache disabled while the repo is private
+          # cache: npm
+          # cache-dependency-path: rust-sass-wasm/package-lock.json
+      # TODO temporarily disabled while repo is private
+      # - uses: Swatinem/rust-cache@v2
+      - name: Install npm deps
+        run: npm ci
+      - name: Build wasm bundles (release)
+        run: npm run build:rust:release
+      - name: Build JS API
+        run: npm run build:js
+      - name: Tests
+        run: npm run test:js
+      - name: Pack
+        run: |
+          mkdir -p wasm-tgzs
+          npm pack ./js/dist --pack-destination ./wasm-tgzs
+      - name: Scratch-install smoke test
+        # The true consumer path with zero registry involvement: install the
+        # packed tarball (dependencies resolve from the registry, exactly as
+        # for a real user) and compile through both entry points.
+        run: |
+          ver=$(node -p "require('./js/package.json').version")
+          pkgdir="$PWD"
+          rm -rf /tmp/scratch-test-wasm && mkdir -p /tmp/scratch-test-wasm && cd /tmp/scratch-test-wasm
+          npm init -y > /dev/null
+          npm install "$pkgdir/wasm-tgzs/rust-sass-wasm-$ver.tgz"
+          node -e "const {compileString} = require('rust-sass-wasm'); const css = compileString('a{b:1px+2px}').css; if (!css.includes('3px')) throw new Error('unexpected css: ' + css); console.log('[scratch] consumer install smoke: OK')"
+          ./node_modules/.bin/sass --version
+      # Single-file artifact (downloads as the file itself, not a zip). The
+      # glob matches exactly one file in a fresh wasm-tgzs/; a miss fails
+      # the run.
+      - name: Upload tgz
+        uses: actions/upload-artifact@v7
+        with:
+          name: rust-sass-wasm-tgz
+          path: rust-sass-wasm/wasm-tgzs/rust-sass-wasm-[0-9]*.tgz
+          if-no-files-found: error
+          retention-days: 14
+          overwrite: true
+      - name: Check package version matches tag
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          ver=$(node -p "require('./js/package.json').version")
+          base="${GITHUB_REF_NAME#v}"
+          base="${base%%-*}"
+          if [ "$ver" != "$base" ]; then
+            echo "wasm package version $ver != tag base version $base"
+            exit 1
+          fi
+      - name: Attach tarball to release (tags only)
+        if: startsWith(github.ref, 'refs/tags/')
+        run: gh release upload "$GITHUB_REF_NAME" wasm-tgzs/*.tgz --clobber
+      - name: npm publish (tags only)
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          # Prerelease tags publish under `next`, finals under `latest`.
+          tag_args=""
+          case "$GITHUB_REF_NAME" in *"-"*) tag_args="--tag next";; esac
+          npm publish --provenance $tag_args ./js/dist

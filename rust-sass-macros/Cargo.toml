@@ -1,0 +1,29 @@
+[package]
+name = "rust-sass-macros"
+description = "Sync/async dual-build proc macros for rust-sass (maybe-async fork)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[lib]
+proc-macro = true
+
+[features]
+# Mode selection: sync is the default (absence of `async`). Enabling `async`
+# compiles the async expansion. There is deliberately no `sync` feature to
+# toggle — downstream crates enable `async` through their own alias
+# (`async = ["rust-sass-macros/async"]`), so a unified feature graph can
+# never mix modes.
+async = []
+
+[dependencies]
+proc-macro2.workspace = true
+quote.workspace = true
+syn = { workspace = true, features = ["full", "visit-mut"] }
+
+[dev-dependencies]
+futures.workspace = true
+futures-test.workspace = true

@@ -1,0 +1,38 @@
+// Gradle init script (`-I`) wiring /smokes/java/Smoke.java into the jsass
+// build without touching jsass itself: no versions, no URLs, no repos —
+// the `smoke` source-set inherits jsass's own `implementation` deps, so
+// dependency bumps in jsass's build.gradle flow through untouched.
+//
+// Usage (from the jsass checkout):
+//   ./gradlew --no-daemon --write-locks -I /smokes/java/smoke.init.gradle smoke
+//
+// `--write-locks` is required because jsass enables
+// `dependencyLocking { lockAllConfigurations() }` with no committed
+// lockfile. The `smoke` task deliberately depends only on
+// `processResources` + `compileSmokeJava`, never `jar` (which would pull
+// in `jniHeaders -> testClasses`) or any `buildNative*` task.
+allprojects {
+    plugins.withId('java') {
+        sourceSets {
+            smoke {
+                java {
+                    srcDir '/smokes/java'
+                }
+            }
+        }
+        configurations {
+            smokeImplementation.extendsFrom(implementation)
+            smokeRuntimeOnly.extendsFrom(runtimeOnly)
+        }
+        dependencies {
+            // File dep on main output on purpose: a `project()` dep would
+            // resolve via the `jar` artifact and drag in test/native tasks.
+            smokeImplementation files(sourceSets.main.output)
+        }
+        tasks.register('smoke', org.gradle.api.tasks.JavaExec) {
+            dependsOn('processResources', 'compileSmokeJava')
+            classpath = sourceSets.smoke.runtimeClasspath
+            mainClass.set('Smoke')
+        }
+    }
+}

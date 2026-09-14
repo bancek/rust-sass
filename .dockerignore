@@ -1,0 +1,14 @@
+# Kept out of the ecosystem docker build context: VCS metadata, build
+# outputs, and submodule checkouts that cargo does not need for
+# `cargo build -p rust-sass-libsass`. The libsass/ submodule MUST stay
+# (headers source — the Dockerfile guards on it and fails loudly).
+.git/
+**/target/
+**/node_modules/
+bootstrap-main/
+dart-sass/
+sass-spec/
+embedded-host-node/
+sass/
+sassc/
+node-sass/

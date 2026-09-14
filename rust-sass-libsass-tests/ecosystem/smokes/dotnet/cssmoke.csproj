@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>disable</Nullable>
+    <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="/tmp/libsass-net/LibSass.NET/**/*.cs" Exclude="/tmp/libsass-net/LibSass.NET/Properties/AssemblyInfo.cs" />
+    <Compile Include="Program.cs" />
+  </ItemGroup>
+</Project>

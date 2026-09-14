@@ -1,0 +1,42 @@
+[package]
+name = "rust-sass-libsass"
+description = "libsass C API implemented on rust-sass (drop-in native Sass)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+# The artifact is literally `libsass.{so,dylib,a}` so existing consumers
+# (sassc, node-sass, language bindings) link it unmodified. `rlib` is also
+# built so workspace crates (e.g. the contract-test harness build script) can
+# depend on this package for artifact ordering.
+#
+# NOTE: cargo places ALL crate-type outputs directly in target/<profile>/
+# (e.g. libsass.a AND libsass.dylib side by side), which confuses downstream
+# linkers (static archive can shadow the shared library). The system linker
+# prefers shared objects when given a directory search path, but the archive
+# may still win in some link orders — if the contract suite ever links stale
+# symbols, check for a shadow libsass.a here first.
+[lib]
+name = "sass"
+crate-type = ["cdylib", "staticlib", "rlib"]
+
+[features]
+# Sync-only adapter. The `async` feature exists so the workspace-wide
+# `--features async` graph stays consistent: it must forward to
+# `rust-sass/async` (otherwise the build-dep instance of `rust-sass` stays
+# sync while the shared `rust-sass-macros` proc-macro is async, producing a
+# macro/cfg mismatch). When enabled, `src/lib.rs` compiles this crate empty —
+# see docs/ref/libsass.md.
+async = ["rust-sass/async"]
+
+[dependencies]
+base64.workspace = true
+bumpalo.workspace = true
+libc.workspace = true
+percent-encoding.workspace = true
+rust-sass.workspace = true
+serde.workspace = true
+serde_json.workspace = true

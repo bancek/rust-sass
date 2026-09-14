@@ -1,0 +1,21 @@
+--- a/Makefile.PL
++++ b/Makefile.PL
+@@ -412,6 +412,7 @@
+
+ # enable all warnings (disable only specific ones)
+ push @flags, '-Wall -Wextra -Wno-unused-parameter';
++push @libs, '-L/usr/local/lib -lsass'; # ECOSYSTEM: link system libsass
+
+ # enable optional debug mode
+ $optimize = '-O1' if $debug_mode;
+@@ -468,9 +468,7 @@
+ } else { die "Did not find c++ CSOURCES in libsass/Makefile.conf"; }
+
+ # prefix paths and filter the c and c++ sources
+-my @SOURCES = map { join '/', 'libsass', 'src', $_ }
+-              grep { s/\.c(?:pp)?$/\.o/ }
+-              (@CFILES, @CPPFILES);
++my @SOURCES = (); # ECOSYSTEM: use system libsass instead of vendored sources
+
+ # Fix an issue with EU::MM > 7.10 as reported in:
+ # https://github.com/sass/perl-libsass/issues/25

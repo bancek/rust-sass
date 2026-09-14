@@ -1,0 +1,43 @@
+name: Playground
+
+on:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # push the built playground to the gh-pages branch
+    defaults:
+      run:
+        working-directory: rust-sass-wasm
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.92.0
+          targets: wasm32-unknown-unknown
+      # TODO temporarily disabled while repo is private
+      # - uses: Swatinem/rust-cache@v2
+      - name: Install wasm-pack
+        run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 26
+          cache: npm
+          cache-dependency-path: rust-sass-wasm/package-lock.json
+      - name: Install npm deps
+        run: npm ci
+      - name: Build playground (release)
+        run: npm run build:playground:release
+      - name: Deploy to gh-pages
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: rust-sass-wasm/playground
+          publish_branch: gh-pages

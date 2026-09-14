@@ -1,0 +1,16 @@
+[package]
+name = "rust-sass-embedded-pb-gen"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+publish = false
+description = "Generates rust-sass-embedded-pb/src/embedded_sass.rs from embedded_sass.proto"
+
+[features]
+gen = ["dep:prost-build"]
+
+[dependencies]
+prost-build = { workspace = true, optional = true }

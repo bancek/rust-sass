@@ -1,0 +1,25 @@
+# Rust build output
+/target/
+
+# Node
+node_modules/
+dist/
+pkg-*/
+
+# Build-time assembly output (embedded-host-node-rust)
+# (platform/ and dist/ are script state; npm-tgzs/ and release-archives/ are
+# CI pack output — see docs/ci.md)
+/embedded-host-node-rust/platform/
+/embedded-host-node-rust/dist/
+/embedded-host-node-rust/npm-tgzs/
+/embedded-host-node-rust/release-archives/
+
+# wasm pack output (rust-sass-wasm, see docs/ci.md)
+/rust-sass-wasm/wasm-tgzs/
+
+# Generated bench workload (huge.scss × 10, see docs/CONTRIBUTING.md)
+bench/huge10.scss
+
+# Logs and OS noise
+*.log
+.DS_Store

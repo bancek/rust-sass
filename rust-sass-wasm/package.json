@@ -1,0 +1,30 @@
+{
+  "dependencies": {
+    "colorjs.io": "^0.5.2",
+    "immutable": "^5.1.9"
+  },
+  "devDependencies": {
+    "@types/node": "^22",
+    "prettier": "^3.9.6",
+    "sass": "1.104.0",
+    "sass-embedded": "1.104.0",
+    "sass-embedded-rust": "file:../../embedded-host-node-rust",
+    "typescript": "6.0.3",
+    "vitest": "4.1.11"
+  },
+  "scripts": {
+    "build:js": "tsc -p js/tsconfig.json && cp js/package.json js/dist/package.json && cp js/src/index.mjs js/dist/index.mjs && cp README.md js/dist/README.md && cp LICENSE js/dist/LICENSE && chmod +x js/dist/bin/sass.js",
+    "mirror-src-pkg": "rm -rf js/src/pkg-sync js/src/pkg-async js/src/pkg-web && cp -r js/dist/pkg-sync js/src/pkg-sync && cp -r js/dist/pkg-async js/src/pkg-async && cp -r js/dist/pkg-web js/src/pkg-web",
+    "build:rust": "rm -rf pkg js/dist/pkg-sync && mkdir -p js/dist && wasm-pack build --target nodejs --features glibc-math && mv pkg js/dist/pkg-sync && rm -rf pkg js/dist/pkg-async && wasm-pack build --target nodejs --features async,glibc-math && mv pkg js/dist/pkg-async && rm -rf pkg js/dist/pkg-web && wasm-pack build --target web --features glibc-math && mv pkg js/dist/pkg-web && npm run strip-pkg-meta && npm run mirror-src-pkg",
+    "build:rust:release": "rm -rf pkg js/dist/pkg-sync && mkdir -p js/dist && wasm-pack build --release --target nodejs --features glibc-math && mv pkg js/dist/pkg-sync && rm -rf pkg js/dist/pkg-async && wasm-pack build --release --target nodejs --features async,glibc-math && mv pkg js/dist/pkg-async && rm -rf pkg js/dist/pkg-web && wasm-pack build --release --target web --features glibc-math && mv pkg js/dist/pkg-web && npm run strip-pkg-meta && npm run mirror-src-pkg",
+    "build:playground": "mkdir -p playground && cp js/dist/pkg-web/rust_sass_wasm.js js/dist/pkg-web/rust_sass_wasm_bg.wasm playground/",
+    "strip-pkg-meta": "for d in pkg-sync pkg-async pkg-web; do rm -f js/dist/$d/package.json js/dist/$d/.gitignore js/dist/$d/README.md js/dist/$d/LICENSE; done",
+    "build:playground:release": "npm run build:rust:release && npm run build:playground",
+    "playground": "npm run build:playground && npx serve playground",
+    "test:js": "vitest run",
+    "test:js:watch": "vitest",
+    "test:bench": "RUN_BENCH=1 vitest run js/src/wasm/perf.test.ts",
+    "format:js": "prettier --write \"js/src/**/*.ts\" \"vitest.config.mts\"",
+    "format:js:check": "prettier --check \"js/src/**/*.ts\" \"vitest.config.mts\""
+  }
+}
