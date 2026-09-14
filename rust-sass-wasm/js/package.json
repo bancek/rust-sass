@@ -1,6 +1,6 @@
 {
   "name": "rust-sass-wasm",
-  "version": "1.104.0",
+  "version": "1.104.0-alpha0",
   "description": "Sass compiled to WebAssembly via the Rust port, exposing the modern JS API.",
   "license": "MIT",
   "main": "index.js",

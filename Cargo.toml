@@ -25,7 +25,7 @@ debug = true
 # Shared package metadata: versions track the pinned dart-sass version and
 # move in lockstep (see docs/porting.md step 7).
 [workspace.package]
-version = "1.104.0"
+version = "1.104.0-alpha0"
 edition = "2021"
 license = "MIT"
 authors = ["Luka Zakrajšek <luka@bancek.net>"]
@@ -54,11 +54,11 @@ prost-build = "0.14.4"
 quote = "1.0.47"
 rand = "0.10.2"
 regex = "1.13.1"
-rust-sass = { path = "rust-sass", version = "1.104.0" }
-rust-sass-embedded = { path = "rust-sass-embedded", version = "1.104.0" }
-rust-sass-embedded-pb = { path = "rust-sass-embedded-pb", version = "1.104.0" }
-rust-sass-libsass = { path = "rust-sass-libsass", version = "1.104.0" }
-rust-sass-macros = { path = "rust-sass-macros", version = "1.104.0" }
+rust-sass = { path = "rust-sass", version = "1.104.0-alpha0" }
+rust-sass-embedded = { path = "rust-sass-embedded", version = "1.104.0-alpha0" }
+rust-sass-embedded-pb = { path = "rust-sass-embedded-pb", version = "1.104.0-alpha0" }
+rust-sass-libsass = { path = "rust-sass-libsass", version = "1.104.0-alpha0" }
+rust-sass-macros = { path = "rust-sass-macros", version = "1.104.0-alpha0" }
 ryu = "1.0.23"
 serde = { version = "1.0.229", features = ["derive"] }
 serde-wasm-bindgen = "0.6.5"
