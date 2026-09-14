@@ -165,6 +165,52 @@ are byte-identical to `sass`. `sourcesContent` is emitted only with
 - `alertColor`/`alertAscii` color the thrown `Exception.formatted`; a
   user-provided `Logger.warn`/`debug` always receives the plain message.
 
+## Build artifacts
+
+The published package (`js/dist`, the package root) ships two wasm bundles:
+
+- `pkg-sync/` — `wasm-pack build --target nodejs` (sync entry points;
+  zero futures).
+- `pkg-async/` — `wasm-pack build --target nodejs --features async`
+  (async entry points; JS callbacks may return Promises).
+
+`pkg-web/` (`wasm-pack build --target web`, sync build) is dev-only and never
+shipped — browser packaging is deferred. The rest of `js/dist/` is the
+compiled shim: `index.js` (CJS), `index.mjs` (ESM wrapper), `index.d.ts`,
+`bin/sass.js` (CLI).
+
+`build:rust` mirrors each assembled `js/dist/pkg-*` bundle down to
+`js/src/pkg-*` as plain copies (symlinks don't work on Windows), so the
+vitest suite resolves `./pkg-*/…` with no manual step. The build/test command
+sequence lives in `CONTRIBUTING.md` (`rust-sass-wasm`); both builds are
+required before testing — a stale `js/dist` (no `pkg-sync/`) fails every
+harness test with `MODULE_NOT_FOUND`.
+
+## Playground
+
+A dependency-free single-page playground exercises the browser artifact:
+`playground/index.html` compiles the source `<textarea>` (debounced) on every
+change via the public `compileString` on `pkg-web`, with a syntax/style/
+source-map/`alertColor`/`alertAscii` options panel, a CSS output pane, and a
+colored warnings-and-errors console. Dogfooding: the page's own stylesheet is
+Sass — an inlined `#sass-chrome` block (with `sass:color` palette derivation)
+that the page compiles with the same wasm after `init()` and injects as a
+`<style>`; a tiny hand-written splash stylesheet shows "Loading…" until that
+finishes.
+
+```sh
+npm run build:rust        # regenerates js/dist/pkg-web (and pkg-sync/pkg-async)
+npm run build:playground  # copies js/dist/pkg-web's rust_sass_wasm.js + .wasm into playground/
+npx serve playground      # or caddy, python http.server, etc.
+```
+
+`npm run build:playground:release` builds the same chain with
+`wasm-pack --release` (what the Pages publish workflow deploys).
+
+The two copied wasm artifacts in `playground/` are gitignored; `index.html` is
+tracked. There is no automated browser runtime test suite — the live browser
+surface is this playground.
+
 ## File mapping
 
 | Dart                | Go             | Rust                                                    |
