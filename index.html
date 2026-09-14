@@ -1,0 +1,533 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>rust-sass playground</title>
+    <!-- Minimal critical path: a dark "Loading…" splash. The whole real
+         stylesheet below is Sass (web/chrome.scss, inlined as text) and is
+         compiled by this page itself (compileString) once the wasm is up.
+
+         -->
+    <style id="boot">
+      html,
+      body {
+        height: 100%;
+      }
+      body {
+        margin: 0;
+        background: #16171c;
+        color: #c9cdd6;
+        font:
+          14px/1.5 ui-monospace,
+          'SF Mono',
+          Menlo,
+          Consolas,
+          monospace;
+      }
+      #loading {
+        position: fixed;
+        inset: 0;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 12px;
+        color: #8b90a0;
+      }
+      #loading .spin {
+        width: 18px;
+        height: 18px;
+        border: 2px solid #30323a;
+        border-top-color: #6c8cff;
+        border-radius: 50%;
+        animation: spin 0.8s linear infinite;
+      }
+      @keyframes spin {
+        to {
+          transform: rotate(360deg);
+        }
+      }
+      #app {
+        display: none;
+      }
+      body.ready #app {
+        display: block;
+      }
+      body.ready #loading {
+        display: none;
+      }
+    </style>
+    <!--
+    The page's own stylesheet, authored in Sass. #bootstrap compiles this and
+    injects it as a <style> before revealing #app.
+    -->
+    <script id="sass-chrome" type="text/plain">
+      // rust-sass playground chrome. Compiled live by the wasm this page loads
+      // — the ultimate dogfood: Sass compiles the Sass playground's CSS.
+      @use "sass:color";
+
+      $bg: #16171c;
+      $panel: color.adjust($bg, $lightness: 4%);
+      $panel2: color.adjust($bg, $lightness: 7%);
+      $border: color.adjust($bg, $lightness: 11%);
+      $text: #c9cdd6;
+      $muted: color.adjust($text, $saturation: -35%, $lightness: -14%);
+      $accent: #6c8cff;
+      $mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+
+      @mixin surface($bg: $panel) {
+        background: $bg;
+        border: 1px solid $border;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html,
+      body {
+        height: 100%;
+      }
+
+      body {
+        margin: 0;
+        color: $text;
+        font: 14px/1.5 $mono;
+        background: $bg;
+      }
+
+      #app {
+        color-scheme: dark;
+        padding: 16px;
+      }
+
+      h1 {
+        font-size: 16px;
+        margin: 0 0 12px;
+      }
+
+      .grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        grid-template-rows: minmax(0, 1fr) minmax(0, 1fr);
+        gap: 12px;
+        height: calc(100vh - 56px);
+
+        .pane {
+          display: flex;
+          flex-direction: column;
+          min-height: 0;
+        }
+      }
+
+      .bar {
+        flex: none;
+        font-size: 12px;
+        color: $muted;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        padding: 4px 8px;
+        @include surface($panel2);
+        border-bottom: 0;
+      }
+
+      textarea,
+      pre {
+        flex: 1;
+        min-height: 0;
+        width: 100%;
+        margin: 0;
+        color: $text;
+        font: inherit;
+        padding: 8px;
+        @include surface();
+      }
+
+      textarea {
+        resize: none;
+        display: block;
+      }
+
+      textarea:focus,
+      pre:focus {
+        outline: none;
+        border-color: $accent;
+      }
+
+      pre {
+        overflow: auto;
+        white-space: pre-wrap;
+        word-break: break-word;
+      }
+
+      pre#console:empty::before {
+        content: "No warnings or errors.";
+        color: $muted;
+      }
+
+      input {
+        accent-color: $accent;
+      }
+
+      .options {
+        @include surface($panel2);
+        padding: 10px 12px;
+        overflow: auto;
+
+        label {
+          display: block;
+          margin: 6px 0;
+          color: $text;
+        }
+
+        select {
+          width: 100%;
+          margin-top: 2px;
+          color: $text;
+          font: inherit;
+          padding: 4px;
+          @include surface($panel);
+        }
+      }
+
+      .checks {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 4px 14px;
+
+        label {
+          display: flex;
+          align-items: center;
+          gap: 6px;
+          margin: 3px 0;
+        }
+      }
+
+      fieldset {
+        border: 1px solid $border;
+        margin: 10px 0 0;
+        padding: 6px 8px;
+
+        legend {
+          color: $muted;
+          font-size: 12px;
+          padding: 0 4px;
+        }
+      }
+
+      .hint {
+        color: $muted;
+        font-size: 12px;
+        margin-top: 10px;
+      }
+
+      details {
+        flex: none;
+      }
+
+      summary {
+        cursor: pointer;
+        color: $muted;
+        user-select: none;
+      }
+
+      #map {
+        flex: 0 1 auto;
+        max-height: 22vh;
+        border-top: 0;
+      }
+    </script>
+  </head>
+  <body>
+    <div id="loading">
+      <div class="spin"></div>
+      Loading… compiling the page's own stylesheet
+    </div>
+
+    <div id="app">
+      <h1>rust-sass playground</h1>
+
+      <div class="grid">
+        <section class="pane">
+          <div class="bar">SCSS / Sass source</div>
+          <textarea id="src" spellcheck="false"></textarea>
+        </section>
+
+        <section class="pane">
+          <div class="bar">CSS output</div>
+          <textarea id="out" readonly spellcheck="false"></textarea>
+          <details id="mapwrap" hidden>
+            <summary>source map</summary>
+            <pre id="map"></pre>
+          </details>
+        </section>
+
+        <aside class="pane options">
+          <label>
+            Syntax
+            <select id="syntax">
+              <option value="scss">SCSS</option>
+              <option value="indented">Sass (indented)</option>
+              <option value="css">CSS</option>
+            </select>
+          </label>
+          <label>
+            Style
+            <select id="style">
+              <option value="expanded">expanded</option>
+              <option value="compressed">compressed</option>
+            </select>
+          </label>
+
+          <div class="checks">
+            <label
+              ><input type="checkbox" id="charset" checked /> charset</label
+            >
+            <label><input type="checkbox" id="quietDeps" /> quietDeps</label>
+            <label><input type="checkbox" id="verbose" /> verbose</label>
+            <label><input type="checkbox" id="sourceMap" /> source map</label>
+            <label>
+              <input type="checkbox" id="sourceMapIncludeSources" disabled />
+              include sources
+            </label>
+          </div>
+
+          <fieldset>
+            <legend>Terminal-style messages</legend>
+            <div class="checks">
+              <label>
+                <input type="checkbox" id="alertColor" checked /> alertColor
+                (ANSI)
+              </label>
+              <label>
+                <input type="checkbox" id="alertAscii" /> alertAscii (ASCII
+                glyphs)
+              </label>
+            </div>
+          </fieldset>
+        </aside>
+
+        <section class="pane">
+          <div class="bar">Warnings &amp; errors</div>
+          <pre id="console" tabindex="0"></pre>
+        </section>
+      </div>
+    </div>
+
+    <script type="module">
+      import init, { compileString, set_time_now } from './rust_sass_wasm.js';
+
+      await init();
+      set_time_now(Date.now());
+
+      // Bootstrap: this page's own stylesheet is Sass (the #sass-chrome text
+      // above). Compile it with the wasm we just loaded and inject the result
+      // as a <style>, then reveal the app.
+      try {
+        const chromeSource = document.getElementById('sass-chrome').textContent;
+        const chromeResult = compileString(chromeSource, {
+          style: 'compressed',
+        });
+        const styleEl = document.createElement('style');
+        styleEl.textContent = chromeResult.css;
+        document.head.appendChild(styleEl);
+      } catch (e) {
+        const el = document.getElementById('loading');
+        const msg = e.formatted ?? e.sassMessage ?? String(e);
+        el.textContent = 'Failed to compile the stylesheet: ' + msg;
+        throw e;
+      }
+      document.body.classList.add('ready');
+
+      const $ = (selector) => document.querySelector(selector);
+      const srcEl = $('#src');
+      const syntaxEl = $('#syntax');
+      const styleEl = $('#style');
+      const charsetEl = $('#charset');
+      const quietDepsEl = $('#quietDeps');
+      const verboseEl = $('#verbose');
+      const sourceMapEl = $('#sourceMap');
+      const sourceMapIncludeSourcesEl = $('#sourceMapIncludeSources');
+      const alertColorEl = $('#alertColor');
+      const alertAsciiEl = $('#alertAscii');
+      const outEl = $('#out');
+      const consoleEl = $('#console');
+      const mapEl = $('#map');
+      const mapWrapEl = $('#mapwrap');
+
+      const DEFAULT_SOURCE = `// rust-sass playground. Compiles on every change.
+@warn "Hello";
+
+$brand: #6c5ce7;
+$radius: 8px;
+
+@mixin card($pad: 1rem) {
+  border-radius: $radius;
+  padding: $pad;
+}
+
+.card {
+  @include card();
+  color: $brand;
+  &:hover {
+    color: lighten($brand, 15%);
+  }
+}
+
+@for $i from 1 through 3 {
+  .step-#{$i} {
+    width: 100% / $i;
+  }
+}
+`;
+
+      srcEl.value = DEFAULT_SOURCE;
+
+      // ---- ANSI (SGR) -> styled DOM nodes ----
+      const ANSI_PALETTE = {
+        30: '#abb2bf',
+        31: '#ef596f',
+        32: '#98c379',
+        33: '#e5c07b',
+        34: '#61afef',
+        35: '#d55fde',
+        36: '#56b6c2',
+        37: '#d4d4d4',
+        90: '#8b90a0',
+        91: '#ff7b90',
+        92: '#b5e890',
+        93: '#ffd27a',
+        94: '#82b6ff',
+        95: '#e27ee8',
+        96: '#7fdce8',
+        97: '#ffffff',
+      };
+      function applyCode(state, code) {
+        for (const p of code.slice(2, -1).split(';')) {
+          if (p === '0' || p === '39') {
+            state.fg = null;
+            state.bold = false;
+          } else if (p === '1') state.bold = true;
+          else if (p === '22') state.bold = false;
+          else if (/^(3[0-7]|9[0-7])$/.test(p)) state.fg = ANSI_PALETTE[p];
+        }
+      }
+      // Parses ANSI (SGR) codes into a DOM tree of text nodes and styled
+      // <span>s (appendChild, never innerHTML — source text can't inject
+      // markup, so no HTML escaping is needed).
+      function appendAnsi(target, text) {
+        const state = { fg: null, bold: false };
+        const parts = String(text).split(/(\x1b\[[0-9;]*m)/);
+        for (const part of parts) {
+          if (!part) continue;
+          if (part.startsWith('\x1b[')) {
+            applyCode(state, part);
+            continue;
+          }
+          const node = document.createTextNode(part);
+          if (state.bold || state.fg) {
+            const span = document.createElement('span');
+            if (state.bold) span.style.fontWeight = 'bold';
+            if (state.fg) span.style.color = state.fg;
+            span.appendChild(node);
+            target.appendChild(span);
+          } else {
+            target.appendChild(node);
+          }
+        }
+      }
+
+      // ---- compile ----
+      // The page passes no user Logger, so warnings/deprecations/debugs render
+      // through the default-logger fallback. The consoleWarn/consoleDebug sinks
+      // forward each fully-rendered block to logs.
+      function buildOptions(onBlock) {
+        const opts = { syntax: syntaxEl.value, style: styleEl.value };
+        if (alertColorEl.checked) opts.alertColor = true;
+        if (alertAsciiEl.checked) opts.alertAscii = true;
+        if (!charsetEl.checked) opts.charset = false;
+        if (quietDepsEl.checked) opts.quietDeps = true;
+        if (verboseEl.checked) opts.verbose = true;
+        if (sourceMapEl.checked) {
+          opts.sourceMap = true;
+          opts.sourceMapIncludeSources = sourceMapIncludeSourcesEl.checked;
+        }
+        opts.consoleWarn = onBlock;
+        opts.consoleDebug = onBlock;
+        return opts;
+      }
+
+      function compile() {
+        const source = srcEl.value;
+        if (!source.trim()) {
+          outEl.value = '';
+          consoleEl.textContent = '';
+          mapWrapEl.hidden = true;
+          return;
+        }
+
+        const logs = [];
+        const onBlock = (block) => logs.push(block);
+
+        let result = null;
+        let error = null;
+        try {
+          result = compileString(source, buildOptions(onBlock));
+        } catch (e) {
+          error = e;
+        }
+
+        if (sourceMapEl.checked) {
+          mapWrapEl.hidden = false;
+          mapEl.textContent =
+            result && result.sourceMap
+              ? JSON.stringify(result.sourceMap, null, 2)
+              : '';
+        } else {
+          mapWrapEl.hidden = true;
+        }
+
+        if (error) {
+          outEl.value = '';
+          const text = error.formatted ?? error.sassMessage ?? String(error);
+          consoleEl.replaceChildren();
+          appendAnsi(
+            consoleEl,
+            logs.join('\n') + (logs.length ? '\n' : '') + text,
+          );
+        } else {
+          outEl.value = result.css;
+          consoleEl.replaceChildren();
+          appendAnsi(consoleEl, logs.join('\n'));
+        }
+      }
+
+      let timer;
+      function schedule() {
+        clearTimeout(timer);
+        timer = setTimeout(compile, 150);
+      }
+
+      srcEl.addEventListener('input', schedule);
+      for (const el of [
+        syntaxEl,
+        styleEl,
+        charsetEl,
+        quietDepsEl,
+        verboseEl,
+        sourceMapIncludeSourcesEl,
+        alertColorEl,
+        alertAsciiEl,
+      ]) {
+        el.addEventListener('change', schedule);
+      }
+      sourceMapEl.addEventListener('change', () => {
+        sourceMapIncludeSourcesEl.disabled = !sourceMapEl.checked;
+        schedule();
+      });
+
+      compile();
+    </script>
+  </body>
+</html>
