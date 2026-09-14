@@ -1,6 +1,6 @@
 {
   "name": "sass-embedded-rust",
-  "version": "1.104.0-alpha0",
+  "version": "1.104.0-alpha1",
   "description": "sass-embedded-compatible host API backed by the rust-sass embedded compiler.",
   "license": "MIT",
   "main": "lib/index.js",
@@ -24,13 +24,13 @@
     "varint": "6.0.0"
   },
   "optionalDependencies": {
-    "sass-embedded-rust-darwin-arm64": "1.104.0-alpha0",
-    "sass-embedded-rust-darwin-x64": "1.104.0-alpha0",
-    "sass-embedded-rust-linux-arm64": "1.104.0-alpha0",
-    "sass-embedded-rust-linux-musl-arm64": "1.104.0-alpha0",
-    "sass-embedded-rust-linux-musl-x64": "1.104.0-alpha0",
-    "sass-embedded-rust-linux-x64": "1.104.0-alpha0",
-    "sass-embedded-rust-win32-arm64": "1.104.0-alpha0",
-    "sass-embedded-rust-win32-x64": "1.104.0-alpha0"
+    "sass-embedded-rust-darwin-arm64": "1.104.0-alpha1",
+    "sass-embedded-rust-darwin-x64": "1.104.0-alpha1",
+    "sass-embedded-rust-linux-arm64": "1.104.0-alpha1",
+    "sass-embedded-rust-linux-musl-arm64": "1.104.0-alpha1",
+    "sass-embedded-rust-linux-musl-x64": "1.104.0-alpha1",
+    "sass-embedded-rust-linux-x64": "1.104.0-alpha1",
+    "sass-embedded-rust-win32-arm64": "1.104.0-alpha1",
+    "sass-embedded-rust-win32-x64": "1.104.0-alpha1"
   }
 }
