@@ -17,41 +17,62 @@ submodule — checkout uses `submodules: recursive`) needs the LTO release
 build, too pricey to triplicate while caches stay disabled. Clippy gate
 checklist lives in [`ci-todo.md`](ci-todo.md).
 
-## `npm.yml` (push to `main` + PRs + tags `v*`)
+## `release.yml` (push to `main` + PRs + tags `v*`)
 
-Release + npm pipeline for `sass-embedded-rust`. `mimalloc` links C and each
-OS needs its own SDK, so binaries build on native per-arch runners (no
-linux-hosted cross path) and one ubuntu job assembles everything downstream:
+Single release pipeline: native binaries + libsass adapter + wasm bundles
+build in parallel, then one `publish` job owns every write (draft-release
+creation, asset uploads, registry publishes). Build jobs never touch
+registries or releases; `crates.yml` stays separate (no release interplay —
+registry source packages only).
 
-- Build matrix: 8 jobs (linux-x64/arm64, linux-musl-x64/arm64, darwin-x64/arm64,
-  win32-x64/arm64), each `cargo build --release --target <triple> -p
-  rust-sass-cli` with default features (sync + embedded + mimalloc;
-  `glibc-math` stays wasm-only) and one bare-binary artifact
-  (`rust-sass-<triple>`, `archive: false` — downloadable directly, ready for
-  human testing).
-  No submodules: the CLI build needs workspace crates only. Musl jobs build
-  against the musl target with `musl-tools` — genuine musl-linked binaries,
-  never relabeled gnu binaries.
-- Assemble job (`needs:` the matrix): downloads the 8 binaries (`file`
-  listing shows arch/libc per binary) → Alpine smoke for the musl-x64 binary
-  (it must actually run on musl; musl-arm64 is smoked natively inside its own
-  arm64 build job instead — the x64 assemble runner cannot execute arm64
-  without QEMU) → `npm ci` → `npm run build -- --platforms=all` with
-  `RUST_SASS_DIST` (assembles the 8 platform packages from the prebuilt
-  binaries, plus the `dist/` publish tree; see `embedded-host-node-rust/build.mjs`)
-  → `npm test` (resolve gate + harness + coexistence) → pack wrapper + 8
-  platform tgzs → scratch-install smoke (`compileString` asserting `3px`,
-  the true consumer path with zero registry involvement) → per-file artifacts
-  (9 npm tarballs + 8 release archives + checksums, 14-day retention — any run
-  is downloadable without a release) → release archives
-  (`rust-sass-<version>-<platform>-<arch>.tar.gz`/`.zip`, upstream-style names)
-  with Sigstore attestation on tags.
-- Tags only: `gh release upload` attaches archives + tarballs to the GitHub
-  release. Tags also publish: version guard (tag base vs
-  `package.dist.json`), then `npm publish --provenance` of the 8 platform
-  packages + `./dist` — under `next` when the tag carries a `-` suffix
-  (derived, not gated), `latest` otherwise. Auth is npm trusted publishing
-  (OIDC) — no token secret.
+- Build matrix (`build-native`): 8 jobs (linux-x64/arm64,
+  linux-musl-x64/arm64, darwin-x64/arm64, win32-x64/arm64), each building BOTH
+  the CLI binary (`cargo build --release --target <triple> -p rust-sass-cli`
+  with default features: sync + embedded + mimalloc; `glibc-math` stays
+  wasm-only) and the libsass adapter (`-p rust-sass-libsass`) in two separate
+  build steps (so the red step names the failing crate), plus the contract
+  suite and the sassc consumer smoke on non-musl triples. `mimalloc` links C
+  and each OS needs its own SDK, so binaries build on native per-arch runners
+  (no linux-hosted cross path). Musl jobs build against the musl target with
+  `musl-tools` — genuine musl-linked binaries, never relabeled gnu binaries
+  (musl-arm64 is smoked natively inside its own cell; musl-x64 gets an Alpine
+  smoke in `publish`). Each cell uploads two single-file artifacts (the bare
+  CLI binary `rust-sass-<triple>`, downloadable directly and ready for human
+  testing; the adapter libs `libsass-<triple>`). No submodules except
+  libsass+sassc on smoke-tested triples.
+- Wasm job (`build-wasm`): single ubuntu job for `rust-sass-wasm`, the
+  pure-JS/wasm fallback (JS API + `bin/sass.js` + `pkg-sync`/`pkg-async`
+  bundles; `pkg-web` stays dev-only). Rust 1.92.0 + `wasm32-unknown-unknown`
+  + wasm-pack, `npm ci`, `npm run build:rust:release` (strips wasm-pack's
+  nested `package.json` / `.gitignore` / `README.md` / `LICENSE` from each
+  `pkg-*` dir — a nested `package.json` makes npm treat the dir as a nested
+  package and silently drop the whole bundle from the tarball), `npm run
+  build:js`, `npm run test:js` (vitest), pack `js/dist`, scratch-install
+  smoke (`compileString` asserting `3px` plus `bin/sass.js --version` —
+  dependencies resolve from the registry, exactly as for a real user),
+  per-file artifact (14-day retention). Needs workspace crates + the `sass`
+  language-spec submodule only.
+- Publish job (`needs:` both builds, ubuntu, shell only for the libsass
+  half): downloads the 8 CLI binaries + adapter libs → `npm ci` → assembly
+  (`--platforms=all` from the prebuilt binaries, plus the `dist/` publish
+  tree; see `embedded-host-node-rust/build.mjs`) → `npm test` (resolve gate
+  + harness + coexistence) → pack wrapper + 8 platform tgzs → scratch-install
+  smoke (the true consumer path with zero registry involvement) → CLI release
+  archives (`rust-sass-<version>-<platform>-<arch>.tar.gz`/`.zip`,
+  upstream-style names) → libsass zips (pinned upstream headers + native
+  libs with cargo's native filenames, never renamed — the import lib embeds
+  the DLL name; `sass/version.h` stamped from `base.rs`, never the
+  submodule's `[NA]` placeholder; musl archives are static-only since rustc
+  drops `cdylib` there; a header-count guard fails the run if upstream adds
+  one) → three version guards (tag vs `package.dist.json` /
+  `js/package.json` / workspace `Cargo.toml`, full-vs-full so prereleases
+  pass) → single draft-release creation (`--prerelease` on `-`-suffixed
+  tags, `--latest` otherwise; skipped when re-running) → Sigstore attestation
+  of both archive sets → one `gh release upload` of everything → npm publish
+  of the 8 platform packages, then the wrapper, then the wasm dist — under
+  `next` when the tag carries a `-` suffix (derived, not gated), `latest`
+  otherwise, via npm trusted publishing (OIDC, no token secret). Per-file
+  artifacts (14-day retention) make any run downloadable without a release.
 
 Local testing without publishing: `gh release download <tag>` (or the
 Actions-artifact download for non-tag runs), then `npm install` the wrapper +
@@ -61,58 +82,14 @@ No version injection: `--version` reports the hardcoded `SASS_VERSION`, which
 tracks dart-sass via the version-bump checklist in
 [`CONTRIBUTING.md`](CONTRIBUTING.md).
 
-## `wasm.yml` (push to `main` + PRs + tags `v*`)
-
-Release + npm pipeline for `rust-sass-wasm`, the pure-JS/wasm fallback (JS
-API + `bin/sass.js` + `pkg-sync`/`pkg-async` bundles; `pkg-web` stays
-dev-only). Platform-independent, so a single ubuntu job does everything: Rust
-1.92.0 + `wasm32-unknown-unknown` + wasm-pack, `npm ci`,
-`npm run build:rust:release` (strips wasm-pack's nested `package.json` /
-`.gitignore` / `README.md` / `LICENSE` from each `pkg-*` dir — a nested
-`package.json` makes npm treat the dir as a nested package and silently drop
-the whole bundle from the tarball), `npm run build:js`, `npm run test:js`
-(vitest), pack `js/dist`, scratch-install smoke (`compileString` asserting
-`3px` plus `bin/sass.js --version` — dependencies resolve from the registry,
-exactly as for a real user), per-file artifact (14-day retention).
-
-Tags only: `gh release upload` attaches the tgz. Tags also publish: version
-guard (`js/package.json` vs tag base), then `npm publish --provenance
-./js/dist` via npm trusted publishing (same OIDC posture as `npm.yml`) —
-under `next` on `-`-suffixed tags, `latest` otherwise.
-
-Manifest notes: `js/package.json` is the published manifest (copied into
-`js/dist/` by `build:js`). Its exact-pinned `dependencies` (`immutable`,
-`colorjs.io` — the value layer's runtime imports; `tsc` never bundles) ride
-the version-bump checklist. `engines` is `>=18.0.0`, set empirically: the
-packed tarball was smoke-tested in `node:14/16/18/20/22` containers
-(`compileString` + ESM import + `bin/sass.js`) — 14 fails on `colorjs.io`'s
-own `||=` syntax, 16 fails on wasm reference types (`externref`, stable from
-17), 18+ pass fully.
-
-## `libsass.yml` (push to `main` + PRs + tags `v*`)
-
-Release pipeline for the libsass C-ABI adapter: one self-contained
-`rust-sass-libsass-<version>-<triple>.zip` per triple (`include/` with pinned
-upstream headers + `lib/` with cargo's native filenames, never renamed —
-the import lib embeds the DLL name), attached to `v*` releases. No npm, no
-node anywhere in this workflow.
-
-- Build matrix: 8 jobs (same runner/target table as `npm.yml`),
-  `cargo build --release -p rust-sass-libsass` + `cargo test
-  -p rust-sass-libsass-tests` (rust-impl leg, debug — behavior gate without
-  paying LTO twice) + consumer smoke: upstream sassc built with MSVC
-  (`cl`/`link` with dash-prefixed flags — git-bash rewrites `/`-prefixed
-  args; `link.exe` by absolute path from `cl`'s directory; `shell32.lib`
-  for the UTF-8 argv shim) or `tool/build-sassc.sh` on unix, then a stdin
-  compile asserting `3px`. musl triples ship build-gated only (a gnu runner
-  cannot execute or link-test musl binaries).
-- Assemble job (ubuntu, shell only): downloads the 8 lib dirs, stamps
-  `sass/version.h` from `version.h.in` with the ABI version from
-  `rust-sass-libsass/src/base.rs` (never the submodule's `[NA]`
-  placeholder; a header-count guard fails the run if upstream adds one),
-  packs the zips + separate checksums file, per-file artifacts (14-day
-  retention), attestation + `gh release upload` on tags (version guard: tag
-  base vs workspace `Cargo.toml`).
+Manifest notes: `js/package.json` is the published wasm manifest (copied
+into `js/dist/` by `build:js`). Its exact-pinned `dependencies`
+(`immutable`, `colorjs.io` — the value layer's runtime imports; `tsc` never
+bundles) ride the version-bump checklist. `engines` is `>=18.0.0`, set
+empirically: the packed tarball was smoke-tested in `node:14/16/18/20/22`
+containers (`compileString` + ESM import + `bin/sass.js`) — 14 fails on
+`colorjs.io`'s own `||=` syntax, 16 fails on wasm reference types
+(`externref`, stable from 17), 18+ pass fully.
 
 ## `crates.yml` (push to `main` + PRs + tags `v*`)
 
@@ -187,14 +164,14 @@ git tag -d v1.104.0-prerelease
 
 ## Roadmap (full CI)
 
-- [ ] Re-enable caches (`ci.yml`, `npm.yml`, `wasm.yml`, `playground.yml`)
+- [ ] Re-enable caches (`ci.yml`, `release.yml`, `playground.yml`)
       when public.
 - [ ] wasm gates in CI (wasm spec + js-api-spec harnesses; vitest already runs
-      in `wasm.yml`).
+      in `release.yml`).
 - [ ] Upstream-harness CLI cross-check (`npm run sass-spec -- --command ../target/release/rust-sass`).
 - [ ] Platform parity beyond the big 6 + musl (android/riscv/armv7) — see
       [`ref/sass-embedded-rust.md`](ref/sass-embedded-rust.md) §Binary distribution.
-- [ ] Enable trusted publishing: npm (`wasm.yml`, `npm.yml` — register the
+- [ ] Enable trusted publishing: npm (`release.yml` — register the
       repo for `rust-sass-wasm` + `sass-embedded-rust*`, then uncomment the
       `id-token` permissions) and crates.io (`crates.yml` — pending
       publishers for all 6 crate names).

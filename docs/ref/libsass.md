@@ -32,7 +32,7 @@ See §9 for the deferred list.
 
 ## Release binaries
 
-`libsass.yml` publishes one self-contained
+`release.yml` publishes one self-contained
 `rust-sass-libsass-<version>-<triple>.zip` per triple (linux-x64/arm64,
 linux-musl-x64/arm64, darwin-x64/arm64, win32-x64/arm64; `<version>` is the
 workspace train, not the 3.6.6 ABI fiction): `include/` (pinned upstream

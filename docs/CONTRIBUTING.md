@@ -284,7 +284,7 @@ When bumping:
    The `dart-sass/` submodule pin moves to the same commit (both must agree).
    The `libsass/` pin feeds the release archives (headers), not just the
    upstream-leg contract tests — move it deliberately and re-verify the
-   header set (`libsass.yml` fails on unreviewed additions).
+    header set (`release.yml` fails on unreviewed additions).
 3. Update `SASS_VERSION` / `DART2JS_VERSION` in
    `rust-sass-wasm/js/src/version.ts` (derived `VERSION_TEXT`/`INFO_TEXT`
    follow; `DART2JS_VERSION` is the `dart2js` line of the published `sass`
@@ -324,22 +324,23 @@ Runbook (bump script, alpha/first-release procedure, tag flow):
    packaged files per crate on every push and publishes in order (with
    index-propagation retries) on tags, via OIDC trusted
    publishing (no token secret) — see [`ci.md`](ci.md).
-2. `npm publish` for `rust-sass-wasm`: the `wasm.yml` CI job builds the
-   release bundles, runs vitest, and publishes `js/dist` (exact-pinned
-   `dependencies`, `pkg-web` dev-only); validate with `npm pack` of `js/dist`
+2. `npm publish` for `rust-sass-wasm`: the `release.yml` CI pipeline builds
+   the release bundles (`build-wasm` job), runs vitest, and publishes
+   `js/dist` (`publish` job; exact-pinned `dependencies`, `pkg-web`
+   dev-only); validate with `npm pack` of `js/dist`
    + scratch-dir install + smoke compile. Publishing uses npm trusted
    publishing (OIDC, no token secret), under `next` on prerelease tags —
    see [`ci.md`](ci.md).
-3. `npm publish` for `sass-embedded-rust`: the `npm.yml` CI matrix builds all 8
-   platform binaries natively, the assemble job publishes the 8
+3. `npm publish` for `sass-embedded-rust`: the `release.yml` CI matrix builds all 8
+   platform binaries natively (`build-native` job), the `publish` job publishes the 8
    `sass-embedded-rust-<platform>-<arch>` packages first, then the wrapper
    (exact-pinned `optionalDependencies` via `package.dist.json`, which is the
    version authority — source `package.json` stays `0.0.0`); validate with
    `npm pack` of both + scratch-dir install + smoke compile. Publishing uses
    npm trusted publishing (OIDC, no token secret), under `next` on
    prerelease tags — see [`ci.md`](ci.md).
-4. GitHub release attachments for `rust-sass-libsass`: the `libsass.yml` CI
-   matrix builds the adapter on all 8 triples natively, the assemble job
+4. GitHub release attachments for `rust-sass-libsass`: the `release.yml` CI
+   matrix builds the adapter on all 8 triples natively, the `publish` job
    packs `rust-sass-libsass-<version>-<triple>.zip` (pinned upstream headers
    + native libs) and attaches them on tags — see [`ci.md`](ci.md) and
    [`ref/libsass.md`](ref/libsass.md) §Release binaries.

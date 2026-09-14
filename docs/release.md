@@ -38,10 +38,11 @@ before each final. Needs trusted publishing live (preceding step).
 
 1. Bump, CHANGELOG, `cargo check`, commit, push.
 2. CI green → tag (e.g. `v1.104.0-alpha1`), push tag.
-3. CI attaches assets + publishes: npm under `next` (derived from the
-   `-` in the tag), crates as-is (opt-in by resolution), libsass zips
-   attached. Release created as **draft** — edit notes, publish when
-   ready (email fires then).
+3. CI verifies (version guards: tag vs manifests, full-vs-full), creates the
+   draft release (`--prerelease`, single creator in `release.yml` — no race),
+   attaches assets, and publishes: npm under `next` (derived from the `-` in
+   the tag), crates as-is (opt-in by resolution), libsass zips attached.
+   Edit notes, publish the draft when ready (email fires then).
 
 ## Final release
 
@@ -49,5 +50,6 @@ Same as CI prerelease, minus the suffix:
 
 1. Bump (no suffix), CHANGELOG, `cargo check`, commit, push.
 2. CI green → tag `v<version>`, push tag.
-3. CI publishes under `latest` (npm default tag) + crates + zips;
+3. CI verifies, creates the draft release (`--latest`), attaches assets, and
+   publishes under `latest` (npm default tag) + crates + zips;
    draft → edit → publish.

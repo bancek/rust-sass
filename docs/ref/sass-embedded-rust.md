@@ -73,8 +73,8 @@ wrong engine.
 
 - **v1 (now):** wrapper + the 8 per-platform packages (big 6 + musl)
   assembled by the build script; local dev links its own platform,
-  unpublished. Registry publish = `npm.yml` CI matrix (8 genuine native
-  binaries) + assemble job (wrapper with exact-pinned `optionalDependencies`
+  unpublished. Registry publish = `release.yml` CI matrix (8 genuine native
+  binaries in the `build-native` job) + `publish` job (wrapper with exact-pinned `optionalDependencies`
   via `package.dist.json`, host pattern). Android/riscv/armv7 triples arrive
   with full upstream parity later.
 - Wrapper version tracks dart-sass from `1.104.0` via `package.dist.json`

@@ -17,7 +17,7 @@
 //   npm run build                     (host platform, local `cargo build`)
 //   npm run build -- --platforms=all  (all 8 triples, needs RUST_SASS_DIST
 //                                     pointed at a dir of prebuilt binaries —
-//                                     the npm.yml flow; see below)
+//                                     the release.yml flow; see below)
 //
 // Prebuilt-binary layout: RUST_SASS_DIST holds one dir per triple
 // (`rust-sass-<triple>/`, the CI matrix artifact names — each artifact IS its

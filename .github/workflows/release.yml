@@ -1,0 +1,688 @@
+name: Release
+
+# Unified release pipeline: native binaries + libsass adapter + wasm bundles are
+# built in parallel, then one assemble job owns every write — draft-release
+# creation, asset uploads, registry publishes. Build jobs never touch registries
+# or releases; ordering is via `needs:`.
+#
+# - `build-native`: 8 native per-arch runners (mimalloc links C and each OS
+#    needs its own SDK — no linux-hosted cross path). Each cell builds the CLI
+#    binary (`rust-sass-cli`: sync + embedded + mimalloc) and the libsass adapter,
+#    in two separate build steps so the red step name identifies the failing crate.
+#    No submodules except the libsass+sassc smoke trees on non-musl triples.
+# - `build-wasm`: single ubuntu job for the pure-JS/wasm fallback (JS API +
+#   `bin/sass.js` + `pkg-sync`/`pkg-async` bundles; `pkg-web` stays dev-only).
+# - `publish`: single writer (see above). Creates the draft release
+#    (view-or-skip, `--prerelease` on `-`-suffixed tags, `--latest` otherwise),
+#    attaches every asset with one `gh release upload`, publishes npm (8 platforms
+#    → wrapper → wasm).
+#
+# musl jobs build against the musl target with `musl-tools` — musl-linked
+# binaries, never relabeled gnu binaries.
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+
+jobs:
+  build-native:
+    name: Build native ${{ matrix.triple }}
+    runs-on: ${{ matrix.runner }}
+    defaults:
+      run:
+        shell: bash
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # `binary`/`cli_artifact` feed the CLI staging,
+          # `lib_artifacts`/`smoke` feed the adapter.
+          - triple: linux-x64
+            runner: ubuntu-24.04
+            target: x86_64-unknown-linux-gnu
+            binary: rust-sass
+            cli_artifact: rust-sass-linux-x64
+            lib_artifacts: "libsass.so libsass.a"
+            smoke: script
+          - triple: linux-arm64
+            runner: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-gnu
+            binary: rust-sass
+            cli_artifact: rust-sass-linux-arm64
+            lib_artifacts: "libsass.so libsass.a"
+            smoke: script
+          # Real musl-linked builds (never relabeled gnu binaries): the musl
+          # C toolchain compiles mimalloc's C sources for the musl target.
+          - triple: linux-musl-x64
+            runner: ubuntu-24.04
+            target: x86_64-unknown-linux-musl
+            binary: rust-sass
+            cli_artifact: rust-sass-linux-musl-x64
+            # Static only: rustc drops `cdylib` for musl targets (warning,
+            # not error), so no libsass.so exists.
+            lib_artifacts: "libsass.a"
+            smoke: none
+            musl: true
+          - triple: linux-musl-arm64
+            runner: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-musl
+            binary: rust-sass
+            cli_artifact: rust-sass-linux-musl-arm64
+            lib_artifacts: "libsass.a"
+            smoke: none
+            musl: true
+          - triple: darwin-arm64
+            runner: macos-latest
+            target: aarch64-apple-darwin
+            binary: rust-sass
+            cli_artifact: rust-sass-darwin-arm64
+            lib_artifacts: "libsass.dylib libsass.a"
+            smoke: script
+          - triple: darwin-x64
+            runner: macos-15-intel
+            target: x86_64-apple-darwin
+            binary: rust-sass
+            cli_artifact: rust-sass-darwin-x64
+            lib_artifacts: "libsass.dylib libsass.a"
+            smoke: script
+          - triple: win32-x64
+            runner: windows-latest
+            target: x86_64-pc-windows-msvc
+            binary: rust-sass.exe
+            cli_artifact: rust-sass-win32-x64.exe
+            # MSVC cargo emits `sass.dll` + `sass.dll.lib` (import library,
+            # embeds the DLL name — do NOT rename) + `sass.lib` (static
+            # archive): no collision, top-level and hardlinked under deps/.
+            lib_artifacts: "sass.dll sass.dll.lib sass.lib"
+            smoke: msvc
+            msvc_arch: x64
+          - triple: win32-arm64
+            runner: windows-11-arm
+            target: aarch64-pc-windows-msvc
+            binary: rust-sass.exe
+            cli_artifact: rust-sass-win32-arm64.exe
+            lib_artifacts: "sass.dll sass.dll.lib sass.lib"
+            smoke: msvc
+            msvc_arch: arm64
+    steps:
+      # No submodules by default (the CLI build needs workspace crates only);
+      # smoke-tested triples init libsass+sassc below.
+      - uses: actions/checkout@v7
+      - name: Check out submodules for smoke tests
+        if: ${{ !contains(matrix.triple, 'musl') }}
+        working-directory: ${{ github.workspace }}
+        run: git submodule update --init libsass sassc
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.92.0
+          targets: ${{ matrix.target }}
+      - name: Install musl toolchain
+        if: matrix.musl
+        run: sudo apt-get update && sudo apt-get install -y musl-tools
+      - name: Build release CLI binary
+        run: cargo build --release --target ${{ matrix.target }} -p rust-sass-cli
+        env:
+          # Read by the `cc` crate when compiling mimalloc's C sources for
+          # the musl targets; ignored for every other target.
+          CC_x86_64_unknown_linux_musl: musl-gcc
+          CC_aarch64_unknown_linux_musl: musl-gcc
+      - name: Stage CLI binary under its artifact name
+        run: |
+          mkdir -p staging
+          cp "target/${{ matrix.target }}/release/${{ matrix.binary }}" "staging/${{ matrix.cli_artifact }}"
+      - name: Build adapter (release)
+        run: cargo build --release --target ${{ matrix.target }} -p rust-sass-libsass
+        env:
+          # Read by the `cc` crate when compiling mimalloc's C sources for
+          # the musl targets; ignored for every other target.
+          CC_x86_64_unknown_linux_musl: musl-gcc
+          CC_aarch64_unknown_linux_musl: musl-gcc
+      - name: Stage adapter libraries
+        run: |
+          mkdir -p adapter-out
+          for f in ${{ matrix.lib_artifacts }}; do
+            cp "target/${{ matrix.target }}/release/$f" adapter-out/
+          done
+          ls -la adapter-out/
+      # Debug contract suite: validates behavior; the release artifact above
+      # is what ships (a full release test run would pay LTO twice).
+      - name: Contract tests (rust-impl leg)
+        if: ${{ !contains(matrix.triple, 'musl') }}
+        run: cargo test -p rust-sass-libsass-tests
+      # NOTE: msvc-dev-cmd must come after the Rust steps — otherwise bash
+      # resolves `link` to Git's link.exe instead of MSVC's.
+      - uses: ilammy/msvc-dev-cmd@v1
+        if: matrix.smoke == 'msvc'
+        with:
+          # Must match the cargo target arch: the default x64 toolchain
+          # cross-links x64 objects, which the ARM64 import lib can't satisfy
+          # (LNK4272 + all symbols unresolved).
+          arch: ${{ matrix.msvc_arch }}
+      # Consumer smoke (MSVC): upstream sassc with its win/posix getopt shim
+      # against our import library. sassc.exe needs sass.dll beside it.
+      # NOTE: option prefix is `-`, not `/`: git-bash's MSYS conversion
+      # rewrites every `/`-prefixed arg into a `C:/Program Files/Git/…` path.
+      - name: Build sassc against our libsass (MSVC)
+        if: matrix.smoke == 'msvc'
+        run: |
+          ver=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -n 1)
+          mkdir -p target/sassc-gate
+          cl -nologo -O2 "-DSASSC_VERSION=\"$ver\"" \
+            -I libsass/include -I sassc/win/posix \
+            -c sassc/sassc.c sassc/win/posix/getopt.c \
+            -Fotarget/sassc-gate/
+          # Absolute path from cl.exe's own directory: bare `link` resolves
+          # to Git's /usr/bin/link.exe (coreutils) no matter the PATH order.
+          # shell32.lib: get_argv_utf8 calls CommandLineToArgvW, which
+          # direct-link doesn't default.
+          # NOTE: triple dir, not bare target/release — the matrix builds
+          # with --target, so final artifacts land under
+          # target/<triple>/release/ (top level there, hardlinked from deps/).
+          MSVC_BIN="$(dirname "$(command -v cl)")"
+          "$MSVC_BIN/link.exe" -nologo -OUT:target/sassc-gate/sassc.exe \
+            target/sassc-gate/sassc.obj target/sassc-gate/getopt.obj \
+            "target/${{ matrix.target }}/release/sass.dll.lib" shell32.lib
+          cp "target/${{ matrix.target }}/release/sass.dll" target/sassc-gate/
+      - name: sassc smoke test (MSVC)
+        if: matrix.smoke == 'msvc'
+        run: |
+          ./target/sassc-gate/sassc.exe -v
+          echo 'a{b:1px+2px}' | ./target/sassc-gate/sassc.exe --stdin | grep -q 3px \
+            && echo "[sassc] stdin compile smoke: OK"
+      # Consumer smoke (unix): the checked-in gate script (handles Darwin
+      # install-name + rpath) then the same stdin check.
+      - name: Build sassc against our libsass (unix)
+        if: matrix.smoke == 'script'
+        run: PROFILE=release rust-sass-libsass-tests/tool/build-sassc.sh
+      - name: sassc smoke test (unix)
+        if: matrix.smoke == 'script'
+        run: |
+          echo 'a{b:1px+2px}' | ./target/sassc-gate/sassc --stdin | grep -q 3px \
+            && echo "[sassc] stdin compile smoke: OK"
+      # Native musl-arm64 smoke, in the build job itself: this arm64 runner
+      # executes the binary directly and inside an Alpine container (host
+      # arch — no QEMU needed), proving the ubuntu+musl-gcc build is a
+      # genuine working musl binary.
+      - name: Native + Alpine smoke (musl arm64 binary)
+        if: matrix.triple == 'linux-musl-arm64'
+        run: |
+          bin="target/${{ matrix.target }}/release/${{ matrix.binary }}"
+          file "$bin"
+          ./"$bin" --version
+          docker run --rm \
+            -v "$PWD/target/${{ matrix.target }}/release:/mnt:ro" \
+            alpine /mnt/rust-sass --version
+      # Single-file artifact: the staged filename is distinct per triple, so
+      # each downloads as its own `prebuilt/<artifact>/` dir without
+      # unwrapping surprises.
+      - name: Upload CLI binary
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ matrix.cli_artifact }}
+          path: staging/${{ matrix.cli_artifact }}
+          if-no-files-found: error
+          retention-days: 14
+          overwrite: true
+      - name: Upload adapter libraries
+        uses: actions/upload-artifact@v7
+        with:
+          name: libsass-${{ matrix.triple }}
+          path: adapter-out/*
+          if-no-files-found: error
+          retention-days: 14
+          overwrite: true
+
+  build-wasm:
+    name: Build rust-sass-wasm
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash
+        working-directory: rust-sass-wasm
+    steps:
+      # No full submodules: the wasm build needs workspace crates + npm
+      # oracles only. The one exception is the `sass` language-spec
+      # submodule — `deprecations.test.ts` reads `sass/spec/deprecations.yaml`.
+      - uses: actions/checkout@v7
+      - name: Check out the sass language spec
+        working-directory: ${{ github.workspace }}
+        run: git submodule update --init sass
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.92.0
+          targets: wasm32-unknown-unknown
+      - name: Install wasm-pack
+        run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 26
+          registry-url: 'https://registry.npmjs.org'
+      - name: Install npm deps
+        run: npm ci
+      - name: Build wasm bundles (release)
+        run: npm run build:rust:release
+      - name: Build JS API
+        run: npm run build:js
+      - name: Tests
+        run: npm run test:js
+      - name: Pack
+        run: |
+          mkdir -p wasm-tgzs
+          npm pack ./js/dist --pack-destination ./wasm-tgzs
+      - name: Scratch-install smoke test
+        # The true consumer path with zero registry involvement: install the
+        # packed tarball (dependencies resolve from the registry, exactly as
+        # for a real user) and compile through both entry points.
+        run: |
+          ver=$(node -p "require('./js/package.json').version")
+          pkgdir="$PWD"
+          rm -rf /tmp/scratch-test-wasm && mkdir -p /tmp/scratch-test-wasm && cd /tmp/scratch-test-wasm
+          npm init -y > /dev/null
+          npm install "$pkgdir/wasm-tgzs/rust-sass-wasm-$ver.tgz"
+          node -e "const {compileString} = require('rust-sass-wasm'); const css = compileString('a{b:1px+2px}').css; if (!css.includes('3px')) throw new Error('unexpected css: ' + css); console.log('[scratch] consumer install smoke: OK')"
+          ./node_modules/.bin/sass --version
+      # Single-file artifact (downloads as the file itself, not a zip). The
+      # glob matches exactly one file in a fresh wasm-tgzs/; a miss fails
+      # the run.
+      - name: Upload tgz
+        uses: actions/upload-artifact@v7
+        with:
+          name: rust-sass-wasm-tgz
+          path: rust-sass-wasm/wasm-tgzs/rust-sass-wasm-[0-9]*.tgz
+          if-no-files-found: error
+          retention-days: 14
+          overwrite: true
+
+  publish:
+    name: Assemble and publish
+    runs-on: ubuntu-latest
+    needs: [build-native, build-wasm]
+    defaults:
+      run:
+        shell: bash
+    permissions:
+      contents: write # Tags: create the draft release + `gh release upload`
+      id-token: write # Tags: artifact attestation
+      attestations: write # Tags: attests the release archives
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          submodules: recursive
+      - name: Download CLI binaries
+        uses: actions/download-artifact@v8
+        with:
+          pattern: rust-sass-*
+          path: prebuilt
+      - name: List CLI binaries
+        run: |
+          find prebuilt -maxdepth 2 | sort
+          # Artifact zips do not preserve the exec bit; the smoke step below
+          # executes the raw binaries, so restore it (platform packages get
+          # their mode from build.mjs at assembly time, release archives
+          # inherit that via tar/zip).
+          chmod +x prebuilt/*/*
+          file prebuilt/*/*
+      - name: Alpine smoke (musl x64 binary)
+        # The musl binary must actually run on musl, not just link: an
+        # Alpine container is the true consumer path for linux-musl-x64.
+        # (linux-musl-arm64 is smoked natively in its own build cell: this
+        # x64 runner cannot execute arm64 without QEMU emulation.)
+        run: |
+          docker run --rm \
+            -v "$PWD/prebuilt/rust-sass-linux-musl-x64:/mnt:ro" \
+            alpine /mnt/rust-sass-linux-musl-x64 --version
+      - name: Download adapter libraries
+        uses: actions/download-artifact@v8
+        with:
+          # Matches only the `libsass-<triple>` build outputs: the per-file
+          # `rust-sass-libsass-*` artifacts are uploaded by this job itself,
+          # after this step.
+          pattern: libsass-*
+          path: libsass-prebuilt
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 26
+          registry-url: 'https://registry.npmjs.org'
+      - name: Install npm deps
+        working-directory: embedded-host-node-rust
+        run: npm ci
+      - name: Assemble platform packages from prebuilt binaries
+        working-directory: embedded-host-node-rust
+        run: npm run build -- --platforms=all
+        env:
+          RUST_SASS_DIST: ${{ github.workspace }}/prebuilt
+      - name: npm tests
+        working-directory: embedded-host-node-rust
+        run: npm test
+      - name: Pack npm tarballs
+        working-directory: embedded-host-node-rust
+        run: |
+          mkdir -p npm-tgzs
+          npm pack ./dist --pack-destination ./npm-tgzs
+          for triple in darwin-arm64 darwin-x64 linux-x64 linux-arm64 linux-musl-x64 linux-musl-arm64 win32-x64 win32-arm64; do
+            (cd "platform/$triple" && npm pack --pack-destination ../../npm-tgzs)
+          done
+      - name: Scratch-install smoke test
+        # Runner is always ubuntu-latest (linux-x64) — no platform mapping needed.
+        working-directory: embedded-host-node-rust
+        run: |
+          ver=$(node -p "require('./package.dist.json').version")
+          pkgdir="$PWD"
+          rm -rf /tmp/scratch-test && mkdir -p /tmp/scratch-test && cd /tmp/scratch-test
+          npm init -y > /dev/null
+          npm install "$pkgdir/npm-tgzs/sass-embedded-rust-$ver.tgz" "$pkgdir/npm-tgzs/sass-embedded-rust-linux-x64-$ver.tgz"
+          node -e "const {compileString} = require('sass-embedded-rust'); const css = compileString('a{b:1px+2px}').css; if (!css.includes('3px')) throw new Error('unexpected css: ' + css); console.log('[scratch] consumer install smoke: OK')"
+      - name: Make CLI release archives
+        # GitHub-release binaries, named like upstream's
+        # dart-sass-<version>-<platform>-<arch> assets. Runs every push so
+        # main rehearses archive naming; attached to releases on tags only.
+        working-directory: embedded-host-node-rust
+        run: |
+          ver=$(node -p "require('./package.dist.json').version")
+          mkdir -p release-archives
+          archive() {
+            triple="$1"; asset="$2"; ext="$3"
+            src="platform/$triple/dart-sass"
+            if [ "$ext" = "zip" ]; then
+              (cd "$src" && zip -j "$pkgdir/release-archives/rust-sass-$ver-$asset.zip" sass.exe sass.bat)
+            else
+              tar -czf "$pkgdir/release-archives/rust-sass-$ver-$asset.tar.gz" -C "$src" sass
+            fi
+          }
+          pkgdir="$PWD"
+          archive darwin-arm64 macos-arm64 tar.gz
+          archive darwin-x64 macos-x64 tar.gz
+          archive linux-x64 linux-x64 tar.gz
+          archive linux-arm64 linux-arm64 tar.gz
+          archive linux-musl-x64 linux-musl-x64 tar.gz
+          archive linux-musl-arm64 linux-musl-arm64 tar.gz
+          archive win32-x64 windows-x64 zip
+          archive win32-arm64 windows-arm64 zip
+          (cd release-archives && sha256sum rust-sass-*.tar.gz rust-sass-*.zip > rust-sass-$ver-checksums.txt)
+          ls release-archives
+      # Per-file artifacts (one single-file glob each, zipped under its own
+      # name). Globs match exactly one file each in a fresh npm-tgzs/; misses
+      # fail the run. Any run's binaries and packages are downloadable
+      # without a release.
+      - name: Upload wrapper tgz
+        uses: actions/upload-artifact@v7
+        with:
+          name: sass-embedded-rust-tgz
+          path: embedded-host-node-rust/npm-tgzs/sass-embedded-rust-[0-9]*.tgz
+          if-no-files-found: error
+          retention-days: 14
+          overwrite: true
+      - name: Upload darwin-arm64 tgz
+        uses: actions/upload-artifact@v7
+        with:
+          name: sass-embedded-rust-darwin-arm64-tgz
+          path: embedded-host-node-rust/npm-tgzs/sass-embedded-rust-darwin-arm64-*.tgz
+          if-no-files-found: error
+          retention-days: 14
+          overwrite: true
+      - name: Upload darwin-x64 tgz
+        uses: actions/upload-artifact@v7
+        with:
+          name: sass-embedded-rust-darwin-x64-tgz
+          path: embedded-host-node-rust/npm-tgzs/sass-embedded-rust-darwin-x64-*.tgz
+          if-no-files-found: error
+          retention-days: 14
+          overwrite: true
+      - name: Upload linux-x64 tgz
+        uses: actions/upload-artifact@v7
+        with:
+          name: sass-embedded-rust-linux-x64-tgz
+          path: embedded-host-node-rust/npm-tgzs/sass-embedded-rust-linux-x64-*.tgz
+          if-no-files-found: error
+          retention-days: 14
+          overwrite: true
+      - name: Upload linux-arm64 tgz
+        uses: actions/upload-artifact@v7
+        with:
+          name: sass-embedded-rust-linux-arm64-tgz
+          path: embedded-host-node-rust/npm-tgzs/sass-embedded-rust-linux-arm64-*.tgz
+          if-no-files-found: error
+          retention-days: 14
+          overwrite: true
+      - name: Upload linux-musl-x64 tgz
+        uses: actions/upload-artifact@v7
+        with:
+          name: sass-embedded-rust-linux-musl-x64-tgz
+          path: embedded-host-node-rust/npm-tgzs/sass-embedded-rust-linux-musl-x64-*.tgz
+          if-no-files-found: error
+          retention-days: 14
+          overwrite: true
+      - name: Upload linux-musl-arm64 tgz
+        uses: actions/upload-artifact@v7
+        with:
+          name: sass-embedded-rust-linux-musl-arm64-tgz
+          path: embedded-host-node-rust/npm-tgzs/sass-embedded-rust-linux-musl-arm64-*.tgz
+          if-no-files-found: error
+          retention-days: 14
+          overwrite: true
+      - name: Upload win32-x64 tgz
+        uses: actions/upload-artifact@v7
+        with:
+          name: sass-embedded-rust-win32-x64-tgz
+          path: embedded-host-node-rust/npm-tgzs/sass-embedded-rust-win32-x64-*.tgz
+          if-no-files-found: error
+          retention-days: 14
+          overwrite: true
+      - name: Upload win32-arm64 tgz
+        uses: actions/upload-artifact@v7
+        with:
+          name: sass-embedded-rust-win32-arm64-tgz
+          path: embedded-host-node-rust/npm-tgzs/sass-embedded-rust-win32-arm64-*.tgz
+          if-no-files-found: error
+          retention-days: 14
+          overwrite: true
+      - name: Upload CLI release archives
+        uses: actions/upload-artifact@v7
+        with:
+          name: rust-sass-binaries
+          path: embedded-host-node-rust/release-archives/*
+          if-no-files-found: error
+          retention-days: 14
+          overwrite: true
+      - name: Make libsass release archives
+        # One self-contained `rust-sass-libsass-<version>-<triple>.zip` per
+        # triple: `include/` (pinned headers; `sass/version.h` generated from
+        # version.h.in stamped with the ABI version from base.rs — never the
+        # submodule's `[NA]` placeholder) + `lib/` (cargo's native filenames,
+        # never renamed — the import lib embeds the DLL name). Upstream
+        # headers come from the recursive checkout above. The header-count
+        # guard fails the run if upstream adds a header, so a new API surface
+        # can't slip in unreviewed.
+        run: |
+          ver=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -n 1)
+          abi=$(sed -n 's/^static LIBSASS_VERSION_C.*b"\(.*\)\\0".*/\1/p' rust-sass-libsass/src/base.rs)
+          test "$(ls libsass/include/sass/*.h | grep -c .)" -eq 5 || { echo "unexpected header set:"; ls libsass/include/sass/; exit 1; }
+          mkdir -p libsass-archives
+          for triple in linux-x64 linux-arm64 linux-musl-x64 linux-musl-arm64 darwin-arm64 darwin-x64 win32-x64 win32-arm64; do
+            case "$triple" in
+              win32-*) libs="sass.dll sass.dll.lib sass.lib" ;;
+              darwin-*) libs="libsass.dylib libsass.a" ;;
+              # musl: static only (rustc drops cdylib there, so no .so).
+              linux-musl-*) libs="libsass.a" ;;
+              *) libs="libsass.so libsass.a" ;;
+            esac
+            rm -rf stage-tmp && mkdir -p stage-tmp/include/sass stage-tmp/lib
+            cp libsass/include/sass.h libsass/include/sass2scss.h stage-tmp/include/
+            cp libsass/include/sass/base.h libsass/include/sass/context.h \
+              libsass/include/sass/functions.h libsass/include/sass/values.h \
+              stage-tmp/include/sass/
+            sed "s/@PACKAGE_VERSION@/$abi/" libsass/include/sass/version.h.in \
+              > stage-tmp/include/sass/version.h
+            for f in $libs; do
+              cp "libsass-prebuilt/libsass-$triple/$f" stage-tmp/lib/
+            done
+            (cd stage-tmp && zip -qr "$OLDPWD/libsass-archives/rust-sass-libsass-$ver-$triple.zip" include lib)
+          done
+          (cd libsass-archives && sha256sum rust-sass-libsass-*.zip > "rust-sass-libsass-$ver-checksums.txt")
+          ls libsass-archives
+      # Per-file artifacts (each downloads as the file itself). Globs match
+      # exactly one file each in a fresh libsass-archives/; misses fail the
+      # run. Any run's archives are downloadable without a release.
+      - name: Upload libsass linux-x64 zip
+        uses: actions/upload-artifact@v7
+        with:
+          name: rust-sass-libsass-linux-x64-zip
+          path: libsass-archives/rust-sass-libsass-*-linux-x64.zip
+          if-no-files-found: error
+          retention-days: 14
+          overwrite: true
+      - name: Upload libsass linux-arm64 zip
+        uses: actions/upload-artifact@v7
+        with:
+          name: rust-sass-libsass-linux-arm64-zip
+          path: libsass-archives/rust-sass-libsass-*-linux-arm64.zip
+          if-no-files-found: error
+          retention-days: 14
+          overwrite: true
+      - name: Upload libsass linux-musl-x64 zip
+        uses: actions/upload-artifact@v7
+        with:
+          name: rust-sass-libsass-linux-musl-x64-zip
+          path: libsass-archives/rust-sass-libsass-*-linux-musl-x64.zip
+          if-no-files-found: error
+          retention-days: 14
+          overwrite: true
+      - name: Upload libsass linux-musl-arm64 zip
+        uses: actions/upload-artifact@v7
+        with:
+          name: rust-sass-libsass-linux-musl-arm64-zip
+          path: libsass-archives/rust-sass-libsass-*-linux-musl-arm64.zip
+          if-no-files-found: error
+          retention-days: 14
+          overwrite: true
+      - name: Upload libsass darwin-arm64 zip
+        uses: actions/upload-artifact@v7
+        with:
+          name: rust-sass-libsass-darwin-arm64-zip
+          path: libsass-archives/rust-sass-libsass-*-darwin-arm64.zip
+          if-no-files-found: error
+          retention-days: 14
+          overwrite: true
+      - name: Upload libsass darwin-x64 zip
+        uses: actions/upload-artifact@v7
+        with:
+          name: rust-sass-libsass-darwin-x64-zip
+          path: libsass-archives/rust-sass-libsass-*-darwin-x64.zip
+          if-no-files-found: error
+          retention-days: 14
+          overwrite: true
+      - name: Upload libsass win32-x64 zip
+        uses: actions/upload-artifact@v7
+        with:
+          name: rust-sass-libsass-win32-x64-zip
+          path: libsass-archives/rust-sass-libsass-*-win32-x64.zip
+          if-no-files-found: error
+          retention-days: 14
+          overwrite: true
+      - name: Upload libsass win32-arm64 zip
+        uses: actions/upload-artifact@v7
+        with:
+          name: rust-sass-libsass-win32-arm64-zip
+          path: libsass-archives/rust-sass-libsass-*-win32-arm64.zip
+          if-no-files-found: error
+          retention-days: 14
+          overwrite: true
+      - name: Upload libsass checksums
+        uses: actions/upload-artifact@v7
+        with:
+          name: rust-sass-libsass-checksums
+          path: libsass-archives/rust-sass-libsass-*-checksums.txt
+          if-no-files-found: error
+          retention-days: 14
+          overwrite: true
+      - name: Check dist manifest version matches tag
+        if: startsWith(github.ref, 'refs/tags/')
+        working-directory: embedded-host-node-rust
+        run: |
+          ver=$(node -p "require('./package.dist.json').version")
+          full="${GITHUB_REF_NAME#v}"
+          if [ "$ver" != "$full" ]; then
+            echo "dist manifest version $ver != tag version $full"
+            exit 1
+          fi
+      - name: Check wasm package version matches tag
+        if: startsWith(github.ref, 'refs/tags/')
+        working-directory: rust-sass-wasm
+        run: |
+          ver=$(node -p "require('./js/package.json').version")
+          full="${GITHUB_REF_NAME#v}"
+          if [ "$ver" != "$full" ]; then
+            echo "wasm package version $ver != tag version $full"
+            exit 1
+          fi
+      - name: Check workspace version matches tag
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          ver=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -n 1)
+          full="${GITHUB_REF_NAME#v}"
+          if [ "$ver" != "$full" ]; then
+            echo "workspace version $ver != tag version $full"
+            exit 1
+          fi
+      - name: Create draft release (tags only)
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          # Prerelease tags (a `-` suffix) stay off `latest`: the release opens
+          # as draft either way — edit notes, publish when ready. Skip creation
+          # when re-running: the release already exists and upload --clobber
+          # refreshes its assets below.
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            echo "release $GITHUB_REF_NAME already exists"
+          elif [[ "$GITHUB_REF_NAME" == *-* ]]; then
+            gh release create "$GITHUB_REF_NAME" --draft --prerelease --generate-notes
+          else
+            gh release create "$GITHUB_REF_NAME" --draft --latest --generate-notes
+          fi
+      - name: Attest CLI release archives
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: actions/attest@v4
+        with:
+          subject-path: embedded-host-node-rust/release-archives/*
+      - name: Attest libsass release archives
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: actions/attest@v4
+        with:
+          subject-path: libsass-archives/*
+      - name: Attach archives and tarballs to release (tags only)
+        if: startsWith(github.ref, 'refs/tags/')
+        run: >-
+          gh release upload "$GITHUB_REF_NAME"
+          embedded-host-node-rust/release-archives/*
+          embedded-host-node-rust/npm-tgzs/*.tgz
+          prebuilt/rust-sass-wasm-tgz/*.tgz
+          libsass-archives/*
+          --clobber
+      - name: npm publish (tags only)
+        if: startsWith(github.ref, 'refs/tags/')
+        working-directory: embedded-host-node-rust
+        run: |
+          # Prerelease tags publish under `next`, finals under `latest`.
+          tag_args=""
+          case "$GITHUB_REF_NAME" in *"-"*) tag_args="--tag next";; esac
+          for triple in darwin-arm64 darwin-x64 linux-x64 linux-arm64 linux-musl-x64 linux-musl-arm64 win32-x64 win32-arm64; do
+            # publish reads package.json from cwd (--prefix does not switch it)
+            (cd "platform/$triple" && npm publish --provenance $tag_args)
+          done
+          npm publish --provenance $tag_args ./dist
+      - name: wasm publish (tags only)
+        if: startsWith(github.ref, 'refs/tags/')
+        working-directory: rust-sass-wasm
+        run: |
+          # Prerelease tags publish under `next`, finals under `latest`.
+          tag_args=""
+          case "$GITHUB_REF_NAME" in *"-"*) tag_args="--tag next";; esac
+          npm publish --provenance $tag_args ./js/dist
