@@ -3,6 +3,10 @@
   "version": "1.104.0-alpha1",
   "description": "sass-embedded-compatible host API backed by the rust-sass embedded compiler.",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/bancek/rust-sass.git"
+  },
   "main": "lib/index.js",
   "types": "types/index.d.ts",
   "files": ["lib/**/*", "types/**/*", "LICENSE", "README.md"],

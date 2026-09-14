@@ -43,36 +43,40 @@ registry source packages only).
 - Wasm job (`build-wasm`): single ubuntu job for `rust-sass-wasm`, the
   pure-JS/wasm fallback (JS API + `bin/sass.js` + `pkg-sync`/`pkg-async`
   bundles; `pkg-web` stays dev-only). Rust 1.92.0 + `wasm32-unknown-unknown`
-  + wasm-pack, `npm ci`, `npm run build:rust:release` (strips wasm-pack's
-  nested `package.json` / `.gitignore` / `README.md` / `LICENSE` from each
-  `pkg-*` dir — a nested `package.json` makes npm treat the dir as a nested
-  package and silently drop the whole bundle from the tarball), `npm run
-  build:js`, `npm run test:js` (vitest), pack `js/dist`, scratch-install
-  smoke (`compileString` asserting `3px` plus `bin/sass.js --version` —
-  dependencies resolve from the registry, exactly as for a real user),
-  per-file artifact (14-day retention). Needs workspace crates + the `sass`
-  language-spec submodule only.
+  - wasm-pack, `npm ci`, `npm run build:rust:release` (strips wasm-pack's
+    nested `package.json` / `.gitignore` / `README.md` / `LICENSE` from each
+    `pkg-*` dir — a nested `package.json` makes npm treat the dir as a nested
+    package and silently drop the whole bundle from the tarball), `npm run
+build:js`, `npm run test:js` (vitest), pack `js/dist`, scratch-install
+    smoke (`compileString` asserting `3px` plus `bin/sass.js --version` —
+    dependencies resolve from the registry, exactly as for a real user),
+    per-file artifact (14-day retention). Needs workspace crates + the `sass`
+    language-spec submodule only.
 - Publish job (`needs:` both builds, ubuntu, shell only for the libsass
   half): downloads the 8 CLI binaries + adapter libs → `npm ci` → assembly
   (`--platforms=all` from the prebuilt binaries, plus the `dist/` publish
   tree; see `embedded-host-node-rust/build.mjs`) → `npm test` (resolve gate
-  + harness + coexistence) → pack wrapper + 8 platform tgzs → scratch-install
-  smoke (the true consumer path with zero registry involvement) → CLI release
-  archives (`rust-sass-<version>-<platform>-<arch>.tar.gz`/`.zip`,
-  upstream-style names) → libsass zips (pinned upstream headers + native
-  libs with cargo's native filenames, never renamed — the import lib embeds
-  the DLL name; `sass/version.h` stamped from `base.rs`, never the
-  submodule's `[NA]` placeholder; musl archives are static-only since rustc
-  drops `cdylib` there; a header-count guard fails the run if upstream adds
-  one) → three version guards (tag vs `package.dist.json` /
-  `js/package.json` / workspace `Cargo.toml`, full-vs-full so prereleases
-  pass) → single draft-release creation (`--prerelease` on `-`-suffixed
-  tags, `--latest` otherwise; skipped when re-running) → Sigstore attestation
-  of both archive sets → one `gh release upload` of everything → npm publish
-  of the 8 platform packages, then the wrapper, then the wasm dist — under
-  `next` when the tag carries a `-` suffix (derived, not gated), `latest`
-  otherwise, via npm trusted publishing (OIDC, no token secret). Per-file
-  artifacts (14-day retention) make any run downloadable without a release.
+  - harness + coexistence) → pack wrapper + 8 platform tgzs → scratch-install
+    smoke (the true consumer path with zero registry involvement) → CLI release
+    archives (`rust-sass-<version>-<platform>-<arch>.tar.gz`/`.zip`,
+    upstream-style names) → libsass zips (pinned upstream headers + native
+    libs with cargo's native filenames, never renamed — the import lib embeds
+    the DLL name; `sass/version.h` stamped from `base.rs`, never the
+    submodule's `[NA]` placeholder; musl archives are static-only since rustc
+    drops `cdylib` there; a header-count guard fails the run if upstream adds
+    one) → three version guards (tag vs `package.dist.json` /
+    `js/package.json` / workspace `Cargo.toml`, full-vs-full so prereleases
+    pass) → single draft-release creation (`--prerelease` on `-`-suffixed
+    tags, `--latest` otherwise; skipped when re-running) → Sigstore attestation
+    of both archive sets → one `gh release upload` of everything → npm publish
+    of the 8 platform packages, then the wrapper, then the wasm dist — under
+    `next` when the tag carries a `-` suffix (derived, not gated), `latest`
+    otherwise, via npm trusted publishing (OIDC, no token secret). All
+    published manifests (wrapper `package.dist.json`, the generated platform
+    manifests in `build.mjs`, wasm `js/package.json`) must carry
+    `repository.url` — Sigstore provenance validation fails the publish with
+    422 without it. Per-file
+    artifacts (14-day retention) make any run downloadable without a release.
 
 Local testing without publishing: `gh release download <tag>` (or the
 Actions-artifact download for non-tag runs), then `npm install` the wrapper +

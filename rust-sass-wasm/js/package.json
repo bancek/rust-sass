@@ -3,6 +3,10 @@
   "version": "1.104.0-alpha1",
   "description": "Sass compiled to WebAssembly via the Rust port, exposing the modern JS API.",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/bancek/rust-sass.git"
+  },
   "main": "index.js",
   "types": "index.d.ts",
   "engines": {
