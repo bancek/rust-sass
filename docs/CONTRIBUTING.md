@@ -278,7 +278,10 @@ When bumping:
 
 1. Update `PROTOCOL_VERSION` / `COMPILER_VERSION` in
    `rust-sass-embedded/src/lib.rs` (and `SASS_VERSION` in
-   `rust-sass-cli/src/options.rs`) to match dart-sass.
+   `rust-sass-cli/src/options.rs`) to match dart-sass. Mirror the same
+   values into the `Identity` section of `rust-sass-embedded/README.md`
+   (protocol + compiler versions) — the sweep in step 3 greps the package
+   version only, so these never surface automatically.
 2. Update [`../PORTED_FROM`](../PORTED_FROM) and [`upstream.md`](upstream.md)
    (commit, version, any external-package pins) — see [`porting.md`](porting.md).
    The `dart-sass/` submodule pin moves to the same commit (both must agree).

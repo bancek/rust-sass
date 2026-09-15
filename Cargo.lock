@@ -849,7 +849,7 @@ checksum = "d6f6ff9a378485b298a5286656da665ba74413d36db0979633275d2e708145d4"
 
 [[package]]
 name = "rust-sass"
-version = "1.104.0"
+version = "1.104.0-alpha1"
 dependencies = [
  "bumpalo",
  "futures",
@@ -869,7 +869,7 @@ dependencies = [
 
 [[package]]
 name = "rust-sass-cli"
-version = "1.104.0"
+version = "1.104.0-alpha1"
 dependencies = [
  "bumpalo",
  "clap",
@@ -882,7 +882,7 @@ dependencies = [
 
 [[package]]
 name = "rust-sass-embedded"
-version = "1.104.0"
+version = "1.104.0-alpha1"
 dependencies = [
  "crossbeam-channel",
  "futures",
@@ -897,21 +897,21 @@ dependencies = [
 
 [[package]]
 name = "rust-sass-embedded-pb"
-version = "1.104.0"
+version = "1.104.0-alpha1"
 dependencies = [
  "prost",
 ]
 
 [[package]]
 name = "rust-sass-embedded-pb-gen"
-version = "1.104.0"
+version = "1.104.0-alpha1"
 dependencies = [
  "prost-build",
 ]
 
 [[package]]
 name = "rust-sass-libsass"
-version = "1.104.0"
+version = "1.104.0-alpha1"
 dependencies = [
  "base64",
  "bumpalo",
@@ -924,14 +924,14 @@ dependencies = [
 
 [[package]]
 name = "rust-sass-libsass-tests"
-version = "1.104.0"
+version = "1.104.0-alpha1"
 dependencies = [
  "rust-sass-libsass",
 ]
 
 [[package]]
 name = "rust-sass-macros"
-version = "1.104.0"
+version = "1.104.0-alpha1"
 dependencies = [
  "futures",
  "futures-test",
@@ -942,7 +942,7 @@ dependencies = [
 
 [[package]]
 name = "rust-sass-spec"
-version = "1.104.0"
+version = "1.104.0-alpha1"
 dependencies = [
  "bumpalo",
  "futures",
@@ -955,7 +955,7 @@ dependencies = [
 
 [[package]]
 name = "rust-sass-wasm"
-version = "1.104.0"
+version = "1.104.0-alpha1"
 dependencies = [
  "futures",
  "getrandom",

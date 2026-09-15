@@ -70,9 +70,12 @@ rep rust-sass-wasm/js/src/wasm/cli.test.ts "$BASE_OLD compiled with" "$BASE comp
 echo "== sweep report (triage by hand — code must be clean, historical prose stays) =="
 git grep -F -l "$OLD" -- . || true
 
+echo "== re-sync Cargo.lock (runs here — the old 'next cargo invocation' note went unread) =="
+cargo check --workspace
+
 echo "== next steps =="
 echo "  1. Add a CHANGELOG.md entry (human prose, not scripted)."
-echo "  2. The next cargo invocation re-syncs Cargo.lock path entries silently."
+echo "  2. Verify Cargo.lock changed only in its path-entry versions."
 if [[ "$NEW" == *-* ]]; then
   echo "  3. Prerelease: commit, push, wait for CI, then tag v$NEW — CI"
   echo "     publishes registries under \`next\` (needs trusted publishing"
