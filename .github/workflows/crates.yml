@@ -46,8 +46,8 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: 1.92.0
-      # TODO temporarily disabled while repo is private
-      # - uses: Swatinem/rust-cache@v2
+      - name: Authenticate with crates.io
+        uses: rust-lang/crates-io-auth-action@v1
       - name: List packaged files (all crates, in order)
         run: |
           for crate in rust-sass-macros rust-sass-embedded-pb rust-sass rust-sass-libsass rust-sass-embedded rust-sass-cli; do
