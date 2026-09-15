@@ -635,6 +635,8 @@ jobs:
           fi
       - name: Create draft release (tags only)
         if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           # Prerelease tags (a `-` suffix) stay off `latest`: the release opens
           # as draft either way — edit notes, publish when ready. Skip creation
@@ -659,6 +661,8 @@ jobs:
           subject-path: libsass-archives/*
       - name: Attach archives and tarballs to release (tags only)
         if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: >-
           gh release upload "$GITHUB_REF_NAME"
           embedded-host-node-rust/release-archives/*
