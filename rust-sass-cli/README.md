@@ -6,6 +6,8 @@ CLI. See `../README.md` for the project overview.
 ## Building
 
 ```sh
+cargo install rust-sass-cli
+# or from a checkout:
 cargo build --release -p rust-sass-cli
 # produces target/release/rust-sass
 ```

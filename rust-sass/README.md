@@ -43,4 +43,4 @@ produced by a compilation live in the arena for the duration of the call; use
 
 ## License
 
-MIT. See `../README.md` for the header/attribution policy.
+MIT.
