@@ -684,9 +684,15 @@ jobs:
           npm publish --provenance $tag_args ./dist
       - name: wasm publish (tags only)
         if: startsWith(github.ref, 'refs/tags/')
-        working-directory: rust-sass-wasm
         run: |
           # Prerelease tags publish under `next`, finals under `latest`.
+          # Publishes the exact tarball build-wasm packed and scratch-smoked
+          # (test-what-you-ship): tarball input is a first-class publish path
+          # and --provenance attests the tarball bytes (repository.url rides
+          # inside the packed package.json). Runs at the repo root — auth
+          # comes from ~/.npmrc, not the cwd — since js/dist only exists on
+          # the build-wasm runner.
           tag_args=""
           case "$GITHUB_REF_NAME" in *"-"*) tag_args="--tag next";; esac
-          npm publish --provenance $tag_args ./js/dist
+          ver=$(node -p "require('./rust-sass-wasm/js/package.json').version")
+          npm publish --provenance $tag_args "./prebuilt/rust-sass-wasm-tgz/rust-sass-wasm-$ver.tgz"

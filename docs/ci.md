@@ -69,9 +69,11 @@ build:js`, `npm run test:js` (vitest), pack `js/dist`, scratch-install
     pass) → single draft-release creation (`--prerelease` on `-`-suffixed
     tags, `--latest` otherwise; skipped when re-running) → Sigstore attestation
     of both archive sets → one `gh release upload` of everything → npm publish
-    of the 8 platform packages, then the wrapper, then the wasm dist — under
+    of the 8 platform packages, then the wrapper, then the wasm tarball — under
     `next` when the tag carries a `-` suffix (derived, not gated), `latest`
-    otherwise, via npm trusted publishing (OIDC, no token secret). All
+    otherwise, via npm trusted publishing (OIDC, no token secret). The wasm
+    publish uploads the exact tarball `build-wasm` packed and smoked
+    (test-what-you-ship — `js/dist` only exists on that job's runner). All
     published manifests (wrapper `package.dist.json`, the generated platform
     manifests in `build.mjs`, wasm `js/package.json`) must carry
     `repository.url` — Sigstore provenance validation fails the publish with
