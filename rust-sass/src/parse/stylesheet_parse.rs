@@ -654,10 +654,24 @@ pub(crate) fn style_rule_impl<'b>(
         })?;
     }
     if interpolation.contents.is_empty() {
-        return Err(Box::new(error_impl(
-            "expected \"}\".",
-            &scanner.empty_span(),
-        )));
+        let unknown = interpolated_declaration_value_impl(
+            scanner,
+            state,
+            DeclarationValueOpts {
+                allow_empty: true,
+                allow_open_brace: false,
+                ..Default::default()
+            },
+        )?;
+        if unknown.contents.is_empty() {
+            return Err(Box::new(error_impl(
+                "expected end of rule.",
+                &scanner.empty_span(),
+            )));
+        } else {
+            let span = unknown.span()?;
+            return Err(Box::new(error_impl("unrecognized syntax", &span)));
+        }
     }
     with_style_rule_children_impl(scanner, state, start, interpolation)
 }
@@ -1265,6 +1279,21 @@ mod tests {
                 other => panic!("src {src}: expected span error, got {other:?}"),
             };
             assert_eq!(end - start, 1, "src {src}");
+        }
+    }
+
+    #[test]
+    fn test_empty_style_rule_selector_error() {
+        // Matches Dart: when the selector is empty, parse an interpolated
+        // declaration value and report either `expected end of rule.` or
+        // `unrecognized syntax` (dart-sass#2848).
+        for src in ["div {", "{", "öüäöüäöü{a:c"] {
+            let arena = bumpalo::Bump::new();
+            let err = parse_scss(&arena, src).unwrap_err();
+            assert!(
+                err.to_string().contains("expected end of rule."),
+                "src {src:?}: {err}"
+            );
         }
     }
 

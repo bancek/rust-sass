@@ -797,15 +797,17 @@ pub(crate) fn sass_style_rule_selector_impl<'b>(
     loop {
         let val = almost_any_value_impl(scanner, state, true)?;
         buffer.add_interpolation(&val);
-        buffer.write_char_code('\n');
-        let trailing = buffer.trailing_string();
-        let trimmed = trailing.trim_end();
-        let continue_loop = trimmed.ends_with(',') && {
-            let ch = scanner.peek_char(0);
-            ch >= 0 && character::is_newline(ch as u8 as char)
+        let continue_loop = {
+            let trailing = buffer.trailing_string();
+            let trimmed = trailing.trim_end();
+            trimmed.ends_with(',') && {
+                let ch = scanner.peek_char(0);
+                ch >= 0 && character::is_newline(ch as u8 as char)
+            }
         };
         if continue_loop {
             scanner.read_char()?;
+            buffer.write_char_code('\n');
         } else {
             break;
         }
@@ -859,6 +861,44 @@ mod tests {
             let err = parse_sass_err(src);
             assert!(err.contains(want), "src {src:?}: {err}");
         }
+    }
+
+    #[test]
+    fn test_style_rule_selector_has_no_trailing_newline() {
+        // Matches Dart: SassParser.styleRuleSelector only appends `\n` when a
+        // comma continues the selector. A phantom trailing newline broke span
+        // mapping back to the source (dart-sass#2848).
+        let arena = Bump::new();
+        let fs = FileSource::new_in(&arena, "a,\nb\n  c: d\n", None);
+        let mut parser = StylesheetParser::new(fs, sass_syntax(), None);
+        let sheet = parse_impl(&mut parser.scanner, &mut parser.state).unwrap();
+        let Statement::StyleRule(rule) = &sheet.children[0] else {
+            panic!("expected style rule, got {:?}", sheet.children[0]);
+        };
+        assert_eq!(
+            rule.selector.as_ref().unwrap().to_display_string().unwrap(),
+            "a,\nb"
+        );
+    }
+
+    #[test]
+    fn test_empty_selector_unrecognized_syntax() {
+        // Matches Dart: an empty selector followed by non-terminator text parses
+        // that text as a declaration value and reports `unrecognized syntax` at
+        // its span (dart-sass#2848).
+        let err = parse_sass_err("a\n  @extend b\n  !optional\n");
+        assert!(err.contains("unrecognized syntax"), "{err}");
+    }
+
+    #[test]
+    fn test_style_rule_selector_trailing_comma_at_eof_terminates() {
+        // The comma-continuation loop must not spin when the selector ends at
+        // EOF: the next iteration adds an empty interpolation and breaks.
+        let arena = Bump::new();
+        let fs = FileSource::new_in(&arena, "a,\n", None);
+        let mut parser = StylesheetParser::new(fs, sass_syntax(), None);
+        let sheet = parse_impl(&mut parser.scanner, &mut parser.state).unwrap();
+        assert_eq!(sheet.children.len(), 1);
     }
 
     #[test]

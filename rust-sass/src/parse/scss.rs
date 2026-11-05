@@ -256,12 +256,6 @@ pub(crate) fn scss_children_impl<'b>(
                 scanner.expect_char('}')?;
                 return Ok(children);
             }
-            c if c < 0 => {
-                return Err(Box::new(error_impl(
-                    "expected \"}\".",
-                    &scanner.empty_span(),
-                )));
-            }
             _ => {
                 let stmt = child_fn(scanner, state)?;
                 children.push(stmt);
