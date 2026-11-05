@@ -89,20 +89,31 @@ A patch release with no `lib/` changes still gets a release commit and tag.
    npm run test:js
    ```
 6. Commit the release.
-7. **Stop before pushing `main`.** The user reviews and pushes.
-8. Wait for main CI. If it fails:
+7. Push the short-lived feature branch (for example `upgrade/1.105`) and wait
+   for branch CI. `ci.yml` runs on every branch push.
+8. **Stop before pushing `main`.** The user reviews and pushes.
+9. Wait for main CI. If it fails:
    - never amend a pushed commit,
    - add fix commits, re-run the gates, and stop before the next push.
-9. After main CI is green, create the local annotated tag `v<version>` and
-   push it.
-10. Wait for the tag/release CI. Only then start the next upstream unit.
+10. After main CI is green, create the local annotated tag `v<version>` and
+    push it.
+11. Wait for the tag/release CI. Only then start the next upstream unit.
 
 ### Push and tag ownership
 
-The agent **never pushes `main`**. Every release checkpoint ends with a review
-stop before the main push; the user reviews and pushes. Once main CI is green,
-the agent creates and pushes the tag, then waits for tag CI. Tags are created
-only after main CI is green, so they include any CI fix commits.
+The agent may push feature branches. The agent **never pushes `main`**. Every
+release checkpoint ends with a review stop before the main push; the user
+reviews and pushes. Once main CI is green, the agent creates and pushes the
+tag, then waits for tag CI. Tags are created only after main CI is green, so
+they include any CI fix commits.
+
+### Branch policy
+
+`ci.yml` runs on every branch push. Use a short-lived branch (for example
+`upgrade/1.105`) for each release checkpoint, fast-forward `main` to it after
+branch CI is green, and delete the branch when the upgrade is complete.
+`crates.yml`, `release.yml` and `playground.yml` stay `main`/tag-only; they
+have packaging, release or deployment side effects.
 
 ### Rebuilding a commit stack
 
