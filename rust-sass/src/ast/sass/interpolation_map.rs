@@ -215,7 +215,6 @@ impl<'parse> InterpolationMap<'parse> {
             SassError::MultiSpan {
                 ref span,
                 ref original_source,
-                trace: _,
                 ..
             } => (span, original_source.clone(), false),
             _ => return error.clone(),

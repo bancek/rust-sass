@@ -6,7 +6,7 @@ in [`porting.md`](porting.md).
 
 ## Prerequisites
 
-- Rust 1.92 (async closures and the `AsyncFn*` traits are required).
+- Rust 1.99 (async closures and the `AsyncFn*` traits are required).
 - Dart SDK (for the differential research loop: piping the same SCSS through
   `dart run bin/sass.dart --stdin` from `dart-sass/` vs the Rust CLI).
   Constraint from [`upstream.md`](upstream.md): Dart `>=3.13.0 <4.0.0`,
@@ -314,6 +314,10 @@ When bumping:
    harness + coexistence + tarball validation.
 5. Re-run the full battery above, in both sync and async modes, plus the
    embedded differential and byte-identity checks.
+6. Stop before pushing `main` so the change can be reviewed. After the user
+   pushes and main CI is green, create and push the local annotated tag, then
+   wait for tag CI. Never amend a pushed commit; add fix commits and re-run
+   the gates instead.
 
 ## Release
 

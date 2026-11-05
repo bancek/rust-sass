@@ -540,7 +540,7 @@ impl<'parse> SelectorList<'parse> {
             } else {
                 let added = last_simples[last_simples.len() - 1]
                     .add_suffix(suffix.unwrap_or(""))
-                    .map_err(&wrap_err)?;
+                    .map_err(wrap_err)?;
                 let mut combined =
                     Vec::with_capacity(last_simples.len() + resolved_simples.len() - 1);
                 combined.extend_from_slice(&last_simples[..last_simples.len() - 1]);
@@ -548,7 +548,7 @@ impl<'parse> SelectorList<'parse> {
                 combined.extend_from_slice(&resolved_simples[1..]);
                 CompoundSelector::new(combined, component_span)
             }
-            .map_err(&wrap_err)?;
+            .map_err(wrap_err)?;
 
             let mut comps: Vec<ComplexSelectorComponent<'parse>> =
                 Vec::with_capacity(complex.components.len());
@@ -565,7 +565,7 @@ impl<'parse> SelectorList<'parse> {
                 component.span,
                 complex.line_break,
             )
-            .map_err(&wrap_err)?;
+            .map_err(wrap_err)?;
             result.push(cs);
         }
         Ok(Some(result))

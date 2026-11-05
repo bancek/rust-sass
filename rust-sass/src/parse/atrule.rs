@@ -73,8 +73,8 @@ use crate::parse::anyvalue::{
     almost_any_value_impl, interpolated_declaration_value_impl, DeclarationValueOpts,
 };
 use crate::parse::expression::{
-    argument_invocation, dynamic_url_impl, expression_until_comma, try_url_contents,
-    ExpressionOpts, _expression_impl,
+    _expression_impl, argument_invocation, dynamic_url_impl, expression_until_comma,
+    try_url_contents, ExpressionOpts,
 };
 use crate::parse::identifier::{interpolated_identifier_impl, single_interpolation_impl};
 use crate::parse::import_url::{is_plain_import_url, parse_import_url};
@@ -831,10 +831,10 @@ pub(crate) fn parameter_list_impl<'b>(
         let variable_start = scanner.state();
         let name = variable_name_impl(scanner, &state.parser_state)?;
         whitespace_impl(scanner, &mut state.parser_state, true)?;
-        let default_value;
-        if scanner.scan_char(':') {
+
+        let default_value = if scanner.scan_char(':') {
             whitespace_impl(scanner, &mut state.parser_state, true)?;
-            default_value = Some(expression_until_comma(scanner, state, false)?);
+            Some(expression_until_comma(scanner, state, false)?)
         } else if scanner.scan_char('.') {
             scanner.expect_char('.')?;
             scanner.expect_char('.')?;
@@ -845,8 +845,8 @@ pub(crate) fn parameter_list_impl<'b>(
             rest_parameter = Some(name);
             break;
         } else {
-            default_value = None;
-        }
+            None
+        };
         let param_span =
             span_from_impl(scanner, &state.parser_state, variable_start)?.file_span()?;
         parameters.push(Parameter::new(name.clone(), param_span, default_value));

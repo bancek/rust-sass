@@ -245,15 +245,9 @@ pub(crate) fn interpolated_declaration_value_impl<'b>(
                     buffer.write(&text);
                     wrote_newline = false;
                 }
-                '/' => {
-                    if opts.silent_comments {
-                        let _ = silent_comment_impl(scanner, &state.parser_state)?;
-                        wrote_newline = false;
-                    } else {
-                        let c = scanner.read_char()?;
-                        buffer.write_char_code(c);
-                        wrote_newline = false;
-                    }
+                '/' if opts.silent_comments => {
+                    let _ = silent_comment_impl(scanner, &state.parser_state)?;
+                    wrote_newline = false;
                 }
                 _ => {
                     let c = scanner.read_char()?;

@@ -412,10 +412,8 @@ fn find_comment_opener(sass: &[u8]) -> usize {
                         col += 1;
                     }
                 }
-                b'*' => {
-                    if col > 0 && byte_at(sass, col - 1) == b'/' && !quoted && !apoed {
-                        comment = true;
-                    }
+                b'*' if col > 0 && byte_at(sass, col - 1) == b'/' && !quoted && !apoed => {
+                    comment = true;
                 }
                 _ => {}
             }
@@ -460,12 +458,10 @@ fn remove_multiline_comment(sass: &[u8]) -> Vec<u8> {
                         col += 1;
                     }
                 }
-                b'*' => {
-                    if !quoted && !apoed && col > 0 && byte_at(sass, col - 1) == b'/' {
-                        comment = true;
-                        open_pos = col - 1;
-                        clean.extend_from_slice(substr(sass, close_pos, open_pos - close_pos));
-                    }
+                b'*' if !quoted && !apoed && col > 0 && byte_at(sass, col - 1) == b'/' => {
+                    comment = true;
+                    open_pos = col - 1;
+                    clean.extend_from_slice(substr(sass, close_pos, open_pos - close_pos));
                 }
                 _ => {}
             }

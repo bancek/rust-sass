@@ -543,7 +543,7 @@ fn write_folded_value(buf: &mut SourceMapBuffer<'_>, node: &CssDeclaration<'_>) 
             }
         }
     } else {
-        write!(buf, "{}", &*node.value.value).unwrap();
+        write!(buf, "{}", *node.value.value).unwrap();
     }
     Ok(())
 }
@@ -574,7 +574,7 @@ fn write_reindented_value(
             }
         }
     } else {
-        write!(buf, "{}", &*node.value.value).unwrap();
+        write!(buf, "{}", *node.value.value).unwrap();
     }
     Ok(())
 }

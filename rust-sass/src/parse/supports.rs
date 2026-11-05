@@ -31,7 +31,7 @@ use crate::common::ast_node::AstNode;
 use crate::common::span_scanner::{LineScannerState, SpanScanner};
 
 use crate::parse::anyvalue::{interpolated_declaration_value_impl, DeclarationValueOpts};
-use crate::parse::expression::{ExpressionOpts, _expression_impl};
+use crate::parse::expression::{_expression_impl, ExpressionOpts};
 use crate::parse::identifier::interpolated_identifier_impl;
 use crate::parse::parser::{
     error_impl, expect_identifier_impl, looking_at_identifier, scan_identifier_impl,

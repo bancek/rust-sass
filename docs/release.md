@@ -1,7 +1,7 @@
 # Release runbook
 
-Tags track the dart-sass version (`v1.104.0`); rehearsals add a suffix
-(`v1.104.0-alpha0`, `v1.104.0-alpha1`). Mechanics: [`ci.md`](ci.md). Bump
+Tags track the dart-sass version (`v1.105.2`); rehearsals add a suffix
+(`v1.105.2-alpha0`, `v1.105.2-alpha1`). Mechanics: [`ci.md`](ci.md). Bump
 surfaces: [`CONTRIBUTING.md`](CONTRIBUTING.md#version-bump-checklist).
 
 ## Bump
@@ -9,8 +9,13 @@ surfaces: [`CONTRIBUTING.md`](CONTRIBUTING.md#version-bump-checklist).
 `tools/bump-version.sh <version>` — full version to manifests/cargo,
 suffix-stripped base to reported strings. Anchored, fails loudly on drift.
 Then: triage its sweep report, `CHANGELOG.md` entry, `cargo check`
-(re-syncs `Cargo.lock`), commit. Registry writes are tag-gated — pushes
-without tags only build/test/pack/upload artifacts.
+(re-syncs `Cargo.lock`), commit, and run the gates in
+[`porting.md`](porting.md#commit-by-commit-sync-and-release-checkpoints-mandatory).
+Stop before pushing `main` for review. After the user pushes and main CI is
+green, create and push the local annotated tag, then wait for the tag/release
+CI. Never amend a pushed commit — add fix commits instead.
+Registry writes are tag-gated; pushes without tags only build/test/pack/upload
+artifacts.
 
 ## First release (alpha0, manual registries)
 

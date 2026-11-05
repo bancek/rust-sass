@@ -2687,7 +2687,6 @@ mod tests {
             SassError::MultiSpan {
                 message,
                 primary_label,
-                trace: _,
                 ..
             } => {
                 assert_eq!(

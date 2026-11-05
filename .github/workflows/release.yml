@@ -123,7 +123,7 @@ jobs:
         run: git submodule update --init libsass sassc
       - uses: dtolnay/rust-toolchain@stable
         with:
-          toolchain: 1.92.0
+          toolchain: 1.99.1
           targets: ${{ matrix.target }}
       - name: Install musl toolchain
         if: matrix.musl
@@ -258,7 +258,7 @@ jobs:
         run: git submodule update --init sass
       - uses: dtolnay/rust-toolchain@stable
         with:
-          toolchain: 1.92.0
+          toolchain: 1.99.1
           targets: wasm32-unknown-unknown
       - name: Install wasm-pack
         run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh

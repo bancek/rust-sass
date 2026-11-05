@@ -194,7 +194,7 @@ pub unsafe extern "C" fn sass_string_quote(s: *const c_char, quote_mark: c_char)
         }
         // SAFETY: NULL checked; validity + NUL-termination per contract above.
         let bytes = unsafe { CStr::from_ptr(s) }.to_bytes();
-        copy_bytes_nul(&quote_bytes(bytes, quote_mark as u8))
+        copy_bytes_nul(&quote_bytes(bytes, quote_mark))
     })
 }
 

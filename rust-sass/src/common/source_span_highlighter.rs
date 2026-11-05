@@ -1019,8 +1019,8 @@ fn collate_lines(highlights: &[Highlight], io: &dyn Io) -> SassResult<Vec<Line>>
                 .filter(|&c| c == '\n')
                 .count();
             let start_line = hl.span.start.line.saturating_sub(lines_before);
-            let mut line_number = start_line;
-            for line_text in resolved_context.split('\n') {
+            for (offset, line_text) in resolved_context.split('\n').enumerate() {
+                let line_number = start_line + offset;
                 if lines.is_empty() || line_number > lines.last().unwrap().number {
                     lines.push(Line {
                         text: line_text.to_string(),
@@ -1029,7 +1029,6 @@ fn collate_lines(highlights: &[Highlight], io: &dyn Io) -> SassResult<Vec<Line>>
                         highlights: vec![],
                     });
                 }
-                line_number += 1;
             }
         }
 

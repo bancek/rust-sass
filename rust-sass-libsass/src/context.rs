@@ -1785,7 +1785,7 @@ fn discover_step<'a>(
     for url in &report.imports {
         deps.push((url, true));
     }
-    deps.sort_by(|a, b| a.0.to_string().cmp(&b.0.to_string()));
+    deps.sort_by_key(|a| a.0.to_string());
     let noop = NoOpWarnLogger;
     for (url, for_import) in deps {
         let canonical = match cache.canonicalize(url, Some(default), base_url, for_import, &noop)? {

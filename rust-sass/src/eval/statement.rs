@@ -4873,7 +4873,7 @@ mod tests {
         assert!(
             matches!(&*kind, ModifiableCssNodeKind::StyleRule(_)),
             "expected ModifiableCssStyleRule, got {:?}",
-            &*kind
+            *kind
         );
         if let ModifiableCssNodeKind::StyleRule(sr) = &*kind {
             let sel = sr.selector.borrow().to_css_string(false).unwrap();
@@ -4941,7 +4941,7 @@ mod tests {
         assert!(
             matches!(&*kind, ModifiableCssNodeKind::KeyframeBlock(_)),
             "expected ModifiableCssKeyframeBlock, got {:?}",
-            &*kind
+            *kind
         );
     }
 
@@ -4991,7 +4991,7 @@ mod tests {
                     msr.from_plain_css,
                 )
             } else {
-                panic!("expected ModifiableCssStyleRule, got {:?}", &*kind);
+                panic!("expected ModifiableCssStyleRule, got {:?}", *kind);
             }
         };
         state.style_rule_ignoring_at_root = Some(parent_css);
@@ -5011,7 +5011,7 @@ mod tests {
         } else {
             panic!(
                 "expected ModifiableCssStyleRule for nested child, got {:?}",
-                &*kind
+                *kind
             );
         }
     }
@@ -5035,7 +5035,7 @@ mod tests {
             if let ModifiableCssNodeKind::StyleRule(msr) = &*kind {
                 CssStyleRule::new(*msr.selector.borrow(), span, msr.original_selector, false)
             } else {
-                panic!("expected ModifiableCssStyleRule, got {:?}", &*kind);
+                panic!("expected ModifiableCssStyleRule, got {:?}", *kind);
             }
         };
         state.style_rule_ignoring_at_root = Some(parent_css);
@@ -5092,7 +5092,7 @@ mod tests {
         assert!(
             matches!(&*kind, ModifiableCssNodeKind::Import(_)),
             "expected ModifiableCssImport, got {:?}",
-            &*kind
+            *kind
         );
     }
 
@@ -5115,7 +5115,7 @@ mod tests {
         assert!(
             matches!(&*kind, ModifiableCssNodeKind::Import(_)),
             "expected ModifiableCssImport, got {:?}",
-            &*kind
+            *kind
         );
     }
 

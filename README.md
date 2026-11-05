@@ -95,7 +95,7 @@ bindings) link unmodified against the modern engine. See
 
 ## Building and testing
 
-Prerequisites: Rust 1.92, a dev-channel Dart SDK (for the differential
+Prerequisites: Rust 1.99, a dev-channel Dart SDK (for the differential
 research loop), submodules (`git clone --recurse-submodules`). See
 [`docs/CONTRIBUTING.md`](docs/CONTRIBUTING.md#submodules) for submodule notes.
 

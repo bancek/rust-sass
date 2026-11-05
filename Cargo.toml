@@ -30,7 +30,7 @@ edition = "2021"
 license = "MIT"
 authors = ["Luka Zakrajšek <luka@bancek.net>"]
 repository = "https://github.com/bancek/rust-sass"
-rust-version = "1.92"
+rust-version = "1.99"
 
 # Unified dependencies. Rule: versions live here; features stay at the use
 # site, except serde/derive which every serde user wants.

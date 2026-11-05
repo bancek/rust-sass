@@ -42,7 +42,7 @@ registry source packages only).
   libsass+sassc on smoke-tested triples.
 - Wasm job (`build-wasm`): single ubuntu job for `rust-sass-wasm`, the
   pure-JS/wasm fallback (JS API + `bin/sass.js` + `pkg-sync`/`pkg-async`
-  bundles; `pkg-web` stays dev-only). Rust 1.92.0 + `wasm32-unknown-unknown`
+  bundles; `pkg-web` stays dev-only). Rust 1.99.1 + `wasm32-unknown-unknown`
   - wasm-pack, `npm ci`, `npm run build:rust:release` (strips wasm-pack's
     nested `package.json` / `.gitignore` / `README.md` / `LICENSE` from each
     `pkg-*` dir — a nested `package.json` makes npm treat the dir as a nested
@@ -122,7 +122,7 @@ resolve normally).
 
 ## `playground.yml` (push to `main` only, never PRs)
 
-Node 26 + Rust 1.92.0 + `wasm32-unknown-unknown` + wasm-pack, `npm ci`,
+Node 26 + Rust 1.99.1 + `wasm32-unknown-unknown` + wasm-pack, `npm ci`,
 `npm run build:playground:release` (release wasm ×3, assemble
 `rust-sass-wasm/playground/`), deploy to the `gh-pages` branch via
 `peaceiris/actions-gh-pages` (commits only when content changed; needs

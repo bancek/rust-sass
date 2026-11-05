@@ -1186,8 +1186,8 @@ pub(crate) fn escape_impl<'parse>(
             scanner.error("Expected escape sequence.", None, 0).into(),
         ));
     }
-    let value: i32;
-    if character::is_hex(ch as u8 as char) {
+
+    let value: i32 = if character::is_hex(ch as u8 as char) {
         let mut v = 0i32;
         for _ in 0..6 {
             let next = scanner.peek_char(0);
@@ -1200,10 +1200,10 @@ pub(crate) fn escape_impl<'parse>(
         if character::is_whitespace(scanner.peek_char(0) as u8 as char) {
             scanner.read_char()?;
         }
-        value = v;
+        v
     } else {
-        value = scanner.read_char()? as i32;
-    }
+        scanner.read_char()? as i32
+    };
 
     let is_name_check = {
         let raw_value = value as u32;

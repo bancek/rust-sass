@@ -31,6 +31,102 @@ Run the commands below from the repository root.
   `async_import_cache→import_cache`). Read the async diff; ignore the sync
   twin's diff entirely.
 
+## Commit-by-commit sync and release checkpoints (mandatory)
+
+Do not batch a release span into one bump commit. Create one Rust commit per
+upstream functional commit, in upstream order, and stop at every upstream
+release tag.
+
+### Per-unit commit
+
+1. Check out the upstream commit and port only its `lib/` diff.
+2. For Dart sync/async twin files, read the async file only (the sync file is
+   generated).
+3. Port line-by-line: same control flow, helpers, messages, ordering, spans,
+   and error paths. No behavioral or structural shortcuts.
+4. Add failing-first internal tests in the touched module as `#[maybe_test]`
+   (sync and async legs), covering the new behavior and its exact messages and
+   error spans.
+5. Advance the `sass-spec` pin to that unit's spec commit, never past an
+   unported unit. If the unit has no spec commit, leave the pin unchanged.
+6. Verify locally:
+   - `cargo test -p rust-sass`
+   - `cargo test -p rust-sass --features async`
+   - the affected `sass-spec` directories
+   - differential A/B against the target dart-sass binary
+   - clippy with the CI/MSRV toolchain (currently Rust 1.99), sync and async
+7. Fold any pre-existing port bug exposed by this unit into this same commit.
+   Do not create a standalone fix commit before the branch has been pushed.
+8. Advance `PORTED_FROM` and the `dart-sass` submodule to the ported commit.
+9. Commit only that unit. Record skipped upstream commits in the ledger.
+
+The full spec suite is run one top-level directory per process locally because
+the runner's peak memory grows beyond a single-process run; CI runs it whole.
+
+### Release checkpoint (every upstream tag, including patch releases)
+
+A patch release with no `lib/` changes still gets a release commit and tag.
+
+1. Check out the upstream release tag; move `dart-sass`, `PORTED_FROM`,
+   `sass-spec`, `sass` and `embedded-host-node` to their release pins.
+2. Run `tools/bump-version.sh <version>`.
+3. Set `DART2JS_VERSION` from the published `sass@<version>` package.
+4. Sweep current-version references in docs, README, manifests and npm oracle
+   pins; refresh lockfiles; add the CHANGELOG entry. Keep historical changelog
+   sections unchanged.
+5. Run the full local battery with the CI/MSRV toolchain (Rust 1.99), including
+   the wasm release build and JS tests:
+   ```sh
+   cargo test -p rust-sass && cargo test -p rust-sass --features async
+   cargo test -p rust-sass-macros && cargo test -p rust-sass-macros --features async
+   cargo test -p rust-sass-embedded && cargo test -p rust-sass-embedded --features async
+   cargo clippy --workspace --all-targets -- -D warnings
+   cargo clippy --workspace --all-targets --features async -- -D warnings
+   # spec suite, one top-level directory per process
+   cd rust-sass-wasm
+   RUSTUP_TOOLCHAIN=1.99.1 npm run build:rust:release
+   npm run build:js
+   npm run test:js
+   ```
+6. Commit the release.
+7. **Stop before pushing `main`.** The user reviews and pushes.
+8. Wait for main CI. If it fails:
+   - never amend a pushed commit,
+   - add fix commits, re-run the gates, and stop before the next push.
+9. After main CI is green, create the local annotated tag `v<version>` and
+   push it.
+10. Wait for the tag/release CI. Only then start the next upstream unit.
+
+### Push and tag ownership
+
+The agent **never pushes `main`**. Every release checkpoint ends with a review
+stop before the main push; the user reviews and pushes. Once main CI is green,
+the agent creates and pushes the tag, then waits for tag CI. Tags are created
+only after main CI is green, so they include any CI fix commits.
+
+### Rebuilding a commit stack
+
+If the history must be rebuilt before release:
+
+1. Keep the old stack on a backup branch.
+2. Create the new branch from `origin/main`.
+3. Recreate the commits, folding fixes into the relevant commit.
+4. Delete and recreate local `v1.10X.*` tags on the rebuilt release commits.
+5. Follow the normal review/push/tag checkpoints above.
+
+### Wasm
+
+Wasm is a local release gate, built with the CI/MSRV toolchain:
+
+```sh
+RUSTUP_TOOLCHAIN=1.99.1 npm run build:rust:release
+npm run build:js
+npm run test:js
+```
+
+Run focused `js-api-spec` and a scoped wasm spec subset when the harness is
+available. CI remains the final full-wasm gate.
+
 ## Sync procedure
 
 1. **Fetch and locate the functional units.** `dart-sass/` is a submodule pinned at the
@@ -148,38 +244,27 @@ string>" -- lib/` on the entry's behavior, not by re-reading subjects.
    the next unit.
 
 6. **Verify per unit, then globally.** Per unit: the touched file's in-module
-   `#[maybe_test]` tests (both sync and async legs), the **full** spec suite
-   (`cargo test -p rust-sass-spec --test runner_test --release -- --ignored`;
-   at ~9s release there is no reason to scope it — `SASS_SPEC=<subpath>` is
-   only a debug aid for iterating on a failure), and the differential A/B
-   for that behavior. After all units: the full battery —
-
-   ```sh
-   cargo test -p rust-sass                     # unit, sync build
-   cargo test -p rust-sass --features async    # unit, async build
-   cargo test -p rust-sass-macros && cargo test -p rust-sass-macros --features async
-   cargo test -p rust-sass-embedded            # 56 + golden + differential + interactive
-   cargo test -p rust-sass-embedded --features async
-   cargo test -p rust-sass-spec --test runner_test --release -- --ignored   # spec suite
-   # byte-identity rust==dart on bootstrap/huge/huge10 (see CONTRIBUTING.md)
-   # embedded round-trip harness: embedded-host-node-rust/ (drive the assembled host against target/release/rust-sass)
-   ```
+   `#[maybe_test]` tests (both sync and async legs), the affected spec
+   directories, and the differential A/B for that behavior. Release
+   checkpoints run the full battery described in
+   [Commit-by-commit sync and release checkpoints](#commit-by-commit-sync-and-release-checkpoints-mandatory).
+   Run the spec suite one top-level directory per process locally; CI runs the
+   full suite in one process.
 
    Plus `cargo clippy --workspace --all-targets -- -D warnings` in both
-   default and `--features async` builds. If the wasm bridge is
-   affected, the wasm build + js-api-spec (`rust-sass-wasm`, see
-   `ref/wasm.md`).
+   default and `--features async` builds. Wasm is a local release gate (build
+   and JS tests); CI remains the final full-wasm gate.
 
 7. **Record and commit.** Update `PORTED_FROM` to the new commit hash and
-   `upstream.md` (commit, version, any external package pins). The bump
+   `upstream.md` (commit, version, any external package pins). The release
    commit message is the **ledger**: list each functional unit ported
    (`<sha> <subject>`), each unit explicitly skipped and why, and the
    submodule pins moved (`dart-sass`, `sass-spec`, `sass`,
    `embedded-host-node`). Keep it free-form — a plain list is enough, no
-   template. Commit the port changes and the tracking update together. Then
-   follow the version-bump checklist in `CONTRIBUTING.md`
-   (`COMPILER_VERSION`/`SASS_VERSION`, wasm `version.ts`, crate/npm
-   versions, CHANGELOG entry).
+   template. Commit each functional unit separately; commit the release
+   changes at the release checkpoint. Then follow the version-bump checklist
+   in `CONTRIBUTING.md` (`COMPILER_VERSION`/`SASS_VERSION`, wasm
+   `version.ts`, crate/npm versions, CHANGELOG entry).
 
 ## Ecosystem pins (checked in step 1, moved per unit — not once at the end)
 

@@ -46,7 +46,7 @@ use crate::parse::anyvalue::{
 use crate::parse::atrule::{
     at_rule_impl, declaration_at_rule_impl, include_rule_impl, mixin_rule_impl,
 };
-use crate::parse::expression::{ExpressionOpts, _expression_impl};
+use crate::parse::expression::{_expression_impl, ExpressionOpts};
 use crate::parse::identifier::interpolated_identifier_impl;
 use crate::parse::parser::{
     adjust_exception_span_impl, error_impl, expect_identifier_impl, has_prefix_ignore_case,
@@ -900,7 +900,7 @@ pub(crate) fn parse_impl<'b>(
     .map_err(|e| adjust_stylesheet_error_span(*e))?;
     scanner.expect_done()?;
     let span = span_from_impl(scanner, &state.parser_state, start)?.file_span()?;
-    let warnings: Vec<ParseTimeWarning<'b>> = state.warnings.drain(..).collect();
+    let warnings: Vec<ParseTimeWarning<'b>> = std::mem::take(&mut state.warnings);
     let plain_css = matches!(state.parser_state.syntax, Syntax::Css(_));
     let global_variables: indexmap::IndexMap<String, FileSpan<'b>> =
         state.global_variables.drain().collect();

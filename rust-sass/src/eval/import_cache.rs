@@ -246,7 +246,7 @@ impl<'compile: 'parse, 'parse> ImportCache<'compile, 'parse> {
                 } else {
                     url.clone()
                 };
-                let key = (Importer::clone(base_imp), resolved_url.clone(), for_import);
+                let key = (*base_imp, resolved_url.clone(), for_import);
 
                 if let Some(cached) = self.per_importer_canonicalize_cache.get(&key) {
                     if let Some(cr) = cached {

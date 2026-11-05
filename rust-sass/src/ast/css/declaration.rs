@@ -63,7 +63,7 @@ impl<'parse> CssDeclaration<'parse> {
                 message: format!(
                     "If parsedAsSassScript is false, value must contain a SassString \
                          (was `{}` of type {:?}).",
-                    &*value.value, value.value
+                    *value.value, value.value
                 ),
                 argument_name: None,
             }));
@@ -98,7 +98,7 @@ impl<'parse> AstNode<'parse> for CssDeclaration<'parse> {
 
 impl<'parse> fmt::Display for CssDeclaration<'parse> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}: {};", self.name, &*self.value.value)
+        write!(f, "{}: {};", self.name, *self.value.value)
     }
 }
 
@@ -138,7 +138,7 @@ impl<'parse> ModifiableCssDeclaration<'parse> {
                 message: format!(
                     "If parsedAsSassScript is false, value must contain a SassString \
                          (was `{}` of type {:?}).",
-                    &*value.value, value.value
+                    *value.value, value.value
                 ),
                 argument_name: None,
             }));
@@ -172,7 +172,7 @@ impl<'parse> AstNode<'parse> for ModifiableCssDeclaration<'parse> {
 
 impl<'parse> fmt::Display for ModifiableCssDeclaration<'parse> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}: {};", self.name, &*self.value.value)
+        write!(f, "{}: {};", self.name, *self.value.value)
     }
 }
 

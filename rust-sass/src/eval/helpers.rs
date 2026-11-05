@@ -3390,15 +3390,14 @@ mod tests {
         let key = warnings.iter().next().unwrap();
         assert_eq!(
             key.message,
-            format!(
-                "You probably don't mean to use the color value \
+            "You probably don't mean to use the color value \
                  red in interpolation here.\n\
                  It may end up represented as red, which will likely produce \
                  invalid CSS.\n\
                  Always quote color names when using them as strings or map keys \
                  (for example, \"red\").\n\
                  If you really want to use the color value here, use '\"\" + test'."
-            )
+                .to_string()
         );
     }
 
@@ -3425,11 +3424,10 @@ mod tests {
         let key = warnings.iter().next().unwrap();
         assert_eq!(
             key.message,
-            format!(
-                "Using / for division is deprecated and will be removed in Dart Sass 2.0.0.\n\n\
+            "Using / for division is deprecated and will be removed in Dart Sass 2.0.0.\n\n\
                  Recommendation: math.div(1px, 2px)\n\n\
                  More info and automated migrator: https://sass-lang.com/d/slash-div"
-            )
+                .to_string()
         );
     }
 

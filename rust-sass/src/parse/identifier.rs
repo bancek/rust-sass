@@ -12,8 +12,8 @@ use crate::ast::sass::interpolation::Interpolation;
 use crate::ast::sass::interpolation_buffer::InterpolationBuffer;
 use crate::common::file_span::FileSpan;
 use crate::common::span_scanner::SpanScanner;
-use crate::parse::expression::ExpressionOpts;
 use crate::parse::expression::_expression_impl;
+use crate::parse::expression::ExpressionOpts;
 use crate::parse::parser::error_impl;
 use crate::util::character;
 

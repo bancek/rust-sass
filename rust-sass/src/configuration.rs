@@ -182,11 +182,8 @@ impl<'parse> Configuration<'parse> {
                     }
                 }
                 Filter::Prefix(prefix) => {
-                    if let Some(stripped) = key.strip_prefix(prefix.as_str()) {
-                        key = stripped.to_string();
-                    } else {
-                        return None;
-                    }
+                    let stripped = key.strip_prefix(prefix.as_str())?;
+                    key = stripped.to_string();
                 }
             }
         }

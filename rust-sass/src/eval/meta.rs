@@ -657,13 +657,8 @@ where
                             let module_val = args.get(2);
 
                             if css {
-                                let module_str = module_val.and_then(|v| {
-                                    if matches!(&**v, ValueKind::Null) {
-                                        None
-                                    } else {
-                                        Some(v)
-                                    }
-                                });
+                                let module_str =
+                                    module_val.filter(|&v| !matches!(&**v, ValueKind::Null));
                                 if module_str.is_some() {
                                     return Err(Box::new(SassError::Script {
                                         message: "$css and $module may not both be passed at once."
@@ -683,13 +678,8 @@ where
                                 ));
                             }
 
-                            let namespace = module_val.and_then(|v| {
-                                if matches!(&**v, ValueKind::Null) {
-                                    None
-                                } else {
-                                    Some(v)
-                                }
-                            });
+                            let namespace =
+                                module_val.filter(|&v| !matches!(&**v, ValueKind::Null));
                             let namespace_str = if let Some(v) = namespace {
                                 Some(assert_string(v, Some("module"))?.text.to_string())
                             } else {
@@ -740,13 +730,7 @@ where
                           -> SassResult<Value<'parse>> {
                         let name = assert_string(&args[0], Some("name"))?;
                         let normalized = name.text.replace("_", "-");
-                        let namespace = args.get(1).and_then(|v| {
-                            if matches!(&**v, ValueKind::Null) {
-                                None
-                            } else {
-                                Some(v)
-                            }
-                        });
+                        let namespace = args.get(1).filter(|&v| !matches!(&**v, ValueKind::Null));
                         let namespace_str = if let Some(v) = namespace {
                             Some(assert_string(v, Some("module"))?.text.to_string())
                         } else {
@@ -822,7 +806,7 @@ where
 {
     let url_val = assert_string(&args[0], Some("url"))?;
     let parsed_url = SassUrl::parse(url_val.text)
-        .unwrap_or_else(|_| SassUrl::parse(&format!("file:///{}", &url_val.text)).unwrap());
+        .unwrap_or_else(|_| SassUrl::parse(&format!("file:///{}", url_val.text)).unwrap());
     let with_val = &args[1];
 
     // Dart `load-css`: `configuration = const Configuration.empty()` for a
