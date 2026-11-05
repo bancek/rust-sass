@@ -194,6 +194,10 @@ pub unsafe extern "C" fn sass_string_quote(s: *const c_char, quote_mark: c_char)
         }
         // SAFETY: NULL checked; validity + NUL-termination per contract above.
         let bytes = unsafe { CStr::from_ptr(s) }.to_bytes();
+        // `c_char` is signed on x86 but unsigned on aarch64; the cast is
+        // required on the former and a no-op on the latter.
+        #[allow(clippy::unnecessary_cast)]
+        let quote_mark = quote_mark as u8;
         copy_bytes_nul(&quote_bytes(bytes, quote_mark))
     })
 }
