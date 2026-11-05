@@ -388,6 +388,7 @@ mod tests {
         let u = SassUrl::parse("file:///file").unwrap();
         let di = Import::Dynamic(DynamicImport::new(
             u.to_string(),
+            u.clone(),
             test_span(&arena, "'file'"),
         ));
         let ir = ImportRule::new(vec![di], span);
@@ -418,6 +419,7 @@ mod tests {
         let ur = UseRule::new(u.clone(), None, span, vec![]).unwrap();
         let di = Import::Dynamic(DynamicImport::new(
             "file:///imp".into(),
+            SassUrl::parse("file:///imp").unwrap(),
             test_span(&arena, "'imp'"),
         ));
         let ir = ImportRule::new(vec![di], span);

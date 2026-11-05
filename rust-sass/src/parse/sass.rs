@@ -775,8 +775,9 @@ pub(crate) fn sass_import_argument_impl<'b>(
         // Matches Dart: DynamicImport(parseImportUrl(url), urlSpan) — the URL
         // is passed through unchanged; Uri.parse(url) only validates (throwing
         // a FormatException caught as "Invalid URL").
-        SassUrl::parse(&parsed).map_err(|e| error_impl(&format!("Invalid URL: {e}"), &span))?;
-        Ok(Import::Dynamic(DynamicImport::new(parsed, span)))
+        let url =
+            SassUrl::parse(&parsed).map_err(|e| error_impl(&format!("Invalid URL: {e}"), &span))?;
+        Ok(Import::Dynamic(DynamicImport::new(parsed, url, span)))
     }
 }
 

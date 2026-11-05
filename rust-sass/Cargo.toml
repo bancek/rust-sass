@@ -20,7 +20,6 @@ ryu.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
-url.workspace = true
 
 [features]
 # Sync is the default. `async` opts into the async expansion (flows to

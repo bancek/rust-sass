@@ -594,14 +594,14 @@ mod tests {
         let mut parser = make_scss(&arena, "\"https://example.com/style.scss\"");
         let url = parser.url_string().unwrap();
         assert_eq!(url.scheme(), "https");
-        assert_eq!(url.as_url().host_str(), Some("example.com"));
+        assert_eq!(url.host(), "example.com");
         assert_eq!(url.path(), "/style.scss");
     }
 
     #[test]
     fn test_url_string_invalid() {
         let arena = Bump::new();
-        let mut parser = make_scss(&arena, "\"http://\"");
+        let mut parser = make_scss(&arena, "\"http://[\"");
         let result = parser.url_string();
         assert!(result.is_err());
         match *result.unwrap_err() {

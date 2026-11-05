@@ -153,14 +153,9 @@ fn exactly_one(paths: &[String], io: &dyn Io) -> Result<Option<String>, Box<Sass
         _ => {
             let lines: Vec<String> = paths
                 .iter()
-                .map(|p| {
-                    format!(
-                        "  {}",
-                        pretty_uri(
-                            &SassUrl::parse(&format!("file://{}", p.replace('\\', "/"))).unwrap(),
-                            io,
-                        )
-                    )
+                .map(|p| match SassUrl::file_url_from_abs_path(p) {
+                    Ok(url) => format!("  {}", pretty_uri(&url, io)),
+                    Err(()) => format!("  {p}"),
                 })
                 .collect();
             Err(Box::new(SassError::Script {

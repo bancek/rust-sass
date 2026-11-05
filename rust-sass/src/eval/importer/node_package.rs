@@ -110,7 +110,7 @@ impl NodePackageImporter {
             return Ok(None);
         }
 
-        if url.has_host() {
+        if url.has_authority() {
             return Err(Box::new(SassError::Script {
                 message: "A pkg: URL must not have a host, port, username or password.".to_string(),
                 argument_name: None,
@@ -129,7 +129,7 @@ impl NodePackageImporter {
                 argument_name: None,
             }));
         }
-        if url.query().is_some() || url.fragment().is_some() {
+        if url.has_query() || url.has_fragment() {
             return Err(Box::new(SassError::Script {
                 message: "A pkg: URL must not have a query or fragment.".to_string(),
                 argument_name: None,

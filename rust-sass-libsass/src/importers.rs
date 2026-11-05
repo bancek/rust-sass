@@ -706,8 +706,8 @@ fn canonical_for(index: usize, nonce: usize, abs_path: Option<&str>) -> Option<S
 /// they returned.
 fn prev_form(url: &SassUrl) -> String {
     if url.is_file() {
-        if let Ok(path) = url.as_url().to_file_path() {
-            return path.to_string_lossy().into_owned();
+        if let Some(path) = url.to_file_path_string() {
+            return path;
         }
     }
     url.to_string()

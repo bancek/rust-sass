@@ -5649,7 +5649,11 @@ mod tests {
         let arena = Bump::new();
         let span = make_span(&arena, "@import \"nonexistent-file\"");
         let (config, mut state) = test_visitor_with_root_stylesheet_and_cache(&arena);
-        let dynamic_import = DynamicImport::new("nonexistent-file.scss".into(), span);
+        let dynamic_import = DynamicImport::new(
+            "nonexistent-file.scss".into(),
+            SassUrl::parse("nonexistent-file.scss").unwrap(),
+            span,
+        );
         let imports = vec![Import::Dynamic(dynamic_import)];
         let rule = ImportRule::new(imports, span);
 

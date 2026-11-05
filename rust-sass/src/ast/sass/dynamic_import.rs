@@ -27,29 +27,28 @@ pub struct DynamicImport<'parse> {
     // Dart marks `urlString` `@internal`: it exists so the raw text (with any
     // leading `./`) survives for Node Sass compatibility.
     pub url_string: String,
+    /// The parsed URL, fixed at construction (Dart re-parses lazily, but the
+    /// parser has already validated it and Rust avoids fallible getters).
+    pub url: SassUrl,
     pub span: FileSpan<'parse>,
 }
 
 impl<'parse> DynamicImport<'parse> {
     /// Creates a dynamic import of the file at `url_string`.
-    pub fn new(url_string: String, span: FileSpan<'parse>) -> Self {
-        DynamicImport { url_string, span }
+    pub fn new(url_string: String, url: SassUrl, span: FileSpan<'parse>) -> Self {
+        DynamicImport {
+            url_string,
+            url,
+            span,
+        }
     }
 
     /// Returns the parsed URL.
     ///
-    /// Matches Dart: `DynamicImport.url` (`Uri.parse(urlString)`, which never
-    /// throws for these inputs — the parser already rejected unparseable URLs
-    /// via `SassUrl::parse` at construction in `atrule.rs`). Infallible by
-    /// construction: any residual parse failure falls back to the raw string
-    /// as a relative URL instead of panicking (no-`panic` rule).
-    ///
-    /// Matches Dart: DynamicImport.url
+    /// Matches Dart: `DynamicImport.url`. The URL is parsed once by the
+    /// parser (`parseImportUrl` validates it via `SassUrl::parse`).
     pub fn url(&self) -> SassUrl {
-        match SassUrl::parse(&self.url_string) {
-            Ok(url) => url,
-            Err(_) => SassUrl::parse_relative_fallback(&self.url_string),
-        }
+        self.url.clone()
     }
 
     /// The span of the URL, including the quotes.
@@ -101,7 +100,7 @@ mod tests {
     fn test_new() {
         let arena = Bump::new();
         let span = make_span(&arena, "'foo.scss'");
-        let di = DynamicImport::new("foo.scss".into(), span);
+        let di = DynamicImport::new("foo.scss".into(), SassUrl::parse("foo.scss").unwrap(), span);
         assert_eq!(di.url_string, "foo.scss");
     }
 
@@ -109,7 +108,11 @@ mod tests {
     fn test_url() {
         let arena = Bump::new();
         let span = make_span(&arena, "'foo.scss'");
-        let di = DynamicImport::new("http://example.com/foo.scss".into(), span);
+        let di = DynamicImport::new(
+            "http://example.com/foo.scss".into(),
+            SassUrl::parse("http://example.com/foo.scss").unwrap(),
+            span,
+        );
         let url = di.url();
         assert_eq!(url.as_str(), "http://example.com/foo.scss");
     }
@@ -118,7 +121,7 @@ mod tests {
     fn test_url_span() {
         let arena = Bump::new();
         let span = make_span(&arena, "'foo.scss'");
-        let di = DynamicImport::new("foo.scss".into(), span);
+        let di = DynamicImport::new("foo.scss".into(), SassUrl::parse("foo.scss").unwrap(), span);
         assert!(di.url_span().is_ok());
     }
 
@@ -126,7 +129,7 @@ mod tests {
     fn test_display() {
         let arena = Bump::new();
         let span = make_span(&arena, "'foo.scss'");
-        let di = DynamicImport::new("foo.scss".into(), span);
+        let di = DynamicImport::new("foo.scss".into(), SassUrl::parse("foo.scss").unwrap(), span);
         let s = format!("{di}");
         assert!(s.starts_with('"'), "got {s:?}");
         assert!(s.ends_with('"'), "got {s:?}");
@@ -136,26 +139,17 @@ mod tests {
     fn test_span() {
         let arena = Bump::new();
         let span = make_span(&arena, "'foo.scss'");
-        let di = DynamicImport::new("foo.scss".into(), span);
+        let di = DynamicImport::new("foo.scss".into(), SassUrl::parse("foo.scss").unwrap(), span);
         assert_eq!(di.span().unwrap(), span);
     }
 
     #[test]
-    fn test_url_never_panics() {
-        // `DynamicImport::new("http://[::1").url()` must
-        // not panic (Dart `Uri.parse` never throws for these inputs — the
-        // parser pre-validates; any residual failure is a fallback, not an
-        // abort). `SassUrl::parse("http://[::1")` fails in the `url` crate
-        // (invalid IPv6), which is exactly the case the old
-        // `unwrap_or_else(panic!)` aborted on.
-        assert!(
-            SassUrl::parse("http://[::1").is_err(),
-            "precondition: strict parse of the bad URL must fail"
-        );
+    fn test_url_round_trip() {
         let arena = Bump::new();
-        let span = make_span(&arena, "'http://[::1'");
-        let di = DynamicImport::new("http://[::1".into(), span);
-        let url = di.url();
-        assert_eq!(url.to_string(), "http://[::1");
+        let span = make_span(&arena, "'foo.scss'");
+        let url = SassUrl::parse("foo.scss").unwrap();
+        let di = DynamicImport::new("foo.scss".into(), url, span);
+        assert_eq!(di.url().to_string(), "foo.scss");
+        assert_eq!(di.url_string, "foo.scss");
     }
 }

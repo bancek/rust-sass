@@ -897,12 +897,7 @@ fn store_files(
         // Upstream reports filesystem paths, never `file:` URLs:
         // strip the scheme for file-backed entries (node-sass asserts
         // plain paths in `stats.includedFiles`).
-        texts.push(
-            url.as_url()
-                .to_file_path()
-                .map(|p| p.to_string_lossy().into_owned())
-                .unwrap_or(text),
-        );
+        texts.push(url.to_file_path_string().unwrap_or(text));
     }
     if entry_is_data {
         texts.sort();

@@ -958,8 +958,11 @@ pub(crate) fn import_argument_impl<'b>(
     let parsed_str = parse_import_url(&url_str);
     // Matches Dart: DynamicImport(parseImportUrl(url), urlSpan) — the URL is
     // passed through unchanged; Uri.parse(url) only validates.
-    SassUrl::parse(&parsed_str).map_err(|e| error_impl(&format!("Invalid URL: {e}"), &url_span))?;
-    Ok(Import::Dynamic(DynamicImport::new(parsed_str, url_span)))
+    let url = SassUrl::parse(&parsed_str)
+        .map_err(|e| error_impl(&format!("Invalid URL: {e}"), &url_span))?;
+    Ok(Import::Dynamic(DynamicImport::new(
+        parsed_str, url, url_span,
+    )))
 }
 
 /// Consumes modifiers (media or supports queries) after an import argument.

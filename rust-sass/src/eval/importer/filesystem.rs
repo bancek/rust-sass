@@ -129,54 +129,19 @@ impl FilesystemImporter {
         warn_logger: &dyn WarnLogger<'parse>,
     ) -> SassResult<Option<SassUrl>> {
         let resolved = if url.is_file() {
-            // `path` stays in URL space for the wrapped-relative tail
-            // computation below; `fs_path` is the filesystem form for the
-            // `Io` layer (`/C:/…` URL paths are not valid Windows paths).
-            let path = url.path();
+            // `file:` URLs resolve directly only; the import cache separately
+            // retries the original relative URL against the importer chain,
+            // where the load-path branch below applies (filesystem.dart).
             let fs_path = url.fs_path();
-            let r = resolve_import_path(&*self.io, &fs_path, ctx.from_import).await?;
-            if r.is_some() {
-                r
-            } else if let Some(ref load_path) = self.load_path {
-                // Relative URLs arrive here either as `sass-relative:` (kept
-                // relative by the import cache) or wrapped as absolute `file:`
-                // URLs (resolved against a `file:` base by `resolve_file_path`).
-                // The fallback retries the wrapped-relative case under the load
-                // path — but a genuine absolute `file:` URL must resolve
-                // directly only (filesystem.dart:68-90). Distinguisher: the
-                // import cache resolves `sass-relative:` URLs against a `file:`
-                // base via `resolve_file_path` (path-based join), then marks the
-                // result wrapped-relative so this fallback applies; genuine
-                // absolute `file:` URLs arrive unmarked and skip it.
-                // (Marker plumbing: `SassUrl::mark_wrapped_relative` /
-                // `is_wrapped_relative` in url.rs — added with this fix.)
-                if !url.is_wrapped_relative() {
-                    // Genuine absolute `file:` URL: resolve directly only.
-                    r
-                } else {
-                    // Wrapped-relative fallback under the load path.
-                    let base_dir = ctx
-                        .containing_url_without_marking()
-                        .filter(|b| b.is_file())
-                        .and_then(|b| b.path().rfind('/').map(|i| b.path()[..i + 1].to_string()));
-                    let tail = match base_dir {
-                        Some(dir) if path.starts_with(dir.as_str()) => &path[dir.len()..],
-                        _ => path.strip_prefix('/').unwrap_or(path),
-                    };
-                    let joined = Path::new(load_path).join(tail);
-                    resolve_import_path(&*self.io, &joined.to_string_lossy(), ctx.from_import)
-                        .await?
-                }
-            } else {
-                r
-            }
+            resolve_import_path(&*self.io, &fs_path, ctx.from_import).await?
         } else if url.is_relative() {
             // Scheme-less relative URL. Dart resolves it against the load path
             // (`p.join(loadPath, p.fromUri(url))`); an importer without a load
             // path (noLoadPath) only loads `file:` URLs and URLs relative to the
             // current file, so it must NOT fall back to the current directory.
             if let Some(ref load_path) = self.load_path {
-                let joined = Path::new(load_path).join(url.path());
+                let decoded = crate::url::file_path::decode_relative_path(url.path());
+                let joined = Path::new(load_path).join(decoded);
                 let path_str = joined.to_string_lossy().to_string();
                 let resolved = resolve_import_path(&*self.io, &path_str, ctx.from_import).await?;
                 if resolved.is_some() && self.load_path_deprecated {
@@ -195,7 +160,8 @@ impl FilesystemImporter {
         } else if url.scheme() != "" {
             return Ok(None);
         } else if let Some(ref load_path) = self.load_path {
-            let joined = Path::new(load_path).join(url.path());
+            let decoded = crate::url::file_path::decode_relative_path(url.path());
+            let joined = Path::new(load_path).join(decoded);
             let path_str = joined.to_string_lossy().to_string();
             let resolved = resolve_import_path(&*self.io, &path_str, ctx.from_import).await?;
             if resolved.is_some() && self.load_path_deprecated {
@@ -296,7 +262,6 @@ mod tests {
     use crate::io::DefaultIo;
     use crate::io::VirtualIo;
     use crate::logger::NoOpWarnLogger;
-    use crate::url::resolve_file_path;
     use bumpalo::Bump;
     use std::collections::HashMap;
 
@@ -373,16 +338,12 @@ mod tests {
 
     // Dart resolves `file:` URLs directly only (filesystem.dart:68-90): a
     // genuine absolute `file:` URL never falls back to the load path, while a
-    // wrapped-relative `file:` URL (resolved against a `file:` base by the
-    // import cache) does.
+    // scheme-less relative URL is joined onto the load path.
     #[rust_sass_macros::maybe_test]
     async fn test_absolute_file_url_no_load_path_fallback() {
         let _arena = Bump::new();
         // `/lp/real.scss` exists ONLY under the load path; `/abs/real.scss`
-        // exists ONLY at its absolute location. A relative `@use "real"`
-        // from `/ctx/main.scss` wraps to `file:///ctx/real.scss` (missing
-        // directly) and must fall back to the load path; a genuine absolute
-        // `file:` URL resolves directly only.
+        // exists ONLY at its absolute location.
         let mut files = HashMap::new();
         files.insert("/lp/real.scss".to_string(), "a { b: 1; }".to_string());
         files.insert("/abs/real.scss".to_string(), "a { b: 2; }".to_string());
@@ -392,15 +353,11 @@ mod tests {
         let imp = FilesystemImporter::new("lp", io);
         let ctx_url = SassUrl::parse("file:///ctx/main.scss").unwrap();
 
-        // Wrapped-relative `file:` URL (as the import cache produces for a
-        // relative `@use` from a `file:` base): falls back to the load path.
-        let wrapped = resolve_file_path(&SassUrl::parse("real").unwrap(), &ctx_url).unwrap();
-        assert!(wrapped.is_wrapped_relative());
-        // Sanity: the wrapped path misses directly (no /ctx/real.scss).
-        assert_eq!(wrapped.to_string(), "file:///ctx/real");
+        // Scheme-less relative URL: resolves under the load path.
+        let relative = SassUrl::parse("real").unwrap();
         let mut ctx = CanonicalizeContext::new(Some(ctx_url.clone()), false);
         let result = imp
-            .canonicalize(&wrapped, &mut ctx, &NoOpWarnLogger)
+            .canonicalize(&relative, &mut ctx, &NoOpWarnLogger)
             .await
             .unwrap();
         assert_eq!(
@@ -408,11 +365,19 @@ mod tests {
             Some("file:///lp/real.scss"),
         );
 
+        // An absolute `file:` URL that misses directly does not fall back to
+        // the load path.
+        let missing = SassUrl::parse("file:///ctx/real").unwrap();
+        let mut ctx = CanonicalizeContext::new(Some(ctx_url.clone()), false);
+        let missing_result = imp
+            .canonicalize(&missing, &mut ctx, &NoOpWarnLogger)
+            .await
+            .unwrap();
+        assert!(missing_result.is_none());
+
         // Genuine absolute `file:` URL pointing at an existing file resolves
-        // directly and never consults the load path — even though `/lp` also
-        // contains a same-named file that would shadow under fallback.
+        // directly and never consults the load path.
         let abs_url = SassUrl::parse("file:///abs/real.scss").unwrap();
-        assert!(!abs_url.is_wrapped_relative());
         let mut ctx = CanonicalizeContext::new(Some(ctx_url), false);
         let result = imp
             .canonicalize(&abs_url, &mut ctx, &NoOpWarnLogger)

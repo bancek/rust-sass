@@ -232,17 +232,14 @@ impl<'compile: 'parse, 'parse> ImportCache<'compile, 'parse> {
         }
         // Matches Dart (import_cache.dart:165-187): whenever a scheme-less
         // (relative) URL is loaded, the base importer is tried first with the
-        // URL resolved against the base URL (if any). Rust stores relative URLs
-        // as `sass-relative:` with an empty `scheme()`, so this generalizes the
-        // old file-only handling to any base URL (e.g. an entrypoint importer
-        // with a `u:` scheme). File bases keep the path-based `resolve_file_path`
-        // (which preserves `..`); other bases resolve via `SassUrl::resolve`.
+        // URL resolved against the base URL (if any). File bases use
+        // `resolve_file_path`; other bases use `SassUrl::resolve`.
         if let Some(base_imp) = base_importer {
             if url.scheme().is_empty() {
                 let resolved_url = if url.is_file_like() && base_url.is_some_and(|b| b.is_file()) {
                     resolve_file_path(url, base_url.unwrap()).unwrap_or_else(|| url.clone())
                 } else if let Some(base) = base_url {
-                    base.resolve(url.path()).unwrap_or_else(|| url.clone())
+                    base.resolve(url.path()).unwrap_or_else(|_| url.clone())
                 } else {
                     url.clone()
                 };
@@ -490,7 +487,7 @@ impl<'compile: 'parse, 'parse> ImportCache<'compile, 'parse> {
         let resolved_url = match original_url {
             Some(orig) => orig
                 .resolve(canonical_url.as_str())
-                .unwrap_or_else(|| canonical_url.clone()),
+                .unwrap_or_else(|_| canonical_url.clone()),
             None => canonical_url.clone(),
         };
 
@@ -550,7 +547,7 @@ impl<'compile: 'parse, 'parse> ImportCache<'compile, 'parse> {
                     .file_name()
                     .map(|n| n.to_str().unwrap_or(""))
                     .unwrap_or("");
-                if let Some(resolved) = cr.original_url.resolve(base) {
+                if let Ok(resolved) = cr.original_url.resolve(base) {
                     return resolved.to_string();
                 }
                 canonical_url.to_string()
@@ -864,8 +861,7 @@ mod tests {
             std::fs::write(base.join(sub).join("x.scss"), "").unwrap();
         }
         std::fs::write(base.join("main.scss"), "").unwrap();
-        let f =
-            |p: &str| SassUrl::parse(&format!("file://{}/{}", base.to_string_lossy(), p)).unwrap();
+        let f = |p: &str| SassUrl::file_url_from_abs_path(&base.join(p).to_string_lossy()).unwrap();
 
         let fs_imp = make_fs_importer(&arena, Rc::clone(&io));
         let probe = Rc::new(ContainingUrlProbeImporter {
@@ -1067,11 +1063,9 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         std::fs::create_dir_all(dir.path().join("sub")).unwrap();
         std::fs::write(dir.path().join("sub").join("y.scss"), "a { b: c; }").unwrap();
-        let base = SassUrl::parse(&format!(
-            "file://{}/sub/test.scss",
-            dir.path().to_string_lossy()
-        ))
-        .unwrap();
+        let base =
+            SassUrl::file_url_from_abs_path(&dir.path().join("sub/test.scss").to_string_lossy())
+                .unwrap();
 
         let arena = Bump::new();
         let io = make_io();
@@ -1118,11 +1112,9 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         std::fs::create_dir_all(dir.path().join("sub")).unwrap();
         std::fs::write(dir.path().join("sub").join("y.scss"), "a { b: c; }").unwrap();
-        let base = SassUrl::parse(&format!(
-            "file://{}/sub/test.scss",
-            dir.path().to_string_lossy()
-        ))
-        .unwrap();
+        let base =
+            SassUrl::file_url_from_abs_path(&dir.path().join("sub/test.scss").to_string_lossy())
+                .unwrap();
 
         let arena = Bump::new();
         let io = make_io();
