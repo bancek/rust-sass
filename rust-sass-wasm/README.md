@@ -44,7 +44,7 @@ npx sass input.scss output.css
 
 ## Versioning
 
-Version tracks [dart-sass](https://github.com/sass/dart-sass) (`1.105.0`).
+Version tracks [dart-sass](https://github.com/sass/dart-sass) (`1.105.1`).
 
 ## Links
 

@@ -352,7 +352,7 @@ presence flag — the real importer lives in `ImporterKind::NodePackage`). See
 Three consumer-facing surfaces are built on the compiler:
 
 - **`rust-sass-embedded`** serves the Sass embedded protocol (version 3.3.0,
-  compiler version 1.105.0, implementation name `"dart-sass"`) over stdio. See
+  compiler version 1.105.1, implementation name `"dart-sass"`) over stdio. See
   `ref/embedded.md`.
 - **`rust-sass-wasm`** exposes the modern JS API via wasm-bindgen and
   serde-wasm-bindgen, from the same source tree as two artifacts (a zero-future

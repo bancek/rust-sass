@@ -1,9 +1,16 @@
 # Changelog
 
-Release history. Tags track the pinned dart-sass version (`v1.105.0`); the
+Release history. Tags track the pinned dart-sass version (`v1.105.1`); the
 procedure lives in [`docs/release.md`](docs/release.md).
 
 ## Unreleased
+
+## 1.105.1
+
+- Improved `@extend` error messages across media queries, with multi-span
+  labels matching dart-sass 1.105.1.
+- Span-boundary fixes for selectors and media queries, including interpolation
+  spans that could swallow an entire media block on error.
 
 ## 1.105.0
 
