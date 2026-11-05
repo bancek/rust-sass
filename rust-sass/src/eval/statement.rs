@@ -1131,31 +1131,40 @@ where
             *module
         };
 
+        let mut seen_upstream: HashSet<Module<'compile, 'parse>> = HashSet::new();
         for upstream in mod_.upstream() {
-            if upstream.transitively_contains_css() {
-                if let Some(comments) = mod_.pre_module_comments().get(&upstream) {
-                    if !comments.is_empty() {
-                        let nodes: Vec<ModifiableCssNode<'parse>> = comments
-                            .iter()
-                            .map(|c| {
-                                ModifiableCssNode::new(
-                                    arena,
-                                    ModifiableCssNodeKind::Comment(ModifiableCssComment::new(
-                                        c.text.clone(),
-                                        c.span,
-                                    )),
-                                )
-                            })
-                            .collect();
-                        if css.is_empty() {
-                            imports.extend(nodes);
-                        } else {
-                            css.extend(nodes);
-                        }
+            if !upstream.transitively_contains_css() {
+                continue;
+            }
+
+            // A downstream module can load the same upstream module multiple
+            // times, but we only track pre-module comments for the first load.
+            if !seen_upstream.insert(upstream) {
+                continue;
+            }
+
+            if let Some(comments) = mod_.pre_module_comments().get(&upstream) {
+                if !comments.is_empty() {
+                    let nodes: Vec<ModifiableCssNode<'parse>> = comments
+                        .iter()
+                        .map(|c| {
+                            ModifiableCssNode::new(
+                                arena,
+                                ModifiableCssNodeKind::Comment(ModifiableCssComment::new(
+                                    c.text.clone(),
+                                    c.span,
+                                )),
+                            )
+                        })
+                        .collect();
+                    if css.is_empty() {
+                        imports.extend(nodes);
+                    } else {
+                        css.extend(nodes);
                     }
                 }
-                visit(arena, &upstream, imports, css, sorted, seen, clone)?;
             }
+            visit(arena, &upstream, imports, css, sorted, seen, clone)?;
         }
 
         sorted.push_front(mod_);
@@ -3553,7 +3562,6 @@ where
                 configuration.node_span(),
             )));
         }
-        register_comments_for_module(state, built_in)?;
         add_exception_span(config, state, node.span, None, async |_, s| {
             s.env
                 .add_module(*built_in, node.span, node.namespace.as_deref())
@@ -3627,6 +3635,9 @@ where
                 // Dart `_loadModule` evaluates the module inside `_addExceptionTrace`
                 // while the `@use` frame is active, so module-eval errors get a
                 // trace that includes this frame.
+                let first_load = sheet_url
+                    .as_ref()
+                    .is_none_or(|key| key.is_empty() || !s.modules.contains_key(key));
                 let module = add_exception_trace(s, async |s2| {
                     evaluate_module(
                         c,
@@ -3641,7 +3652,9 @@ where
                     .await
                 })
                 .await?;
-                register_comments_for_module(s, &module)?;
+                if first_load {
+                    register_comments_for_module(s, &module)?;
+                }
                 add_exception_span(c, s, node.span, Some(false), async |_, s2| {
                     s2.env
                         .add_module(module, node.span, node.namespace.as_deref())
@@ -3780,7 +3793,6 @@ where
                 Some(node.span),
             )));
         }
-        register_comments_for_module(state, built_in)?;
         state
             .env
             .forward_module(arena, *built_in, node, node.span)?;
@@ -3835,6 +3847,9 @@ where
 
             let result: SassResult<Option<Value<'parse>>> = async {
                 if let Some(ref mut new_config) = forward_config {
+                    let first_load = sheet_url
+                        .as_ref()
+                        .is_none_or(|key| key.is_empty() || !s.modules.contains_key(key));
                     let module = evaluate_module(
                         c,
                         s,
@@ -3846,7 +3861,9 @@ where
                         false,
                     )
                     .await?;
-                    register_comments_for_module(s, &module)?;
+                    if first_load {
+                        register_comments_for_module(s, &module)?;
+                    }
                     s.env.forward_module(arena, module, node, node.span)?;
 
                     let except: HashSet<String> = node
@@ -3869,6 +3886,9 @@ where
                     }
                 } else {
                     s.configuration = adjusted.clone();
+                    let first_load = sheet_url
+                        .as_ref()
+                        .is_none_or(|key| key.is_empty() || !s.modules.contains_key(key));
                     let module = evaluate_module(
                         c,
                         s,
@@ -3880,7 +3900,9 @@ where
                         false,
                     )
                     .await?;
-                    register_comments_for_module(s, &module)?;
+                    if first_load {
+                        register_comments_for_module(s, &module)?;
+                    }
                     s.env.forward_module(arena, module, node, node.span)?;
                     s.configuration = old_configuration.clone();
                 }
@@ -5153,6 +5175,60 @@ mod tests {
         .await
         .unwrap();
         assert!(result.css().contains("e: f;"), "got: {}", result.css());
+    }
+
+    #[rust_sass_macros::maybe_test]
+    async fn test_repeated_use_only_registers_pre_module_comments_once() {
+        // Dart only calls `_registerCommentsForModule` when `firstLoad` is
+        // true. Without that guard, a comment between two `@use`s of the same
+        // module is hoisted above the module's CSS.
+        let arena = Bump::new();
+        let mut files = HashMap::new();
+        files.insert("/other.scss".to_string(), "a {b: c}".to_string());
+        let io: Rc<dyn Io> = Rc::new(VirtualIo::with_files(files));
+        let mut opts = CompileOptions::new(&arena);
+        opts.url = Some(SassUrl::parse("file:///input.scss").unwrap());
+        let css = compile_string(
+            "@use \"other\" as *;\n/* between */\n@use \"other\" as *;\n",
+            io,
+            opts,
+            &arena,
+        )
+        .await
+        .unwrap()
+        .css()
+        .to_string();
+        let between = css.find("/* between */").expect("comment was dropped");
+        let rule = css.find("a {").expect("rule was dropped");
+        assert!(between > rule, "comment hoisted above CSS: {css}");
+    }
+
+    #[rust_sass_macros::maybe_test]
+    async fn test_combine_css_repeated_use_does_not_duplicate_comments() {
+        // Regression test for dart-sass#2851: a module loaded twice must only
+        // contribute its pre-module comments on the first load.
+        let arena = Bump::new();
+        let mut files = HashMap::new();
+        files.insert("/other.scss".to_string(), "a {b: c}".to_string());
+        let io: Rc<dyn Io> = Rc::new(VirtualIo::with_files(files));
+        let mut opts = CompileOptions::new(&arena);
+        opts.url = Some(SassUrl::parse("file:///input.scss").unwrap());
+        let result = compile_string(
+            "/* before */\n@use \"other\" as *;\n/* between */\n@use \"other\" as *;\n/* after */\n",
+            io,
+            opts,
+            &arena,
+        )
+        .await
+        .unwrap();
+        // The expanded serializer separates top-level blocks with a blank
+        // line; the spec harness normalizes consecutive newlines, so compare
+        // the same way here.
+        let normalized = result.css().replace("\n\n", "\n");
+        assert_eq!(
+            normalized.trim(),
+            "/* before */\na {\n  b: c;\n}\n/* between */\n/* after */"
+        );
     }
 
     #[rust_sass_macros::maybe_test]
