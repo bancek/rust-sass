@@ -41,7 +41,6 @@ use crate::callable::BuiltInCallback;
 use crate::callable::{Callable, CallableKind, UserDefinedCallable};
 use crate::common::pretty_uri::pretty_uri;
 use crate::common::span::Span;
-use crate::common::span_error::SpanError;
 use crate::eval::importer::Importer;
 use crate::extend::{ExtendMode, Extension, StoreBox};
 use crate::parse::keyframe_selector::KeyframeSelectorParser;
@@ -844,17 +843,7 @@ where
         }
         let trimmed = complex.to_css_string(true)?.trim().to_string();
         let comp_span = complex.span()?;
-        let trimmed_span = comp_span.trim_right().map_err(|e| match e {
-            SpanError::Argument(msg) => Box::new(SassError::Script {
-                message: msg,
-                argument_name: None,
-            }),
-            SpanError::Range(msg) => Box::new(SassError::Script {
-                message: msg,
-                argument_name: None,
-            }),
-            SpanError::Sass(s) => s,
-        })?;
+        let trimmed_span = comp_span;
 
         if complex.is_useless() {
             warn_deprecation_span(
@@ -2569,17 +2558,7 @@ where
         }
         let trimmed = complex.to_css_string(true)?.trim().to_string();
         let comp_span = complex.span()?;
-        let trimmed_span = comp_span.trim_right().map_err(|e| match e {
-            SpanError::Argument(msg) => Box::new(SassError::Script {
-                message: msg,
-                argument_name: None,
-            }),
-            SpanError::Range(msg) => Box::new(SassError::Script {
-                message: msg,
-                argument_name: None,
-            }),
-            SpanError::Sass(s) => s,
-        })?;
+        let trimmed_span = comp_span;
         let msg = format!(
             "The selector \"{}\" is invalid CSS and {} be an extender.\n\
              This will be an error in Dart Sass 2.0.0.\n\n\
@@ -5070,8 +5049,9 @@ mod tests {
             indexmap::IndexMap::new(),
         )));
 
-        let child_sel = Interpolation::plain("> .child".into(), Span::File(span));
-        let child_rule = StyleRule::new(child_sel, vec![], span);
+        let child_span = make_span(&arena, "> .child");
+        let child_sel = Interpolation::plain("> .child".into(), Span::File(child_span));
+        let child_rule = StyleRule::new(child_sel, vec![], child_span);
         let err = evaluate_style_rule(&config, &mut state, &arena, &child_rule)
             .await
             .unwrap_err();

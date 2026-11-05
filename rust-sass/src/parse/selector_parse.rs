@@ -20,7 +20,7 @@ use bumpalo::Bump;
 use std::rc::Rc;
 
 use crate::common::ast_css_value::CssValue;
-use crate::common::exception::SassResult;
+use crate::common::exception::{SassError, SassResult};
 use crate::common::source_span_file_source::FileSource;
 use crate::common::span::Span;
 use crate::deprecation::ADJACENT_COMPOUNDS;
@@ -47,9 +47,27 @@ use crate::parse::parser::{
     declaration_value_impl, error_impl, expect_ident_char_impl, expect_identifier_impl,
     identifier_body_impl, identifier_impl, looking_at_identifier, looking_at_identifier_body,
     scan_ident_char_impl, span_from_impl, string_impl, whitespace_impl,
-    wrap_span_format_exception_impl, ParseResult, Parser, ParserState,
+    wrap_span_format_exception_impl, ParseError, ParseResult, Parser, ParserState,
 };
 use crate::parse::stylesheet::Syntax;
+
+/// Returns the span from `start` to the scanner's current position with
+/// trailing whitespace trimmed.
+///
+/// Matches Dart's `spanFrom(start).trimRight()` in the selector parser.
+fn trimmed_span<'parse>(
+    scanner: &SpanScanner<'parse>,
+    state: &ParserState<'parse>,
+    start: crate::common::span_scanner::LineScannerState,
+) -> ParseResult<'parse, crate::common::file_span::FileSpan<'parse>> {
+    let span = span_from_impl(scanner, state, start)?
+        .trim_right()
+        .map_err(|e| {
+            let sass: Box<SassError> = e.into();
+            Box::new(ParseError::from(sass))
+        })?;
+    Ok(span.file_span()?)
+}
 
 // Pseudo-class selectors that take unadorned selectors as arguments.
 //
@@ -324,8 +342,7 @@ pub(crate) fn selector_list_impl<'compile: 'parse, 'parse>(
         components.push(cs);
     }
 
-    let span = span_from_impl(scanner, state, start)?;
-    let file_span = span.file_span()?;
+    let file_span = trimmed_span(scanner, state, start)?;
     Ok(SelectorList::new(arena, components, file_span)?)
 }
 
@@ -406,7 +423,7 @@ fn complex_selector_impl<'compile: 'parse, 'parse>(
                     last_compound.is_some() && combinators.is_empty() && !consumed_whitespace;
 
                 if let Some(ref lc) = last_compound {
-                    let comp_span = span_from_impl(scanner, state, component_start)?.file_span()?;
+                    let comp_span = trimmed_span(scanner, state, component_start)?;
                     let comp = ComplexSelectorComponent::new(
                         Box::new(lc.clone()),
                         std::mem::take(&mut combinators),
@@ -462,7 +479,7 @@ fn complex_selector_impl<'compile: 'parse, 'parse>(
             scanner.error("expected selector.", None, 0).into(),
         ));
     } else if let Some(lc) = last_compound {
-        let comp_span = span_from_impl(scanner, state, component_start)?.file_span()?;
+        let comp_span = trimmed_span(scanner, state, component_start)?;
         let comp = ComplexSelectorComponent::new(
             Box::new(lc),
             std::mem::take(&mut combinators),
@@ -477,7 +494,7 @@ fn complex_selector_impl<'compile: 'parse, 'parse>(
         ));
     }
 
-    let span = span_from_impl(scanner, state, start)?.file_span()?;
+    let span = trimmed_span(scanner, state, start)?;
     Ok(ComplexSelector::new(
         initial_combinators,
         components,
@@ -1064,6 +1081,20 @@ mod tests {
         let mut parser = make_parser(&arena, ".foo");
         let list = parser.parse().unwrap();
         assert_eq!(list.0.components.len(), 1);
+    }
+
+    #[rust_sass_macros::maybe_test]
+    async fn test_selector_spans_exclude_trailing_whitespace() {
+        // Matches Dart 2ac45157: `spanFrom(start).trimRight()` applies to the
+        // SelectorList, ComplexSelector, and ComplexSelectorComponent spans,
+        // so downstream messages never highlight trailing whitespace.
+        let arena = Bump::new();
+        let mut parser = make_parser(&arena, ".a  ");
+        let list = parser.parse().unwrap();
+        assert_eq!(list.span().unwrap().text(), ".a");
+        let complex = &list.0.components[0];
+        assert_eq!(complex.span.text(), ".a");
+        assert_eq!(complex.components[0].span.text(), ".a");
     }
 
     #[test]
