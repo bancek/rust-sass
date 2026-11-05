@@ -8,6 +8,8 @@
 // go-source: go/value/css_media_query.go
 
 use crate::ast::sass::interpolation_map::InterpolationMap;
+use crate::common::ast_node::AstNode;
+use crate::common::file_span::FileSpan;
 use crate::common::source_span_file_source::FileSource;
 use crate::parse::media_query::CssMediaQueryParser;
 use std::fmt;
@@ -17,7 +19,10 @@ use crate::common::exception::SassResult;
 
 /// A plain CSS media query, as used in `@media` and `@import`.
 #[derive(Clone, Debug)]
-pub struct CssMediaQuery {
+pub struct CssMediaQuery<'parse> {
+    /// The source span of this query.
+    pub span: FileSpan<'parse>,
+
     /// The modifier, probably either "not" or "only".
     ///
     /// This may be `None` if no modifier is in use.
@@ -46,16 +51,24 @@ pub struct CssMediaQuery {
     pub conditions: Vec<String>,
 }
 
-impl CssMediaQuery {
+impl<'parse> AstNode<'parse> for CssMediaQuery<'parse> {
+    fn span(&self) -> SassResult<FileSpan<'parse>> {
+        Ok(self.span)
+    }
+}
+
+impl<'parse> CssMediaQuery<'parse> {
     /// Creates a media query that specifies a type and, optionally, conditions.
     ///
     /// This always sets `conjunction` to `true`.
     pub fn new_type(
         media_type: Option<String>,
+        span: FileSpan<'parse>,
         modifier: Option<String>,
         conditions: Vec<String>,
     ) -> Self {
         CssMediaQuery {
+            span,
             modifier,
             media_type,
             conjunction: true,
@@ -70,6 +83,7 @@ impl CssMediaQuery {
     /// than a single element.
     pub fn new_condition(
         conditions: Vec<String>,
+        span: FileSpan<'parse>,
         conjunction: Option<bool>,
     ) -> Result<Self, String> {
         if conjunction.is_none() && conditions.len() > 1 {
@@ -79,11 +93,40 @@ impl CssMediaQuery {
             );
         }
         Ok(CssMediaQuery {
+            span,
             modifier: None,
             media_type: None,
             conjunction: conjunction.unwrap_or(true),
             conditions,
         })
+    }
+
+    /// Test-only constructor with a bogus span.
+    #[cfg(test)]
+    pub fn test_type(
+        media_type: Option<String>,
+        modifier: Option<String>,
+        conditions: Vec<String>,
+    ) -> Self {
+        Self::new_type(
+            media_type,
+            crate::common::file_span::BOGUS_SPAN,
+            modifier,
+            conditions,
+        )
+    }
+
+    /// Test-only constructor with a bogus span.
+    #[cfg(test)]
+    pub fn test_condition(
+        conditions: Vec<String>,
+        conjunction: Option<bool>,
+    ) -> Result<Self, String> {
+        Self::new_condition(
+            conditions,
+            crate::common::file_span::BOGUS_SPAN,
+            conjunction,
+        )
     }
 
     /// Returns whether this media query matches all media types.
@@ -97,7 +140,7 @@ impl CssMediaQuery {
 
     /// Merges this with `other` to return a query that matches the intersection
     /// of both inputs.
-    pub fn merge(&self, other: &CssMediaQuery) -> MediaQueryMergeResult {
+    pub fn merge(&self, other: &CssMediaQuery<'parse>) -> MediaQueryMergeResult<'parse> {
         if !self.conjunction || !other.conjunction {
             return MediaQueryMergeResult::Unrepresentable;
         }
@@ -113,6 +156,7 @@ impl CssMediaQuery {
             conditions.extend_from_slice(&other.conditions);
             return MediaQueryMergeResult::Successful(Box::new(MediaQuerySuccessfulMergeResult {
                 query: CssMediaQuery {
+                    span: self.span,
                     modifier: None,
                     media_type: None,
                     conjunction: true,
@@ -208,6 +252,7 @@ impl CssMediaQuery {
 
         MediaQueryMergeResult::Successful(Box::new(MediaQuerySuccessfulMergeResult {
             query: CssMediaQuery {
+                span: self.span,
                 modifier,
                 media_type,
                 conjunction: true,
@@ -223,7 +268,7 @@ fn all_contained(needles: &[String], haystack: &[String]) -> bool {
 
 /// Equality for `CssMediaQuery` ignores the `conjunction` field, matching
 /// Dart's `operator ==` (modifier, type, conditions only).
-impl PartialEq for CssMediaQuery {
+impl PartialEq for CssMediaQuery<'_> {
     fn eq(&self, other: &Self) -> bool {
         self.modifier == other.modifier
             && self.media_type == other.media_type
@@ -231,12 +276,12 @@ impl PartialEq for CssMediaQuery {
     }
 }
 
-impl Eq for CssMediaQuery {}
+impl Eq for CssMediaQuery<'_> {}
 
 /// Hash for `CssMediaQuery` excludes the `conjunction` field, matching Dart's
 /// `hashCode` (`modifier.hashCode ^ type.hashCode ^ listHash(conditions)`)
 /// — and therefore the `PartialEq` contract (Dart `==` also ignores it).
-impl Hash for CssMediaQuery {
+impl Hash for CssMediaQuery<'_> {
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.modifier.hash(state);
         self.media_type.hash(state);
@@ -244,7 +289,7 @@ impl Hash for CssMediaQuery {
     }
 }
 
-impl fmt::Display for CssMediaQuery {
+impl fmt::Display for CssMediaQuery<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         if let Some(ref m) = self.modifier {
             write!(f, "{} ", m)?;
@@ -272,7 +317,7 @@ impl fmt::Display for CssMediaQuery {
 
 /// The result of merging two media queries.
 #[derive(Clone, Debug, PartialEq)]
-pub enum MediaQueryMergeResult {
+pub enum MediaQueryMergeResult<'parse> {
     /// A singleton value indicating that there are no contexts that match both
     /// input queries.
     Empty,
@@ -282,17 +327,17 @@ pub enum MediaQueryMergeResult {
     Unrepresentable,
 
     /// A successful result of merging two media queries.
-    Successful(Box<MediaQuerySuccessfulMergeResult>),
+    Successful(Box<MediaQuerySuccessfulMergeResult<'parse>>),
 }
 
 /// A successful merge result.
 #[derive(Clone, Debug, PartialEq)]
-pub struct MediaQuerySuccessfulMergeResult {
+pub struct MediaQuerySuccessfulMergeResult<'parse> {
     /// The merged media query.
-    pub query: CssMediaQuery,
+    pub query: CssMediaQuery<'parse>,
 }
 
-impl fmt::Display for MediaQuerySuccessfulMergeResult {
+impl fmt::Display for MediaQuerySuccessfulMergeResult<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.query)
     }
@@ -307,9 +352,11 @@ impl fmt::Display for MediaQuerySuccessfulMergeResult {
 /// If passed, `url` is the name of the file from which `contents` comes.
 ///
 /// Matches Dart: `CssMediaQuery.parseList`
-pub fn parse_list(contents: &str) -> SassResult<Vec<CssMediaQuery>> {
-    let arena = bumpalo::Bump::new();
-    let source = FileSource::new_in(&arena, contents, None);
+pub fn parse_list<'parse>(
+    arena: &'parse bumpalo::Bump,
+    contents: &str,
+) -> SassResult<Vec<CssMediaQuery<'parse>>> {
+    let source = FileSource::new_in(arena, contents, None);
     let mut parser = CssMediaQueryParser::new(source);
     parser.parse().map_err(Into::into)
 }
@@ -321,7 +368,7 @@ pub fn parse_list_with_map<'map>(
     arena: &'map bumpalo::Bump,
     contents: &str,
     interpolation_map: Option<&'map InterpolationMap<'map>>,
-) -> SassResult<Vec<CssMediaQuery>> {
+) -> SassResult<Vec<CssMediaQuery<'map>>> {
     let source = FileSource::new_in(arena, contents, None);
     let mut parser = CssMediaQueryParser::new_with_map(source, interpolation_map);
     parser.parse().map_err(Into::into)
@@ -334,6 +381,7 @@ pub fn parse_list_with_map<'map>(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::common::file_span::BOGUS_SPAN;
     use std::collections::hash_map::DefaultHasher;
 
     fn screen() -> Option<String> {
@@ -355,11 +403,26 @@ mod tests {
         s.iter().map(|s| s.to_string()).collect()
     }
 
+    fn mk_type<'parse>(
+        media_type: Option<String>,
+        modifier: Option<String>,
+        conditions: Vec<String>,
+    ) -> CssMediaQuery<'parse> {
+        CssMediaQuery::new_type(media_type, BOGUS_SPAN, modifier, conditions)
+    }
+
+    fn mk_cond<'parse>(
+        conditions: Vec<String>,
+        conjunction: Option<bool>,
+    ) -> Result<CssMediaQuery<'parse>, String> {
+        CssMediaQuery::new_condition(conditions, BOGUS_SPAN, conjunction)
+    }
+
     // ---- Constructor tests ----
 
     #[test]
     fn test_new_type_basic() {
-        let q = CssMediaQuery::new_type(screen(), None, vec![]);
+        let q = mk_type(screen(), None, vec![]);
         assert!(q.modifier.is_none());
         assert_eq!(q.media_type, screen());
         assert!(q.conjunction);
@@ -368,14 +431,14 @@ mod tests {
 
     #[test]
     fn test_new_type_with_modifier() {
-        let q = CssMediaQuery::new_type(screen(), Some("only".to_string()), vec![]);
+        let q = mk_type(screen(), Some("only".to_string()), vec![]);
         assert_eq!(q.modifier, Some("only".to_string()));
         assert_eq!(q.media_type, screen());
     }
 
     #[test]
     fn test_new_type_with_conditions() {
-        let q = CssMediaQuery::new_type(screen(), None, conds(&["(min-width: 700px)", "(color)"]));
+        let q = mk_type(screen(), None, conds(&["(min-width: 700px)", "(color)"]));
         assert_eq!(q.conditions.len(), 2);
         assert_eq!(q.conditions[0], "(min-width: 700px)");
         assert_eq!(q.conditions[1], "(color)");
@@ -383,7 +446,7 @@ mod tests {
 
     #[test]
     fn test_new_condition_single() {
-        let q = CssMediaQuery::new_condition(cond("(color)"), None).unwrap();
+        let q = mk_cond(cond("(color)"), None).unwrap();
         assert!(q.modifier.is_none());
         assert!(q.media_type.is_none());
         assert!(q.conjunction);
@@ -392,22 +455,20 @@ mod tests {
 
     #[test]
     fn test_new_condition_multi_with_conjunction() {
-        let q = CssMediaQuery::new_condition(conds(&["(color)", "(min-width: 700px)"]), Some(true))
-            .unwrap();
+        let q = mk_cond(conds(&["(color)", "(min-width: 700px)"]), Some(true)).unwrap();
         assert!(q.conjunction);
         assert_eq!(q.conditions.len(), 2);
     }
 
     #[test]
     fn test_new_condition_multi_disjunction() {
-        let q =
-            CssMediaQuery::new_condition(conds(&["(color)", "(monochrome)"]), Some(false)).unwrap();
+        let q = mk_cond(conds(&["(color)", "(monochrome)"]), Some(false)).unwrap();
         assert!(!q.conjunction);
     }
 
     #[test]
     fn test_new_condition_multi_nil_conjunction_error() {
-        let result = CssMediaQuery::new_condition(conds(&["(a)", "(b)"]), None);
+        let result = mk_cond(conds(&["(a)", "(b)"]), None);
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("conjunction may not be null"));
     }
@@ -416,31 +477,31 @@ mod tests {
 
     #[test]
     fn test_matches_all_types_nil_type() {
-        let q = CssMediaQuery::new_condition(cond("(color)"), None).unwrap();
+        let q = mk_cond(cond("(color)"), None).unwrap();
         assert!(q.matches_all_types());
     }
 
     #[test]
     fn test_matches_all_types_all_lower() {
-        let q = CssMediaQuery::new_type(all(), None, vec![]);
+        let q = mk_type(all(), None, vec![]);
         assert!(q.matches_all_types());
     }
 
     #[test]
     fn test_matches_all_types_all_upper() {
-        let q = CssMediaQuery::new_type(Some("ALL".to_string()), None, vec![]);
+        let q = mk_type(Some("ALL".to_string()), None, vec![]);
         assert!(q.matches_all_types());
     }
 
     #[test]
     fn test_matches_all_types_all_mixed() {
-        let q = CssMediaQuery::new_type(Some("aLl".to_string()), None, vec![]);
+        let q = mk_type(Some("aLl".to_string()), None, vec![]);
         assert!(q.matches_all_types());
     }
 
     #[test]
     fn test_matches_all_types_screen() {
-        let q = CssMediaQuery::new_type(screen(), None, vec![]);
+        let q = mk_type(screen(), None, vec![]);
         assert!(!q.matches_all_types());
     }
 
@@ -448,51 +509,50 @@ mod tests {
 
     #[test]
     fn test_display_type_only() {
-        let q = CssMediaQuery::new_type(screen(), None, vec![]);
+        let q = mk_type(screen(), None, vec![]);
         assert_eq!(q.to_string(), "screen");
     }
 
     #[test]
     fn test_display_modifier_type() {
-        let q = CssMediaQuery::new_type(screen(), Some("only".to_string()), vec![]);
+        let q = mk_type(screen(), Some("only".to_string()), vec![]);
         assert_eq!(q.to_string(), "only screen");
     }
 
     #[test]
     fn test_display_type_and_conditions() {
-        let q = CssMediaQuery::new_type(screen(), None, conds(&["(min-width: 700px)", "(color)"]));
+        let q = mk_type(screen(), None, conds(&["(min-width: 700px)", "(color)"]));
         assert_eq!(q.to_string(), "screen and (min-width: 700px) and (color)");
     }
 
     #[test]
     fn test_display_modifier_type_and_conditions() {
-        let q = CssMediaQuery::new_type(screen(), not(), cond("(color)"));
+        let q = mk_type(screen(), not(), cond("(color)"));
         assert_eq!(q.to_string(), "not screen and (color)");
     }
 
     #[test]
     fn test_display_conditions_only_and() {
-        let q = CssMediaQuery::new_condition(conds(&["(min-width: 700px)", "(color)"]), Some(true))
-            .unwrap();
+        let q = mk_cond(conds(&["(min-width: 700px)", "(color)"]), Some(true)).unwrap();
         assert_eq!(q.to_string(), "(min-width: 700px) and (color)");
     }
 
     #[test]
     fn test_display_conditions_only_or() {
-        let q =
-            CssMediaQuery::new_condition(conds(&["(color)", "(monochrome)"]), Some(false)).unwrap();
+        let q = mk_cond(conds(&["(color)", "(monochrome)"]), Some(false)).unwrap();
         assert_eq!(q.to_string(), "(color) or (monochrome)");
     }
 
     #[test]
     fn test_display_single_condition() {
-        let q = CssMediaQuery::new_condition(cond("(color)"), None).unwrap();
+        let q = mk_cond(cond("(color)"), None).unwrap();
         assert_eq!(q.to_string(), "(color)");
     }
 
     #[test]
     fn test_display_empty() {
         let q = CssMediaQuery {
+            span: BOGUS_SPAN,
             modifier: None,
             media_type: None,
             conjunction: true,
@@ -505,50 +565,51 @@ mod tests {
 
     #[test]
     fn test_eq_identical() {
-        let a = CssMediaQuery::new_type(screen(), None, cond("(color)"));
-        let b = CssMediaQuery::new_type(screen(), None, cond("(color)"));
+        let a = mk_type(screen(), None, cond("(color)"));
+        let b = mk_type(screen(), None, cond("(color)"));
         assert_eq!(a, b);
     }
 
     #[test]
     fn test_eq_different_type() {
-        let a = CssMediaQuery::new_type(screen(), None, vec![]);
-        let b = CssMediaQuery::new_type(print(), None, vec![]);
+        let a = mk_type(screen(), None, vec![]);
+        let b = mk_type(print(), None, vec![]);
         assert_ne!(a, b);
     }
 
     #[test]
     fn test_eq_one_nil_type() {
-        let a = CssMediaQuery::new_type(screen(), None, vec![]);
-        let b = CssMediaQuery::new_condition(cond("(color)"), None).unwrap();
+        let a = mk_type(screen(), None, vec![]);
+        let b = mk_cond(cond("(color)"), None).unwrap();
         assert_ne!(a, b);
     }
 
     #[test]
     fn test_eq_both_nil_type() {
-        let a = CssMediaQuery::new_condition(cond("(color)"), None).unwrap();
-        let b = CssMediaQuery::new_condition(cond("(color)"), None).unwrap();
+        let a = mk_cond(cond("(color)"), None).unwrap();
+        let b = mk_cond(cond("(color)"), None).unwrap();
         assert_eq!(a, b);
     }
 
     #[test]
     fn test_eq_different_conditions() {
-        let a = CssMediaQuery::new_condition(cond("(color)"), None).unwrap();
-        let b = CssMediaQuery::new_condition(cond("(min-width: 700px)"), None).unwrap();
+        let a = mk_cond(cond("(color)"), None).unwrap();
+        let b = mk_cond(cond("(min-width: 700px)"), None).unwrap();
         assert_ne!(a, b);
     }
 
     #[test]
     fn test_eq_different_condition_order() {
-        let a = CssMediaQuery::new_type(screen(), None, conds(&["(color)", "(grid)"]));
-        let b = CssMediaQuery::new_type(screen(), None, conds(&["(grid)", "(color)"]));
+        let a = mk_type(screen(), None, conds(&["(color)", "(grid)"]));
+        let b = mk_type(screen(), None, conds(&["(grid)", "(color)"]));
         assert_ne!(a, b);
     }
 
     #[test]
     fn test_eq_ignores_conjunction() {
-        let a = CssMediaQuery::new_type(screen(), None, cond("(color)"));
+        let a = mk_type(screen(), None, cond("(color)"));
         let b = CssMediaQuery {
+            span: BOGUS_SPAN,
             modifier: None,
             media_type: screen(),
             conjunction: false,
@@ -567,14 +628,14 @@ mod tests {
 
     #[test]
     fn test_hash_equal_queries() {
-        let a = CssMediaQuery::new_type(screen(), None, cond("(color)"));
-        let b = CssMediaQuery::new_type(screen(), None, cond("(color)"));
+        let a = mk_type(screen(), None, cond("(color)"));
+        let b = mk_type(screen(), None, cond("(color)"));
         assert_eq!(hash_of(&a), hash_of(&b));
     }
 
     #[test]
     fn test_hash_stable() {
-        let q = CssMediaQuery::new_type(screen(), None, cond("(color)"));
+        let q = mk_type(screen(), None, cond("(color)"));
         assert_eq!(hash_of(&q), hash_of(&q));
     }
 
@@ -589,8 +650,9 @@ mod tests {
             q.hash(&mut h);
             h.finish()
         };
-        let a = CssMediaQuery::new_type(screen(), None, cond("(color)"));
+        let a = mk_type(screen(), None, cond("(color)"));
         let b = CssMediaQuery {
+            span: BOGUS_SPAN,
             modifier: None,
             media_type: screen(),
             conjunction: false,
@@ -608,8 +670,8 @@ mod tests {
 
     #[test]
     fn test_merge_both_nil_type() {
-        let a = CssMediaQuery::new_condition(cond("(color)"), None).unwrap();
-        let b = CssMediaQuery::new_condition(cond("(min-width: 700px)"), None).unwrap();
+        let a = mk_cond(cond("(color)"), None).unwrap();
+        let b = mk_cond(cond("(min-width: 700px)"), None).unwrap();
 
         let result = a.merge(&b);
         let merged = match result {
@@ -622,8 +684,8 @@ mod tests {
 
     #[test]
     fn test_merge_one_not_one_normal_same_type_subset() {
-        let a = CssMediaQuery::new_type(screen(), not(), cond("(color)"));
-        let b = CssMediaQuery::new_type(screen(), None, conds(&["(color)", "(grid)"]));
+        let a = mk_type(screen(), not(), cond("(color)"));
+        let b = mk_type(screen(), None, conds(&["(color)", "(grid)"]));
 
         let result = a.merge(&b);
         assert_eq!(result, MediaQueryMergeResult::Empty);
@@ -631,8 +693,8 @@ mod tests {
 
     #[test]
     fn test_merge_one_not_one_normal_same_type_no_subset() {
-        let a = CssMediaQuery::new_type(screen(), not(), cond("(color)"));
-        let b = CssMediaQuery::new_type(screen(), None, cond("(grid)"));
+        let a = mk_type(screen(), not(), cond("(color)"));
+        let b = mk_type(screen(), None, cond("(grid)"));
 
         let result = a.merge(&b);
         assert_eq!(result, MediaQueryMergeResult::Unrepresentable);
@@ -640,8 +702,8 @@ mod tests {
 
     #[test]
     fn test_merge_one_not_one_normal_both_match_all() {
-        let a = CssMediaQuery::new_type(all(), not(), vec![]);
-        let b = CssMediaQuery::new_type(screen(), None, vec![]);
+        let a = mk_type(all(), not(), vec![]);
+        let b = mk_type(screen(), None, vec![]);
 
         let result = a.merge(&b);
         assert_eq!(result, MediaQueryMergeResult::Unrepresentable);
@@ -649,8 +711,8 @@ mod tests {
 
     #[test]
     fn test_merge_one_not_one_normal_different_types() {
-        let a = CssMediaQuery::new_type(screen(), not(), vec![]);
-        let b = CssMediaQuery::new_type(print(), None, vec![]);
+        let a = mk_type(screen(), not(), vec![]);
+        let b = mk_type(print(), None, vec![]);
 
         let result = a.merge(&b);
         let merged = match result {
@@ -663,8 +725,8 @@ mod tests {
 
     #[test]
     fn test_merge_both_not_same_type_superset() {
-        let a = CssMediaQuery::new_type(screen(), not(), conds(&["(color)", "(grid)"]));
-        let b = CssMediaQuery::new_type(screen(), not(), cond("(color)"));
+        let a = mk_type(screen(), not(), conds(&["(color)", "(grid)"]));
+        let b = mk_type(screen(), not(), cond("(color)"));
 
         let result = a.merge(&b);
         let merged = match result {
@@ -676,8 +738,8 @@ mod tests {
 
     #[test]
     fn test_merge_both_not_same_type_no_superset() {
-        let a = CssMediaQuery::new_type(screen(), not(), cond("(color)"));
-        let b = CssMediaQuery::new_type(screen(), not(), cond("(grid)"));
+        let a = mk_type(screen(), not(), cond("(color)"));
+        let b = mk_type(screen(), not(), cond("(grid)"));
 
         let result = a.merge(&b);
         assert_eq!(result, MediaQueryMergeResult::Unrepresentable);
@@ -685,8 +747,8 @@ mod tests {
 
     #[test]
     fn test_merge_both_not_different_types() {
-        let a = CssMediaQuery::new_type(screen(), not(), vec![]);
-        let b = CssMediaQuery::new_type(print(), not(), vec![]);
+        let a = mk_type(screen(), not(), vec![]);
+        let b = mk_type(print(), not(), vec![]);
 
         let result = a.merge(&b);
         assert_eq!(result, MediaQueryMergeResult::Unrepresentable);
@@ -694,8 +756,8 @@ mod tests {
 
     #[test]
     fn test_merge_first_matches_all_types() {
-        let a = CssMediaQuery::new_type(all(), None, cond("(color)"));
-        let b = CssMediaQuery::new_type(screen(), None, cond("(grid)"));
+        let a = mk_type(all(), None, cond("(color)"));
+        let b = mk_type(screen(), None, cond("(grid)"));
 
         let result = a.merge(&b);
         let merged = match result {
@@ -708,8 +770,8 @@ mod tests {
 
     #[test]
     fn test_merge_second_matches_all_types() {
-        let a = CssMediaQuery::new_type(screen(), None, cond("(color)"));
-        let b = CssMediaQuery::new_type(all(), None, cond("(grid)"));
+        let a = mk_type(screen(), None, cond("(color)"));
+        let b = mk_type(all(), None, cond("(grid)"));
 
         let result = a.merge(&b);
         let merged = match result {
@@ -721,8 +783,8 @@ mod tests {
 
     #[test]
     fn test_merge_both_all() {
-        let a = CssMediaQuery::new_type(all(), None, cond("(color)"));
-        let b = CssMediaQuery::new_type(all(), None, cond("(grid)"));
+        let a = mk_type(all(), None, cond("(color)"));
+        let b = mk_type(all(), None, cond("(grid)"));
 
         let result = a.merge(&b);
         let merged = match result {
@@ -734,8 +796,8 @@ mod tests {
 
     #[test]
     fn test_merge_both_all_one_nil_type() {
-        let a = CssMediaQuery::new_condition(cond("(color)"), None).unwrap(); // nil type
-        let b = CssMediaQuery::new_type(all(), None, cond("(grid)")); // "all" type
+        let a = mk_cond(cond("(color)"), None).unwrap(); // nil type
+        let b = mk_type(all(), None, cond("(grid)")); // "all" type
 
         let result = a.merge(&b);
         let merged = match result {
@@ -747,8 +809,8 @@ mod tests {
 
     #[test]
     fn test_merge_same_types() {
-        let a = CssMediaQuery::new_type(screen(), None, cond("(color)"));
-        let b = CssMediaQuery::new_type(screen(), None, cond("(grid)"));
+        let a = mk_type(screen(), None, cond("(color)"));
+        let b = mk_type(screen(), None, cond("(grid)"));
 
         let result = a.merge(&b);
         let merged = match result {
@@ -761,8 +823,8 @@ mod tests {
 
     #[test]
     fn test_merge_different_types() {
-        let a = CssMediaQuery::new_type(screen(), None, vec![]);
-        let b = CssMediaQuery::new_type(print(), None, vec![]);
+        let a = mk_type(screen(), None, vec![]);
+        let b = mk_type(print(), None, vec![]);
 
         let result = a.merge(&b);
         assert_eq!(result, MediaQueryMergeResult::Empty);
@@ -770,8 +832,9 @@ mod tests {
 
     #[test]
     fn test_merge_non_conjunction() {
-        let a = CssMediaQuery::new_condition(cond("(color)"), None).unwrap();
+        let a = mk_cond(cond("(color)"), None).unwrap();
         let b = CssMediaQuery {
+            span: BOGUS_SPAN,
             modifier: None,
             media_type: None,
             conjunction: false,
@@ -784,8 +847,8 @@ mod tests {
 
     #[test]
     fn test_merge_case_insensitive_types() {
-        let a = CssMediaQuery::new_type(Some("SCREEN".to_string()), None, vec![]);
-        let b = CssMediaQuery::new_type(screen(), None, vec![]);
+        let a = mk_type(Some("SCREEN".to_string()), None, vec![]);
+        let b = mk_type(screen(), None, vec![]);
 
         let result = a.merge(&b);
         let merged = match result {
@@ -797,8 +860,8 @@ mod tests {
 
     #[test]
     fn test_merge_case_insensitive_modifier() {
-        let a = CssMediaQuery::new_type(screen(), Some("NOT".to_string()), cond("(color)"));
-        let b = CssMediaQuery::new_type(screen(), None, vec![]);
+        let a = mk_type(screen(), Some("NOT".to_string()), cond("(color)"));
+        let b = mk_type(screen(), None, vec![]);
 
         let result = a.merge(&b);
         // NOT is treated as "not" after lowercasing; "(color)" is not subset of empty
@@ -807,8 +870,8 @@ mod tests {
 
     #[test]
     fn test_merge_both_not_case_insensitive_types() {
-        let a = CssMediaQuery::new_type(Some("SCREEN".to_string()), not(), vec![]);
-        let b = CssMediaQuery::new_type(screen(), not(), vec![]);
+        let a = mk_type(Some("SCREEN".to_string()), not(), vec![]);
+        let b = mk_type(screen(), not(), vec![]);
 
         let result = a.merge(&b);
         let merged = match result {
@@ -820,8 +883,8 @@ mod tests {
 
     #[test]
     fn test_merge_not_vs_normal_case_insensitive_modifier() {
-        let a = CssMediaQuery::new_type(screen(), Some("NOT".to_string()), vec![]);
-        let b = CssMediaQuery::new_type(screen(), None, vec![]);
+        let a = mk_type(screen(), Some("NOT".to_string()), vec![]);
+        let b = mk_type(screen(), None, vec![]);
 
         let result = a.merge(&b);
         // "NOT" lowercased = "not"; both nil conditions → allContained(nil, nil) = true → Empty
@@ -832,19 +895,22 @@ mod tests {
 
     #[test]
     fn test_parse_list_valid() {
-        let result = parse_list("screen and (min-width: 700px)").unwrap();
+        let arena = bumpalo::Bump::new();
+        let result = parse_list(&arena, "screen and (min-width: 700px)").unwrap();
         assert!(!result.is_empty());
     }
 
     #[test]
     fn test_parse_list_multiple_queries() {
-        let result = parse_list("screen and (color), print").unwrap();
+        let arena = bumpalo::Bump::new();
+        let result = parse_list(&arena, "screen and (color), print").unwrap();
         assert_eq!(result.len(), 2);
     }
 
     #[test]
     fn test_parse_list_invalid() {
-        let result = parse_list("not a valid media query!!!");
+        let arena = bumpalo::Bump::new();
+        let result = parse_list(&arena, "not a valid media query!!!");
         assert!(result.is_err());
     }
 }

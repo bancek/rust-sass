@@ -7,20 +7,15 @@
 // dart-source: lib/src/extend/extension.dart
 // go-source: go/extend/extension.go
 
-use crate::common::pretty_uri::pretty_uri;
-use crate::common::source_span_highlighter::HighlightOptions;
-use crate::common::source_span_highlighter::Highlighter;
 use crate::common::source_span_span_with_context::SourceSpanWithContext;
-use crate::termglyph::GlyphSet;
 use bumpalo::Bump;
 use std::fmt;
 use std::fmt::Write;
 use std::hash::{Hash, Hasher};
 
 use crate::ast::css::media_query::CssMediaQuery;
-use crate::common::exception::{SassError, SassResult};
+use crate::common::exception::{SassError, SassResult, Trace};
 use crate::common::file_span::FileSpan;
-use crate::io::Io;
 use crate::selector::complex::ComplexSelector;
 use crate::selector::SimpleSelector;
 
@@ -42,7 +37,7 @@ pub struct Extender<'parse> {
     /// The media context of the extension that created this extender.
     /// `None` for original extenders (those not created by an @extend rule).
     /// Dart: `_extension?.mediaContext`
-    pub extension_media_context: Option<Vec<CssMediaQuery>>,
+    pub extension_media_context: Option<Vec<CssMediaQuery<'parse>>>,
     /// The span of the extension that created this extender.
     /// `None` for original extenders.
     /// Dart: `_extension?.span`
@@ -72,11 +67,15 @@ impl<'parse> Extender<'parse> {
     /// Asserts that the `media_context` for a selector is compatible with the
     /// query context for this extender.
     ///
+    /// `selector_span` is used for error reporting as the location of the
+    /// selector being extended.
+    ///
     /// If this extender has no backing extension, no check is performed.
     /// Dart: `Extender.assertCompatibleMediaContext`
     pub fn assert_compatible_media_context(
         &self,
-        media_context: &Option<Vec<CssMediaQuery>>,
+        media_context: &Option<Vec<CssMediaQuery<'parse>>>,
+        selector_span: FileSpan<'parse>,
     ) -> SassResult<()> {
         let expected = match &self.extension_media_context {
             Some(ctx) => ctx,
@@ -87,17 +86,43 @@ impl<'parse> Extender<'parse> {
                 return Ok(());
             }
         }
-        if let Some(span) = self.extension_span {
-            return Err(Box::new(SassError::Sass {
-                message: "You may not @extend selectors across media queries.".into(),
-                span: SourceSpanWithContext::from_file_span(&span)?,
-                cause: None,
-                loaded_urls: vec![],
-            }));
+        let extension_span = match self.extension_span {
+            Some(span) => span,
+            None => {
+                return Err(Box::new(SassError::Script {
+                    message: "You may not @extend selectors across media queries.".into(),
+                    argument_name: None,
+                }))
+            }
+        };
+
+        let mut secondary = Vec::new();
+        if let Some(last) = expected.last() {
+            secondary.push((
+                SourceSpanWithContext::from_file_span(&last.span)?,
+                "extension @media".into(),
+            ));
         }
-        Err(Box::new(SassError::Script {
+        if let Some(last) = media_context.as_ref().and_then(|ctx| ctx.last()) {
+            secondary.push((
+                SourceSpanWithContext::from_file_span(&last.span)?,
+                "extended selector @media".into(),
+            ));
+        }
+        secondary.push((
+            SourceSpanWithContext::from_file_span(&selector_span)?,
+            "extended selector".into(),
+        ));
+
+        Err(Box::new(SassError::MultiSpan {
             message: "You may not @extend selectors across media queries.".into(),
-            argument_name: None,
+            span: SourceSpanWithContext::from_file_span(&extension_span)?,
+            primary_label: Some("extension".into()),
+            secondary,
+            original_source: None,
+            cause: None,
+            loaded_urls: vec![],
+            trace: Trace::default(),
         }))
     }
 }
@@ -133,7 +158,7 @@ pub struct BaseExtension<'parse> {
     pub target: SimpleSelector<'parse>,
     /// The media query context this extension is restricted to, or [`None`]
     /// if it can apply within any context.
-    pub media_context: Option<Vec<CssMediaQuery>>,
+    pub media_context: Option<Vec<CssMediaQuery<'parse>>>,
     /// Whether this extension is optional.
     pub is_optional: bool,
     /// The span of the `@extend` rule that defined this extension.
@@ -154,7 +179,7 @@ impl<'parse> BaseExtension<'parse> {
         extender: ComplexSelector<'parse>,
         target: SimpleSelector<'parse>,
         span: FileSpan<'parse>,
-        media_context: Option<Vec<CssMediaQuery>>,
+        media_context: Option<Vec<CssMediaQuery<'parse>>>,
         is_optional: bool,
     ) -> Extension<'parse> {
         let specificity = extender.specificity();
@@ -235,7 +260,7 @@ impl<'parse> Extension<'parse> {
 
     /// The media query context to which this extension is restricted, or
     /// [`None`] if it can apply within any context.
-    pub fn media_context(&self) -> Option<&Vec<CssMediaQuery>> {
+    pub fn media_context(&self) -> Option<&Vec<CssMediaQuery<'parse>>> {
         match self.inner {
             ExtensionKind::Base(b) => b.media_context.as_ref(),
             ExtensionKind::Merged { base, .. } => base.media_context.as_ref(),
@@ -284,7 +309,7 @@ impl<'parse> Extension<'parse> {
     ) -> (
         SimpleSelector<'parse>,
         FileSpan<'parse>,
-        Option<Vec<CssMediaQuery>>,
+        Option<Vec<CssMediaQuery<'parse>>>,
         bool,
     ) {
         match self.inner {
@@ -353,53 +378,11 @@ pub fn media_queries_equal(a: &Vec<CssMediaQuery>, b: &Vec<CssMediaQuery>) -> bo
     a == b
 }
 
-/// Builds the `"From <location>: <highlight>"` prefix for extend errors.
-///
-/// Mirrors Dart's `span.message('')`: the `"line L, column C of URL: "` header
-/// plus the span's source highlight when non-empty.
-pub fn span_message(span: FileSpan<'_>, io: &dyn Io, unicode: bool) -> String {
-    let url = match span.source_url() {
-        Some(u) => u.clone(),
-        None => return String::new(),
-    };
-    let loc = span.start_location();
-    let mut out = format!(
-        "line {}, column {} of {}: ",
-        loc.line + 1,
-        loc.column + 1,
-        pretty_uri(&url, io)
-    );
-    // Dart's `FileSpan.message('')` (source_span span_mixin.dart:53-66) appends
-    // the span's highlight when non-empty, so a "From ..." prefix embeds the
-    // original selector's highlight before the rest of the error.
-    if let Ok(ctx) = SourceSpanWithContext::from_file_span(&span) {
-        let opts = HighlightOptions {
-            glyphs: if unicode {
-                GlyphSet::default()
-            } else {
-                GlyphSet::Ascii
-            },
-            ..Default::default()
-        };
-        let mut hl = Highlighter::new(&ctx, &opts, io).ok();
-        if let Some(h) = hl.as_mut() {
-            if let Ok(s) = h.highlight() {
-                if !s.is_empty() {
-                    out.push('\n');
-                    out.push_str(&s);
-                }
-            }
-        }
-    }
-    out
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::common::file_span::BOGUS_SPAN;
     use crate::common::source_span_file_source::FileSource;
-    use crate::io::VirtualIo;
     use crate::selector::class::ClassSelector;
     use crate::selector::complex_component::ComplexSelectorComponent;
     use crate::selector::compound::CompoundSelector;
@@ -450,7 +433,11 @@ mod tests {
         let arena = Bump::new();
         let extender = make_complex("a");
         let target = class("b");
-        let mc = vec![CssMediaQuery::new_type(Some("screen".into()), None, vec![])];
+        let mc = vec![CssMediaQuery::test_type(
+            Some("screen".into()),
+            None,
+            vec![],
+        )];
         let ext = BaseExtension::new(&arena, extender, target, BOGUS_SPAN, Some(mc), false);
         assert!(ext.media_context().is_some());
     }
@@ -579,7 +566,7 @@ mod tests {
     fn test_assert_compatible_media_context_both_nil() {
         let extender = make_complex("a");
         let ex = Extender::new(extender, None, false);
-        let result = ex.assert_compatible_media_context(&None);
+        let result = ex.assert_compatible_media_context(&None, BOGUS_SPAN);
         assert!(result.is_ok());
     }
 
@@ -587,18 +574,26 @@ mod tests {
     fn test_assert_compatible_media_context_extender_has_no_media_context() {
         let extender = make_complex("a");
         let ex = Extender::new(extender, None, false);
-        let mc = vec![CssMediaQuery::new_type(Some("screen".into()), None, vec![])];
-        let result = ex.assert_compatible_media_context(&Some(mc));
+        let mc = vec![CssMediaQuery::test_type(
+            Some("screen".into()),
+            None,
+            vec![],
+        )];
+        let result = ex.assert_compatible_media_context(&Some(mc), BOGUS_SPAN);
         assert!(result.is_ok());
     }
 
     #[test]
     fn test_assert_compatible_media_context_matching() {
         let extender = make_complex("a");
-        let mc = vec![CssMediaQuery::new_type(Some("screen".into()), None, vec![])];
+        let mc = vec![CssMediaQuery::test_type(
+            Some("screen".into()),
+            None,
+            vec![],
+        )];
         let mut ex = Extender::new(extender, None, false);
         ex.extension_media_context = Some(mc.clone());
-        let result = ex.assert_compatible_media_context(&Some(mc));
+        let result = ex.assert_compatible_media_context(&Some(mc), BOGUS_SPAN);
         assert!(result.is_ok());
     }
 
@@ -606,17 +601,61 @@ mod tests {
     fn test_assert_compatible_media_context_conflicting() {
         let arena = Bump::new();
         let url = SassUrl::parse("file:///test.scss").unwrap();
-        let src = FileSource::new_in(&arena, ".a", Some(url));
-        let real_span = FileSpan::new(Some(src), 0, 2);
+        let src = FileSource::new_in(
+            &arena,
+            "@media screen {} @media print {}",
+            Some(url.clone()),
+        );
+        let ext_src = FileSource::new_in(&arena, "@extend .a;", Some(url.clone()));
+        let sel_src = FileSource::new_in(&arena, ".a", Some(url));
+        let extension_media_span = FileSpan::new(Some(src), 7, 13); // screen
+        let extended_span = FileSpan::new(Some(src), 24, 29); // print
+        let extension_span = FileSpan::new(Some(ext_src), 0, 10); // @extend .a
+        let selector_span = FileSpan::new(Some(sel_src), 0, 2); // .a
 
         let extender = make_complex("a");
-        let mc1 = vec![CssMediaQuery::new_type(Some("screen".into()), None, vec![])];
-        let mc2 = vec![CssMediaQuery::new_type(Some("print".into()), None, vec![])];
+        let mc1 = vec![CssMediaQuery::new_type(
+            Some("screen".into()),
+            extension_media_span,
+            None,
+            vec![],
+        )];
+        let mc2 = vec![CssMediaQuery::new_type(
+            Some("print".into()),
+            extended_span,
+            None,
+            vec![],
+        )];
         let mut ex = Extender::new(extender, None, false);
         ex.extension_media_context = Some(mc1);
-        ex.extension_span = Some(real_span);
-        let result = ex.assert_compatible_media_context(&Some(mc2));
-        assert!(result.is_err());
+        ex.extension_span = Some(extension_span);
+        let err = ex
+            .assert_compatible_media_context(&Some(mc2), selector_span)
+            .unwrap_err();
+        match *err {
+            SassError::MultiSpan {
+                message,
+                primary_label,
+                secondary,
+                ..
+            } => {
+                assert_eq!(
+                    message,
+                    "You may not @extend selectors across media queries."
+                );
+                assert_eq!(primary_label.as_deref(), Some("extension"));
+                let labels: Vec<&str> = secondary.iter().map(|(_, label)| label.as_str()).collect();
+                assert_eq!(
+                    labels,
+                    vec![
+                        "extension @media",
+                        "extended selector @media",
+                        "extended selector"
+                    ]
+                );
+            }
+            other => panic!("expected MultiSpan error, got {other:?}"),
+        }
     }
 
     #[test]
@@ -626,24 +665,40 @@ mod tests {
 
     #[test]
     fn test_media_queries_equal_same() {
-        let mc1 = vec![CssMediaQuery::new_type(Some("screen".into()), None, vec![])];
-        let mc2 = vec![CssMediaQuery::new_type(Some("screen".into()), None, vec![])];
+        let mc1 = vec![CssMediaQuery::test_type(
+            Some("screen".into()),
+            None,
+            vec![],
+        )];
+        let mc2 = vec![CssMediaQuery::test_type(
+            Some("screen".into()),
+            None,
+            vec![],
+        )];
         assert!(media_queries_equal(&mc1, &mc2));
     }
 
     #[test]
     fn test_media_queries_equal_different() {
-        let mc1 = vec![CssMediaQuery::new_type(Some("screen".into()), None, vec![])];
-        let mc2 = vec![CssMediaQuery::new_type(Some("print".into()), None, vec![])];
+        let mc1 = vec![CssMediaQuery::test_type(
+            Some("screen".into()),
+            None,
+            vec![],
+        )];
+        let mc2 = vec![CssMediaQuery::test_type(Some("print".into()), None, vec![])];
         assert!(!media_queries_equal(&mc1, &mc2));
     }
 
     #[test]
     fn test_media_queries_equal_different_length() {
-        let mc1 = vec![CssMediaQuery::new_type(Some("screen".into()), None, vec![])];
+        let mc1 = vec![CssMediaQuery::test_type(
+            Some("screen".into()),
+            None,
+            vec![],
+        )];
         let mc2 = vec![
-            CssMediaQuery::new_type(Some("screen".into()), None, vec![]),
-            CssMediaQuery::new_type(Some("print".into()), None, vec![]),
+            CssMediaQuery::test_type(Some("screen".into()), None, vec![]),
+            CssMediaQuery::test_type(Some("print".into()), None, vec![]),
         ];
         assert!(!media_queries_equal(&mc1, &mc2));
     }
@@ -654,15 +709,5 @@ mod tests {
         let ex = Extender::new(extender, None, false);
         let s = ex.to_display_string().unwrap();
         assert!(!s.is_empty(), "extender string should not be empty");
-    }
-
-    #[test]
-    fn test_span_message() {
-        let arena = Bump::new();
-        let url = SassUrl::parse("file:///test.scss").unwrap();
-        let src = FileSource::new_in(&arena, ".a { color: red; }", Some(url.clone()));
-        let span = FileSpan::new(Some(src), 0, 2);
-        let msg = span_message(span, &VirtualIo::new(), true);
-        assert!(!msg.is_empty());
     }
 }

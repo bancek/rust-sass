@@ -23,7 +23,8 @@ use crate::parse::parser::ParserState;
 
 use crate::parse::parser::{
     declaration_value_impl, expect_whitespace_impl, identifier_impl, looking_at_identifier,
-    scan_identifier_impl, whitespace_impl, wrap_span_format_exception_impl, ParseResult, Parser,
+    scan_identifier_impl, span_from_impl, whitespace_impl, wrap_span_format_exception_impl,
+    ParseError, ParseResult, Parser,
 };
 use crate::parse::stylesheet::Syntax;
 
@@ -61,7 +62,7 @@ impl<'parse> CssMediaQueryParser<'parse> {
     /// Fails on trailing input once the queries no longer match (e.g. a
     /// stray `and (…)` after `not (…)`), since the tail is parsed as part
     /// of the condition, not as a new query.
-    pub fn parse(&mut self) -> ParseResult<'parse, Vec<CssMediaQuery>> {
+    pub fn parse(&mut self) -> ParseResult<'parse, Vec<CssMediaQuery<'parse>>> {
         wrap_span_format_exception_impl(
             &mut self.parser.scanner,
             &mut self.parser.state,
@@ -91,7 +92,19 @@ impl<'parse> CssMediaQueryParser<'parse> {
 fn _media_query_impl<'parse>(
     scanner: &mut SpanScanner<'parse>,
     state: &mut ParserState<'parse>,
-) -> ParseResult<'parse, CssMediaQuery> {
+) -> ParseResult<'parse, CssMediaQuery<'parse>> {
+    let start = scanner.state();
+    macro_rules! span {
+        () => {
+            span_from_impl(scanner, state, start)?
+                .trim_right()
+                .map_err(|e| {
+                    let sass: Box<crate::common::exception::SassError> = e.into();
+                    Box::new(ParseError::from(sass))
+                })?
+                .file_span()?
+        };
+    }
     if scanner.peek_char(0) == '(' as i32 {
         let cond = _media_in_parens_impl(scanner, state)?;
         let mut conditions = vec![cond];
@@ -109,7 +122,7 @@ fn _media_query_impl<'parse>(
             conditions.extend(seq);
         }
 
-        return Ok(CssMediaQuery::new_condition(conditions, Some(conjunction)).unwrap());
+        return Ok(CssMediaQuery::new_condition(conditions, span!(), Some(conjunction)).unwrap());
     }
 
     let identifier1 = identifier_impl(scanner, state, false, false)?;
@@ -118,13 +131,20 @@ fn _media_query_impl<'parse>(
         expect_whitespace_impl(scanner, state, false)?;
         if !looking_at_identifier(scanner, None) {
             let cond = _media_in_parens_impl(scanner, state)?;
-            return Ok(CssMediaQuery::new_condition(vec![format!("(not {cond})")], None).unwrap());
+            return Ok(
+                CssMediaQuery::new_condition(vec![format!("(not {cond})")], span!(), None).unwrap(),
+            );
         }
     }
 
     whitespace_impl(scanner, state, true)?;
     if !looking_at_identifier(scanner, None) {
-        return Ok(CssMediaQuery::new_type(Some(identifier1), None, vec![]));
+        return Ok(CssMediaQuery::new_type(
+            Some(identifier1),
+            span!(),
+            None,
+            vec![],
+        ));
     }
 
     let identifier2 = identifier_impl(scanner, state, false, false)?;
@@ -137,12 +157,18 @@ fn _media_query_impl<'parse>(
             let cond = _media_in_parens_impl(scanner, state)?;
             return Ok(CssMediaQuery::new_type(
                 Some(identifier1),
+                span!(),
                 None,
                 vec![format!("(not {cond})")],
             ));
         }
         let seq = _media_logic_sequence_impl(scanner, state, "and")?;
-        return Ok(CssMediaQuery::new_type(Some(identifier1), None, seq));
+        return Ok(CssMediaQuery::new_type(
+            Some(identifier1),
+            span!(),
+            None,
+            seq,
+        ));
     }
 
     whitespace_impl(scanner, state, true)?;
@@ -150,6 +176,7 @@ fn _media_query_impl<'parse>(
     if !scan_identifier_impl(scanner, "and", false)? {
         return Ok(CssMediaQuery::new_type(
             Some(identifier2),
+            span!(),
             Some(identifier1),
             vec![],
         ));
@@ -161,6 +188,7 @@ fn _media_query_impl<'parse>(
         let cond = _media_in_parens_impl(scanner, state)?;
         return Ok(CssMediaQuery::new_type(
             Some(identifier2),
+            span!(),
             Some(identifier1),
             vec![format!("(not {cond})")],
         ));
@@ -169,6 +197,7 @@ fn _media_query_impl<'parse>(
     let seq = _media_logic_sequence_impl(scanner, state, "and")?;
     Ok(CssMediaQuery::new_type(
         Some(identifier2),
+        span!(),
         Some(identifier1),
         seq,
     ))
@@ -216,6 +245,14 @@ fn _media_in_parens_impl<'parse>(
 mod tests {
     use super::*;
     use bumpalo::Bump;
+
+    #[rust_sass_macros::maybe_test]
+    async fn test_query_span_trims_trailing_whitespace() {
+        let arena = Bump::new();
+        let mut parser = make_parser(&arena, "screen and (color) ");
+        let queries = parser.parse().unwrap();
+        assert_eq!(queries[0].span.text(), "screen and (color)");
+    }
 
     fn make_parser<'compile, 'parse>(
         arena: &'compile Bump,

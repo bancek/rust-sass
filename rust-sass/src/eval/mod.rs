@@ -378,11 +378,11 @@ pub struct EvalState<'compile, 'parse> {
     /// The current media queries, if any.
     ///
     /// Matches Dart: `_EvaluateVisitor._mediaQueries`.
-    pub media_queries: Option<Vec<CssMediaQuery>>,
+    pub media_queries: Option<Vec<CssMediaQuery<'parse>>>,
     /// Media queries merged to create [`EvalState::media_queries`].
     ///
     /// Matches Dart: `_EvaluateVisitor._mediaQuerySources`.
-    pub media_query_sources: Option<Vec<CssMediaQuery>>,
+    pub media_query_sources: Option<Vec<CssMediaQuery<'parse>>>,
 
     /// The modifiable CSS output node for the current style rule, set by the
     /// CSS re-evaluation visitor. Used by visitCssMediaRule/visitCssSupportsRule

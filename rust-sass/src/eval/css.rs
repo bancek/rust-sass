@@ -1193,7 +1193,11 @@ mod tests {
         let (config, mut state) = test_state(&arena);
         state.declaration_name = Some("color".into());
         let mr = CssMediaRule::new(
-            vec![CssMediaQuery::new_type(Some("screen".into()), None, vec![])],
+            vec![CssMediaQuery::test_type(
+                Some("screen".into()),
+                None,
+                vec![],
+            )],
             make_span(&arena, "@media screen {}"),
         )
         .unwrap();

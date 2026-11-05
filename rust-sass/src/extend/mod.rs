@@ -26,7 +26,7 @@ pub mod merged;
 pub mod mode;
 pub mod store;
 
-pub use extension::{media_queries_equal, span_message, BaseExtension, Extender, Extension};
+pub use extension::{media_queries_equal, BaseExtension, Extender, Extension};
 pub use merged::{merge_extensions, unmerge_extensions};
 pub use mode::ExtendMode;
 pub use store::{extend_static, replace_static, ExtensionStore, StoreBox};

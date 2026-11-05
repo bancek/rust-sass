@@ -7,14 +7,11 @@
 // dart-source: lib/src/extend/merged_extension.dart
 // go-source: go/extend/extension_merged.go
 
-use crate::common::exception::{SassError, SassResult};
+use crate::common::exception::{SassError, SassResult, Trace};
 use crate::common::source_span_span_with_context::SourceSpanWithContext;
-use crate::io::Io;
 use bumpalo::Bump;
 
-use crate::extend::extension::{
-    media_queries_equal, span_message, BaseExtension, Extension, ExtensionKind,
-};
+use crate::extend::extension::{media_queries_equal, BaseExtension, Extension, ExtensionKind};
 
 /// An [`Extension`] created by merging two extensions with the same extender
 /// and target.
@@ -32,8 +29,6 @@ pub fn merge_extensions<'compile: 'parse, 'parse>(
     arena: &'compile Bump,
     left: &Extension<'parse>,
     right: &Extension<'parse>,
-    io: &dyn Io,
-    unicode: bool,
 ) -> SassResult<Extension<'parse>> {
     if left.extender().selector != right.extender().selector || left.target() != right.target() {
         return Err(Box::new(SassError::Script {
@@ -49,17 +44,35 @@ pub fn merge_extensions<'compile: 'parse, 'parse>(
             right.media_context().unwrap(),
         )
     {
-        let left_msg = span_message(left.span()?, io, unicode);
-        return Err(Box::new(SassError::Sass {
-            message: format!(
-                "From {}\nYou may not @extend the same selector from within different media queries.",
-                left_msg
-            ),
-            span: SourceSpanWithContext::from_file_span(
-                &right.span()?,
-            )?,
+        let left_context = left.media_context().unwrap();
+        let right_context = right.media_context().unwrap();
+        let mut secondary = Vec::new();
+        if let Some(last) = right_context.last() {
+            secondary.push((
+                SourceSpanWithContext::from_file_span(&last.span)?,
+                "second extension @media".into(),
+            ));
+        }
+        secondary.push((
+            SourceSpanWithContext::from_file_span(&left.span()?)?,
+            "first extension".into(),
+        ));
+        if let Some(last) = left_context.last() {
+            secondary.push((
+                SourceSpanWithContext::from_file_span(&last.span)?,
+                "first extension @media".into(),
+            ));
+        }
+        return Err(Box::new(SassError::MultiSpan {
+            message: "You may not @extend the same selector from within different media queries."
+                .into(),
+            span: SourceSpanWithContext::from_file_span(&right.span()?)?,
+            primary_label: Some("second extension".into()),
+            secondary,
+            original_source: None,
             cause: None,
             loaded_urls: vec![],
+            trace: Trace::default(),
         }));
     }
 
@@ -114,7 +127,6 @@ mod tests {
     use crate::common::file_span::FileSpan;
     use crate::common::file_span::BOGUS_SPAN;
     use crate::common::source_span_file_source::FileSource;
-    use crate::io::VirtualIo;
     use crate::selector::class::ClassSelector;
     use crate::selector::complex::ComplexSelector;
     use crate::selector::complex_component::ComplexSelectorComponent;
@@ -154,7 +166,7 @@ mod tests {
             None,
             false,
         );
-        let merged = merge_extensions(&arena, &left, &right, &VirtualIo::new(), true).unwrap();
+        let merged = merge_extensions(&arena, &left, &right).unwrap();
         assert!(merged.is_merged());
     }
 
@@ -166,7 +178,7 @@ mod tests {
         let target = class("b");
         let left = BaseExtension::new(&arena, extender1, target.clone(), BOGUS_SPAN, None, false);
         let right = BaseExtension::new(&arena, extender2, target.clone(), BOGUS_SPAN, None, false);
-        let result = merge_extensions(&arena, &left, &right, &VirtualIo::new(), true);
+        let result = merge_extensions(&arena, &left, &right);
         assert!(result.is_err());
     }
 
@@ -190,7 +202,7 @@ mod tests {
             None,
             false,
         );
-        let result = merge_extensions(&arena, &left, &right, &VirtualIo::new(), true);
+        let result = merge_extensions(&arena, &left, &right);
         assert!(result.is_err());
     }
 
@@ -199,7 +211,11 @@ mod tests {
         let arena = Bump::new();
         let extender = make_complex("a");
         let target = class("b");
-        let mc = vec![CssMediaQuery::new_type(Some("screen".into()), None, vec![])];
+        let mc = vec![CssMediaQuery::test_type(
+            Some("screen".into()),
+            None,
+            vec![],
+        )];
         let left = BaseExtension::new(
             &arena,
             extender.clone(),
@@ -216,7 +232,7 @@ mod tests {
             Some(mc),
             false,
         );
-        let merged = merge_extensions(&arena, &left, &right, &VirtualIo::new(), true).unwrap();
+        let merged = merge_extensions(&arena, &left, &right).unwrap();
         assert!(merged.is_merged());
         assert!(merged.media_context().is_some());
     }
@@ -224,18 +240,33 @@ mod tests {
     #[test]
     fn test_merge_incompatible_media_contexts() {
         let arena = Bump::new();
-        let src = FileSource::new_in(&arena, ".a", None);
-        let real_span = FileSpan::new(Some(src), 0, 2);
+        let src = FileSource::new_in(&arena, "@media screen {} @media print {}", None);
+        let left_ext_src = FileSource::new_in(&arena, "@extend .b;", None);
+        let right_ext_src = FileSource::new_in(&arena, "@extend .b;", None);
+        let left_span = FileSpan::new(Some(left_ext_src), 0, 10); // @extend .b
+        let right_span = FileSpan::new(Some(right_ext_src), 0, 10); // @extend .b
+        let left_media_span = FileSpan::new(Some(src), 7, 13); // screen
+        let right_media_span = FileSpan::new(Some(src), 24, 29); // print
 
         let extender = make_complex("a");
         let target = class("b");
-        let mc1 = vec![CssMediaQuery::new_type(Some("screen".into()), None, vec![])];
-        let mc2 = vec![CssMediaQuery::new_type(Some("print".into()), None, vec![])];
+        let mc1 = vec![CssMediaQuery::new_type(
+            Some("screen".into()),
+            left_media_span,
+            None,
+            vec![],
+        )];
+        let mc2 = vec![CssMediaQuery::new_type(
+            Some("print".into()),
+            right_media_span,
+            None,
+            vec![],
+        )];
         let left = BaseExtension::new(
             &arena,
             extender.clone(),
             target.clone(),
-            real_span,
+            left_span,
             Some(mc1),
             false,
         );
@@ -243,12 +274,35 @@ mod tests {
             &arena,
             extender.clone(),
             target.clone(),
-            real_span,
+            right_span,
             Some(mc2),
             false,
         );
-        let result = merge_extensions(&arena, &left, &right, &VirtualIo::new(), true);
-        assert!(result.is_err());
+        let err = merge_extensions(&arena, &left, &right).unwrap_err();
+        match *err {
+            SassError::MultiSpan {
+                message,
+                primary_label,
+                secondary,
+                ..
+            } => {
+                assert_eq!(
+                    message,
+                    "You may not @extend the same selector from within different media queries."
+                );
+                assert_eq!(primary_label.as_deref(), Some("second extension"));
+                let labels: Vec<&str> = secondary.iter().map(|(_, label)| label.as_str()).collect();
+                assert_eq!(
+                    labels,
+                    vec![
+                        "second extension @media",
+                        "first extension",
+                        "first extension @media"
+                    ]
+                );
+            }
+            other => panic!("expected MultiSpan error, got {other:?}"),
+        }
     }
 
     #[test]
@@ -272,7 +326,7 @@ mod tests {
             None,
             true,
         );
-        let merged = merge_extensions(&arena, &left, &right, &VirtualIo::new(), true).unwrap();
+        let merged = merge_extensions(&arena, &left, &right).unwrap();
         assert!(!merged.is_merged()); // left is returned directly
     }
 
@@ -297,7 +351,7 @@ mod tests {
             None,
             false,
         );
-        let merged = merge_extensions(&arena, &left, &right, &VirtualIo::new(), true).unwrap();
+        let merged = merge_extensions(&arena, &left, &right).unwrap();
         assert!(!merged.is_merged()); // right is returned directly
     }
 
@@ -333,7 +387,7 @@ mod tests {
             None,
             false,
         );
-        let merged = merge_extensions(&arena, &left, &right, &VirtualIo::new(), true).unwrap();
+        let merged = merge_extensions(&arena, &left, &right).unwrap();
         let unmerged = unmerge_extensions(&merged);
         assert_eq!(unmerged.len(), 2);
         for ext in &unmerged {

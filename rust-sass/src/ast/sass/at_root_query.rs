@@ -207,7 +207,7 @@ mod tests {
         let arena = bumpalo::Bump::new();
         let fs = FileSource::new_in(&arena, "(color)", None);
         let span = FileSpan::new(Some(fs), 0, 7);
-        let mq = parse_list("(color)").unwrap();
+        let mq = parse_list(&arena, "(color)").unwrap();
         let mr = CssMediaRule::new(mq, span).unwrap();
         let node = CssParentNode::MediaRule(mr);
 

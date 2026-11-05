@@ -362,9 +362,8 @@ mod tests {
 
     #[wasm_bindgen_test]
     fn extend_media_query_error_uses_ascii_glyphs() {
-        // `extend::span_message` bakes the "From ... of <url>:" prefix using the
-        // ExtendState's unicode flag. Needs a url on the entry so the span
-        // renders the "From ... of input.scss:" prefix.
+        // The cross-media `@extend` error is a MultiSpan: its primary span,
+        // secondary labels, and box glyphs must all follow the `ascii` option.
         let src = ".example {\n  padding-left: 2rem;\n  padding-right: 2rem;\n}\n\
                    @media screen and (min-width:768px) {\n  #footer {\n    .row {\n      @extend .example;\n    }\n  }\n}\n";
         let opts = Object::new();
@@ -374,10 +373,25 @@ mod tests {
         let obj = js_sys::Object::from(v);
         let formatted = get(&obj, "formatted").as_string().unwrap();
         assert!(
+            formatted.contains("8 |       @extend .example;\n  |       ^^^^^^^^^^^^^^^^ extension"),
+            "formatted: {}",
+            formatted
+        );
+        assert!(
             formatted.contains(
-                "From line 1, column 1 of input.scss: \n  ,\n1 | .example {\n  | ^^^^^^^^^\n  '"
+                "5 | @media screen and (min-width:768px) {\n  |        ============================ extension @media"
             ),
             "formatted: {}",
+            formatted
+        );
+        assert!(
+            formatted.contains("1 | .example {\n  | ======== extended selector"),
+            "formatted: {}",
+            formatted
+        );
+        assert!(
+            !formatted.contains("From line 1"),
+            "formatted still has the old prefix: {}",
             formatted
         );
         assert!(

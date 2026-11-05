@@ -10,7 +10,6 @@
 
 use crate::common::ast_css_value::CssValue;
 use crate::common::file_span::FileSpan;
-use crate::common::pretty_uri::pretty_uri;
 use crate::common::source_span_span_with_context::SourceSpanWithContext;
 use crate::extend::merge_extensions;
 use crate::extend::unmerge_extensions;
@@ -40,7 +39,7 @@ use crate::selector::list::SelectorListIdentity;
 use crate::selector::Selector;
 use crate::selector::SimpleSelector;
 
-use crate::extend::extension::{span_message, BaseExtension, Extender, Extension};
+use crate::extend::extension::{BaseExtension, Extender, Extension};
 use crate::extend::mode::ExtendMode;
 
 // ---------------------------------------------------------------------------
@@ -222,7 +221,7 @@ impl<'parse> ExtensionStore<'parse> {
         &self,
         arena: &'compile Bump,
         sel: &SelectorList<'parse>,
-        media_ctx: Option<Vec<CssMediaQuery>>,
+        media_ctx: Option<Vec<CssMediaQuery<'parse>>>,
     ) -> SassResult<StoreBox<SelectorList<'parse>>> {
         match self {
             ExtensionStore::Default(s) => s.borrow_mut().add_selector(arena, sel, media_ctx),
@@ -252,7 +251,7 @@ impl<'parse> ExtensionStore<'parse> {
         extender: &SelectorList<'parse>,
         target: &SimpleSelector<'parse>,
         extend: &ExtendRule<'parse>,
-        media_ctx: Option<Vec<CssMediaQuery>>,
+        media_ctx: Option<Vec<CssMediaQuery<'parse>>>,
     ) -> SassResult<()> {
         match self {
             ExtensionStore::Default(s) => s
@@ -333,7 +332,8 @@ pub struct DefaultExtensionStore<'parse> {
     // is a false positive by design. (Sibling `IndexMap` fields with the same
     // key types don't even trigger it.)
     #[allow(clippy::mutable_key_type)]
-    pub(crate) media_contexts: HashMap<MutableBox<SelectorList<'parse>>, Vec<CssMediaQuery>>,
+    pub(crate) media_contexts:
+        HashMap<MutableBox<SelectorList<'parse>>, Vec<CssMediaQuery<'parse>>>,
     /// A map from simple selectors to the specificity of their source
     /// selectors: the maximum specificity of the complex selector that
     /// originally contained each simple selector.
@@ -383,7 +383,7 @@ impl<'parse> DefaultExtensionStore<'parse> {
             IndexMap<ComplexSelector<'parse>, Extension<'parse>>,
         >,
         extensions_by_extender: IndexMap<SimpleSelector<'parse>, Vec<Extension<'parse>>>,
-        media_contexts: HashMap<MutableBox<SelectorList<'parse>>, Vec<CssMediaQuery>>,
+        media_contexts: HashMap<MutableBox<SelectorList<'parse>>, Vec<CssMediaQuery<'parse>>>,
         source_specificity: IndexMap<SimpleSelector<'parse>, usize>,
         originals: HashSet<ComplexSelector<'parse>>,
         io: Rc<dyn Io>,
@@ -450,7 +450,7 @@ impl<'parse> DefaultExtensionStore<'parse> {
         &mut self,
         arena: &'compile Bump,
         sel: &SelectorList<'parse>,
-        media_ctx: Option<Vec<CssMediaQuery>>,
+        media_ctx: Option<Vec<CssMediaQuery<'parse>>>,
     ) -> SassResult<StoreBox<SelectorList<'parse>>> {
         let mut sel = *sel;
         if !sel.is_invisible() {
@@ -467,8 +467,7 @@ impl<'parse> DefaultExtensionStore<'parse> {
                 &mut self.originals,
                 &self.source_specificity,
                 self.mode,
-            )
-            .map_err(|e| wrap_sass_error(e, self.io.as_ref()))?;
+            )?;
         }
         let mb = MutableBox::new(sel);
         if let Some(ref mc) = media_ctx {
@@ -493,7 +492,7 @@ impl<'parse> DefaultExtensionStore<'parse> {
         extender: &SelectorList<'parse>,
         target: &SimpleSelector<'parse>,
         extend: &ExtendRule<'parse>,
-        media_ctx: Option<Vec<CssMediaQuery>>,
+        media_ctx: Option<Vec<CssMediaQuery<'parse>>>,
     ) -> SassResult<()> {
         let selectors_ok = self.selectors.contains_key(target);
         let existing_ext_ok = self.extensions_by_extender.contains_key(target);
@@ -517,8 +516,7 @@ impl<'parse> DefaultExtensionStore<'parse> {
 
             let sources = self.extensions.entry(target.clone()).or_default();
             if let Some(existing) = sources.get(complex) {
-                let merged =
-                    merge_extensions(arena, existing, &extension, self.io.as_ref(), self.unicode)?;
+                let merged = merge_extensions(arena, existing, &extension)?;
                 sources.insert(complex.clone(), merged);
             } else {
                 sources.insert(complex.clone(), extension);
@@ -562,8 +560,6 @@ impl<'parse> DefaultExtensionStore<'parse> {
                     &mut self.originals,
                     &self.source_specificity,
                     self.mode,
-                    self.io.as_ref(),
-                    self.unicode,
                 )?;
                 for (t, inner) in additional {
                     if let Some(tm) = new_by_target.get_mut(&t) {
@@ -587,8 +583,6 @@ impl<'parse> DefaultExtensionStore<'parse> {
                     &mut self.originals,
                     &self.source_specificity,
                     self.mode,
-                    self.io.as_ref(),
-                    self.unicode,
                 )?;
             }
         }
@@ -726,8 +720,7 @@ impl<'parse> DefaultExtensionStore<'parse> {
                 if let Some(existing) = self.extensions.get_mut(target) {
                     for (ek, ext) in new_srcs {
                         if let Some(ex) = existing.get(ek) {
-                            let merged =
-                                merge_extensions(arena, ex, ext, self.io.as_ref(), self.unicode)?;
+                            let merged = merge_extensions(arena, ex, ext)?;
                             existing.insert(ek.clone(), merged);
                             if !exts_to_extend.is_empty() || !sels_to_extend.is_empty() {
                                 new_exts
@@ -769,8 +762,6 @@ impl<'parse> DefaultExtensionStore<'parse> {
                     &mut self.originals,
                     &self.source_specificity,
                     self.mode,
-                    self.io.as_ref(),
-                    self.unicode,
                 )?;
             }
             if !sels_to_extend.is_empty() {
@@ -783,8 +774,6 @@ impl<'parse> DefaultExtensionStore<'parse> {
                     &mut self.originals,
                     &self.source_specificity,
                     self.mode,
-                    self.io.as_ref(),
-                    self.unicode,
                 )?;
             }
         }
@@ -880,41 +869,6 @@ impl<'parse> DefaultExtensionStore<'parse> {
 // ===========================================================================
 // FREE FUNCTIONS — all private logic, no &self
 // ===========================================================================
-
-fn wrap_sass_error(e: Box<SassError>, io: &dyn Io) -> Box<SassError> {
-    if let SassError::Sass {
-        ref message,
-        ref span,
-        ..
-    } = *e
-    {
-        let span_msg = span
-            .source_url
-            .as_ref()
-            .map(|url| {
-                format!(
-                    "line {}, column {} of {}:",
-                    span.line(),
-                    span.column(),
-                    pretty_uri(url, io)
-                )
-            })
-            .unwrap_or_default();
-        let msg = if span_msg.is_empty() {
-            message.clone()
-        } else {
-            format!("From {}\n{}", span_msg, message)
-        };
-        Box::new(SassError::Sass {
-            message: msg,
-            span: span.clone(),
-            cause: None,
-            loaded_urls: vec![],
-        })
-    } else {
-        e
-    }
-}
 
 // Registers the simple selectors in `list` (recursing into selector
 // pseudos) to point at `mb` in the selectors index.
@@ -1186,7 +1140,7 @@ fn extend_compound<'compile: 'parse, 'parse>(
     if options.len() == 1 {
         let mut result = Vec::new();
         for extender in &options[0] {
-            extender.assert_compatible_media_context(media_ctx)?;
+            extender.assert_compatible_media_context(media_ctx, component.selector.span)?;
             let complex = extender
                 .selector
                 .with_additional_combinators(&component.combinators, false);
@@ -1502,7 +1456,7 @@ fn unify_extenders<'parse>(
     }
     let complexes = unify_complex(&to_unify, span)?;
     for e in extenders {
-        e.assert_compatible_media_context(media_ctx)?;
+        e.assert_compatible_media_context(media_ctx, span)?;
     }
     Ok(complexes)
 }
@@ -1592,8 +1546,6 @@ fn extend_existing_extensions<'compile: 'parse, 'parse>(
     originals: &mut HashSet<ComplexSelector<'parse>>,
     source_specificity: &IndexMap<SimpleSelector<'parse>, usize>,
     mode: ExtendMode,
-    io: &dyn Io,
-    unicode: bool,
 ) -> SassResult<
     IndexMap<SimpleSelector<'parse>, IndexMap<ComplexSelector<'parse>, Extension<'parse>>>,
 > {
@@ -1659,7 +1611,7 @@ fn extend_existing_extensions<'compile: 'parse, 'parse>(
         for complex in effective {
             let with_ext = extension.with_extender(arena, complex.clone());
             if let Some(existing) = sources.get(complex) {
-                let merged = merge_extensions(arena, existing, &with_ext, io, unicode)?;
+                let merged = merge_extensions(arena, existing, &with_ext)?;
                 sources.insert(complex.clone(), merged);
             } else {
                 sources.insert(complex.clone(), with_ext);
@@ -1701,13 +1653,11 @@ fn extend_existing_selectors<'compile: 'parse, 'parse>(
     originals: &mut HashSet<ComplexSelector<'parse>>,
     source_specificity: &IndexMap<SimpleSelector<'parse>, usize>,
     mode: ExtendMode,
-    io: &dyn Io,
-    unicode: bool,
 ) -> SassResult<()> {
     for mb in sels {
         let old_value = *mb.inner.borrow();
         let mc = media_contexts.get(mb).cloned();
-        let new_value = match extend_list(
+        let new_value = extend_list(
             arena,
             &old_value,
             new_exts,
@@ -1715,28 +1665,7 @@ fn extend_existing_selectors<'compile: 'parse, 'parse>(
             originals,
             source_specificity,
             mode,
-        ) {
-            Ok(v) => v,
-            Err(e) => {
-                if let SassError::Sass {
-                    ref message,
-                    ref span,
-                    ..
-                } = *e
-                {
-                    let old_span = old_value.span()?;
-                    let span_msg = span_message(old_span, io, unicode);
-                    let new_msg = format!("From {}\n{}", span_msg, message);
-                    return Err(Box::new(SassError::Sass {
-                        message: new_msg,
-                        span: span.clone(),
-                        cause: None,
-                        loaded_urls: vec![],
-                    }));
-                }
-                return Err(e);
-            }
-        };
+        )?;
         if !std::ptr::eq(old_value.0, new_value.0) {
             *mb.inner.borrow_mut() = new_value;
             register_selector(selectors, &new_value, mb);
@@ -2309,7 +2238,11 @@ mod tests {
         // .a { @extend .b; } inside @media screen
         let extender = make_complex("a");
         let target = class("b");
-        let mc = vec![CssMediaQuery::new_type(Some("screen".into()), None, vec![])];
+        let mc = vec![CssMediaQuery::test_type(
+            Some("screen".into()),
+            None,
+            vec![],
+        )];
         store
             .add_extension(
                 &arena,

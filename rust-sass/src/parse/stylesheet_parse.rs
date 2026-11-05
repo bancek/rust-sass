@@ -1282,6 +1282,27 @@ mod tests {
         }
     }
 
+    #[rust_sass_macros::maybe_test]
+    async fn test_media_rule_query_interpolation_span_excludes_block() {
+        let arena = bumpalo::Bump::new();
+        let sheet = parse_scss(
+            &arena,
+            "@media only screen and (min-width:300px) { a {b: c} }",
+        )
+        .unwrap();
+        let Statement::MediaRule(rule) = &sheet.children[0] else {
+            panic!("expected media rule, got {:?}", sheet.children[0]);
+        };
+        // The stylesheet-level query interpolation span covers only the query
+        // text, not the `@media` keyword or the block; it keeps the trailing
+        // space before `{`. The resolved query's trimming is covered in
+        // parse/media_query.rs.
+        assert_eq!(
+            rule.query.span().unwrap().text().trim_end(),
+            "only screen and (min-width:300px)"
+        );
+    }
+
     #[test]
     fn test_empty_style_rule_selector_error() {
         // Matches Dart: when the selector is empty, parse an interpolated

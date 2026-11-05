@@ -384,7 +384,7 @@ mod tests {
     use super::*;
     use crate::ast::css::media_query::CssMediaQuery;
     use crate::common::ast_css_value::CssValue;
-    use crate::common::file_span::FileSpan;
+    use crate::common::file_span::{FileSpan, BOGUS_SPAN};
     use crate::common::source_span_file_source::FileSource;
     use crate::io::VirtualIo;
     use crate::selector::class::ClassSelector;
@@ -430,8 +430,8 @@ mod tests {
         SelectorList::new(arena, vec![complex], span).unwrap()
     }
 
-    fn make_css_media_query(cond: &str) -> CssMediaQuery {
-        CssMediaQuery::new_condition(vec![cond.into()], None).unwrap()
+    fn make_css_media_query<'parse>(cond: &str) -> CssMediaQuery<'parse> {
+        CssMediaQuery::new_condition(vec![cond.into()], BOGUS_SPAN, None).unwrap()
     }
 
     fn make_stylesheet<'compile, 'parse>(arena: &'compile Bump) -> ModifiableCssNode<'parse>

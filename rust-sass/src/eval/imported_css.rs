@@ -631,7 +631,11 @@ mod tests {
         let arena = Bump::new();
         let (config, mut state) = test_state(&arena);
         let mr = CssMediaRule::new(
-            vec![CssMediaQuery::new_type(Some("screen".into()), None, vec![])],
+            vec![CssMediaQuery::test_type(
+                Some("screen".into()),
+                None,
+                vec![],
+            )],
             make_span(&arena, "@media screen {}"),
         )
         .unwrap();

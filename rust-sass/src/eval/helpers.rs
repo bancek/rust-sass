@@ -1206,10 +1206,10 @@ pub(crate) fn style_rule<'s, 'parse>(
 // unmerged). An empty input yields `Some(vec![])` — everything merged away —
 // which Dart's nullable return distinguishes from `None`.
 
-pub(crate) fn merge_media_queries(
-    queries1: &[CssMediaQuery],
-    queries2: &[CssMediaQuery],
-) -> Option<Vec<CssMediaQuery>> {
+pub(crate) fn merge_media_queries<'parse>(
+    queries1: &[CssMediaQuery<'parse>],
+    queries2: &[CssMediaQuery<'parse>],
+) -> Option<Vec<CssMediaQuery<'parse>>> {
     if queries1.is_empty() || queries2.is_empty() {
         return Some(vec![]);
     }
@@ -1245,8 +1245,8 @@ pub(crate) fn merge_media_queries(
 pub(crate) async fn with_media_queries<'compile, 'parse, F>(
     config: &EvalConfig<'compile, 'parse>,
     state: &mut EvalState<'compile, 'parse>,
-    queries: Option<Vec<CssMediaQuery>>,
-    sources: Option<Vec<CssMediaQuery>>,
+    queries: Option<Vec<CssMediaQuery<'parse>>>,
+    sources: Option<Vec<CssMediaQuery<'parse>>>,
     f: F,
 ) -> SassResult<()>
 where
@@ -1270,8 +1270,8 @@ where
 pub(crate) async fn with_media_queries<'compile, 'parse, F>(
     config: &EvalConfig<'compile, 'parse>,
     state: &mut EvalState<'compile, 'parse>,
-    queries: Option<Vec<CssMediaQuery>>,
-    sources: Option<Vec<CssMediaQuery>>,
+    queries: Option<Vec<CssMediaQuery<'parse>>>,
+    sources: Option<Vec<CssMediaQuery<'parse>>>,
     f: F,
 ) -> SassResult<()>
 where
@@ -2926,7 +2926,11 @@ mod tests {
     #[rust_sass_macros::maybe_test]
     async fn test_merge_media_queries_empty_first() {
         let q1: Vec<CssMediaQuery> = vec![];
-        let q2 = vec![CssMediaQuery::new_type(Some("screen".into()), None, vec![])];
+        let q2 = vec![CssMediaQuery::test_type(
+            Some("screen".into()),
+            None,
+            vec![],
+        )];
         let result = merge_media_queries(&q1, &q2);
         assert!(result.is_some());
         assert!(result.unwrap().is_empty());
@@ -2934,8 +2938,16 @@ mod tests {
 
     #[rust_sass_macros::maybe_test]
     async fn test_merge_media_queries_matching() {
-        let q1 = vec![CssMediaQuery::new_type(Some("screen".into()), None, vec![])];
-        let q2 = vec![CssMediaQuery::new_type(Some("screen".into()), None, vec![])];
+        let q1 = vec![CssMediaQuery::test_type(
+            Some("screen".into()),
+            None,
+            vec![],
+        )];
+        let q2 = vec![CssMediaQuery::test_type(
+            Some("screen".into()),
+            None,
+            vec![],
+        )];
         let result = merge_media_queries(&q1, &q2);
         assert!(result.is_some());
         assert_eq!(result.unwrap().len(), 1);
@@ -2952,7 +2964,11 @@ mod tests {
     async fn test_with_media_queries_save_restore() {
         let arena = Bump::new();
         let (config, mut state) = test_visitor(&arena);
-        let queries = vec![CssMediaQuery::new_type(Some("screen".into()), None, vec![])];
+        let queries = vec![CssMediaQuery::test_type(
+            Some("screen".into()),
+            None,
+            vec![],
+        )];
         assert!(state.media_queries.is_none());
 
         with_media_queries(

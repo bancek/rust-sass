@@ -21,7 +21,7 @@ use crate::ast::css::node::CssNode;
 #[derive(Clone, Debug)]
 pub struct CssMediaRule<'parse> {
     /// The queries for this rule. This is never empty.
-    pub queries: Vec<CssMediaQuery>,
+    pub queries: Vec<CssMediaQuery<'parse>>,
     /// The child statements of this rule.
     pub children: Vec<CssNode<'parse>>,
     /// The source span for this rule.
@@ -36,7 +36,7 @@ pub struct CssMediaRule<'parse> {
 
 impl<'parse> CssMediaRule<'parse> {
     /// Creates a media rule. Fails when `queries` is empty.
-    pub fn new(queries: Vec<CssMediaQuery>, span: FileSpan<'parse>) -> SassResult<Self> {
+    pub fn new(queries: Vec<CssMediaQuery<'parse>>, span: FileSpan<'parse>) -> SassResult<Self> {
         if queries.is_empty() {
             return Err(Box::new(SassError::Script {
                 message: "queries may not be empty.".into(),
@@ -85,7 +85,7 @@ impl<'parse> fmt::Display for CssMediaRule<'parse> {
 #[derive(Clone, Debug)]
 pub struct ModifiableCssMediaRule<'parse> {
     /// The queries for this rule. This is never empty.
-    pub queries: Vec<CssMediaQuery>,
+    pub queries: Vec<CssMediaQuery<'parse>>,
     /// The source span for this rule.
     pub span: FileSpan<'parse>,
     /// The child statements of this rule.
@@ -94,7 +94,7 @@ pub struct ModifiableCssMediaRule<'parse> {
 
 impl<'parse> ModifiableCssMediaRule<'parse> {
     /// Creates a modifiable media rule. Fails when `queries` is empty.
-    pub fn new(queries: Vec<CssMediaQuery>, span: FileSpan<'parse>) -> SassResult<Self> {
+    pub fn new(queries: Vec<CssMediaQuery<'parse>>, span: FileSpan<'parse>) -> SassResult<Self> {
         if queries.is_empty() {
             return Err(Box::new(SassError::Script {
                 message: "queries may not be empty.".into(),
@@ -151,7 +151,7 @@ mod tests {
     fn test_media_rule_construction() {
         let arena = Bump::new();
         let span = make_span(&arena, "test");
-        let q = CssMediaQuery::new_type(Some("screen".into()), None, vec![]);
+        let q = CssMediaQuery::test_type(Some("screen".into()), None, vec![]);
         let r = ModifiableCssMediaRule::new(vec![q], span).unwrap();
         assert_eq!(r.queries.len(), 1);
     }
