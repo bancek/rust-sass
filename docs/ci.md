@@ -2,7 +2,15 @@
 
 All workflows use `concurrency.cancel-in-progress` on every push.
 
-## `ci.yml` (push to `main` + PRs)
+## Toolchain pins
+
+The Rust toolchain is pinned explicitly in each workflow (six `toolchain:`
+entries across `ci.yml`, `crates.yml`, `playground.yml`, and `release.yml`).
+They must all agree with each other and with the MSRV in `Cargo.toml`; the
+bump procedure lives in
+[`CONTRIBUTING.md`](CONTRIBUTING.md#rust-toolchain--msrv-upgrades).
+
+## `ci.yml` (push to every branch + PRs)
 
 Two jobs. `test` runs on ubuntu, macOS and Windows: `cargo build
 -p rust-sass-libsass` then `cargo build --workspace` (fresh checkouts need

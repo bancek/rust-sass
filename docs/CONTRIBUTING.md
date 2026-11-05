@@ -258,6 +258,74 @@ allows for the documented reasons; everything else gets fixed. CI runs
 these commands as the deny gate (`.github/workflows/ci.yml`) — see
 [`ci-todo.md`](ci-todo.md).
 
+## Rust toolchain / MSRV upgrades
+
+Do this as a standalone prerequisite branch (for example `rust-1.99`), not
+mixed with a dart-sass port or release bump.
+
+1. Pick a stable toolchain and confirm it locally:
+   ```sh
+   rustc --version
+   rustup toolchain list
+   ```
+2. Set the MSRV in `Cargo.toml`:
+   ```toml
+   rust-version = "1.99"
+   ```
+   `rust-version` is major/minor only.
+3. Update every workflow pin to the exact stable patch. There are **six**:
+   - `.github/workflows/ci.yml` — test job and spec job
+   - `.github/workflows/crates.yml`
+   - `.github/workflows/playground.yml`
+   - `.github/workflows/release.yml` — native and wasm jobs
+
+   Verify there are exactly six and that they agree:
+   ```sh
+   rg -n 'toolchain:' .github/workflows
+   ```
+4. Update prose references:
+   - `README.md` prerequisites
+   - this file's prerequisites
+   - `docs/ci.md` toolchain/wasm rows
+   - any local command using `RUSTUP_TOOLCHAIN=…`
+
+   Sweep for both the exact patch and the major/minor form:
+   ```sh
+   rg -n '1\.99\.1|1\.99' --glob '!target' .
+   ```
+5. Format with the new toolchain:
+   ```sh
+   cargo +1.99.1 fmt --all
+   ```
+6. Fix clippy under the new toolchain, sync and async:
+   ```sh
+   cargo +1.99.1 clippy --workspace --all-targets -- -D warnings
+   cargo +1.99.1 clippy --workspace --all-targets --features async -- -D warnings
+   ```
+   `cargo clippy --fix` is fine for machine-applicable lints, but review the
+   diff: the fixes must be behavior-preserving.
+7. Run the local battery:
+   - unit tests sync + async,
+   - macros and embedded tests sync + async,
+   - spec suite one top-level directory per process (CI runs it whole),
+   - wasm release build and JS tests:
+     ```sh
+     cd rust-sass-wasm
+     RUSTUP_TOOLCHAIN=1.99.1 npm run build:rust:release
+     npm run build:js
+     npm run test:js
+     ```
+8. Commit as one prerequisite commit:
+   `Bump Rust toolchain to 1.99 and satisfy clippy`.
+9. Push the `rust-X.Y` branch and wait for branch CI. Stop before pushing
+   `main` for review; after main CI is green, continue with the Sass port.
+
+`toolchain:` is intentionally explicit per workflow rather than a repository
+variable: the version stays visible in review diffs, and the `rg` check catches
+a missed pin. CI uses the exact patch for reproducibility; `rust-version` only
+communicates the minimum. A patch bump updates the six pins and prose; a
+minor bump also changes `Cargo.toml`.
+
 ## Protocol codegen
 
 The embedded-protocol bindings are committed generated code. Regenerate them
