@@ -9,8 +9,8 @@ human-readable picture.
 
 |                     |                                                                        |
 | ------------------- | ---------------------------------------------------------------------- |
-| dart-sass commit    | `db3c666fd8adedce310295580694ae05a01a00cf` (2026-09-29, `PORTED_FROM`) |
-| dart-sass version   | 1.105.1                                                                |
+| dart-sass commit    | `00a0d7968f4a6d8ed044da35e3b04877d8b3e2b4` (2026-10-16, `PORTED_FROM`) |
+| dart-sass version   | 1.105.2                                                                |
 | Embedded protocol   | 3.3.0                                                                  |
 | Dart SDK constraint | `>=3.13.0 <4.0.0` (dart-sass `pubspec.yaml`)                           |
 

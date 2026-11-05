@@ -1,9 +1,14 @@
 # Changelog
 
-Release history. Tags track the pinned dart-sass version (`v1.105.1`); the
+Release history. Tags track the pinned dart-sass version (`v1.105.2`); the
 procedure lives in [`docs/release.md`](docs/release.md).
 
 ## Unreleased
+
+## 1.105.2
+
+- Match dart-sass 1.105.2's embedded-host release; the compiler is unchanged
+  from 1.105.1.
 
 ## 1.105.1
 

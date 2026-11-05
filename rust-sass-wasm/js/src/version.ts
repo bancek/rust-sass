@@ -36,7 +36,7 @@ export class Version implements SassVersionApi {
 /** The Sass version reported by `--version` and used as the cap for
  * `--fatal-deprecation` version arguments. Matches the `info` version and the
  * tracked dart-sass port version (see `docs/upstream.md`). */
-export const SASS_VERSION = '1.105.1';
+export const SASS_VERSION = '1.105.2';
 
 /** The Dart compiler version in the `--version` line and `info` string. */
 export const DART2JS_VERSION = '3.13.5';
