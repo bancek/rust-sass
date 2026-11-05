@@ -484,7 +484,12 @@ impl<'parse> InterpolationMap<'parse> {
     }
 
     /// Given the end of a [`FileSpan`] covering an interpolated expression,
-    /// returns the offset of the interpolation's closing `}`.
+    /// returns the offset of the next character that's not whitespace or a
+    /// comment.
+    ///
+    /// For most interpolations this is the closing `}`, but media-query
+    /// interpolations don't use literal `#{}` and end at a different bounding
+    /// character.
     fn expand_interpolation_span_right(&self, end_offset: usize) -> SassResult<usize> {
         let interp_span = self.interpolation.span()?;
         let source = match interp_span.file() {
@@ -499,9 +504,6 @@ impl<'parse> InterpolationMap<'parse> {
         while i < source.len() {
             let next = source.as_bytes()[i];
             i += 1;
-            if next == b'}' {
-                break;
-            }
             if next == b'/' && i < source.len() {
                 let second = source.as_bytes()[i];
                 i += 1;
@@ -532,6 +534,8 @@ impl<'parse> InterpolationMap<'parse> {
                         }
                     }
                 }
+            } else if !crate::util::character::is_whitespace(next as char) {
+                break;
             }
         }
 
@@ -648,6 +652,20 @@ mod tests {
         } else {
             panic!("expected File span");
         }
+    }
+
+    #[rust_sass_macros::maybe_test]
+    async fn test_expand_interpolation_span_right_stops_at_non_whitespace() {
+        // Media-query interpolations are not wrapped in `#{}`; expansion must
+        // stop at the first non-whitespace character rather than scanning to
+        // the next `}` (which would swallow the whole media block).
+        let arena = Bump::new();
+        let source = "abc def { ignore } ";
+        let fs = FileSource::new_in(&arena, source, None);
+        let span = FileSpan::new(Some(fs), 0, source.len());
+        let interp = Interpolation::plain(source.into(), span);
+        let m = InterpolationMap::new(interp, vec![]).unwrap();
+        assert_eq!(m.expand_interpolation_span_right(3).unwrap(), 5);
     }
 
     #[test]
