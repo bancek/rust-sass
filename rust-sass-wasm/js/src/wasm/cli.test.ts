@@ -82,7 +82,7 @@ describe.skipIf(!artifactsPresent || !distPresent)('cli end-to-end', () => {
   it('prints the version', () => {
     const r = ours(['--version']);
     expect(r.status).toBe(0);
-    expect(r.stdout).toBe('1.104.0 compiled with dart2js 3.13.3\n');
+    expect(r.stdout).toBe('1.105.0 compiled with dart2js 3.13.4\n');
   });
 
   it('compiles stdin to stdout', () => {

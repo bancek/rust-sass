@@ -1,9 +1,22 @@
 # Changelog
 
-Release history. Tags track the pinned dart-sass version (`v1.104.0`); the
+Release history. Tags track the pinned dart-sass version (`v1.105.0`); the
 procedure lives in [`docs/release.md`](docs/release.md).
 
 ## Unreleased
+
+## 1.105.0
+
+- First-class modules, matching dart-sass 1.105.0: `meta.load()`,
+  `meta.get-module()`, `meta.css()`, module references in the `$module`
+  argument of `meta`'s introspection functions, and `meta.type-of()` returning
+  `module`.
+- Port the 1.104.1 parser fixes (phantom newline in indented selectors,
+  `expected end of rule.` / `unrecognized syntax`) and the duplicate
+  pre-module loud-comment fix.
+- Embedded protocol 3.3.0 (`CompilerModule`) and JS API `SassModule` /
+  `Value.assertModule()`.
+- Byte-identical output to Dart Sass 1.105.0 (14350/14350 spec tests passing).
 
 ## 1.104.0
 
