@@ -48,12 +48,13 @@ use crate::common::file_span::BOGUS_SPAN;
 use crate::compile_context::CompileContext;
 use crate::configuration::{Configuration, ConfiguredValue};
 use crate::deprecation::{CALL_STRING, WITH_PRIVATE};
+use crate::environment::Environment;
 use crate::eval::{EvalConfig, EvalState, EvaluateVisitor};
 use crate::module::{Module, ModuleKind};
 use crate::url::SassUrl;
 use crate::value::{
-    assert_mixin, assert_string, SassFunction, SassMap, SassMixin, SassString, Value, ValueKind,
-    SASS_FALSE, SASS_TRUE,
+    assert_mixin, assert_string, SassFunction, SassMap, SassMixin, SassModule, SassString, Value,
+    ValueKind, SASS_FALSE, SASS_TRUE,
 };
 
 /// Creates one evaluator-context `sass:meta` function.
@@ -308,6 +309,47 @@ where
 // create_meta_functions
 // ===========================================================================
 
+/// Loads the module for the given Sass value as for `meta.get-module()`.
+///
+/// Matches Dart: `_getModule` (`evaluate.dart:723`).
+fn get_module<'compile: 'parse, 'parse: 'compile>(
+    module: &Value<'parse>,
+    env: Environment<'compile, 'parse>,
+    compile_context: &CompileContext,
+) -> SassResult<Module<'compile, 'parse>> {
+    match get_nullable_module(module, env, compile_context)? {
+        Some(module) => Ok(module),
+        None => Err(module_type_error(module)?),
+    }
+}
+
+/// Loads the module for the given Sass value as for `meta.get-module()`, and
+/// returns `None` if `module` is the Sass `null` value.
+///
+/// Matches Dart: `_getNullableModule` (`evaluate.dart:735`).
+fn get_nullable_module<'compile: 'parse, 'parse: 'compile>(
+    module: &Value<'parse>,
+    env: Environment<'compile, 'parse>,
+    compile_context: &CompileContext,
+) -> SassResult<Option<Module<'compile, 'parse>>> {
+    match &**module {
+        ValueKind::Module(m) => Ok(Some(m.assert_compile_context(compile_context)?.module)),
+        ValueKind::String(s) => Ok(Some(env.get_module(s.text)?)),
+        ValueKind::Null => Ok(None),
+        _ => Err(module_type_error(module)?),
+    }
+}
+
+fn module_type_error<'parse>(module: &Value<'parse>) -> SassResult<Box<SassError>> {
+    Ok(Box::new(SassError::Script {
+        message: format!(
+            "{} is neither a string nor a module reference.",
+            module.to_display_string()?
+        ),
+        argument_name: Some("module".into()),
+    }))
+}
+
 /// Builds the 11 evaluator-context `sass:meta` functions.
 ///
 /// Matches Dart: `metaFunctions` list (`evaluate.dart:386-600`). Each entry is
@@ -349,8 +391,12 @@ where
 ///   `built_in_functions`, throwing `Function not found: <name>`; the result
 ///   carries the captured compile context.
 /// * `get-mixin($name, $module: null)` — resolves the normalized name against
-///   `env`, throwing `Mixin not found: <name>`; the result carries the
-///   captured compile context.
+///   `env` or the given module, throwing `Mixin not found: <name>`; the result
+///   carries the captured compile context.
+/// * `get-module($module)` — returns a first-class module reference from a
+///   namespace string or another module value.
+/// * `load($url, $with: null)` — loads a module like `@use` and returns it as
+///   a first-class module reference without emitting its CSS.
 /// * `call($function, $args...)` — reentrant; forwards to [`call_impl`]:
 ///   `SassFunction` values run via `invoke_callable` after an
 ///   `assert_compile_context` check, strings take the deprecated
@@ -381,26 +427,24 @@ where
                 "$name, $module: null",
                 arena,
                 {
+                    let cctx = compile_context.clone();
                     Rc::new(
                         move |_config: &EvalConfig<'compile, 'parse>,
                               state: &mut EvalState<'compile, 'parse>,
                               args: Vec<Value<'parse>>,
                               _arena: &'compile Bump|
                               -> SassResult<Value<'parse>> {
-                            let name = assert_string(&args[0], Some("name"))?;
-                            let normalized = name.text.replace("_", "-");
-                            let namespace = if let Some(m) = args.get(1) {
-                                if matches!(&**m, ValueKind::Null) {
-                                    None
-                                } else {
-                                    Some(assert_string(m, Some("module"))?.text.to_string())
-                                }
-                            } else {
-                                None
+                            let normalized = assert_string(&args[0], Some("name"))?
+                                .text
+                                .replace("_", "-");
+                            let module = match args.get(1) {
+                                Some(m) => get_nullable_module(m, state.env, &cctx)?,
+                                None => None,
                             };
-                            let exists = state
-                                .env
-                                .global_variable_exists(&normalized, namespace.as_deref())?;
+                            let exists = match module {
+                                Some(module) => module.variables().get(&normalized).is_some(),
+                                None => state.env.global_variable_exists(&normalized, None)?,
+                            };
                             Ok(Value::new_with_arena(
                                 arena,
                                 ValueKind::Boolean(if exists { SASS_TRUE } else { SASS_FALSE }),
@@ -435,32 +479,31 @@ where
         Callable::new(
             arena,
             CallableKind::BuiltIn(meta_fn("function-exists", "$name, $module: null", arena, {
+                let cctx = compile_context.clone();
                 Rc::new(
                     move |_config: &EvalConfig<'compile, 'parse>,
-                          _state: &mut EvalState<'compile, 'parse>,
+                          state: &mut EvalState<'compile, 'parse>,
                           args: Vec<Value<'parse>>,
                           _arena: &'compile Bump|
                           -> SassResult<Value<'parse>> {
                         let name = assert_string(&args[0], Some("name"))?;
                         let normalized = name.text.replace("_", "-");
-                        let namespace = if let Some(m) = args.get(1) {
-                            if matches!(&**m, ValueKind::Null) {
-                                None
-                            } else {
-                                Some(assert_string(m, Some("module"))?.text.to_string())
-                            }
-                        } else {
-                            None
+                        let module = match args.get(1) {
+                            Some(m) => get_nullable_module(m, state.env, &cctx)?,
+                            None => None,
                         };
-                        let env_exists = env.function_exists(&normalized, namespace.as_deref())?;
-                        if env_exists {
-                            return Ok(Value::new_with_arena(arena, ValueKind::Boolean(SASS_TRUE)));
-                        }
-                        // Dart: _builtInFunctions.containsKey(variable.text) — RAW name
-                        if built_in_functions.borrow().contains_key(name.text) {
-                            return Ok(Value::new_with_arena(arena, ValueKind::Boolean(SASS_TRUE)));
-                        }
-                        Ok(Value::new_with_arena(arena, ValueKind::Boolean(SASS_FALSE)))
+                        let exists = match module {
+                            Some(module) => module.functions().get(&normalized).is_some(),
+                            None => {
+                                env.function_exists(&normalized, None)?
+                                    // Dart: _builtInFunctions.containsKey(variable.text) — RAW name
+                                    || built_in_functions.borrow().contains_key(name.text)
+                            }
+                        };
+                        Ok(Value::new_with_arena(
+                            arena,
+                            ValueKind::Boolean(if exists { SASS_TRUE } else { SASS_FALSE }),
+                        ))
                     },
                 )
             })),
@@ -469,24 +512,24 @@ where
         Callable::new(
             arena,
             CallableKind::BuiltIn(meta_fn("mixin-exists", "$name, $module: null", arena, {
+                let cctx = compile_context.clone();
                 Rc::new(
                     move |_config: &EvalConfig<'compile, 'parse>,
-                          _state: &mut EvalState<'compile, 'parse>,
+                          state: &mut EvalState<'compile, 'parse>,
                           args: Vec<Value<'parse>>,
                           _arena: &'compile Bump|
                           -> SassResult<Value<'parse>> {
-                        let name = assert_string(&args[0], Some("name"))?;
-                        let normalized = name.text.replace("_", "-");
-                        let namespace = if let Some(m) = args.get(1) {
-                            if matches!(&**m, ValueKind::Null) {
-                                None
-                            } else {
-                                Some(assert_string(m, Some("module"))?.text.to_string())
-                            }
-                        } else {
-                            None
+                        let normalized = assert_string(&args[0], Some("name"))?
+                            .text
+                            .replace("_", "-");
+                        let module = match args.get(1) {
+                            Some(m) => get_nullable_module(m, state.env, &cctx)?,
+                            None => None,
                         };
-                        let exists = env.mixin_exists(&normalized, namespace.as_deref())?;
+                        let exists = match module {
+                            Some(module) => module.mixins().get(&normalized).is_some(),
+                            None => env.mixin_exists(&normalized, None)?,
+                        };
                         Ok(Value::new_with_arena(
                             arena,
                             ValueKind::Boolean(if exists { SASS_TRUE } else { SASS_FALSE }),
@@ -525,18 +568,14 @@ where
         Callable::new(
             arena,
             CallableKind::BuiltIn(meta_fn("module-variables", "$module", arena, {
+                let cctx = compile_context.clone();
                 Rc::new(
                     move |_config: &EvalConfig<'compile, 'parse>,
-                          _state: &mut EvalState<'compile, 'parse>,
+                          state: &mut EvalState<'compile, 'parse>,
                           args: Vec<Value<'parse>>,
                           _arena: &'compile Bump|
                           -> SassResult<Value<'parse>> {
-                        let ns = assert_string(&args[0], Some("module"))?;
-                        let modules = env.modules();
-                        let module = modules.get(ns.text).ok_or_else(|| SassError::Script {
-                            message: format!("There is no module with namespace {:?}.", ns.text),
-                            argument_name: None,
-                        })?;
+                        let module = get_module(&args[0], state.env, &cctx)?;
                         let mut m = SassMap::empty();
                         for (name, val) in module.variables().entries() {
                             m.set(
@@ -562,16 +601,11 @@ where
                 let cctx = compile_context.clone();
                 Rc::new(
                     move |_config: &EvalConfig<'compile, 'parse>,
-                          _state: &mut EvalState<'compile, 'parse>,
+                          state: &mut EvalState<'compile, 'parse>,
                           args: Vec<Value<'parse>>,
                           _arena: &'compile Bump|
                           -> SassResult<Value<'parse>> {
-                        let ns = assert_string(&args[0], Some("module"))?;
-                        let modules = env.modules();
-                        let module = modules.get(ns.text).ok_or_else(|| SassError::Script {
-                            message: format!("There is no module with namespace {:?}.", ns.text),
-                            argument_name: None,
-                        })?;
+                        let module = get_module(&args[0], state.env, &cctx)?;
                         let mut m = SassMap::empty();
                         for (name, fn_) in module.functions().entries() {
                             m.set(
@@ -603,16 +637,11 @@ where
                 let cctx = compile_context.clone();
                 Rc::new(
                     move |_config: &EvalConfig<'compile, 'parse>,
-                          _state: &mut EvalState<'compile, 'parse>,
+                          state: &mut EvalState<'compile, 'parse>,
                           args: Vec<Value<'parse>>,
                           _arena: &'compile Bump|
                           -> SassResult<Value<'parse>> {
-                        let ns = assert_string(&args[0], Some("module"))?;
-                        let modules = env.modules();
-                        let module = modules.get(ns.text).ok_or_else(|| SassError::Script {
-                            message: format!("There is no module with namespace {:?}.", ns.text),
-                            argument_name: None,
-                        })?;
+                        let module = get_module(&args[0], state.env, &cctx)?;
                         let mut m = SassMap::empty();
                         for (name, mx) in module.mixins().entries() {
                             m.set(
@@ -648,18 +677,19 @@ where
                     let cctx = compile_context.clone();
                     Rc::new(
                         move |_config: &EvalConfig<'compile, 'parse>,
-                              _state: &mut EvalState<'compile, 'parse>,
+                              state: &mut EvalState<'compile, 'parse>,
                               args: Vec<Value<'parse>>,
                               _arena: &'compile Bump|
                               -> SassResult<Value<'parse>> {
                             let name = assert_string(&args[0], Some("name"))?;
                             let css = args.get(1).map(|v| v.is_truthy()).unwrap_or(false);
-                            let module_val = args.get(2);
+                            let module = match args.get(2) {
+                                Some(v) => get_nullable_module(v, state.env, &cctx)?,
+                                None => None,
+                            };
 
                             if css {
-                                let module_str =
-                                    module_val.filter(|&v| !matches!(&**v, ValueKind::Null));
-                                if module_str.is_some() {
+                                if module.is_some() {
                                     return Err(Box::new(SassError::Script {
                                         message: "$css and $module may not both be passed at once."
                                             .into(),
@@ -678,40 +708,23 @@ where
                                 ));
                             }
 
-                            let namespace =
-                                module_val.filter(|&v| !matches!(&**v, ValueKind::Null));
-                            let namespace_str = if let Some(v) = namespace {
-                                Some(assert_string(v, Some("module"))?.text.to_string())
-                            } else {
-                                None
-                            };
                             let normalized = name.text.replace("_", "-");
-                            let local = env.get_function(&normalized, namespace_str.as_deref())?;
-                            if let Some(c) = local {
-                                return Ok(Value::new_with_arena(
+                            let callable = match module {
+                                Some(module) => module.functions().get(&normalized),
+                                None => env.get_function(&normalized, None)?.or_else(|| {
+                                    built_in_functions.borrow().get(&normalized).cloned()
+                                }),
+                            };
+                            match callable {
+                                Some(c) => Ok(Value::new_with_arena(
                                     arena,
                                     ValueKind::Function(SassFunction::with_compile_context(
                                         c,
                                         Some(cctx.clone()),
                                     )),
-                                ));
+                                )),
+                                None => Err(function_not_found(name)?),
                             }
-                            // Namespace was specified → no built-in fallback (Dart:
-                            // local != nil || namespace != nil → return local).
-                            if namespace_str.is_some() {
-                                return Err(function_not_found(name)?);
-                            }
-                            // Built-in fallback.
-                            if let Some(c) = built_in_functions.borrow().get(&normalized).cloned() {
-                                return Ok(Value::new_with_arena(
-                                    arena,
-                                    ValueKind::Function(SassFunction::with_compile_context(
-                                        c,
-                                        Some(cctx.clone()),
-                                    )),
-                                ));
-                            }
-                            Err(function_not_found(name)?)
                         },
                     )
                 },
@@ -724,19 +737,20 @@ where
                 let cctx = compile_context.clone();
                 Rc::new(
                     move |_config: &EvalConfig<'compile, 'parse>,
-                          _state: &mut EvalState<'compile, 'parse>,
+                          state: &mut EvalState<'compile, 'parse>,
                           args: Vec<Value<'parse>>,
                           _arena: &'compile Bump|
                           -> SassResult<Value<'parse>> {
                         let name = assert_string(&args[0], Some("name"))?;
                         let normalized = name.text.replace("_", "-");
-                        let namespace = args.get(1).filter(|&v| !matches!(&**v, ValueKind::Null));
-                        let namespace_str = if let Some(v) = namespace {
-                            Some(assert_string(v, Some("module"))?.text.to_string())
-                        } else {
-                            None
+                        let module = match args.get(1) {
+                            Some(v) => get_nullable_module(v, state.env, &cctx)?,
+                            None => None,
                         };
-                        let local = env.get_mixin(&normalized, namespace_str.as_deref())?;
+                        let local = match module {
+                            Some(module) => module.mixins().get(&normalized),
+                            None => env.get_mixin(&normalized, None)?,
+                        };
                         match local {
                             Some(c) => Ok(Value::new_with_arena(
                                 arena,
@@ -747,6 +761,46 @@ where
                             )),
                             None => Err(mixin_not_found(name)?),
                         }
+                    },
+                )
+            })),
+        ),
+        // --- get-module ---
+        Callable::new(
+            arena,
+            CallableKind::BuiltIn(meta_fn("get-module", "$module", arena, {
+                let cctx = compile_context.clone();
+                Rc::new(
+                    move |_config: &EvalConfig<'compile, 'parse>,
+                          state: &mut EvalState<'compile, 'parse>,
+                          args: Vec<Value<'parse>>,
+                          arena: &'compile Bump|
+                          -> SassResult<Value<'parse>> {
+                        let module = get_module(&args[0], state.env, &cctx)?;
+                        Ok(Value::new_with_arena(
+                            arena,
+                            ValueKind::Module(SassModule::with_compile_context(
+                                module,
+                                Some(cctx.clone()),
+                            )),
+                        ))
+                    },
+                )
+            })),
+        ),
+        // --- load ---
+        Callable::new(
+            arena,
+            CallableKind::BuiltIn(meta_fn_async("load", r"$url, $with: null", arena, {
+                let cctx = compile_context.clone();
+                Rc::new(
+                    move |config,
+                          state,
+                          args,
+                          _arena|
+                          -> LocalBoxFuture<'_, SassResult<Value<'parse>>> {
+                        let cctx = cctx.clone();
+                        box_rec!(load_impl(config, state, args, arena, cctx))
                     },
                 )
             })),
@@ -804,32 +858,138 @@ async fn load_css_impl<'compile, 'parse>(
 where
     'compile: 'parse,
 {
-    let url_val = assert_string(&args[0], Some("url"))?;
-    let parsed_url = SassUrl::parse(url_val.text)
-        .unwrap_or_else(|_| SassUrl::parse(&format!("file:///{}", url_val.text)).unwrap());
-    let with_val = &args[1];
+    let module =
+        load_module_for_sass_script(config, state, &args[0], &args[1], "load-css", arena).await?;
+    let callable_node_span = state.callable_span.unwrap_or(BOGUS_SPAN);
+    // Dart runs the load-css callback (`_combineCss(module, clone: true)`)
+    // inside `_loadModule`'s `_withStackFrame("load-css()")`, so CSS-eval
+    // errors (e.g. unsatisfied @extend) get the `load-css()` frame.
+    with_stack_frame(
+        config,
+        state,
+        arena,
+        "load-css()",
+        callable_node_span,
+        None,
+        async |config, state| {
+            add_exception_trace(state, async |s2| {
+                let combined = combine_css(arena, &module, true)?;
+                evaluate_css_stylesheet(config, s2, arena, &combined).await?;
+                Ok(())
+            })
+            .await
+        },
+    )
+    .await?;
+
+    Ok(Value::new_with_arena(arena, ValueKind::Null))
+}
+
+/// Reentrant body of the `meta.load($url, $with: null)` function.
+///
+/// Matches Dart: `_loadModuleForSassScript` followed by returning a
+/// `SassModule`.
+#[rust_sass_macros::maybe_async]
+async fn load_impl<'compile, 'parse>(
+    config: &EvalConfig<'compile, 'parse>,
+    state: &mut EvalState<'compile, 'parse>,
+    args: Vec<Value<'parse>>,
+    arena: &'compile Bump,
+    cctx: CompileContext,
+) -> SassResult<Value<'parse>>
+where
+    'compile: 'parse,
+    'parse: 'compile,
+{
+    let module =
+        load_module_for_sass_script(config, state, &args[0], &args[1], "load", arena).await?;
+    Ok(Value::new_with_arena(
+        arena,
+        ValueKind::Module(SassModule::with_compile_context(module, Some(cctx))),
+    ))
+}
+
+/// Reentrant body of the `meta.css($module)` mixin.
+///
+/// Matches Dart: `css` mixin (`evaluate.dart:597`).
+#[rust_sass_macros::maybe_async]
+async fn css_impl<'compile, 'parse>(
+    config: &EvalConfig<'compile, 'parse>,
+    state: &mut EvalState<'compile, 'parse>,
+    args: Vec<Value<'parse>>,
+    cctx: CompileContext,
+    arena: &'compile Bump,
+) -> SassResult<Value<'parse>>
+where
+    'compile: 'parse,
+    'parse: 'compile,
+{
+    let module = get_module(&args[0], state.env, &cctx)?;
+    let span = state.callable_span.unwrap_or(BOGUS_SPAN);
+    with_stack_frame(
+        config,
+        state,
+        arena,
+        "css()",
+        span,
+        None,
+        async |config, state| {
+            add_exception_trace(state, async |s2| {
+                let combined = combine_css(arena, &module, true)?;
+                evaluate_css_stylesheet(config, s2, arena, &combined).await?;
+                Ok(())
+            })
+            .await
+        },
+    )
+    .await?;
+    Ok(Value::new_with_arena(arena, ValueKind::Null))
+}
+
+/// Loads a module for `meta.load()` / `meta.load-css()`.
+///
+/// Matches Dart: `_loadModuleForSassScript` (`evaluate.dart:875`).
+#[rust_sass_macros::maybe_async]
+async fn load_module_for_sass_script<'compile, 'parse>(
+    config: &EvalConfig<'compile, 'parse>,
+    state: &mut EvalState<'compile, 'parse>,
+    url_arg: &Value<'parse>,
+    with_arg: &Value<'parse>,
+    caller: &str,
+    arena: &'compile Bump,
+) -> SassResult<Module<'compile, 'parse>>
+where
+    'compile: 'parse,
+{
+    let url_val = assert_string(url_arg, Some("url"))?;
+    let url = SassUrl::parse(url_val.text).map_err(|error| {
+        Box::new(SassError::Script {
+            message: error.message,
+            argument_name: None,
+        })
+    })?;
 
     // Dart `load-css`: `configuration = const Configuration.empty()` for a
     // null `$with`, and `SassList.assertMap` (which counts empty lists as
     // empty maps) otherwise — never the caller's ambient configuration.
-    let with_config = if matches!(&**with_val, ValueKind::Null) {
+    let with_config = if matches!(&**with_arg, ValueKind::Null) {
         Some(Configuration::empty(arena))
-    } else if let ValueKind::List(l) = &**with_val {
+    } else if let ValueKind::List(l) = &**with_arg {
         if l.contents.is_empty() {
             let span = state.callable_span.unwrap_or(BOGUS_SPAN);
             Some(Configuration::new_explicit(arena, IndexMap::new(), span))
         } else {
             return Err(Box::new(SassError::Script {
-                message: format!("{} is not a map.", with_val.to_display_string()?),
+                message: format!("{} is not a map.", with_arg.to_display_string()?),
                 argument_name: Some("with".into()),
             }));
         }
     } else {
-        let with_map = match &**with_val {
+        let with_map = match &**with_arg {
             ValueKind::Map(m) => m,
             _ => {
                 return Err(Box::new(SassError::Script {
-                    message: format!("{} is not a map.", with_val.to_display_string()?),
+                    message: format!("{} is not a map.", with_arg.to_display_string()?),
                     argument_name: Some("with".into()),
                 }))
             }
@@ -873,37 +1033,17 @@ where
     };
 
     let callable_node_span = state.callable_span.unwrap_or(BOGUS_SPAN);
-    let base_url = callable_node_span.source_url();
+    let base_url = callable_node_span.source_url().cloned();
     let (module, _first_load) = load_module(
         config,
         state,
         arena,
-        &parsed_url,
-        "load-css()",
+        &url,
+        &format!("{caller}()"),
         callable_node_span,
         with_config.as_ref(),
         true,
-        base_url,
-    )
-    .await?;
-    // Dart runs the load-css callback (`_combineCss(module, clone: true)`)
-    // inside `_loadModule`'s `_withStackFrame("load-css()")`, so CSS-eval
-    // errors (e.g. unsatisfied @extend) get the `load-css()` frame.
-    with_stack_frame(
-        config,
-        state,
-        arena,
-        "load-css()",
-        callable_node_span,
-        None,
-        async |config, state| {
-            add_exception_trace(state, async |s2| {
-                let combined = combine_css(arena, &module, true)?;
-                evaluate_css_stylesheet(config, s2, arena, &combined).await?;
-                Ok(())
-            })
-            .await
-        },
+        base_url.as_ref(),
     )
     .await?;
 
@@ -921,7 +1061,7 @@ where
         }
     }
 
-    Ok(Value::new_with_arena(arena, ValueKind::Null))
+    Ok(module)
 }
 
 /// Reentrant body of the `meta.apply($mixin, $args...)` mixin.
@@ -999,6 +1139,23 @@ where
     let compile_context = v.config.compile_context.clone();
 
     [
+        // --- css ---
+        Callable::new(
+            arena,
+            CallableKind::BuiltIn(meta_mixin_fn_async("css", "$module", false, arena, {
+                let cctx = compile_context.clone();
+                Rc::new(
+                    move |config,
+                          state,
+                          args,
+                          __arena|
+                          -> LocalBoxFuture<'_, SassResult<Value<'parse>>> {
+                        let cctx = cctx.clone();
+                        box_rec!(css_impl(config, state, args, cctx, arena))
+                    },
+                )
+            })),
+        ),
         // --- load-css ---
         Callable::new(
             arena,
@@ -1407,7 +1564,7 @@ mod tests {
             )
             .await
             .unwrap_err(),
-            "There is no module with the namespace \"nope\".",
+            "There is no module with namespace \"nope\".",
             None,
         );
     }
@@ -1621,6 +1778,90 @@ mod tests {
             .unwrap();
         assert!(result.css().contains("c: 0;"), "got: {}", result.css());
         assert!(result.css().contains("o: 1;"), "got: {}", result.css());
+    }
+
+    #[rust_sass_macros::maybe_test]
+    async fn test_get_module_namespace_and_value() {
+        let arena = Bump::new();
+        let mut v = new_visitor(&arena);
+        module_with(&mut v, &arena, "m", vec![], vec![], &[("a", 1.0)]);
+
+        let from_string = eval_ok(&mut v, "get-module", &[quoted_val(&arena, "m")], &arena).await;
+        assert_eq!(
+            from_string.to_display_string().unwrap(),
+            "get-module(\"m\")"
+        );
+        let ValueKind::Module(ref module) = *from_string else {
+            panic!("expected module value, got {:?}", from_string);
+        };
+
+        let from_module = eval_ok(&mut v, "get-module", &[from_string], &arena).await;
+        let ValueKind::Module(ref same) = *from_module else {
+            panic!("expected module value, got {:?}", from_module);
+        };
+        assert_eq!(module.module, same.module);
+    }
+
+    #[rust_sass_macros::maybe_test]
+    async fn test_get_module_null_error() {
+        let arena = Bump::new();
+        let mut v = new_visitor(&arena);
+        assert_script_err(
+            eval_fn(
+                &mut v,
+                "get-module",
+                &[Value::new_with_arena(&arena, ValueKind::Null)],
+                &arena,
+            )
+            .await
+            .unwrap_err(),
+            "null is neither a string nor a module reference.",
+            Some("module"),
+        );
+    }
+
+    #[rust_sass_macros::maybe_test]
+    async fn test_load_returns_live_module() {
+        let arena = Bump::new();
+        let mut files = HashMap::new();
+        files.insert(
+            "/main.scss".to_string(),
+            "@use \"sass:meta\";\n$module: meta.load(\"other\");\na {b: meta.inspect(meta.module-variables($module))}"
+                .to_string(),
+        );
+        files.insert("/other.scss".to_string(), "$value: c;".to_string());
+        let io: Rc<dyn Io> = Rc::new(VirtualIo::with_files(files));
+        let result = compile("/main.scss", io, CompileOptions::new(&arena), &arena)
+            .await
+            .unwrap();
+        assert!(
+            result.css().contains("(\"value\": c)"),
+            "got: {}",
+            result.css()
+        );
+    }
+
+    #[rust_sass_macros::maybe_test]
+    async fn test_css_mixin_emits_module_css() {
+        let arena = Bump::new();
+        let mut files = HashMap::new();
+        files.insert(
+            "/main.scss".to_string(),
+            "@use \"sass:meta\";\n@use \"other\";\n@include meta.css(meta.get-module(\"other\"));"
+                .to_string(),
+        );
+        files.insert("/other.scss".to_string(), "a {b: c}".to_string());
+        let io: Rc<dyn Io> = Rc::new(VirtualIo::with_files(files));
+        let result = compile("/main.scss", io, CompileOptions::new(&arena), &arena)
+            .await
+            .unwrap();
+        // `@use` emits the module once; `meta.css` emits its CSS again.
+        assert_eq!(
+            result.css().matches("a {").count(),
+            2,
+            "got: {}",
+            result.css()
+        );
     }
 
     #[rust_sass_macros::maybe_test]
@@ -1962,6 +2203,7 @@ mod tests {
     async fn test_get_function_css_and_module_error() {
         let arena = Bump::new();
         let mut v = new_visitor(&arena);
+        module_with(&mut v, &arena, "m", vec![], vec![], &[]);
         assert_script_err(
             eval_fn(
                 &mut v,
@@ -2135,6 +2377,69 @@ mod tests {
     }
 
     #[rust_sass_macros::maybe_test]
+    async fn test_load_invalid_url_matches_dart() {
+        // Dart's `Uri.parse` rejects an unterminated IPv6 host with this
+        // message and highlights the call; before the probe, the `file:///`
+        // fallback reported "Can't find stylesheet to import." instead.
+        let arena = Bump::new();
+        let io: Rc<dyn Io> = Rc::new(VirtualIo::new());
+        let err = compile_string(
+            "@use \"sass:meta\";\n$m: meta.load(\"http://[\");\n",
+            io,
+            CompileOptions::new(&arena),
+            &arena,
+        )
+        .await
+        .unwrap_err();
+        assert_eq!(err.message(), "Missing end `]` to match `[` in host");
+        let span = err.span().expect("URL parse error has a span");
+        assert_eq!(span.line(), 2);
+        assert_eq!(span.column(), 5);
+        assert_eq!(span.text, "meta.load(\"http://[\")");
+    }
+
+    #[rust_sass_macros::maybe_test]
+    async fn test_load_css_invalid_url_matches_dart() {
+        // `load-css` shares `_loadModuleForSassScript`, so it reports the same
+        // URI parse error rather than a missing stylesheet.
+        let arena = Bump::new();
+        let io: Rc<dyn Io> = Rc::new(VirtualIo::new());
+        let err = compile_string(
+            "@use \"sass:meta\";\n@include meta.load-css(\"http://[::1\");\n",
+            io,
+            CompileOptions::new(&arena),
+            &arena,
+        )
+        .await
+        .unwrap_err();
+        assert_eq!(err.message(), "Missing end `]` to match `[` in host");
+    }
+
+    #[rust_sass_macros::maybe_test]
+    async fn test_load_dart_lenient_urls_fall_back() {
+        // Dart's `Uri.parse` accepts spaces and empty hosts, which the `url`
+        // crate rejects; the fallback must keep reporting the missing
+        // stylesheet exactly as Dart does.
+        for url in ["%%%", "http://foo bar", "http://"] {
+            let arena = Bump::new();
+            let io: Rc<dyn Io> = Rc::new(VirtualIo::new());
+            let err = compile_string(
+                &format!("@use \"sass:meta\";\n$m: meta.load(\"{url}\");\n"),
+                io,
+                CompileOptions::new(&arena),
+                &arena,
+            )
+            .await
+            .unwrap_err();
+            assert_eq!(
+                err.message(),
+                "Can't find stylesheet to import.",
+                "url: {url:?}"
+            );
+        }
+    }
+
+    #[rust_sass_macros::maybe_test]
     async fn test_load_css_with_type_error() {
         let arena = Bump::new();
         let mut v = new_visitor(&arena);
@@ -2250,8 +2555,8 @@ mod tests {
         let ModuleKind::BuiltIn(ref meta_mod) = *mod_.kind() else {
             panic!("expected BuiltIn")
         };
-        assert_eq!(meta_mod.functions.len(), 18);
-        assert_eq!(meta_mod.mixins.len(), 2);
+        assert_eq!(meta_mod.functions.len(), 20);
+        assert_eq!(meta_mod.mixins.len(), 3);
         for name in [
             "global-variable-exists",
             "variable-exists",
@@ -2263,13 +2568,15 @@ mod tests {
             "module-mixins",
             "get-function",
             "get-mixin",
+            "get-module",
+            "load",
             "call",
         ] {
             assert!(meta_mod.functions.contains_key(name), "missing {name}");
         }
-        for name in ["load-css", "apply"] {
+        for name in ["css", "load-css", "apply"] {
             assert!(meta_mod.mixins.contains_key(name), "missing mixin {name}");
         }
-        assert_eq!(v.config.global_functions.borrow().len(), 11); // fns only; mixins are module-only
+        assert_eq!(v.config.global_functions.borrow().len(), 13); // fns only; mixins are module-only
     }
 }

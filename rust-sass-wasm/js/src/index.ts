@@ -34,6 +34,7 @@ export { SassFunction } from './value/function';
 export { ListSeparator, SassList } from './value/list';
 export { SassMap } from './value/map';
 export { SassMixin } from './value/mixin';
+export { SassModule } from './value/module';
 export { SassNumber } from './value/number';
 export { sassNull } from './value/null';
 export { SassString } from './value/string';

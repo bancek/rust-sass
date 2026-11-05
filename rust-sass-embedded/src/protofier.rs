@@ -17,8 +17,8 @@ use rust_sass::common::exception::SassResult;
 use rust_sass::value::color::ColorSpace;
 use rust_sass::value::{
     CalcArgument, CalculationOperator, ListSeparator, ListValue, SassArgumentList, SassBoolean,
-    SassCalculation, SassColor, SassFunction, SassList, SassMap, SassMixin, SassNumber, SassString,
-    Value as SassValue, ValueKind, ValueVisitor, SASS_FALSE, SASS_TRUE,
+    SassCalculation, SassColor, SassFunction, SassList, SassMap, SassMixin, SassModule, SassNumber,
+    SassString, Value as SassValue, ValueKind, ValueVisitor, SASS_FALSE, SASS_TRUE,
 };
 
 use crate::compilation::CompilationContext;
@@ -229,6 +229,21 @@ impl<'compile: 'parse, 'parse: 'compile> Protofier<'compile, 'parse> {
                     ))
                 })?;
                 SassValue::new_with_arena(self.ctx.arena, ValueKind::Mixin(mixin))
+            }
+            pv::Value::CompilerModule(m) => {
+                let module = self
+                    .ctx
+                    .modules
+                    .borrow()
+                    .get(m.id)
+                    .cloned()
+                    .ok_or_else(|| {
+                        script(&format!(
+                            "CompilerModule.id {} doesn't match any known modules.",
+                            m.id
+                        ))
+                    })?;
+                SassValue::new_with_arena(self.ctx.arena, ValueKind::Module(module))
             }
             pv::Value::ArgumentList(a) => {
                 if a.id != 0 {
@@ -498,6 +513,10 @@ impl<'compile: 'parse, 'parse: 'compile> ValueVisitor<'parse> for Protofier<'com
     fn visit_mixin(&mut self, value: &SassMixin<'parse>) -> SassResult<pv::Value> {
         let id = self.ctx.mixins.borrow_mut().get_id(value);
         Ok(pv::Value::CompilerMixin(pv::CompilerMixin { id }))
+    }
+    fn visit_module(&mut self, value: &SassModule<'parse>) -> SassResult<pv::Value> {
+        let id = self.ctx.modules.borrow_mut().get_id(value);
+        Ok(pv::Value::CompilerModule(pv::CompilerModule { id }))
     }
 }
 
@@ -837,6 +856,29 @@ mod tests {
             &arena,
             ValueKind::Function(fn_value)
         )));
+    }
+
+    #[test]
+    fn roundtrip_module() {
+        let arena = Bump::new();
+        let ctx = test_ctx(&arena);
+        let module = rust_sass::module::Module::new(
+            &arena,
+            rust_sass::module::ModuleKind::BuiltIn(rust_sass::module::BuiltInModule::new(
+                &arena,
+                "m".to_string(),
+                &[],
+                &[],
+                indexmap::IndexMap::new(),
+            )),
+        );
+        let value = SassModule::new(module);
+        let id = ctx.modules.borrow_mut().get_id(&value);
+        assert_eq!(id, 0);
+        roundtrip(
+            &ctx,
+            SassValue::new_with_arena(&arena, ValueKind::Module(value)),
+        );
     }
 
     #[test]

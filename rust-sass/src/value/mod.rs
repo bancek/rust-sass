@@ -44,6 +44,7 @@ pub mod interpolation_method;
 pub mod list;
 pub mod map;
 pub mod mixin;
+pub mod module;
 pub mod null;
 pub mod number;
 pub mod number_math;
@@ -70,6 +71,7 @@ pub use function::SassFunction;
 pub use list::{ListSeparator, SassList};
 pub use map::SassMap;
 pub use mixin::SassMixin;
+pub use module::SassModule;
 pub use null::SassNull;
 pub use number::SassNumber;
 pub use string::SassString;
@@ -94,6 +96,7 @@ pub enum ValueKind<'parse> {
     Calculation(Box<SassCalculation>),
     Function(SassFunction<'parse>),
     Mixin(SassMixin<'parse>),
+    Module(SassModule<'parse>),
 }
 
 /// A SassScript value handle: a `Copy` reference to arena-allocated data.
@@ -233,6 +236,7 @@ pub trait ValueVisitor<'parse> {
     fn visit_calculation(&mut self, value: &SassCalculation) -> SassResult<Self::Output>;
     fn visit_function(&mut self, value: &SassFunction<'parse>) -> SassResult<Self::Output>;
     fn visit_mixin(&mut self, value: &SassMixin<'parse>) -> SassResult<Self::Output>;
+    fn visit_module(&mut self, value: &SassModule<'parse>) -> SassResult<Self::Output>;
 }
 
 impl<'parse> ValueKind<'parse> {
@@ -261,6 +265,7 @@ impl<'parse> ValueKind<'parse> {
             ValueKind::Calculation(v) => visitor.visit_calculation(v),
             ValueKind::Function(v) => visitor.visit_function(v),
             ValueKind::Mixin(v) => visitor.visit_mixin(v),
+            ValueKind::Module(v) => visitor.visit_module(v),
         }
     }
 
@@ -279,6 +284,7 @@ impl<'parse> ValueKind<'parse> {
             ValueKind::Calculation(c) => c.is_truthy(),
             ValueKind::Function(f) => f.is_truthy(),
             ValueKind::Mixin(m) => m.is_truthy(),
+            ValueKind::Module(m) => m.is_truthy(),
         }
     }
 
@@ -354,6 +360,7 @@ impl<'parse> ValueKind<'parse> {
             ValueKind::Calculation(c) => c.hash_code() as i32,
             ValueKind::Function(f) => f.hash_code(),
             ValueKind::Mixin(m) => m.hash_code(),
+            ValueKind::Module(m) => m.hash_code(),
         }
     }
 
@@ -376,6 +383,7 @@ impl<'parse> ValueKind<'parse> {
             (ValueKind::Map(a), ValueKind::Map(b)) => a.equals(b),
             (ValueKind::Function(a), ValueKind::Function(b)) => a.equals(b),
             (ValueKind::Mixin(a), ValueKind::Mixin(b)) => a.equals(b),
+            (ValueKind::Module(a), ValueKind::Module(b)) => a.equals(b),
             (ValueKind::Calculation(a), ValueKind::Calculation(b)) => a.equals(b),
             (ValueKind::Map(a), ValueKind::List(b)) if a.is_empty() && b.contents.is_empty() => {
                 true
@@ -474,6 +482,7 @@ impl<'parse> ValueKind<'parse> {
             ValueKind::Calculation(c) => c.to_css_string(quote),
             ValueKind::Function(f) => f.to_css_string(quote),
             ValueKind::Mixin(m) => m.to_css_string(quote),
+            ValueKind::Module(m) => m.to_css_string(quote),
         }
     }
 
@@ -496,6 +505,7 @@ impl<'parse> ValueKind<'parse> {
             ValueKind::Calculation(c) => c.to_display_string(),
             ValueKind::Function(f) => f.to_display_string(),
             ValueKind::Mixin(m) => m.to_display_string(),
+            ValueKind::Module(m) => m.to_display_string(),
         }
     }
 
@@ -510,6 +520,7 @@ impl<'parse> ValueKind<'parse> {
         other: &ValueKind<'parse>,
     ) -> SassResult<Value<'parse>> {
         match (self, other) {
+            (ValueKind::Module(m), other) => m.plus(other),
             (ValueKind::Number(a), ValueKind::Number(b)) => Ok(Value::new_with_arena(
                 arena,
                 ValueKind::Number(a.plus_num(b)?),
@@ -568,6 +579,7 @@ impl<'parse> ValueKind<'parse> {
         other: &ValueKind<'parse>,
     ) -> SassResult<Value<'parse>> {
         match (self, other) {
+            (ValueKind::Module(m), other) => m.minus(other),
             (ValueKind::Number(a), ValueKind::Number(b)) => Ok(Value::new_with_arena(
                 arena,
                 ValueKind::Number(a.minus_num(b)?),
@@ -633,6 +645,7 @@ impl<'parse> ValueKind<'parse> {
         other: &ValueKind<'parse>,
     ) -> SassResult<Value<'parse>> {
         match (self, other) {
+            (ValueKind::Module(m), other) => m.divided_by(other),
             (ValueKind::Number(a), ValueKind::Number(b)) => Ok(Value::new_with_arena(
                 arena,
                 ValueKind::Number(a.divided_by_num(b)?),
@@ -774,6 +787,7 @@ impl<'parse> ValueKind<'parse> {
                     argument_name: None,
                 }))
             }
+            ValueKind::Module(m) => m.unary_plus(),
             _ => default_unary_plus(arena, self),
         }
     }
@@ -799,6 +813,7 @@ impl<'parse> ValueKind<'parse> {
                     argument_name: None,
                 }))
             }
+            ValueKind::Module(m) => m.unary_minus(),
             _ => default_unary_minus(arena, self),
         }
     }
@@ -812,7 +827,10 @@ impl<'parse> ValueKind<'parse> {
         &self,
         arena: &'compile Bump,
     ) -> SassResult<Value<'parse>> {
-        default_unary_divide(arena, self)
+        match self {
+            ValueKind::Module(m) => m.unary_divide(),
+            _ => default_unary_divide(arena, self),
+        }
     }
 
     // The SassScript unary `not` operation.
@@ -990,6 +1008,24 @@ pub fn assert_mixin<'v, 'parse>(
     }
 }
 
+/// Returns a reference to the module value in `v`.
+///
+/// Returns an error if `v` isn't a module reference. If the value came from
+/// a function argument, `name` is the argument name (without the `$`), used
+/// for error reporting.
+pub fn assert_module<'v, 'parse>(
+    v: &'v ValueKind<'parse>,
+    name: Option<&str>,
+) -> SassResult<&'v SassModule<'parse>> {
+    match v {
+        ValueKind::Module(m) => Ok(m),
+        _ => Err(Box::new(SassError::Script {
+            message: format!("{} is not a module reference.", v.to_display_string()?),
+            argument_name: name.map(str::to_string),
+        })),
+    }
+}
+
 /// Returns a reference to the calculation in `v`.
 ///
 /// Matches Dart: `Value.assertCalculation`.
@@ -1054,7 +1090,7 @@ pub fn default_plus<'compile: 'parse, 'parse>(
             )),
         ));
     }
-    if matches!(other, ValueKind::Calculation(_)) {
+    if matches!(other, ValueKind::Calculation(_) | ValueKind::Module(_)) {
         let self_str = self_.to_display_string()?;
         let other_str = other.to_display_string()?;
         return Err(Box::new(SassError::Script {
@@ -1083,7 +1119,7 @@ pub fn default_minus<'compile: 'parse, 'parse>(
     self_: &ValueKind<'parse>,
     other: &ValueKind<'parse>,
 ) -> SassResult<Value<'parse>> {
-    if matches!(other, ValueKind::Calculation(_)) {
+    if matches!(other, ValueKind::Calculation(_) | ValueKind::Module(_)) {
         let self_str = self_.to_display_string()?;
         let other_str = other.to_display_string()?;
         return Err(Box::new(SassError::Script {
@@ -1130,6 +1166,14 @@ pub fn default_divided_by<'compile: 'parse, 'parse>(
     self_: &ValueKind<'parse>,
     other: &ValueKind<'parse>,
 ) -> SassResult<Value<'parse>> {
+    if matches!(other, ValueKind::Module(_)) {
+        let self_str = self_.to_display_string()?;
+        let other_str = other.to_display_string()?;
+        return Err(Box::new(SassError::Script {
+            message: format!("Undefined operation \"{self_str} / {other_str}\"."),
+            argument_name: None,
+        }));
+    }
     let left = self_.to_css_string(true)?;
     let right = other.to_css_string(true)?;
     Ok(Value::new_with_arena(
@@ -1447,6 +1491,7 @@ impl fmt::Display for ValueKind<'_> {
             ValueKind::Map(_) => write!(f, "map"),
             ValueKind::Function(_) => write!(f, "get-function(...)"),
             ValueKind::Mixin(_) => write!(f, "get-mixin(...)"),
+            ValueKind::Module(_) => write!(f, "get-module(...)"),
             ValueKind::Calculation(c) => write!(f, "{}(...)", c.name),
         }
     }
@@ -2273,6 +2318,10 @@ mod tests {
         }
         fn visit_mixin(&mut self, _: &SassMixin) -> SassResult<()> {
             self.visited.push_str("mixin");
+            Ok(())
+        }
+        fn visit_module(&mut self, _: &SassModule) -> SassResult<()> {
+            self.visited.push_str("module");
             Ok(())
         }
     }

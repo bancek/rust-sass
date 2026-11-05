@@ -15,7 +15,7 @@ Four crates implement it:
 - `rust-sass-cli` — the binary named `rust-sass` (its `--embedded` flag enters
   server mode).
 
-It reports protocol version `3.2.0`, compiler/implementation version `1.104.0`,
+It reports protocol version `3.3.0`, compiler/implementation version `1.104.0`,
 and implementation name `"dart-sass"` — the values the `sass-embedded` host
 requires.
 
@@ -104,4 +104,4 @@ rewrites `embedded_sass.rs` from `sass/spec/embedded_sass.proto` (in the
 | Dart                                      | Go                                | Rust                                         |
 | ----------------------------------------- | --------------------------------- | -------------------------------------------- |
 | `lib/src/embedded/*.dart`                 | `go/embedded/*.go`                | `rust-sass-embedded/src/*.rs`                |
-| `build/language/spec/embedded_sass.proto` | `go/embedded/embedded_sass.pb.go` | `rust-sass-embedded-pb/src/embedded_sass.rs` |
+| `sass/spec/embedded_sass.proto`           | `go/embedded/embedded_sass.pb.go` | `rust-sass-embedded-pb/src/embedded_sass.rs` |

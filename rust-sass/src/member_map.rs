@@ -48,6 +48,11 @@ pub trait MemberMap<V: Clone>: Debug {
     }
     /// Keys in insertion order.
     fn keys(&self) -> Vec<String>;
+
+    /// Whether two maps expose the same keys in the same order.
+    fn keys_eq(&self, other: &dyn MemberMap<V>) -> bool {
+        self.keys() == other.keys()
+    }
     /// (key, value) pairs in insertion order.
     fn entries(&self) -> Vec<(String, V)>;
 }

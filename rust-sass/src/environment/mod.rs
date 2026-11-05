@@ -512,7 +512,11 @@ impl<'compile: 'parse, 'parse> Environment<'compile, 'parse> {
         Ok(())
     }
 
-    fn get_module(&self, namespace: &str) -> SassResult<Module<'compile, 'parse>> {
+    /// Returns the module with the given `namespace`, or an error if none
+    /// exists.
+    ///
+    /// Matches Dart: `Environment.getModule` (public after meta.load).
+    pub fn get_module(&self, namespace: &str) -> SassResult<Module<'compile, 'parse>> {
         let inner = self.0.borrow();
         inner
             .modules
@@ -521,7 +525,7 @@ impl<'compile: 'parse, 'parse> Environment<'compile, 'parse> {
             .cloned()
             .ok_or_else(|| {
                 Box::new(SassError::Script {
-                    message: format!("There is no module with the namespace \"{}\".", namespace),
+                    message: format!("There is no module with namespace \"{}\".", namespace),
                     argument_name: None,
                 })
             })

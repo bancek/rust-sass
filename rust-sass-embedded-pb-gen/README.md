@@ -13,7 +13,7 @@ cargo run -p rust-sass-embedded-pb-gen --features gen
 ```
 
 This rewrites `rust-sass-embedded-pb/src/embedded_sass.rs` in place from
-`../../build/language/spec/embedded_sass.proto`. Commit the resulting file
+`../sass/spec/embedded_sass.proto`. Commit the resulting file
 alongside any proto change.
 
 ## Why this crate exists

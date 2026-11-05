@@ -237,7 +237,7 @@ string>" -- lib/` on the entry's behavior, not by re-reading subjects.
 4. **Regenerate protocol bindings if the proto changed.**
 
    ```sh
-   git -C dart-sass diff --name-only $(cat PORTED_FROM)..<target> -- build/language/spec/embedded_sass.proto sass/spec/embedded_sass.proto
+   git diff --name-only $(cat PORTED_FROM)..<target> -- sass/spec/embedded_sass.proto
    # if non-empty:
    cargo run -p rust-sass-embedded-pb-gen --features gen
    ```

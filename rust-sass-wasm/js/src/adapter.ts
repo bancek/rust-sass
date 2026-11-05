@@ -22,6 +22,7 @@ import { SassFunction } from './value/function';
 import { ListSeparator, SassList } from './value/list';
 import { SassMap } from './value/map';
 import { SassMixin } from './value/mixin';
+import { SassModule } from './value/module';
 import { SassNumber } from './value/number';
 import { sassNull } from './value/null';
 import { SassString } from './value/string';
@@ -66,6 +67,7 @@ export type WireValue =
   | { type: 'calculation'; name: string; arguments: WireCalcArg[] }
   | { type: 'function'; id: number }
   | { type: 'mixin'; id: number }
+  | { type: 'module'; id: number }
   | { type: 'hostFunction'; signature: string; callback: Function };
 
 export type WireCalcArg =
@@ -238,6 +240,8 @@ export class Adapter {
         return new SassFunction(obj.id, this.compileContext);
       case 'mixin':
         return new SassMixin(obj.id, this.compileContext);
+      case 'module':
+        return new SassModule(obj.id, this.compileContext);
       case 'hostFunction':
         throw new Error('hostFunction values are only valid from JS to Rust');
     }
@@ -399,6 +403,12 @@ export class Adapter {
         throw new Error(`${v} does not belong to this compilation`);
       }
       return { type: 'mixin', id: v.id };
+    }
+    if (v instanceof SassModule) {
+      if (v.compileContext !== this.compileContext) {
+        throw new Error(`${v} does not belong to this compilation`);
+      }
+      return { type: 'module', id: v.id };
     }
     throw new Error(`${v} is not a sass.Value.`);
   }

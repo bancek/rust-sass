@@ -22,7 +22,7 @@ warnings, import resolution, and evaluation order/scope effects.
 
 **Scope:** the `rust-sass` library crate vs `dart-sass/lib/src`. Other
 crates map elsewhere: `rust-sass-embedded*` ↔ `lib/src/embedded/*` +
-`build/language/spec/embedded_sass.proto`, `rust-sass-cli` ↔
+`sass/spec/embedded_sass.proto`, `rust-sass-cli` ↔
 `lib/src/executable/*`, `rust-sass-wasm` ↔ `lib/src/js/*`. Review those
 only when the finding lives at the seam (e.g. error → proto mapping).
 

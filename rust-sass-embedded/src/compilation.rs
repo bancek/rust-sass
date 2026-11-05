@@ -35,7 +35,7 @@ use rust_sass::eval::importer::{Importer, ImporterKind};
 use rust_sass::io::Io;
 use rust_sass::logger::{Logger, QuietLogger};
 use rust_sass::url::SassUrl;
-use rust_sass::value::{SassFunction, SassMixin};
+use rust_sass::value::{SassFunction, SassMixin, SassModule};
 use rust_sass::Bump;
 
 use crate::embedded_sass::inbound_message::compile_request;
@@ -162,6 +162,8 @@ pub struct CompilationContext<'compile, 'parse> {
     pub functions: Rc<RefCell<OpaqueRegistry<SassFunction<'parse>>>>,
     /// Compiler-defined values sent to the host (as `CompilerMixin`s).
     pub mixins: Rc<RefCell<OpaqueRegistry<SassMixin<'parse>>>>,
+    /// Compiler-defined values sent to the host (as `CompilerModule`s).
+    pub modules: Rc<RefCell<OpaqueRegistry<SassModule<'parse>>>>,
     /// The compilation's arena (source text + host signature parsing).
     pub arena: &'compile Bump,
 }
@@ -229,6 +231,7 @@ where
 {
     ctx.functions.borrow_mut().clear();
     ctx.mixins.borrow_mut().clear();
+    ctx.modules.borrow_mut().clear();
 
     let style = if req.style == OutputStyle::Compressed as i32 {
         OutputStyle::Compressed
@@ -568,6 +571,7 @@ where
         host: test_host(rx),
         functions: Rc::new(RefCell::new(OpaqueRegistry::<SassFunction<'parse>>::new())),
         mixins: Rc::new(RefCell::new(OpaqueRegistry::<SassMixin<'parse>>::new())),
+        modules: Rc::new(RefCell::new(OpaqueRegistry::<SassModule<'parse>>::new())),
         arena,
     })
 }
@@ -584,6 +588,7 @@ where
         host: test_host(rx),
         functions: Rc::new(RefCell::new(OpaqueRegistry::<SassFunction<'parse>>::new())),
         mixins: Rc::new(RefCell::new(OpaqueRegistry::<SassMixin<'parse>>::new())),
+        modules: Rc::new(RefCell::new(OpaqueRegistry::<SassModule<'parse>>::new())),
         arena,
     })
 }

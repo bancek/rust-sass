@@ -804,7 +804,10 @@ pub struct Value {
     ///
     /// This is wrapped in a message type rather than used directly to reduce
     /// repetition, and because oneofs can't be repeated.
-    #[prost(oneof = "value::Value", tags = "1, 2, 5, 6, 7, 8, 9, 10, 12, 13, 14")]
+    #[prost(
+        oneof = "value::Value",
+        tags = "1, 2, 5, 6, 7, 8, 9, 10, 12, 13, 14, 15"
+    )]
     pub value: ::core::option::Option<value::Value>,
 }
 /// Nested message and enum types in `Value`.
@@ -956,6 +959,18 @@ pub mod value {
         #[prost(uint32, tag = "1")]
         pub id: u32,
     }
+    /// A first-class module loaded by the compiler. New `CompilerModule`s may only
+    /// be created by the compiler, but the host may pass `CompilerModule`s back to
+    /// the compiler as long as their IDs match IDs of modules received by the host
+    /// during that same compilation.
+    #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
+    pub struct CompilerModule {
+        /// A unique ID for this module. The compiler is responsible for generating
+        /// this ID and ensuring it's unique across all modules passed to the host
+        /// for this compilation. Mandatory.
+        #[prost(uint32, tag = "1")]
+        pub id: u32,
+    }
     /// A SassScript argument list value. This represents rest arguments passed to
     /// a function's `$arg...` parameter. Unlike a normal `List`, an argument list
     /// has an associated keywords map which tracks keyword arguments passed in
@@ -1095,6 +1110,8 @@ pub mod value {
         CompilerMixin(CompilerMixin),
         #[prost(message, tag = "14")]
         Color(Color),
+        #[prost(message, tag = "15")]
+        CompilerModule(CompilerModule),
     }
 }
 /// The built-in Node.js Package Importer, which is a Package Importer that

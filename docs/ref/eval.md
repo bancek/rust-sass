@@ -133,7 +133,7 @@ RefCell<IndexMap>>`), so the
   not `Script`), so the declaration span and trace survive outer wrappers.
 - **Namespaced callables** resolve through `env.get_mixin`/`get_function`
   inside `add_exception_span(node.span)`, so a missing namespace reports
-  Dart's `There is no module with the namespace "ns".` (a wrapped `Script`)
+  Dart's `There is no module with namespace "ns".` (a wrapped `Script`)
   at the call-site span.
 - **Calculation arguments** (`expression_to_calc_argument`): no unary arm —
   every `UnaryOperation` hits the rejection default; unquoted strings pass the

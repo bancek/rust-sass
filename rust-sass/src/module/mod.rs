@@ -237,6 +237,24 @@ impl<'compile: 'parse, 'parse> Module<'compile, 'parse> {
         self.0
     }
 
+    /// Matches Dart's `Module.hashCode`.
+    ///
+    /// Built-in and environment modules use their allocation address. The
+    /// view classes hash their inner module; forwarded views deliberately
+    /// ignore the rule (Dart includes it, but collisions are allowed and only
+    /// bucket placement depends on the value).
+    pub fn hash_code(&self) -> usize {
+        match self.0 {
+            ModuleKind::Forwarded(f) => f.inner.hash_code(),
+            ModuleKind::Shadowed(s) => s.inner.hash_code(),
+            _ => self.identity_hash(),
+        }
+    }
+
+    fn identity_hash(&self) -> usize {
+        self.0 as *const ModuleKind<'compile, 'parse> as usize
+    }
+
     // --- Dispatch methods ---
     //
     // Each mirrors the same-named getter/method on Dart's `Module` interface
@@ -478,9 +496,32 @@ impl<'compile: 'parse, 'parse> Module<'compile, 'parse> {
     }
 }
 
+impl std::fmt::Debug for Module<'_, '_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let kind = match self.0 {
+            ModuleKind::BuiltIn(_) => "built-in",
+            ModuleKind::Forwarded(_) => "forwarded",
+            ModuleKind::Shadowed(_) => "shadowed",
+            ModuleKind::Environment(_) => "environment",
+        };
+        f.debug_struct("Module").field("kind", &kind).finish()
+    }
+}
+
 impl PartialEq for Module<'_, '_> {
     fn eq(&self, other: &Self) -> bool {
-        std::ptr::eq(self.0, other.0)
+        match (self.0, other.0) {
+            (ModuleKind::Forwarded(a), ModuleKind::Forwarded(b)) => {
+                a.inner == b.inner && a.rule.span == b.rule.span
+            }
+            (ModuleKind::Shadowed(a), ModuleKind::Shadowed(b)) => {
+                a.inner == b.inner
+                    && a.variables.keys_eq(b.variables)
+                    && a.functions.keys_eq(b.functions)
+                    && a.mixins.keys_eq(b.mixins)
+            }
+            _ => std::ptr::eq(self.0, other.0),
+        }
     }
 }
 
@@ -488,7 +529,7 @@ impl Eq for Module<'_, '_> {}
 
 impl Hash for Module<'_, '_> {
     fn hash<H: Hasher>(&self, state: &mut H) {
-        (self.0 as *const ModuleKind<'_, '_>).hash(state)
+        self.hash_code().hash(state);
     }
 }
 
@@ -851,6 +892,98 @@ mod tests {
             &HashSet::new(),
         );
         assert!(sv.is_empty().unwrap());
+    }
+
+    // --- Module equality and hashing ---
+
+    fn hash_of(module: &Module<'_, '_>) -> u64 {
+        use std::collections::hash_map::DefaultHasher;
+        let mut hasher = DefaultHasher::new();
+        module.hash(&mut hasher);
+        hasher.finish()
+    }
+
+    #[test]
+    fn test_shadowed_views_compare_structurally() {
+        let arena = Bump::new();
+        let mut vars = IndexMap::new();
+        vars.insert("a".into(), Value::new_with_arena(&arena, ValueKind::Null));
+        vars.insert("b".into(), Value::new_with_arena(&arena, ValueKind::Null));
+        let inner = BuiltInModule::new(&arena, "test".into(), &[], &[], vars);
+        let inner_mod = Module::new(&arena, ModuleKind::BuiltIn(inner));
+        let blocked: HashSet<String> = ["b".into()].into();
+
+        let make = |blocked: &HashSet<String>| {
+            Module::new(
+                &arena,
+                ModuleKind::Shadowed(ShadowedModuleView::new(
+                    &arena,
+                    inner_mod,
+                    blocked,
+                    &HashSet::new(),
+                    &HashSet::new(),
+                )),
+            )
+        };
+        let first = make(&blocked);
+        let second = make(&blocked);
+        assert_eq!(first, second);
+        assert_eq!(hash_of(&first), hash_of(&second));
+
+        let other: HashSet<String> = ["a".into()].into();
+        let different = make(&other);
+        assert_ne!(first, different);
+
+        // Shadowing a shadowed view compares the inner view structurally.
+        let nested = Module::new(
+            &arena,
+            ModuleKind::Shadowed(ShadowedModuleView::new(
+                &arena,
+                first,
+                &other,
+                &HashSet::new(),
+                &HashSet::new(),
+            )),
+        );
+        let nested_again = Module::new(
+            &arena,
+            ModuleKind::Shadowed(ShadowedModuleView::new(
+                &arena,
+                second,
+                &other,
+                &HashSet::new(),
+                &HashSet::new(),
+            )),
+        );
+        assert_eq!(nested, nested_again);
+        assert_eq!(hash_of(&nested), hash_of(&nested_again));
+    }
+
+    #[test]
+    fn test_forwarded_views_compare_by_inner_and_rule() {
+        let arena = Bump::new();
+        let inner = BuiltInModule::new(&arena, "test".into(), &[], &[], IndexMap::new());
+        let inner_mod = Module::new(&arena, ModuleKind::BuiltIn(inner));
+        let span = FileSpan::new(None, 4, 20);
+        let rule = ForwardRule::new(
+            SassUrl::parse("file:///test").unwrap(),
+            span,
+            Some("ns-".into()),
+            vec![],
+        );
+        let first = ForwardedModuleView::if_necessary(&arena, inner_mod, &rule);
+        let second = ForwardedModuleView::if_necessary(&arena, inner_mod, &rule);
+        assert_eq!(first, second);
+        assert_eq!(hash_of(&first), hash_of(&second));
+
+        let other_rule = ForwardRule::new(
+            SassUrl::parse("file:///test").unwrap(),
+            FileSpan::new(None, 21, 40),
+            Some("ns-".into()),
+            vec![],
+        );
+        let different = ForwardedModuleView::if_necessary(&arena, inner_mod, &other_rule);
+        assert_ne!(first, different);
     }
 
     // --- Module identity ---

@@ -29,7 +29,7 @@ use rust_sass::parse::stylesheet::{CssState, SassIndentState, Syntax};
 pub use dispatcher::Dispatcher;
 
 /// The embedded compiler protocol version (sass.embedded_protocol).
-pub const PROTOCOL_VERSION: &str = "3.2.0";
+pub const PROTOCOL_VERSION: &str = "3.3.0";
 /// The compiler version reported to the host.
 pub const COMPILER_VERSION: &str = "1.104.0";
 
@@ -95,7 +95,7 @@ mod tests {
     fn version_response_json_matches_dart_bytes() {
         assert_eq!(
             version_response_json(),
-            "{\n  \"protocolVersion\": \"3.2.0\",\n  \"compilerVersion\": \"1.104.0\",\n  \"implementationVersion\": \"1.104.0\",\n  \"implementationName\": \"dart-sass\",\n  \"id\": 0\n}"
+            "{\n  \"protocolVersion\": \"3.3.0\",\n  \"compilerVersion\": \"1.104.0\",\n  \"implementationVersion\": \"1.104.0\",\n  \"implementationName\": \"dart-sass\",\n  \"id\": 0\n}"
         );
     }
 }

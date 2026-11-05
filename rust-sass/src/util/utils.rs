@@ -4,7 +4,7 @@
 //
 // Ported and rearchitected for Rust by Luka Zakrajsek.
 
-// dart-source: lib/src/utils.dart (isPublic, pluralize, toSentence — the only members with a Rust owner here; see the module note for the split map)
+// dart-source: lib/src/utils.dart (isPublic, pluralize, toSentence, defaultNamespace — the only members with a Rust owner here; see the module note for the split map)
 // go-source: go/util/utils.go
 
 //! Small member-name and message-formatting helpers.
@@ -20,6 +20,47 @@
 //! No Rust owner (omit per rule 4): `equalsIgnoreCase`, `longestCommonSubsequence`,
 //! `indent`, `bulletedList`, `frameForSpan`, trace helpers, `parseSignature`
 //! (parser-owned logic lives in `parse/`).
+
+use percent_encoding::percent_decode_str;
+
+use crate::parse::parser::parse_identifier;
+use crate::url::SassUrl;
+
+/// The result of [`default_namespace`].
+///
+/// Matches Dart: `DefaultNamespaceResult` (`utils.dart`).
+pub enum DefaultNamespaceResult {
+    /// A successful result: the identifier value of the parsed namespace.
+    DefaultNamespace(String),
+    /// An unsuccessful result: the namespace that would have been parsed if
+    /// it were a valid Sass identifier.
+    InvalidDefaultNamespace(String),
+}
+
+/// Returns the default Sass namespace of the given stylesheet URL.
+///
+/// Matches Dart: `defaultNamespace` (`utils.dart`).
+pub fn default_namespace(url: &SassUrl) -> DefaultNamespaceResult {
+    let path = url.path();
+    let raw_basename = match path.rfind('/') {
+        Some(idx) => &path[idx + 1..],
+        None => path,
+    };
+    // Dart's `url.pathSegments.last` is percent-decoded, so `pkg:%66oo`
+    // derives the namespace `foo`.
+    let decoded = percent_decode_str(raw_basename).decode_utf8_lossy();
+    let basename: &str = decoded.strip_prefix('_').unwrap_or(decoded.as_ref());
+    let namespace = match basename.find('.') {
+        Some(dot) => &basename[..dot],
+        None => basename,
+    }
+    .to_string();
+
+    match parse_identifier(&namespace) {
+        Ok(namespace) => DefaultNamespaceResult::DefaultNamespace(namespace),
+        Err(_) => DefaultNamespaceResult::InvalidDefaultNamespace(namespace),
+    }
+}
 
 /// Returns whether `name` is a public member name (does not start with `-`
 /// or `_`).

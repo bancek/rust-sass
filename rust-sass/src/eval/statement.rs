@@ -5321,7 +5321,7 @@ mod tests {
     #[rust_sass_macros::maybe_test]
     async fn test_namespaced_include_missing_module() {
         // Dart `visitIncludeRule` reports a missing namespace as
-        // `There is no module with the namespace "ns".` (a `Script` from
+        // `There is no module with namespace "ns".` (a `Script` from
         // `get_module`, spanned at the `@include` by the surrounding
         // `add_exception_span`).
         let arena = Bump::new();
@@ -5336,7 +5336,7 @@ mod tests {
         .unwrap_err();
         match *err {
             SassError::Runtime { message, .. } => {
-                assert_eq!(message, "There is no module with the namespace \"nosuch\".")
+                assert_eq!(message, "There is no module with namespace \"nosuch\".")
             }
             other => panic!("expected Runtime missing-module error, got {other:?}"),
         }
@@ -5518,7 +5518,7 @@ mod tests {
         .unwrap_err();
         match *err {
             SassError::Runtime { message, span, .. } => {
-                assert_eq!(message, "There is no module with the namespace \"ns\".");
+                assert_eq!(message, "There is no module with namespace \"ns\".");
                 assert_eq!((span.line(), span.column()), (1, 11));
             }
             other => panic!("expected Runtime error, got {other:?}"),
@@ -5624,7 +5624,7 @@ mod tests {
         .unwrap_err();
         match *err {
             SassError::Runtime { message, span, .. } => {
-                assert_eq!(message, "There is no module with the namespace \"ns\".");
+                assert_eq!(message, "There is no module with namespace \"ns\".");
                 assert_eq!((span.line(), span.column()), (1, 5));
             }
             other => panic!("expected Runtime error, got {other:?}"),

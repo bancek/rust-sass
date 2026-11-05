@@ -211,6 +211,7 @@ where
         ValueKind::Number(_) => "number",
         ValueKind::Function(_) => "function",
         ValueKind::Mixin(_) => "mixin",
+        ValueKind::Module(_) => "module",
         ValueKind::Calculation(_) => "calculation",
         ValueKind::String(_) => "string",
     };

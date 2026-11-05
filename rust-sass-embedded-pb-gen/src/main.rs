@@ -1,7 +1,7 @@
 #[cfg(feature = "gen")]
 fn main() {
     let manifest = env!("CARGO_MANIFEST_DIR");
-    let proto_dir = format!("{manifest}/../../build/language/spec");
+    let proto_dir = format!("{manifest}/../sass/spec");
     let out_dir = format!("{manifest}/../rust-sass-embedded-pb/src");
     prost_build::Config::new()
         .out_dir(&out_dir)

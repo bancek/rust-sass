@@ -32,6 +32,7 @@ describe('export surface', () => {
         'SassList',
         'SassMap',
         'SassMixin',
+        'SassModule',
         'SassNumber',
         'SassString',
         'Value',

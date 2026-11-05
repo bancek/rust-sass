@@ -10,6 +10,7 @@ import { SassFunction } from './value/function';
 import { SassList } from './value/list';
 import { SassMap } from './value/map';
 import { SassMixin } from './value/mixin';
+import { SassModule } from './value/module';
 import { SassNumber } from './value/number';
 import { sassNull } from './value/null';
 import { SassString } from './value/string';
@@ -125,6 +126,13 @@ describe('Adapter.valueFromWasm', () => {
     const m = a.valueFromWasm({ type: 'mixin', id: 2 });
     expect(m).toBeInstanceOf(SassMixin);
     expect((m as SassMixin).id).toBe(2);
+
+    const mod = a.valueFromWasm({ type: 'module', id: 3 });
+    expect(mod).toBeInstanceOf(SassModule);
+    expect((mod as SassModule).id).toBe(3);
+    expect((mod as SassModule).assertModule()).toBe(mod);
+    expect(() => (mod as SassModule).assertMixin()).toThrow();
+    expect(a.valueToWasm(mod).value).toEqual({ type: 'module', id: 3 });
   });
 
   it('rejects hostFunction values coming from wasm', () => {

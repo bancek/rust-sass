@@ -314,6 +314,7 @@ fn spawn_compilation(
             host,
             functions: Rc::new(RefCell::new(OpaqueRegistry::new())),
             mixins: Rc::new(RefCell::new(OpaqueRegistry::new())),
+            modules: Rc::new(RefCell::new(OpaqueRegistry::new())),
             arena: &arena,
         });
         #[cfg(feature = "async")]

@@ -18,8 +18,8 @@ use rust_sass::common::exception::{SassError, SassResult};
 use rust_sass::value::color::ColorSpace;
 use rust_sass::value::{
     CalcArgument, CalculationOperator, ListSeparator, SassArgumentList, SassBoolean, SassColor,
-    SassFunction, SassList, SassMap, SassMixin, SassNumber, SassString, Value as SassValue,
-    ValueKind,
+    SassFunction, SassList, SassMap, SassMixin, SassModule, SassNumber, SassString,
+    Value as SassValue, ValueKind,
 };
 #[cfg(test)]
 use rust_sass::value::{SassCalculation, SASS_FALSE, SASS_TRUE};
@@ -44,6 +44,7 @@ pub struct MarshallingContext<'parse> {
     argument_lists: Rc<RefCell<Vec<SassValue<'parse>>>>,
     functions: Rc<RefCell<Vec<SassFunction<'parse>>>>,
     mixins: Rc<RefCell<Vec<SassMixin<'parse>>>>,
+    modules: Rc<RefCell<Vec<SassModule<'parse>>>>,
 }
 
 impl<'parse> MarshallingContext<'parse> {
@@ -134,6 +135,9 @@ pub enum SerializableValue<'parse> {
         id: u32,
     },
     Mixin {
+        id: u32,
+    },
+    Module {
         id: u32,
     },
 }
@@ -283,6 +287,17 @@ fn to_serializable<'parse>(
                 }
             };
             SerializableValue::Mixin { id: id as u32 }
+        }
+        ValueKind::Module(m) => {
+            let mut modules = ctx.modules.borrow_mut();
+            let id = match modules.iter().position(|x| x.equals(m)) {
+                Some(id) => id,
+                None => {
+                    modules.push(m.clone());
+                    modules.len() - 1
+                }
+            };
+            SerializableValue::Module { id: id as u32 }
         }
     })
 }
@@ -473,6 +488,16 @@ pub fn js_to_value<'compile: 'parse, 'parse: 'compile>(
                 ))
             })?;
             SassValue::new_with_arena(arena, ValueKind::Mixin(m))
+        }
+        "module" => {
+            let id = get_f64(value, "id")?.unwrap_or(0.0) as u32;
+            let modules = ctx.modules.borrow();
+            let m = modules.get(id as usize).cloned().ok_or_else(|| {
+                script(format!(
+                    "Value.Module.id {id} doesn't match any known modules"
+                ))
+            })?;
+            SassValue::new_with_arena(arena, ValueKind::Module(m))
         }
         "hostFunction" => {
             let signature = get_str(value, "signature")?;

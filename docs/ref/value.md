@@ -1,6 +1,6 @@
 # Module: `value/`
 
-The Sass value type and its eleven concrete types. See also `callable.md` for
+The Sass value type and its twelve concrete types. See also `callable.md` for
 `SassFunction`/`SassMixin`'s callable machinery.
 
 ## The `Value` handle
@@ -12,6 +12,7 @@ pub enum ValueKind<'parse> {
     List(SassList<'parse>), ArgumentList(SassArgumentList<'parse>),
     Map(SassMap<'parse>), Calculation(Box<SassCalculation>),
     Function(SassFunction<'parse>), Mixin(SassMixin<'parse>),
+    Module(SassModule<'parse>),
 }
 
 pub struct Value<'parse>(&'parse ValueInner<'parse>);   // Copy, arena reference
@@ -26,8 +27,9 @@ which is why it is an enum with static dispatch rather than a trait object.
 ### Equality and hashing
 
 `PartialEq`/`Hash` perform **deep value equality** — not pointer identity. The only
-identity-compared values are `SassFunction` and `SassMixin` (whose equality is
-their `Callable`'s address identity). A `Cell<Option<i32>>` hash cache lives in
+identity-compared values are `SassFunction`, `SassMixin` (whose equality is
+their `Callable`'s address identity), and `SassModule` (module address identity
+plus compile context). A `Cell<Option<i32>>` hash cache lives in
 `ValueInner` so repeated hashing (e.g. in an `IndexMap<Value, Value>` lookup)
 does not re-walk a deep list or map; `SassMap` keys work through the reflexive
 `Borrow<Value>`.
@@ -161,6 +163,19 @@ Dart-exact: equality/hash are the callable's address identity, the serializer pr
 `callable.name()`, and `compile_context` (an `Rc<()>`, compared by `Rc::ptr_eq`)
 guards against using a function value across compilations. Lifetimes unify to
 `<'parse, 'parse>` (same for `SassMixin`).
+
+### `SassModule`
+
+```rust
+pub struct SassModule<'parse> { pub module: Module<'parse, 'parse>, compile_context: Option<CompileContext> }
+```
+
+A first-class module reference (`meta.get-module()`, `meta.load()`). Equality is
+the wrapped module's address identity **and** compile-context identity; the hash
+is the module identity (Dart hashes only `module`). All binary/unary operations
+except `not` are errors; inspect serialization prints
+`get-module("namespace")` (or `get-module()` when the module URL's basename is
+not a valid identifier).
 
 ### Display vs CSS forms
 

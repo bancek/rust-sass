@@ -28,10 +28,11 @@ use std::fmt::Write;
 
 use crate::common::SassResult;
 use crate::source_map_buffer::SourceMapBuffer;
+use crate::util::utils::{default_namespace, DefaultNamespaceResult};
 use crate::value::boolean::SassBoolean;
 use crate::value::{
-    ListValue, SassCalculation, SassColor, SassFunction, SassMap, SassMixin, SassNumber,
-    SassString, Value, ValueKind, ValueVisitor,
+    ListValue, SassCalculation, SassColor, SassFunction, SassMap, SassMixin, SassModule,
+    SassNumber, SassString, Value, ValueKind, ValueVisitor,
 };
 
 use crate::serialize::{write_between, SerializeState, SerializeVisitor};
@@ -68,6 +69,9 @@ impl<'parse> ValueVisitor<'parse> for SerializeVisitor<'parse> {
     }
     fn visit_mixin(&mut self, value: &SassMixin<'parse>) -> SassResult<()> {
         visit_mixin_impl(&mut self.buffer, &self.inner, value)
+    }
+    fn visit_module(&mut self, value: &SassModule<'parse>) -> SassResult<()> {
+        visit_module_impl(&mut self.buffer, &self.inner, value)
     }
 }
 
@@ -256,6 +260,35 @@ pub(crate) fn visit_mixin_impl(
     Ok(())
 }
 
+/// Writes `get-module(namespace)` in inspect mode; otherwise errors with the
+/// inspected module quoted (Dart's `visitModule`).
+pub(crate) fn visit_module_impl(
+    buf: &mut SourceMapBuffer<'_>,
+    state: &SerializeState,
+    value: &SassModule<'_>,
+) -> SassResult<()> {
+    if !state.inspect {
+        return Err(Box::new(SassError::Script {
+            message: {
+                let mut visitor = SerializeVisitor::new_plain(true, true);
+                match visitor.visit_module(value) {
+                    Ok(_) => format!("{} isn't a valid CSS value.", visitor.into_string()),
+                    Err(_) => "(module) isn't a valid CSS value.".into(),
+                }
+            },
+            argument_name: None,
+        }));
+    }
+    write!(buf, "get-module(").unwrap();
+    if let Some(url) = value.module.url()? {
+        if let DefaultNamespaceResult::DefaultNamespace(namespace) = default_namespace(&url) {
+            visit_quoted_string(buf, state, &namespace);
+        }
+    }
+    write!(buf, ")").unwrap();
+    Ok(())
+}
+
 /// Manual `match` dispatch over [`ValueKind`] for buffer/state-only contexts
 /// (Dart dispatches via `value.accept`; see the module docs).
 pub(crate) fn visit_value_impl(
@@ -277,6 +310,7 @@ pub(crate) fn visit_value_impl(
         ValueKind::Calculation(c) => visit_calculation_impl(buf, state, c),
         ValueKind::Function(f) => visit_function_impl(buf, state, f),
         ValueKind::Mixin(m) => visit_mixin_impl(buf, state, m),
+        ValueKind::Module(m) => visit_module_impl(buf, state, m),
     }
 }
 

@@ -23,9 +23,8 @@ use crate::parse::sass::sass_import_argument_impl;
 use crate::parse::stylesheet::StylesheetParser;
 use std::collections::{HashMap, HashSet};
 
-use percent_encoding::percent_decode_str;
-
 use crate::url::SassUrl;
+use crate::util::utils::{default_namespace, DefaultNamespaceResult};
 
 use crate::ast::sass::argument_list::ArgumentList;
 use crate::ast::sass::configured_variable::ConfiguredVariable;
@@ -80,7 +79,7 @@ use crate::parse::identifier::{interpolated_identifier_impl, single_interpolatio
 use crate::parse::import_url::{is_plain_import_url, parse_import_url};
 use crate::parse::media_style::media_query_list_impl;
 use crate::parse::parser::{
-    error_impl, expect_identifier_impl, identifier_impl, looking_at_identifier, parse_identifier,
+    error_impl, expect_identifier_impl, identifier_impl, looking_at_identifier,
     scan_identifier_impl, span_from_impl, span_from_to_impl, variable_name_impl, whitespace_impl,
     whitespace_without_comments_impl, with_error_message_impl, ParseError, ParseResult,
 };
@@ -555,28 +554,16 @@ fn use_namespace_impl<'b>(
         let s = identifier_impl(scanner, &state.parser_state, false, false)?;
         return Ok(Some(s));
     }
-    let path = url.path();
-    let raw_basename = match path.rfind('/') {
-        Some(idx) => &path[idx + 1..],
-        None => path,
-    };
-    // Dart: the namespace comes from `url.pathSegments.last`, which is
-    // percent-decoded (so `pkg:%66oo` derives the namespace `foo`).
-    let decoded = percent_decode_str(raw_basename).decode_utf8_lossy();
-    let basename: &str = decoded.strip_prefix('_').unwrap_or(decoded.as_ref());
-    let basename = match basename.find('.') {
-        Some(dot) => &basename[..dot],
-        None => basename,
-    };
-    let result = basename.to_string();
-    if parse_identifier(&result).is_err() {
-        let span = span_from_impl(scanner, &state.parser_state, start)?.file_span()?;
-        return Err(Box::new(error_impl(
-            &format!("The default namespace {:?} is not a valid Sass identifier.\n\nRecommendation: add an \"as\" clause to define an explicit namespace.", result),
-            &span,
-        )));
+    match default_namespace(url) {
+        DefaultNamespaceResult::DefaultNamespace(namespace) => Ok(Some(namespace)),
+        DefaultNamespaceResult::InvalidDefaultNamespace(namespace) => {
+            let span = span_from_impl(scanner, &state.parser_state, start)?.file_span()?;
+            Err(Box::new(error_impl(
+                &format!("The default namespace {:?} is not a valid Sass identifier.\n\nRecommendation: add an \"as\" clause to define an explicit namespace.", namespace),
+                &span,
+            )))
+        }
     }
-    Ok(Some(result))
 }
 
 // ======================================================================
