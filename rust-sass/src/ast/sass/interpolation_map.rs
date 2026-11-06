@@ -421,66 +421,17 @@ impl<'parse> InterpolationMap<'parse> {
     /// Given the start of a [`FileSpan`] covering an interpolated expression,
     /// returns the offset of the interpolation's opening `#`.
     ///
-    /// Note that this can be tricked by a `#{` that appears within a
-    /// single-line comment before the expression, but since it's only used
-    /// for error reporting that's probably fine.
+    /// Note that this can be tricked by a `#{` that appears within a comment
+    /// before the expression, but since that's very unlikely and this is only
+    /// used for error reporting that's probably fine.
     fn expand_interpolation_span_left(&self, start_offset: usize) -> SassResult<usize> {
         let interp_span = self.interpolation.span()?;
         let source = match interp_span.file() {
             Some(f) => f.text(),
             None => return Ok(start_offset.saturating_sub(2)),
         };
-        if source.is_empty() {
-            return Ok(start_offset.saturating_sub(2));
-        }
-
-        let mut i = start_offset as isize - 1;
-        while i >= 0 {
-            let idx = i as usize;
-            if idx >= source.len() {
-                break;
-            }
-            let prev = source.as_bytes()[idx];
-            i -= 1;
-            if prev == b'{' {
-                if i >= 0 && source.as_bytes().get(i as usize) == Some(&b'#') {
-                    break;
-                }
-            } else if prev == b'/' && i >= 0 {
-                let second = match source.as_bytes().get(i as usize) {
-                    Some(&b) => b,
-                    None => break,
-                };
-                i -= 1;
-                if second == b'*' {
-                    while let Some(&b) = source.as_bytes().get(i as usize) {
-                        let char_byte = b;
-                        i -= 1;
-                        if char_byte != b'*' {
-                            continue;
-                        }
-                        while i >= 0
-                            && source
-                                .as_bytes()
-                                .get(i as usize)
-                                .is_some_and(|&b| b == b'*')
-                        {
-                            i -= 1;
-                        }
-                        if i >= 0
-                            && source
-                                .as_bytes()
-                                .get(i as usize)
-                                .is_some_and(|&b| b == b'/')
-                        {
-                            break;
-                        }
-                    }
-                }
-            }
-        }
-
-        Ok(i as usize)
+        let end = start_offset.min(source.len());
+        Ok(source[..end].rfind("#{").unwrap_or(0))
     }
 
     /// Given the end of a [`FileSpan`] covering an interpolated expression,
@@ -666,6 +617,20 @@ mod tests {
         let interp = Interpolation::plain(source.into(), span);
         let m = InterpolationMap::new(interp, vec![]).unwrap();
         assert_eq!(m.expand_interpolation_span_right(3).unwrap(), 5);
+    }
+
+    #[rust_sass_macros::maybe_test]
+    async fn test_expand_interpolation_span_left_finds_last_hash_brace() {
+        let arena = Bump::new();
+        let source = "// */\n#{foo}";
+        let fs = FileSource::new_in(&arena, source, None);
+        let span = FileSpan::new(Some(fs), 0, source.len());
+        let interp = Interpolation::plain(source.into(), span);
+        let m = InterpolationMap::new(interp, vec![]).unwrap();
+        assert_eq!(
+            m.expand_interpolation_span_left(source.len()).unwrap(),
+            source.rfind("#{").unwrap()
+        );
     }
 
     #[test]
