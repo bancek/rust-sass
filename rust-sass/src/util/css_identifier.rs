@@ -5,7 +5,7 @@
 // Ported and rearchitected for Rust by Luka Zakrajsek.
 
 // dart-source: lib/src/util/string.dart (StringExtension.toCssIdentifier,
-//   resolveCssEscapes, _isSimpleIdentifier)
+//   tryCssIdentifier, resolveCssEscapes, _isSimpleIdentifier)
 // go-source: go/util/css_identifier.go
 
 //! Minimally-escaped CSS identifier encoding.
@@ -43,6 +43,16 @@ pub fn to_css_identifier(text: &str) -> SassResult<String> {
 /// Matches Dart: `StringExtension.toCssIdentifier(body: true)`.
 pub fn to_css_identifier_body(text: &str) -> SassResult<String> {
     to_css_identifier_with_body(text, true)
+}
+
+/// Like [`to_css_identifier`], but returns `None` instead of an error if
+/// `text` isn't a valid identifier.
+///
+/// Every error [`to_css_identifier`] produces is the Rust equivalent of the
+/// `FormatException` Dart catches here, so discarding the error is faithful.
+/// Matches Dart: `StringExtension.tryCssIdentifier`.
+pub fn try_css_identifier(text: &str) -> Option<String> {
+    to_css_identifier(text).ok()
 }
 
 /// Interprets `text` as a CSS identifier and resolves any escape codes it
@@ -325,5 +335,13 @@ mod tests {
     fn test_resolve_invalid() {
         let err = resolve_css_escapes("%%").unwrap_err();
         assert_eq!(err.message(), "\"%%\" isn't a valid CSS identifier");
+    }
+
+    #[rust_sass_macros::maybe_test]
+    async fn test_try_css_identifier() {
+        assert_eq!(try_css_identifier("foo").as_deref(), Some("foo"));
+        assert_eq!(try_css_identifier("--foo").as_deref(), Some("--foo"));
+        assert_eq!(try_css_identifier(""), None);
+        assert_eq!(try_css_identifier("\0"), None);
     }
 }

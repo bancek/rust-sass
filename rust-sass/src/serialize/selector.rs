@@ -20,7 +20,7 @@ use crate::selector::qualified_name::SelectorNamespace;
 use crate::selector::Selector;
 use crate::selector::SimpleSelector;
 use crate::serialize::string::visit_quoted_string;
-use crate::util::css_identifier::{to_css_identifier, to_css_identifier_body};
+use crate::util::css_identifier::{to_css_identifier, to_css_identifier_body, try_css_identifier};
 use std::fmt::Write;
 
 use crate::common::SassResult;
@@ -190,7 +190,8 @@ pub(crate) fn visit_attribute_selector_impl(
     if let Some(ref op) = attr.op {
         write!(buf, "{}", op).unwrap();
         if let Some(ref value) = attr.value {
-            let is_ident = to_css_identifier(value)? == *value && !value.starts_with("--");
+            let is_ident = try_css_identifier(value).as_deref() == Some(value.as_str())
+                && !value.starts_with("--");
             if is_ident {
                 write!(buf, "{}", value).unwrap();
                 if attr.modifier.is_some() {
@@ -351,4 +352,29 @@ pub(crate) fn write_combinators_impl(
         write!(buf, "{}", cv.value).unwrap();
         Ok(())
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::common::file_span::BOGUS_SPAN;
+    use crate::selector::attribute::AttributeOperator;
+    use crate::selector::qualified_name::QualifiedName;
+
+    // Regression test for sass/dart-sass#2889: an empty attribute value is
+    // quoted instead of erroring out of `toCssIdentifier`.
+    #[rust_sass_macros::maybe_test]
+    async fn test_attribute_selector_empty_value_is_quoted() {
+        let attr = AttributeSelector::new_with_operator(
+            QualifiedName::new("a".into()),
+            AttributeOperator::Equal,
+            String::new(),
+            BOGUS_SPAN,
+            None,
+        );
+        let state = SerializeState::new(true, false);
+        let mut buf = SourceMapBuffer::new_plain();
+        visit_attribute_selector_impl(&mut buf, &state, &attr).unwrap();
+        assert_eq!(buf.into_string(), r#"[a=""]"#);
+    }
 }
