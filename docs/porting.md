@@ -4,6 +4,33 @@ How this port stays in sync with the Dart Sass reference implementation
 (dart-sass). This is a **manual** procedure — there is no sync automation.
 Run the commands below from the repository root.
 
+## Start here: an `upgrade to <version>` request
+
+A request like **“upgrade to 1.106.1”** is the complete instruction. It means:
+discover the release span, port every functional unit, commit the release,
+push the feature branch, wait for branch CI, fast-forward and push `main`,
+wait for main CI, tag the release, push the tag, and wait for tag CI.
+
+No plan file is needed. This document plus the repository state are
+authoritative; do not wait for a separate plan. “Stop before main” or “port
+the units only” in the request withholds the corresponding release steps.
+
+The first commands are:
+
+```sh
+cd /home/luka/projects/rust-sass
+git fetch origin
+git status --short --branch
+git switch main && git pull --ff-only
+git switch -c upgrade/sass-<version> origin/main
+```
+
+Then follow [Target discovery and pin resolution](#target-discovery-and-pin-resolution),
+[Sync procedure](#sync-procedure), and
+[Release checkpoint](#release-checkpoint-every-upstream-tag-including-patch-releases).
+Every commit—unit or release—stops for review first; see
+[Review protocol](#review-protocol).
+
 ## The model
 
 - The port tracks one dart-sass commit at a time: `PORTED_FROM` (hash
@@ -30,6 +57,53 @@ Run the commands below from the repository root.
   `async_compile→compile`, `async_environment→environment`,
   `async_import_cache→import_cache`). Read the async diff; ignore the sync
   twin's diff entirely.
+
+## Target discovery and pin resolution
+
+`TARGET` below is the upstream release tag, for example `1.106.1`. Run from
+the repository root.
+
+```sh
+git -C dart-sass fetch origin --tags
+git -C sass-spec fetch origin
+git -C embedded-host-node fetch --tags origin
+git -C sass fetch --tags origin
+
+BASE=$(cat PORTED_FROM)
+git submodule status dart-sass embedded-host-node sass sass-spec
+git -C dart-sass rev-parse "$TARGET^{commit}"
+git -C dart-sass log --oneline "$BASE..$TARGET" -- lib/ CHANGELOG.md
+```
+
+Classify the commits with [Sync procedure](#sync-procedure) step 1. Every
+user-visible `CHANGELOG.md` entry must map to a functional unit or to an
+explicitly skipped unit. A release span with no `lib/` changes is a patch
+release with no port units.
+
+Resolve the release pins as follows:
+
+- **dart-sass**: the commit the release tag points at
+  (`git -C dart-sass rev-parse "$TARGET^{commit}"`). `PORTED_FROM` must equal
+  it.
+- **embedded-host-node**: the **peeled commit** of the matching host tag
+  (`git -C embedded-host-node rev-parse "$TARGET^{commit}"`), not the
+  annotated tag object. Host tags are `Update Dart Sass version and release`
+  commits.
+- **sass**: the commit for the embedded protocol version. Read the version
+  from the published `sass-embedded@$TARGET` package (`protocol-version`) or
+  from `sass/spec/EMBEDDED_PROTOCOL_VERSION`, then
+  `git -C sass rev-parse "embedded-protocol-<version>"`. Move this pin only
+  when the protocol version changes.
+- **sass-spec**: the spec commit belonging to the ported units. Inspect
+  `git -C sass-spec log --oneline <current-pin>..origin/main -- spec/` and
+  match commits to the units' tests. Advance per unit and never past an
+  unported unit; a release has no single upstream “spec tag”.
+- **compiler/protocol**: `$TARGET` and the protocol version above.
+- **dart2js**: the version printed by the published package:
+  `npx -y sass@$TARGET --version`.
+
+Record the resolved pins in the release ledger. If a pin already matches,
+leave it untouched.
 
 ## Commit-by-commit sync and release checkpoints (mandatory)
 
@@ -67,13 +141,32 @@ the runner's peak memory grows beyond a single-process run; CI runs it whole.
 
 A patch release with no `lib/` changes still gets a release commit and tag.
 
-1. Check out the upstream release tag; move `dart-sass`, `PORTED_FROM`,
-   `sass-spec`, `sass` and `embedded-host-node` to their release pins.
+1. Resolve and check out the release pins from
+   [Target discovery and pin resolution](#target-discovery-and-pin-resolution):
+   `dart-sass`/`PORTED_FROM` to the tag commit, `embedded-host-node` to the
+   peeled host tag commit, `sass` to the protocol tag commit (usually
+   unchanged), and `sass-spec` to the last spec commit for the ported units.
 2. Run `tools/bump-version.sh <version>`.
-3. Set `DART2JS_VERSION` from the published `sass@<version>` package.
-4. Sweep current-version references in docs, README, manifests and npm oracle
-   pins; refresh lockfiles; add the CHANGELOG entry. Keep historical changelog
-   sections unchanged.
+3. Set `DART2JS_VERSION` from `npx -y sass@<version> --version` and update the
+   wasm `--version` assertion in `rust-sass-wasm/js/src/wasm/cli.test.ts`.
+4. Sweep the current version and update the release surfaces:
+   - `git grep -n -F '<old-version>'`; current references move, historical
+     CHANGELOG sections stay.
+   - `README.md`, `docs/upstream.md` (commit **and date**),
+     `docs/review.md` (`PORTED_FROM` hash), `docs/ref/sass-embedded-rust.md`
+     (host tag/hash), `docs/ci.md`, `docs/release.md`,
+     `docs/architecture.md`, `docs/divergences.md`,
+     `docs/critical-invariants.md`, and the remaining `docs/ref/*` version
+     references.
+   - npm oracle pins: `rust-sass-wasm/package.json` (`sass` and
+     `sass-embedded`) and `embedded-host-node-rust/package.json`
+     (`sass-embedded`), then refresh both lockfiles with
+     `npm install --package-lock-only --ignore-scripts` in those directories.
+   - `embedded-host-node-rust/package.dist.json`: wrapper version and the
+     exact optional platform dependencies (the bump script updates these;
+     verify).
+   - `docs/CHANGELOG.md`: add the section from upstream. Keep historical
+     sections unchanged.
 5. Run the full local battery with the CI/MSRV toolchain (Rust 1.99), including
    the wasm release build and JS tests:
    ```sh
@@ -88,30 +181,40 @@ A patch release with no `lib/` changes still gets a release commit and tag.
    npm run build:js
    npm run test:js
    ```
-6. Commit the release.
-7. Push the short-lived feature branch (for example `upgrade/1.105`) and wait
-   for branch CI. `ci.yml` runs on every branch push.
-8. **Stop before pushing `main`.** The user reviews and pushes.
-9. Wait for main CI. If it fails:
+   Run the full spec suite as described below and differential A/B against
+   `sass@<version>` for the release's behavior changes.
+6. Stage the release surfaces explicitly, run the
+   [Review protocol](#review-protocol), and commit only after approval.
+7. Push the short-lived feature branch (for example
+   `upgrade/sass-<version>`) and wait for branch CI. `ci.yml` runs on every
+   branch push.
+8. After branch CI is green, fast-forward `main` to the feature branch tip and
+   push it unless the request said “stop before main”. Wait for main CI. If it
+   fails:
    - never amend a pushed commit,
-   - add fix commits, re-run the gates, and stop before the next push.
-10. After main CI is green, create the local annotated tag `v<version>` and
-    push it.
-11. Wait for the tag/release CI. Only then start the next upstream unit.
+   - add fix commits, re-run the gates, and wait for the next CI run.
+9. After main CI is green, create the local annotated tag `v<version>` and
+   push it.
+10. Wait for the tag/release CI (`crates` and `Release` for a `v*` tag). Only
+    then start the next upstream unit.
 
 ### Push and tag ownership
 
-The agent may push feature branches. The agent **never pushes `main`**. Every
-release checkpoint ends with a review stop before the main push; the user
-reviews and pushes. Once main CI is green, the agent creates and pushes the
-tag, then waits for tag CI. Tags are created only after main CI is green, so
-they include any CI fix commits.
+An explicit **“upgrade to `<version>`”** authorizes the full release flow:
+feature-branch push, branch CI, fast-forwarding `main`, main push, main CI,
+tag push, and tag CI. A request that says “stop before main” or “port the
+units only” withholds the corresponding steps.
+
+The agent never force-pushes `main` and never moves or recreates a published
+tag. Tags are created only after main CI is green, so they include any CI fix
+commits.
 
 ### Branch policy
 
 `ci.yml` runs on every branch push. Use a short-lived branch (for example
-`upgrade/1.105`) for each release checkpoint, fast-forward `main` to it after
-branch CI is green, and delete the branch when the upgrade is complete.
+`upgrade/sass-<version>`) for each release checkpoint, fast-forward `main` to
+it after branch CI is green, and delete the branch when the upgrade is
+complete.
 `crates.yml`, `release.yml` and `playground.yml` stay `main`/tag-only; they
 have packaging, release or deployment side effects.
 
@@ -137,6 +240,23 @@ npm run test:js
 
 Run focused `js-api-spec` and a scoped wasm spec subset when the harness is
 available. CI remains the final full-wasm gate.
+
+## Review protocol
+
+Every unit commit and every release commit is reviewed before it is created.
+
+1. Stage explicit paths (`git add <paths>`, never `git add -A`).
+2. Run the unit or release gates: fmt, tests in both builds, clippy in both
+   builds, focused `sass-spec` directories, and differential A/B where the
+   behavior is observable.
+3. Show the staged summary (`git diff --cached --stat`), the pins being moved,
+   the new/changed internal tests, the focused spec results, and any
+   differential output.
+4. Stop and wait for approval. Do not `git commit` until the user approves.
+5. After the commit, continue with the next unit or the release steps.
+
+For release commits, the same review applies after the full battery, before
+the branch push.
 
 ## Sync procedure
 
