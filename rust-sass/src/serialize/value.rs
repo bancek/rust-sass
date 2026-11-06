@@ -153,7 +153,7 @@ pub(crate) fn visit_number_impl(
 ///
 /// Matches Dart: `_isUnitAmbiguousWithExponent` (`serialize.dart`).
 fn is_unit_ambiguous_with_exponent(unit: &str) -> bool {
-    if unit.len() == 1 {
+    if unit.len() < 2 {
         return false;
     }
     let mut chars = unit.chars();
@@ -431,5 +431,14 @@ mod tests {
     fn test_number_ambiguous_exponent_unit() {
         assert_eq!(number_css(1.0, Some("e1")), "1\\65 1");
         assert_eq!(number_css(10.0, Some("E-2")), "10\\65 -2");
+    }
+
+    // Regression test for sass/dart-sass#2889: an empty unit is reachable
+    // through the JS/Dart APIs and the embedded protocol. It serializes away
+    // instead of indexing into an empty string.
+    #[rust_sass_macros::maybe_test]
+    async fn test_number_empty_unit() {
+        assert_eq!(number_css(1.0, Some("")), "1");
+        assert_eq!(number_css(10.5, Some("")), "10.5");
     }
 }
