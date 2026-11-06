@@ -41,8 +41,28 @@ jobs:
           # libsass first: rust-sass-libsass-tests links the prebuilt
           # libsass.so from target/<profile>/, so it must exist before
           # the workspace build runs that crate's build script.
-          cargo build -p rust-sass-libsass
-          cargo build --workspace
+          #
+          # Windows occasionally cannot open the freshly linked
+          # target/debug/deps/sass.dll (LNK1104: Defender locks it, and the
+          # normal/build-dependency units share that output name). Retry the
+          # whole sequence a bounded number of times instead of failing.
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            attempts=5
+            for i in $(seq 1 "$attempts"); do
+              if cargo build -p rust-sass-libsass && cargo build --workspace; then
+                exit 0
+              fi
+              if [ "$i" -eq "$attempts" ]; then
+                echo "build failed after $attempts attempts" >&2
+                exit 1
+              fi
+              echo "build failed (attempt $i/$attempts); retrying in 10s" >&2
+              sleep 10
+            done
+          else
+            cargo build -p rust-sass-libsass
+            cargo build --workspace
+          fi
       - name: Clippy (sync)
         run: cargo clippy --workspace --all-targets -- -D warnings
       - name: Clippy (async)
@@ -73,7 +93,26 @@ jobs:
       # - uses: Swatinem/rust-cache@v2
       - name: Build
         run: |
-          cargo build -p rust-sass-libsass
-          cargo build --workspace
+          # Windows occasionally cannot open the freshly linked
+          # target/debug/deps/sass.dll (LNK1104: Defender locks it, and the
+          # normal/build-dependency units share that output name). Retry the
+          # whole sequence a bounded number of times instead of failing.
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            attempts=5
+            for i in $(seq 1 "$attempts"); do
+              if cargo build -p rust-sass-libsass && cargo build --workspace; then
+                exit 0
+              fi
+              if [ "$i" -eq "$attempts" ]; then
+                echo "build failed after $attempts attempts" >&2
+                exit 1
+              fi
+              echo "build failed (attempt $i/$attempts); retrying in 10s" >&2
+              sleep 10
+            done
+          else
+            cargo build -p rust-sass-libsass
+            cargo build --workspace
+          fi
       - name: sass-spec suite
         run: cargo test -p rust-sass-spec --test runner_test --release -- --ignored
