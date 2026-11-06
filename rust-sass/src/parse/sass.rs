@@ -140,9 +140,10 @@ pub(crate) fn try_sass_trailing_semicolon_impl<'b>(
 /// A source line is any line that's not entirely whitespace; blank lines are
 /// skipped and EOF reports 0. Results are cached in `SassIndentState` and the
 /// scanner is rewound. Matches Dart's `SassParser._peekIndentation`.
-pub(crate) fn sass_peek_indentation_impl<'b>(
+fn sass_peek_indentation_impl_with_start<'b>(
     scanner: &mut SpanScanner<'b>,
     state: &mut StylesheetState<'b>,
+    start_of_stylesheet: bool,
 ) -> ParseResult<'b, usize> {
     {
         let si = sass_state(state);
@@ -160,7 +161,7 @@ pub(crate) fn sass_peek_indentation_impl<'b>(
         scanner.peek_char(0) >= 0 && character::is_newline(scanner.peek_char(0) as u8 as char);
     if found_newline {
         scanner.read_char()?;
-    } else {
+    } else if !start_of_stylesheet {
         return Err(Box::new(error_impl(
             "Expected newline.",
             &scanner.empty_span(),
@@ -210,6 +211,16 @@ pub(crate) fn sass_peek_indentation_impl<'b>(
         }
         scanner.read_char()?;
     }
+}
+
+/// Returns the indentation level of the next line.
+///
+/// Matches Dart: `SassParser._peekIndentation`.
+pub(crate) fn sass_peek_indentation_impl<'b>(
+    scanner: &mut SpanScanner<'b>,
+    state: &mut StylesheetState<'b>,
+) -> ParseResult<'b, usize> {
+    sass_peek_indentation_impl_with_start(scanner, state, false)
 }
 
 // ======================================================================
@@ -440,16 +451,17 @@ pub(crate) fn sass_loud_comment_impl<'b>(
 ///
 /// Flushes the peeked cache from [`sass_peek_indentation_impl`]. Matches
 /// Dart's `SassParser._readIndentation`.
-pub(crate) fn sass_read_indentation_impl<'b>(
+fn sass_read_indentation_impl_with_start<'b>(
     scanner: &mut SpanScanner<'b>,
     state: &mut StylesheetState<'b>,
+    start_of_stylesheet: bool,
 ) -> ParseResult<'b, usize> {
     let needs_peek = {
         let si = sass_state(state);
         si.next_indentation.is_none()
     };
     if needs_peek {
-        let indent = sass_peek_indentation_impl(scanner, state)?;
+        let indent = sass_peek_indentation_impl_with_start(scanner, state, start_of_stylesheet)?;
         let si = sass_state(state);
         si.next_indentation = Some(indent);
     }
@@ -460,6 +472,17 @@ pub(crate) fn sass_read_indentation_impl<'b>(
         scanner.set_state(end);
     }
     Ok(indent)
+}
+
+/// Consumes indentation whitespace and returns the indentation level of the
+/// next line.
+///
+/// Matches Dart: `SassParser._readIndentation`.
+pub(crate) fn sass_read_indentation_impl<'b>(
+    scanner: &mut SpanScanner<'b>,
+    state: &mut StylesheetState<'b>,
+) -> ParseResult<'b, usize> {
+    sass_read_indentation_impl_with_start(scanner, state, false)
 }
 
 // ======================================================================
@@ -627,10 +650,23 @@ pub(crate) fn sass_statements_impl<'b>(
     ) -> ParseResult<'b, Option<Statement<'b>>>,
 ) -> ParseResult<'b, Vec<Statement<'b>>> {
     let mut stmts = Vec::new();
-    let ch = scanner.peek_char(0);
-    if ch == ' ' as i32 || ch == '\t' as i32 {
-        // Matches Dart: position 0, length = current position (the indent).
-        let span = scanner.span_from_to(0, scanner.pos());
+    if sass_read_indentation_impl_with_start(scanner, state, true)? != 0 {
+        let end = scanner.pos();
+        let mut last_newline = end as isize;
+        while last_newline >= 0 {
+            let idx = last_newline as usize;
+            let is_newline = scanner
+                .text()
+                .as_bytes()
+                .get(idx)
+                .is_some_and(|&b| b == b'\n' || b == b'\r' || b == 0x0C);
+            if is_newline {
+                break;
+            }
+            last_newline -= 1;
+        }
+        let start = (last_newline + 1) as usize;
+        let span = scanner.span_from_to(start, end);
         return Err(Box::new(error_impl(
             "Indenting at the beginning of the document is illegal.",
             &span,
@@ -837,11 +873,16 @@ mod tests {
     }
 
     fn parse_sass_err(text: &str) -> String {
+        parse_sass_error(text).to_string()
+    }
+
+    fn parse_sass_error(text: &str) -> Box<crate::common::exception::SassError> {
         let arena = Bump::new();
         let fs = FileSource::new_in(&arena, text, None);
         let mut parser = StylesheetParser::new(fs, sass_syntax(), None);
-        let err = parse_impl(&mut parser.scanner, &mut parser.state).unwrap_err();
-        err.to_string()
+        parse_impl(&mut parser.scanner, &mut parser.state)
+            .unwrap_err()
+            .into()
     }
 
     #[test]
@@ -902,13 +943,27 @@ mod tests {
         assert_eq!(sheet.children.len(), 1);
     }
 
-    #[test]
-    fn test_doc_start_indent_span() {
-        // Matches Dart: statements() errors position 0, length = indent.
-        let err = parse_sass_err("  a: b\n");
-        assert!(
-            err.contains("Indenting at the beginning of the document is illegal."),
-            "{err}"
-        );
+    #[rust_sass_macros::maybe_test]
+    async fn test_doc_start_indent_span() {
+        // Matches Dart: the error span covers the indentation on the first
+        // non-blank line, not the start of the document.
+        for (src, start, end) in [
+            ("  a: b\n", 0, 2),
+            ("\n  a: b\n", 1, 3),
+            ("  \t\n  a: b\n", 4, 6),
+        ] {
+            let err = parse_sass_error(src);
+            assert!(
+                err.to_string()
+                    .contains("Indenting at the beginning of the document is illegal."),
+                "src {src:?}: {err}"
+            );
+            let span = err.span().expect("expected a spanned error");
+            assert_eq!(
+                (span.start.offset, span.end.offset),
+                (start, end),
+                "src {src:?}"
+            );
+        }
     }
 }
