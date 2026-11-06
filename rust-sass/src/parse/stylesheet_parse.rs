@@ -1336,4 +1336,54 @@ mod tests {
             }
         }
     }
+
+    #[test]
+    fn test_duplicate_parameter_non_rest() {
+        let arena = bumpalo::Bump::new();
+        let err = parse_parameter_list("@mixin a($b, $b) {}", "", &arena).unwrap_err();
+        let SassError::MultiSpan {
+            message,
+            span,
+            primary_label,
+            secondary,
+            ..
+        } = *err
+        else {
+            panic!("expected MultiSpan error");
+        };
+        assert_eq!(message, "Duplicate parameter.");
+        assert_eq!(primary_label.as_deref(), Some("first"));
+        assert_eq!((span.start.offset, span.end.offset), (9, 11));
+        assert_eq!(secondary.len(), 1);
+        assert_eq!(secondary[0].1, "second");
+        assert_eq!(
+            (secondary[0].0.start.offset, secondary[0].0.end.offset),
+            (13, 15)
+        );
+    }
+
+    #[test]
+    fn test_duplicate_parameter_rest() {
+        let arena = bumpalo::Bump::new();
+        let err = parse_parameter_list("@mixin a($b, $b...) {}", "", &arena).unwrap_err();
+        let SassError::MultiSpan {
+            message,
+            span,
+            primary_label,
+            secondary,
+            ..
+        } = *err
+        else {
+            panic!("expected MultiSpan error");
+        };
+        assert_eq!(message, "Duplicate parameter.");
+        assert_eq!(primary_label.as_deref(), Some("first"));
+        assert_eq!((span.start.offset, span.end.offset), (9, 11));
+        assert_eq!(secondary.len(), 1);
+        assert_eq!(secondary[0].1, "second");
+        assert_eq!(
+            (secondary[0].0.start.offset, secondary[0].0.end.offset),
+            (13, 18)
+        );
+    }
 }

@@ -80,9 +80,9 @@ use crate::parse::import_url::{is_plain_import_url, parse_import_url};
 use crate::parse::media_style::media_query_list_impl;
 use crate::parse::parser::{
     error_impl, expect_identifier_impl, identifier_impl, looking_at_identifier,
-    peek_char_or_escape, scan_identifier_impl, span_from_impl, span_from_to_impl,
-    variable_name_impl, whitespace_impl, whitespace_without_comments_impl, with_error_message_impl,
-    ParseError, ParseResult,
+    multi_span_error_impl, peek_char_or_escape, scan_identifier_impl, span_from_impl,
+    span_from_to_impl, variable_name_impl, whitespace_impl, whitespace_without_comments_impl,
+    with_error_message_impl, ParseError, ParseResult,
 };
 use crate::parse::stylesheet::{
     at_end_of_statement_impl, children_impl, current_indentation_impl,
@@ -813,7 +813,7 @@ pub(crate) fn parameter_list_impl<'b>(
     scanner.expect_char('(')?;
     whitespace_impl(scanner, &mut state.parser_state, true)?;
     let mut parameters: Vec<Parameter<'b>> = Vec::new();
-    let mut named: HashMap<String, ()> = HashMap::new();
+    let mut named: HashMap<String, usize> = HashMap::new();
     let mut rest_parameter: Option<String> = None;
     while scanner.peek_char(0) == '$' as i32 {
         let variable_start = scanner.state();
@@ -830,6 +830,17 @@ pub(crate) fn parameter_list_impl<'b>(
             if scanner.scan_char(',') {
                 whitespace_impl(scanner, &mut state.parser_state, true)?;
             }
+            let rest_span =
+                span_from_impl(scanner, &state.parser_state, variable_start)?.file_span()?;
+            if let Some(&first_index) = named.get(&name) {
+                let first_span = parameters[first_index].span()?;
+                return Err(Box::new(multi_span_error_impl(
+                    "Duplicate parameter.",
+                    &first_span,
+                    "first",
+                    vec![(rest_span, "second".into())],
+                )));
+            }
             rest_parameter = Some(name);
             break;
         } else {
@@ -837,12 +848,17 @@ pub(crate) fn parameter_list_impl<'b>(
         };
         let param_span =
             span_from_impl(scanner, &state.parser_state, variable_start)?.file_span()?;
-        parameters.push(Parameter::new(name.clone(), param_span, default_value));
-        if named.contains_key(&name) {
-            let dup_span = parameters.last().unwrap().span()?;
-            return Err(Box::new(error_impl("Duplicate parameter.", &dup_span)));
+        if let Some(&first_index) = named.get(&name) {
+            let first_span = parameters[first_index].span()?;
+            return Err(Box::new(multi_span_error_impl(
+                "Duplicate parameter.",
+                &first_span,
+                "first",
+                vec![(param_span, "second".into())],
+            )));
         }
-        named.insert(name, ());
+        named.insert(name.clone(), parameters.len());
+        parameters.push(Parameter::new(name, param_span, default_value));
         if !scanner.scan_char(',') {
             break;
         }
