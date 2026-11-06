@@ -139,7 +139,7 @@ Node 26 + Rust 1.99.1 + `wasm32-unknown-unknown` + wasm-pack, `npm ci`,
 ## Manifest model (`package.dist.json`)
 
 `embedded-host-node-rust/package.dist.json` is the single version that matters
-(1.106.0): the assemble job copies it into `dist/` as the published manifest,
+(1.106.1): the assemble job copies it into `dist/` as the published manifest,
 platform versions and the tag guard derive from it. Source `package.json`
 stays `0.0.0` forever — npm ≥ 11 rejects `npm ci` on lockfiles whose
 optionalDeps are unresolvable (our platform packages, unpublished by design),
@@ -149,7 +149,7 @@ so no lockfile re-sync is needed for platform changes.
 
 ## Tags and prereleases
 
-Tags track the pinned dart-sass version: `v1.106.0`, etc. Pushing a `v*` tag
+Tags track the pinned dart-sass version: `v1.106.1`, etc. Pushing a `v*` tag
 creates the GitHub release with CLI binaries + npm tarballs, and publishes
 registries: npm under `next` on `-`-suffixed tags, `latest` otherwise
 (crates publish as-is — opt-in by resolution). The full procedure, including
@@ -159,10 +159,10 @@ checklist in [`CONTRIBUTING.md`](CONTRIBUTING.md).
 Test the release path with a prerelease suffix (never `latest`):
 
 ```sh
-git tag v1.106.0-prerelease && git push origin v1.106.0-prerelease
+git tag v1.106.1-prerelease && git push origin v1.106.1-prerelease
 # verify assets on the release page, then clean up:
-gh release delete v1.106.0-prerelease --cleanup-tag
-git tag -d v1.106.0-prerelease
+gh release delete v1.106.1-prerelease --cleanup-tag
+git tag -d v1.106.1-prerelease
 ```
 
 ## While the repo is private

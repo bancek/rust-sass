@@ -2,7 +2,7 @@
 
 `rust-sass` is a Rust port of [Dart Sass](https://sass-lang.com/dart-sass), the
 reference implementation of the Sass CSS preprocessor. It produces
-**byte-identical output** to Dart Sass `1.106.0` — the same CSS, source maps,
+**byte-identical output** to Dart Sass `1.106.1` — the same CSS, source maps,
 error messages, and warnings — while compiling to native binaries and
 WebAssembly.
 
@@ -14,7 +14,7 @@ line, the `sass` npm package, the `sass-embedded` protocol server, and `libsass`
 There is also a matching [Go port](https://github.com/bancek/go-sass).
 
 The compiler is complete and passes the full spec suite against Dart Sass
-`1.106.0` (14399/14399, plus the wasm spec via `bin/sass.js` and `js-api-spec`
+`1.106.1` (14400/14400, plus the wasm spec via `bin/sass.js` and `js-api-spec`
 197/204). The native CLI is faster than Dart Sass on every measured workload
 (~0.83× CPU time on Bootstrap CSS).
 

@@ -146,9 +146,9 @@ single-owner visitors). This rule covers the serializer (`SerializeState` +
 
 - Output is **byte-identical** to Dart Sass on the bootstrap,
   `huge`, and `huge10` workloads — CSS, source maps, warnings, and errors.
-- The `sass-spec` suite must stay green: 14399/14399.
+- The `sass-spec` suite must stay green: 14400/14400.
 - `compilerVersion`/`protocolVersion` must track the pinned dart-sass version
-  (`1.106.0` / `3.3.0`) in lockstep — see `CONTRIBUTING.md` version-bump
+  (`1.106.1` / `3.3.0`) in lockstep — see `CONTRIBUTING.md` version-bump
   checklist.
 
 ## Test standards

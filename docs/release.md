@@ -1,7 +1,7 @@
 # Release runbook
 
-Tags track the dart-sass version (`v1.106.0`); rehearsals add a suffix
-(`v1.106.0-alpha0`, `v1.106.0-alpha1`). Mechanics: [`ci.md`](ci.md). Bump
+Tags track the dart-sass version (`v1.106.1`); rehearsals add a suffix
+(`v1.106.1-alpha0`, `v1.106.1-alpha1`). Mechanics: [`ci.md`](ci.md). Bump
 surfaces: [`CONTRIBUTING.md`](CONTRIBUTING.md#version-bump-checklist).
 
 ## Bump
@@ -23,7 +23,7 @@ Bootstraps everything before automation can use it. No tag at any point.
 
 1. Re-enable parked workflows (`*.disabled` back) — need the matrices
    for artifacts.
-2. Bump to `1.106.0-alpha0`, CHANGELOG, `cargo check`, commit, push.
+2. Bump to `1.106.1-alpha0`, CHANGELOG, `cargo check`, commit, push.
 3. CI green → `gh run download <run-id> -D alpha-artifacts`.
 4. Classic tokens in env (`CARGO_REGISTRY_TOKEN`, `NODE_AUTH_TOKEN`;
    OIDC never serves hand runs). Rotate/delete after.
@@ -31,18 +31,18 @@ Bootstraps everything before automation can use it. No tag at any point.
    (macros, embedded-pb, rust-sass, libsass, embedded, cli).
 6. `npm publish --tag next` from the downloaded tarballs: 8 platforms,
    then wrapper, then wasm. Never omit `--tag` on a prerelease.
-7. Optional paper trail: `gh release create v1.106.0-alpha0 --draft
+7. Optional paper trail: `gh release create v1.106.1-alpha0 --draft
    --prerelease --generate-notes` + upload.
 8. Set up trusted publishing now (npm packages exist; crates pending
    publishers) — prerequisite for every flow below.
 
-## CI prerelease (alpha1, `1.106.0-alpha0`, …)
+## CI prerelease (alpha1, `1.106.1-alpha0`, …)
 
 Standing rehearsal mechanism, not a one-off: proves the full automation
 before each final. Needs trusted publishing live (preceding step).
 
 1. Bump, CHANGELOG, `cargo check`, commit, push.
-2. CI green → tag (e.g. `v1.106.0-alpha1`), push tag.
+2. CI green → tag (e.g. `v1.106.1-alpha1`), push tag.
 3. CI verifies (version guards: tag vs manifests, full-vs-full), creates the
    draft release (`--prerelease`, single creator in `release.yml` — no race),
    attaches assets, and publishes: npm under `next` (derived from the `-` in

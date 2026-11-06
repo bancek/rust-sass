@@ -1,9 +1,20 @@
 # Changelog
 
-Release history. Tags track the pinned dart-sass version (`v1.106.0`); the
+Release history. Tags track the pinned dart-sass version (`v1.106.1`); the
 procedure lives in [`docs/release.md`](docs/release.md).
 
 ## Unreleased
+
+## 1.106.1
+
+- Fix crashes when serializing an attribute selector with an empty value
+  (such as `[class=""]`) and a number with an empty unit (reachable through
+  the JS/Dart APIs and the embedded protocol).
+- Represent Dart `ArgumentError` distinctly from `SassScriptException`, and
+  convert argument errors from host-provided values into `PARAMS` protocol
+  errors instead of compile failures.
+- Embedded protocol 3.3.0 (unchanged).
+- Byte-identical output to Dart Sass 1.106.1 (14400/14400 spec tests passing).
 
 ## 1.106.0
 
