@@ -61,8 +61,8 @@ use crate::parse::stylesheet::{
     StylesheetState, Syntax,
 };
 use crate::parse::util::{
-    assert_public_impl, looking_at_interpolated_identifier_body_impl,
-    looking_at_interpolated_identifier_impl, looking_at_potential_property_hack_impl,
+    assert_public_impl, looking_at_interpolated_identifier_impl,
+    looking_at_potential_property_hack_impl,
 };
 
 // ======================================================================
@@ -379,24 +379,20 @@ fn variable_declaration_or_interpolation_impl<'b>(
         return Ok(DeclarationOrInterpolation::Interpolation(interp));
     }
     let start = scanner.state();
-    let ident = identifier_impl(scanner, &state.parser_state, false, false)?;
-    if scanner.peek_char(0) == '.' as i32 && scanner.peek_char(1) == '$' as i32 {
-        scanner.read_char()?;
-        let decl =
-            variable_declaration_without_namespace_impl(scanner, state, Some(ident), Some(start))?;
-        return Ok(DeclarationOrInterpolation::Declaration(decl));
+    let identifier = interpolated_identifier_impl(scanner, state)?;
+    if let Some(plain) = identifier.as_plain_identifier() {
+        if scanner.peek_char(0) == '.' as i32 && scanner.peek_char(1) == '$' as i32 {
+            scanner.read_char()?;
+            let decl = variable_declaration_without_namespace_impl(
+                scanner,
+                state,
+                Some(plain),
+                Some(start),
+            )?;
+            return Ok(DeclarationOrInterpolation::Declaration(decl));
+        }
     }
-    let mut buf = InterpolationBuffer::new();
-    buf.write(&ident);
-    if looking_at_interpolated_identifier_body_impl(scanner) {
-        let interp = interpolated_identifier_impl(scanner, state)?;
-        buf.add_interpolation(&interp);
-    }
-    let interp_span = span_from_impl(scanner, &state.parser_state, start)?.file_span()?;
-    let interp = buf
-        .interpolation(interp_span)
-        .map_err(|e| Box::new(ParseError::Sass(e)))?;
-    Ok(DeclarationOrInterpolation::Interpolation(interp))
+    Ok(DeclarationOrInterpolation::Interpolation(identifier))
 }
 
 // ======================================================================
@@ -480,7 +476,7 @@ fn declaration_or_buffer_impl<'b>(
     if is_custom_property
         || (state.in_plain_css_function
             && name
-                .as_plain()
+                .as_plain_identifier()
                 .is_some_and(|p| p.eq_ignore_ascii_case("result")))
     {
         let value_expr = if at_end_of_statement_impl(scanner, state) {
@@ -493,6 +489,7 @@ fn declaration_or_buffer_impl<'b>(
                 scanner,
                 state,
                 DeclarationValueOpts {
+                    expression: false,
                     allow_empty: false,
                     allow_semicolon: false,
                     allow_colon: true,
@@ -658,6 +655,7 @@ pub(crate) fn style_rule_impl<'b>(
             scanner,
             state,
             DeclarationValueOpts {
+                expression: false,
                 allow_empty: true,
                 allow_open_brace: false,
                 ..Default::default()

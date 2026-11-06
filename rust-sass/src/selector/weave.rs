@@ -1139,7 +1139,7 @@ fn comp_comps_is_superselector<'parse>(
     let b_sel = if b.is_empty() {
         vec![SimpleSelector::Universal(UniversalSelector::new(
             BOGUS_SPAN,
-            Some("*".into()),
+            crate::selector::qualified_name::SelectorNamespace::Any,
         ))]
     } else {
         b.to_vec()

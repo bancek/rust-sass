@@ -45,6 +45,7 @@ use crate::common::source_span_span_with_context::SourceSpanWithContext;
 use crate::common::span::Span;
 use crate::common::SassResult;
 use crate::source_map_buffer::SourceMapBuffer;
+use crate::util::css_identifier::to_css_identifier;
 use crate::value::ValueKind;
 
 use crate::serialize::{
@@ -480,7 +481,7 @@ fn visit_media_query(
         buf.write_char(' ').unwrap();
     }
     if let Some(ref media_type) = query.media_type {
-        write!(buf, "{}", media_type).unwrap();
+        write!(buf, "{}", to_css_identifier(media_type)?).unwrap();
         if !query.conditions.is_empty() {
             buf.write_str(" and ").unwrap();
         }

@@ -16,6 +16,7 @@ use std::fmt::Write;
 use crate::common::ast_node::AstNode;
 use crate::common::exception::{SassError, SassResult};
 use crate::common::file_span::FileSpan;
+use crate::util::css_identifier::to_css_identifier;
 
 use crate::ast::sass::parameter_list::ParameterList;
 use crate::ast::sass::statement::silent_comment::SilentComment;
@@ -127,7 +128,7 @@ impl<'parse> AstNode<'parse> for MixinRule<'parse> {
 impl<'parse> MixinRule<'parse> {
     pub fn to_display_string(&self) -> SassResult<String> {
         let mut buf = String::new();
-        write!(buf, "@mixin {}", self.name).unwrap();
+        write!(buf, "@mixin {}", to_css_identifier(&self.name)?).unwrap();
         if !self.parameters.is_empty() {
             write!(buf, "({})", self.parameters).unwrap();
         }

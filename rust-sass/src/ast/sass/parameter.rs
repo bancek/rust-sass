@@ -14,6 +14,7 @@ use std::fmt::Write;
 use crate::common::ast_node::AstNode;
 use crate::common::exception::SassResult;
 use crate::common::file_span::FileSpan;
+use crate::util::css_identifier::to_css_identifier;
 
 use crate::ast::sass::expression::Expression;
 
@@ -92,12 +93,12 @@ impl<'parse> Parameter<'parse> {
             write!(
                 buf,
                 "{}: {}",
-                self.name,
+                to_css_identifier(&self.name)?,
                 Expression::to_display_string(default)?
             )
             .unwrap();
         } else {
-            write!(buf, "{}", self.name).unwrap();
+            write!(buf, "{}", to_css_identifier(&self.name)?).unwrap();
         }
         Ok(buf)
     }

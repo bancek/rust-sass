@@ -16,6 +16,7 @@ use crate::url::SassUrl;
 use crate::common::ast_node::AstNode;
 use crate::common::exception::SassResult;
 use crate::common::file_span::FileSpan;
+use crate::util::css_identifier::to_css_identifier;
 
 use crate::ast::sass::configured_variable::ConfiguredVariable;
 
@@ -186,7 +187,7 @@ impl<'parse> ForwardRule<'parse> {
             write!(
                 buf,
                 " show {}",
-                member_list(shown, self.shown_variables.as_ref())
+                member_list(shown, self.shown_variables.as_ref())?
             )
             .unwrap();
         } else if let Some(ref hidden) = self.hidden_mixins_and_functions {
@@ -194,7 +195,7 @@ impl<'parse> ForwardRule<'parse> {
                 write!(
                     buf,
                     " hide {}",
-                    member_list(hidden, self.hidden_variables.as_ref())
+                    member_list(hidden, self.hidden_variables.as_ref())?
                 )
                 .unwrap();
             }
@@ -225,14 +226,17 @@ impl<'parse> fmt::Display for ForwardRule<'parse> {
 fn member_list(
     mixins_and_functions: &HashSet<String>,
     variables: Option<&HashSet<String>>,
-) -> String {
-    let mut names: Vec<String> = mixins_and_functions.iter().cloned().collect();
+) -> SassResult<String> {
+    let mut names = Vec::with_capacity(mixins_and_functions.len());
+    for name in mixins_and_functions {
+        names.push(to_css_identifier(name)?);
+    }
     if let Some(vars) = variables {
         for name in vars {
-            names.push(format!("${name}"));
+            names.push(format!("${}", to_css_identifier(name)?));
         }
     }
-    names.join(", ")
+    Ok(names.join(", "))
 }
 
 #[cfg(test)]

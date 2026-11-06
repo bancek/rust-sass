@@ -15,7 +15,6 @@ use crate::selector::unify::unify_universal_and_element;
 use crate::selector::visitor::SelectorVisitor;
 use crate::selector::WarnLogger;
 use crate::serialize::SerializeVisitor;
-use crate::value::hash::{hash_combine, string_hash_code, string_opt_hash_code};
 use std::hash::Hash;
 use std::hash::Hasher;
 
@@ -94,10 +93,7 @@ impl<'parse> TypeSelector<'parse> {
 
     // Matches Dart: the hash of the qualified name; the span is excluded.
     pub fn hash_code(&self) -> i32 {
-        hash_combine(
-            string_hash_code(&self.name.name),
-            string_opt_hash_code(&self.name.namespace),
-        )
+        self.name.hash_code()
     }
 
     /// Serializes this selector to CSS, quoting as `inspect` requests.
@@ -144,8 +140,7 @@ impl<'parse> TypeSelector<'parse> {
     ) -> SassResult<bool> {
         if let SimpleSelector::Type(ref o) = other {
             if self.name.name == o.name.name
-                && (self.name.namespace.as_deref() == Some("*")
-                    || self.name.namespace == o.name.namespace)
+                && (self.name.namespace.is_any() || self.name.namespace == o.name.namespace)
             {
                 return Ok(true);
             }
@@ -250,7 +245,7 @@ mod tests {
 
     #[test]
     fn test_type_selector_is_superselector_wildcard_ns() {
-        let ns = Some("*".to_string());
+        let ns = crate::selector::qualified_name::SelectorNamespace::Any;
         let name = QualifiedName::new_with_namespace("div".into(), ns);
         let s = TypeSelector::new(name, BOGUS_SPAN);
         let target = TypeSelector::new(QualifiedName::new("div".into()), BOGUS_SPAN);

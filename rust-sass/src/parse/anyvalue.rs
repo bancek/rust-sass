@@ -13,9 +13,9 @@ use crate::common::span_scanner::SpanScanner;
 use crate::util::character;
 
 use crate::parse::expression::{interpolated_string_token_impl, try_url_contents};
-use crate::parse::identifier::interpolated_identifier_impl;
+use crate::parse::identifier::{interpolated_identifier_expr_impl, interpolated_identifier_impl};
 use crate::parse::parser::{
-    escape_impl, identifier_impl, looking_at_identifier, loud_comment_impl, raw_text_impl,
+    looking_at_identifier, loud_comment_impl, peek_char_or_escape, raw_text_impl,
     scan_identifier_impl, silent_comment_impl, span_from_impl, ParseError, ParseResult,
 };
 use crate::parse::stylesheet::{StylesheetParser, StylesheetState, Syntax};
@@ -45,11 +45,14 @@ pub struct DeclarationValueOpts {
     /// Lets the indented syntax consume newlines as whitespace. Only set where
     /// a statement can't end.
     pub consume_newlines: bool,
+    /// Parses identifiers as SassScript expressions, normalizing escapes.
+    pub expression: bool,
 }
 
 impl Default for DeclarationValueOpts {
     fn default() -> Self {
         DeclarationValueOpts {
+            expression: false,
             allow_empty: false,
             allow_semicolon: false,
             allow_colon: true,
@@ -83,15 +86,17 @@ pub(crate) fn almost_any_value_impl<'b>(
     let mut brackets: Vec<char> = Vec::new();
 
     loop {
-        let ch = scanner.peek_char(0);
-        match ch {
-            c if c == '\\' as i32 => {
-                let c = scanner.read_char()?;
-                buffer.write_char_code(c);
-                let c = scanner.read_char()?;
-                buffer.write_char_code(c);
+        let (ch, escaped) = peek_char_or_escape(scanner, None)?;
+        if escaped {
+            if ch == 'u' as i32 || ch == 'U' as i32 {
+                almost_any_url_impl(scanner, state, &mut buffer)?;
+                continue;
             }
-
+            let interp = interpolated_identifier_impl(scanner, state)?;
+            buffer.add_interpolation(&interp);
+            continue;
+        }
+        match ch {
             c if c == '\'' as i32 || c == '"' as i32 => {
                 let interp = interpolated_string_token_impl(scanner, state)?;
                 buffer.add_interpolation(&interp);
@@ -146,20 +151,7 @@ pub(crate) fn almost_any_value_impl<'b>(
             }
 
             c if c == 'u' as i32 || c == 'U' as i32 => {
-                let before_url = scanner.state();
-                let ident = identifier_impl(scanner, &state.parser_state, false, false)?;
-                if ident != "url" && ident != "url-prefix" {
-                    buffer.write(&ident);
-                    continue;
-                }
-                if let Some(contents) = try_url_contents(scanner, state, before_url, &ident, false)?
-                {
-                    buffer.add_interpolation(&contents);
-                } else {
-                    scanner.set_state(before_url);
-                    let c = scanner.read_char()?;
-                    buffer.write_char_code(c);
-                }
+                almost_any_url_impl(scanner, state, &mut buffer)?;
             }
 
             c if c == '(' as i32 || c == '[' as i32 => {
@@ -185,8 +177,8 @@ pub(crate) fn almost_any_value_impl<'b>(
             c if c < 0 => break,
 
             _ if looking_at_identifier(scanner, None) => {
-                let ident = identifier_impl(scanner, &state.parser_state, false, false)?;
-                buffer.write(&ident);
+                let interp = interpolated_identifier_impl(scanner, state)?;
+                buffer.add_interpolation(&interp);
             }
 
             _ => {
@@ -198,6 +190,36 @@ pub(crate) fn almost_any_value_impl<'b>(
 
     let span = span_from_impl(scanner, &state.parser_state, start)?;
     Ok(buffer.interpolation(span)?)
+}
+
+/// Consumes a `url(...)` or identifier beginning at the scanner into
+/// `buffer`, matching Dart's `almostAnyValue` URL arm.
+fn almost_any_url_impl<'parse>(
+    scanner: &mut SpanScanner<'parse>,
+    state: &mut StylesheetState<'parse>,
+    buffer: &mut InterpolationBuffer<'parse>,
+) -> ParseResult<'parse, ()> {
+    let before_url = scanner.state();
+    let ident = interpolated_identifier_impl(scanner, state)?;
+    let plain = ident.as_plain_identifier();
+    if plain.as_deref() != Some("url") && plain.as_deref() != Some("url-prefix") {
+        buffer.add_interpolation(&ident);
+        return Ok(());
+    }
+    if let Some(contents) = try_url_contents(
+        scanner,
+        state,
+        before_url,
+        ident.as_plain().unwrap_or(""),
+        false,
+    )? {
+        buffer.add_interpolation(&contents);
+    } else {
+        scanner.set_state(before_url);
+        let c = scanner.read_char()?;
+        buffer.write_char_code(c);
+    }
+    Ok(())
 }
 
 // ======================================================================
@@ -222,14 +244,43 @@ pub(crate) fn interpolated_declaration_value_impl<'b>(
     let mut wrote_newline = false;
 
     loop {
-        let ch = scanner.peek_char(0);
-        match ch {
-            c if c == '\\' as i32 => {
-                let s = escape_impl(scanner, true)?;
-                buffer.write(&s);
+        let (ch, escaped) = peek_char_or_escape(scanner, None)?;
+        if escaped {
+            if ch == 'u' as i32 || ch == 'U' as i32 {
+                let before_url = scanner.state();
+                let ident = interpolated_identifier_impl(scanner, state)?;
+                let plain = ident.as_plain_identifier();
+                if plain.as_deref() != Some("url") && plain.as_deref() != Some("url-prefix") {
+                    buffer.add_interpolation(&ident);
+                    wrote_newline = false;
+                    continue;
+                }
+                if let Some(contents) = try_url_contents(
+                    scanner,
+                    state,
+                    before_url,
+                    ident.as_plain().unwrap_or(""),
+                    false,
+                )? {
+                    buffer.add_interpolation(&contents);
+                } else {
+                    scanner.set_state(before_url);
+                    let c = scanner.read_char()?;
+                    buffer.write_char_code(c);
+                }
                 wrote_newline = false;
+                continue;
             }
-
+            let interp = if opts.expression {
+                interpolated_identifier_expr_impl(scanner, state)?
+            } else {
+                interpolated_identifier_impl(scanner, state)?
+            };
+            buffer.add_interpolation(&interp);
+            wrote_newline = false;
+            continue;
+        }
+        match ch {
             c if c == '\'' as i32 || c == '"' as i32 => {
                 let interp = interpolated_string_token_impl(scanner, state)?;
                 buffer.add_interpolation(&interp);
@@ -257,7 +308,11 @@ pub(crate) fn interpolated_declaration_value_impl<'b>(
             },
 
             c if c == '#' as i32 && scanner.peek_char(1) == '{' as i32 => {
-                let interp = interpolated_identifier_impl(scanner, state)?;
+                let interp = if opts.expression {
+                    interpolated_identifier_expr_impl(scanner, state)?
+                } else {
+                    interpolated_identifier_impl(scanner, state)?
+                };
                 buffer.add_interpolation(&interp);
                 wrote_newline = false;
             }
@@ -333,14 +388,20 @@ pub(crate) fn interpolated_declaration_value_impl<'b>(
 
             c if c == 'u' as i32 || c == 'U' as i32 => {
                 let before_url = scanner.state();
-                let ident = identifier_impl(scanner, &state.parser_state, false, false)?;
-                if ident != "url" && ident != "url-prefix" {
-                    buffer.write(&ident);
+                let ident = interpolated_identifier_impl(scanner, state)?;
+                let plain = ident.as_plain_identifier();
+                if plain.as_deref() != Some("url") && plain.as_deref() != Some("url-prefix") {
+                    buffer.add_interpolation(&ident);
                     wrote_newline = false;
                     continue;
                 }
-                if let Some(contents) = try_url_contents(scanner, state, before_url, &ident, false)?
-                {
+                if let Some(contents) = try_url_contents(
+                    scanner,
+                    state,
+                    before_url,
+                    plain.as_deref().unwrap_or(""),
+                    false,
+                )? {
                     buffer.add_interpolation(&contents);
                 } else {
                     scanner.set_state(before_url);
@@ -361,16 +422,24 @@ pub(crate) fn interpolated_declaration_value_impl<'b>(
                         break;
                     }
                 }
-                let c = scanner.read_char()?;
-                buffer.write_char_code(c);
+                let interp = if opts.expression {
+                    interpolated_identifier_expr_impl(scanner, state)?
+                } else {
+                    interpolated_identifier_impl(scanner, state)?
+                };
+                buffer.add_interpolation(&interp);
                 wrote_newline = false;
             }
 
             c if c < 0 => break,
 
             _ if looking_at_identifier(scanner, None) => {
-                let ident = identifier_impl(scanner, &state.parser_state, false, false)?;
-                buffer.write(&ident);
+                let interp = if opts.expression {
+                    interpolated_identifier_expr_impl(scanner, state)?
+                } else {
+                    interpolated_identifier_impl(scanner, state)?
+                };
+                buffer.add_interpolation(&interp);
                 wrote_newline = false;
             }
 
@@ -915,7 +984,13 @@ mod tests {
         let (mut s, mut st) = make_state(&arena, "\\61 bc");
         let interp = interpolated_declaration_value_impl(&mut s, &mut st, default_opts()).unwrap();
         let text = interp.to_display_string().unwrap();
-        assert_eq!(text, "abc");
+        assert_eq!(text, "\\61 bc");
+
+        let (mut s, mut st) = make_state(&arena, "\\61 bc");
+        let mut opts = default_opts();
+        opts.expression = true;
+        let interp = interpolated_declaration_value_impl(&mut s, &mut st, opts).unwrap();
+        assert_eq!(interp.to_display_string().unwrap(), "abc");
     }
 
     #[test]
@@ -1054,6 +1129,7 @@ mod tests {
         let arena = Bump::new();
         let (mut s, mut st) = make_state(&arena, "");
         let opts = DeclarationValueOpts {
+            expression: false,
             allow_empty: true,
             allow_colon: true,
             allow_open_brace: true,

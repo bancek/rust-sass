@@ -13,6 +13,7 @@ use std::fmt::Write;
 use crate::common::ast_node::AstNode;
 use crate::common::exception::SassResult;
 use crate::common::file_span::FileSpan;
+use crate::util::css_identifier::to_css_identifier;
 
 use crate::ast::sass::expression::Expression;
 use crate::ast::sass::statement::Statement;
@@ -68,7 +69,7 @@ impl<'parse> ForRule<'parse> {
         write!(
             buf,
             "@for ${} from {} {op} {} {{",
-            self.variable,
+            to_css_identifier(&self.variable)?,
             Expression::to_display_string(&self.from)?,
             Expression::to_display_string(&self.to)?
         )

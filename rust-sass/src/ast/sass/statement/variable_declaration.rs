@@ -16,6 +16,7 @@ use crate::common::ast_node::AstNode;
 use crate::common::core_errors::ArgumentError;
 use crate::common::exception::{SassError, SassResult};
 use crate::common::file_span::FileSpan;
+use crate::util::css_identifier::to_css_identifier;
 
 use crate::ast::sass::expression::Expression;
 use crate::ast::sass::statement::silent_comment::SilentComment;
@@ -116,12 +117,12 @@ impl<'parse> VariableDeclaration<'parse> {
     pub fn to_display_string(&self) -> SassResult<String> {
         let mut buf = String::new();
         if let Some(ref ns) = self.namespace {
-            write!(buf, "{ns}.").unwrap();
+            write!(buf, "{}.", to_css_identifier(ns)?).unwrap();
         }
         write!(
             buf,
             "${}: {};",
-            self.name,
+            to_css_identifier(&self.name)?,
             Expression::to_display_string(&self.expression)?
         )
         .unwrap();

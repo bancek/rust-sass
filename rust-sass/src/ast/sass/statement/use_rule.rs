@@ -16,6 +16,7 @@ use crate::common::ast_node::AstNode;
 use crate::common::core_errors::ArgumentError;
 use crate::common::exception::{SassError, SassResult};
 use crate::common::file_span::FileSpan;
+use crate::util::css_identifier::to_css_identifier;
 
 use crate::ast::sass::configured_variable::ConfiguredVariable;
 
@@ -83,7 +84,7 @@ impl<'parse> UseRule<'parse> {
             if effective_ns.is_none() {
                 write!(buf, "*").unwrap();
             } else if let Some(ns) = effective_ns {
-                write!(buf, "{ns}").unwrap();
+                write!(buf, "{}", to_css_identifier(ns)?).unwrap();
             }
         }
         if !self.configuration.is_empty() {

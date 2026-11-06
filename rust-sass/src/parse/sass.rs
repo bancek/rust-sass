@@ -736,7 +736,7 @@ pub(crate) fn sass_import_argument_impl<'b>(
     scanner: &mut SpanScanner<'b>,
     state: &mut StylesheetState<'b>,
 ) -> ParseResult<'b, Import<'b>> {
-    let ch = scanner.peek_char(0);
+    let (ch, _) = crate::parse::parser::peek_char_or_escape(scanner, None)?;
     if ch == 'u' as i32 || ch == 'U' as i32 {
         let start = scanner.state();
         // Matches Dart: scanIdentifier("url") is case-insensitive by

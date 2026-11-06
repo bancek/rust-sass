@@ -557,8 +557,8 @@ pub(crate) fn pseudo_selector_impl<'b>(
     }
     whitespace_impl(scanner, &mut state.parser_state, true)?;
 
-    let unvendored = if let Some(plain) = name.as_plain() {
-        unvendor(plain)
+    let unvendored = if let Some(plain) = name.as_plain_identifier() {
+        unvendor(&plain)
     } else {
         String::new()
     };
@@ -574,6 +574,7 @@ pub(crate) fn pseudo_selector_impl<'b>(
                 scanner,
                 state,
                 DeclarationValueOpts {
+                    expression: false,
                     allow_empty: true,
                     ..Default::default()
                 },
@@ -599,6 +600,7 @@ pub(crate) fn pseudo_selector_impl<'b>(
             scanner,
             state,
             DeclarationValueOpts {
+                expression: false,
                 allow_empty: true,
                 ..Default::default()
             },

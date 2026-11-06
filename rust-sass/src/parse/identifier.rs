@@ -17,7 +17,7 @@ use crate::parse::expression::ExpressionOpts;
 use crate::parse::parser::error_impl;
 use crate::util::character;
 
-use crate::parse::parser::{escape_impl, span_from_impl, whitespace_impl, ParseResult};
+use crate::parse::parser::{escape_character_impl, span_from_impl, whitespace_impl, ParseResult};
 use crate::parse::stylesheet::{StylesheetParser, StylesheetState, Syntax};
 
 // ======================================================================
@@ -34,6 +34,25 @@ pub(crate) fn interpolated_identifier_impl<'parse>(
     scanner: &mut SpanScanner<'parse>,
     state: &mut StylesheetState<'parse>,
 ) -> ParseResult<'parse, Interpolation<'parse>> {
+    interpolated_identifier_impl_with_expr(scanner, state, false)
+}
+
+/// Like [`interpolated_identifier_impl`], but marks the identifier as part of
+/// a SassScript expression.
+///
+/// Matches Dart: `interpolatedIdentifier(expression: true)`.
+pub(crate) fn interpolated_identifier_expr_impl<'parse>(
+    scanner: &mut SpanScanner<'parse>,
+    state: &mut StylesheetState<'parse>,
+) -> ParseResult<'parse, Interpolation<'parse>> {
+    interpolated_identifier_impl_with_expr(scanner, state, true)
+}
+
+fn interpolated_identifier_impl_with_expr<'parse>(
+    scanner: &mut SpanScanner<'parse>,
+    state: &mut StylesheetState<'parse>,
+    expression: bool,
+) -> ParseResult<'parse, Interpolation<'parse>> {
     let start = scanner.state();
     let mut buffer = InterpolationBuffer::new();
 
@@ -41,7 +60,7 @@ pub(crate) fn interpolated_identifier_impl<'parse>(
         buffer.write_char_code('-');
         if scanner.scan_char('-') {
             buffer.write_char_code('-');
-            interpolated_identifier_body_helper_impl(scanner, state, &mut buffer)?;
+            interpolated_identifier_body_helper_impl(scanner, state, &mut buffer, expression)?;
             let span = span_from_impl(scanner, &state.parser_state, start)?;
             return Ok(buffer.interpolation(span)?);
         }
@@ -58,8 +77,14 @@ pub(crate) fn interpolated_identifier_impl<'parse>(
         let c = scanner.read_char()?;
         buffer.write_char_code(c);
     } else if ch == '\\' {
-        let esc = escape_impl(scanner, true)?;
-        buffer.write(&esc);
+        let esc_start = scanner.pos();
+        let value = escape_character_impl(scanner)?;
+        let text = if expression {
+            character::character_to_escape(value, true)
+        } else {
+            scanner.substring(esc_start, None).to_owned()
+        };
+        buffer.write(&text);
     } else if ch == '#' && scanner.peek_char(1) == '{' as i32 {
         let (expr, span) = single_interpolation_impl(scanner, state)?;
         buffer.add(expr, span);
@@ -69,7 +94,7 @@ pub(crate) fn interpolated_identifier_impl<'parse>(
         ));
     }
 
-    interpolated_identifier_body_helper_impl(scanner, state, &mut buffer)?;
+    interpolated_identifier_body_helper_impl(scanner, state, &mut buffer, expression)?;
     let span = span_from_impl(scanner, &state.parser_state, start)?;
     Ok(buffer.interpolation(span)?)
 }
@@ -86,7 +111,7 @@ pub(crate) fn interpolated_identifier_body_impl<'parse>(
 ) -> ParseResult<'parse, Interpolation<'parse>> {
     let start = scanner.state();
     let mut buffer = InterpolationBuffer::new();
-    interpolated_identifier_body_helper_impl(scanner, state, &mut buffer)?;
+    interpolated_identifier_body_helper_impl(scanner, state, &mut buffer, false)?;
     if buffer.is_empty() {
         return Err(Box::new(
             scanner.error("Expected identifier body.", None, 0).into(),
@@ -103,6 +128,7 @@ pub(crate) fn interpolated_identifier_body_helper_impl<'parse>(
     scanner: &mut SpanScanner<'parse>,
     state: &mut StylesheetState<'parse>,
     buffer: &mut InterpolationBuffer<'parse>,
+    expression: bool,
 ) -> ParseResult<'parse, ()> {
     loop {
         let ch = scanner.peek_char(0);
@@ -120,8 +146,14 @@ pub(crate) fn interpolated_identifier_body_helper_impl<'parse>(
                 buffer.write_char_code(c);
             }
             '\\' => {
-                let esc = escape_impl(scanner, false)?;
-                buffer.write(&esc);
+                let esc_start = scanner.pos();
+                let value = escape_character_impl(scanner)?;
+                let text = if expression {
+                    character::character_to_escape(value, false)
+                } else {
+                    scanner.substring(esc_start, None).to_owned()
+                };
+                buffer.write(&text);
             }
             '#' if scanner.peek_char(1) == '{' as i32 => {
                 let (expr, span) = single_interpolation_impl(scanner, state)?;
@@ -241,7 +273,8 @@ mod tests {
         let arena = Bump::new();
         let mut parser = make_stylesheet(&arena, "\\41", Syntax::Scss);
         let interp = parser.interpolated_identifier().unwrap();
-        assert_eq!(interp.as_plain(), Some("A"));
+        assert_eq!(interp.as_plain(), Some("\\41"));
+        assert_eq!(interp.as_plain_identifier().as_deref(), Some("A"));
     }
 
     #[test]
@@ -249,7 +282,8 @@ mod tests {
         let arena = Bump::new();
         let mut parser = make_stylesheet(&arena, "f\\6fo", Syntax::Scss);
         let interp = parser.interpolated_identifier().unwrap();
-        assert_eq!(interp.as_plain(), Some("foo"));
+        assert_eq!(interp.as_plain(), Some("f\\6fo"));
+        assert_eq!(interp.as_plain_identifier().as_deref(), Some("foo"));
     }
 
     #[test]
@@ -341,7 +375,8 @@ mod tests {
         let arena = Bump::new();
         let mut parser = make_stylesheet(&arena, "-\\41", Syntax::Scss);
         let interp = parser.interpolated_identifier().unwrap();
-        assert_eq!(interp.as_plain(), Some("-A"));
+        assert_eq!(interp.as_plain(), Some("-\\41"));
+        assert_eq!(interp.as_plain_identifier().as_deref(), Some("-A"));
     }
 
     #[test]
@@ -378,7 +413,8 @@ mod tests {
         let arena = Bump::new();
         let mut parser = make_stylesheet(&arena, "a\\62 c", Syntax::Scss);
         let interp = parser.interpolated_identifier().unwrap();
-        assert_eq!(interp.as_plain(), Some("abc"));
+        assert_eq!(interp.as_plain(), Some("a\\62 c"));
+        assert_eq!(interp.as_plain_identifier().as_deref(), Some("abc"));
     }
 
     #[test]

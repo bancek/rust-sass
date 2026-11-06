@@ -15,6 +15,7 @@ use indexmap::IndexMap;
 use crate::common::ast_node::AstNode;
 use crate::common::exception::SassResult;
 use crate::common::file_span::FileSpan;
+use crate::util::css_identifier::to_css_identifier;
 use crate::value::ListSeparator;
 
 use crate::ast::sass::expression::Expression;
@@ -127,7 +128,13 @@ impl<'parse> ArgumentList<'parse> {
             } else {
                 write!(buf, ", ").unwrap();
             }
-            write!(buf, "${name}: {}", parenthesize_argument(value)?).unwrap();
+            write!(
+                buf,
+                "${}: {}",
+                to_css_identifier(name)?,
+                parenthesize_argument(value)?
+            )
+            .unwrap();
         }
         if let Some(ref rest) = self.rest {
             if first {

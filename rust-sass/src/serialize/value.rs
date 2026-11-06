@@ -139,9 +139,36 @@ pub(crate) fn visit_number_impl(
     }
     state.write_number(buf, value.value);
     if let Some(first) = value.numerator_units.first() {
-        write!(buf, "{}", first).unwrap();
+        if is_unit_ambiguous_with_exponent(first) {
+            write!(buf, "\\65 {}", &first[1..]).unwrap();
+        } else {
+            write!(buf, "{}", first).unwrap();
+        }
     }
     Ok(())
+}
+
+/// Returns whether `unit`, serialized without escapes, would be parsed as a
+/// numeric exponent.
+///
+/// Matches Dart: `_isUnitAmbiguousWithExponent` (`serialize.dart`).
+fn is_unit_ambiguous_with_exponent(unit: &str) -> bool {
+    if unit.len() == 1 {
+        return false;
+    }
+    let mut chars = unit.chars();
+    let first = chars.next().unwrap();
+    if first != 'e' && first != 'E' {
+        return false;
+    }
+    let mut next = chars.next().unwrap();
+    if next == '-' {
+        match chars.next() {
+            Some(ch) => next = ch,
+            None => return false,
+        }
+    }
+    next.is_ascii_digit()
 }
 
 /// Writes `name(args)` with comma separators (Dart's `visitCalculation`).
@@ -391,5 +418,18 @@ mod tests {
         let mut buf = SourceMapBuffer::new_plain();
         visit_boolean_impl(&mut buf, &SASS_TRUE).unwrap();
         assert_eq!(buf.into_string(), "true");
+    }
+
+    fn number_css(value: f64, unit: Option<&str>) -> String {
+        let state = crate::serialize::SerializeState::new(true, false);
+        let mut buf = SourceMapBuffer::new_plain();
+        visit_number_impl(&mut buf, &state, &SassNumber::new(value, unit)).unwrap();
+        buf.into_string()
+    }
+
+    #[test]
+    fn test_number_ambiguous_exponent_unit() {
+        assert_eq!(number_css(1.0, Some("e1")), "1\\65 1");
+        assert_eq!(number_css(10.0, Some("E-2")), "10\\65 -2");
     }
 }

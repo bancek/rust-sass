@@ -699,7 +699,10 @@ mod tests {
         let (config, mut state) = test_state(&arena);
         // Create a minimal valid selector list
         let span = make_span(&arena, "*");
-        let simple = SimpleSelector::Universal(UniversalSelector::new(span, None));
+        let simple = SimpleSelector::Universal(UniversalSelector::new(
+            span,
+            crate::selector::qualified_name::SelectorNamespace::Default,
+        ));
         let compound = CompoundSelector::new(vec![simple], span).unwrap();
         let comp = ComplexSelectorComponent::new(Box::new(compound), vec![], span);
         let complex = ComplexSelector::new(vec![], vec![comp], span, false).unwrap();

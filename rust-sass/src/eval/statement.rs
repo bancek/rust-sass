@@ -706,7 +706,7 @@ where
     // Keyframe branch
     if state.in_keyframes {
         let source = FileSource::new_in(arena, &selector_text, None);
-        let mut kp = KeyframeSelectorParser::new(source);
+        let mut kp = KeyframeSelectorParser::new_with_map(source, Some(selector_map));
         let parsed = kp.parse()?;
         let selector_span = selector.span()?;
         let rule = ModifiableCssKeyframeBlock::new(CssValue::new(parsed, selector_span), node.span);
@@ -2248,7 +2248,10 @@ where
     }
 
     if state.declaration_name.is_some() && !node.parsed_as_sass_script {
-        let starts_with_dash = node.name.as_plain().is_some_and(|s| s.starts_with("--"));
+        let starts_with_dash = node
+            .name
+            .as_plain_identifier()
+            .is_some_and(|s| s.starts_with("--"));
         let msg = if starts_with_dash {
             "Declarations whose names begin with \"--\" may not be nested."
         } else {

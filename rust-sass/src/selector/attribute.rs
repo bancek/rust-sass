@@ -19,7 +19,7 @@ use crate::common::exception::{SassError, SassResult};
 use crate::common::file_span::FileSpan;
 use crate::selector::qualified_name::QualifiedName;
 use crate::selector::visitor::SelectorVisitor;
-use crate::value::hash::{hash_combine, string_hash_code, string_opt_hash_code};
+use crate::value::hash::{hash_combine, string_hash_code};
 
 use crate::selector::SimpleSelector;
 
@@ -164,10 +164,7 @@ impl<'parse> AttributeSelector<'parse> {
     // Matches Dart: combines the name, namespace, operator, value, and
     // modifier hashes; the span is excluded.
     pub fn hash_code(&self) -> i32 {
-        let mut h = hash_combine(
-            string_hash_code(&self.name.name),
-            string_opt_hash_code(&self.name.namespace),
-        );
+        let mut h = self.name.hash_code();
         if let Some(op) = &self.op {
             h = hash_combine(h, *op as i32);
             if let Some(val) = &self.value {
@@ -275,6 +272,18 @@ mod tests {
         );
         assert_eq!(s.op, Some(AttributeOperator::Equal));
         assert_eq!(s.value, Some("foo".into()));
+    }
+
+    #[test]
+    fn test_attribute_value_backslash_stays_quoted() {
+        let s = AttributeSelector::new_with_operator(
+            QualifiedName::new("a".into()),
+            AttributeOperator::Equal,
+            "\\b".into(),
+            BOGUS_SPAN,
+            None,
+        );
+        assert_eq!(s.to_css_string(false).unwrap(), "[a=\"\\\\b\"]");
     }
 
     #[test]

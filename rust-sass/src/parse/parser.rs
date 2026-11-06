@@ -461,26 +461,28 @@ pub(crate) fn identifier_impl<'parse>(
         }
     }
 
-    let ch = scanner.peek_char(0);
-    if ch < 0 {
+    if scanner.is_done() {
         return Err(Box::new(
             scanner.error("Expected identifier.", None, 0).into(),
         ));
     }
-    let ch = char::from_u32(ch as u32).unwrap_or('\0');
-    if ch == '_' && normalize {
-        scanner.read_char()?;
-        sb.push('-');
-    } else if character::is_name_start(ch) {
-        let c = scanner.read_char()?;
-        sb.push(c);
-    } else if ch == '\\' {
-        let s = escape_impl(scanner, true)?;
-        sb.push_str(&s);
-    } else {
-        return Err(Box::new(
-            scanner.error("Expected identifier.", None, 0).into(),
-        ));
+    match read_char_or_escape(scanner)? {
+        (ch, _) if ch == '_' as i32 && normalize => sb.push('-'),
+        (ch, true) => sb.push(char::from_u32(ch as u32).unwrap_or('\u{FFFD}')),
+        (ch, _) if character::is_name_start(char::from_u32(ch as u32).unwrap_or('\0')) => {
+            sb.push(char::from_u32(ch as u32).unwrap_or('\0'));
+        }
+        _ => {
+            return Err(Box::new(
+                scanner
+                    .error(
+                        "Expected identifier.",
+                        Some(scanner.pos().saturating_sub(1)),
+                        1,
+                    )
+                    .into(),
+            ));
+        }
     }
 
     _identifier_body_impl(scanner, &mut sb, normalize, unit)?;
@@ -528,31 +530,31 @@ pub(crate) fn _identifier_body_impl<'parse>(
     unit: bool,
 ) -> ParseResult<'parse, ()> {
     loop {
-        let ch = scanner.peek_char(0);
+        let (ch, escaped) = peek_char_or_escape(scanner, None)?;
         if ch < 0 {
             return Ok(());
         }
-        let ch = char::from_u32(ch as u32).unwrap_or('\0');
-        match ch {
+        let c = char::from_u32(ch as u32).unwrap_or('\u{FFFD}');
+        match c {
             '-' if unit => {
-                let next = scanner.peek_char(1);
-                if next == '.' as i32 || character::is_digit(next as u8 as char) {
+                let before = scanner.state();
+                read_char_or_escape(scanner)?;
+                let next = scanner.peek_char(0);
+                if next == '.' as i32
+                    || character::is_digit(char::from_u32(next as u32).unwrap_or('\0'))
+                {
+                    scanner.set_state(before);
                     return Ok(());
                 }
-                scanner.read_char()?;
                 sb.push('-');
             }
             '_' if normalize => {
-                scanner.read_char()?;
+                read_char_or_escape(scanner)?;
                 sb.push('-');
             }
-            _ if character::is_name(ch) => {
-                let c = scanner.read_char()?;
+            _ if escaped || character::is_name(c) => {
+                read_char_or_escape(scanner)?;
                 sb.push(c);
-            }
-            '\\' => {
-                let s = escape_impl(scanner, false)?;
-                sb.push_str(&s);
             }
             _ => return Ok(()),
         }
@@ -676,17 +678,36 @@ pub(crate) fn declaration_value_impl<'parse>(
     let mut wrote_newline = false;
 
     loop {
-        let next = scanner.peek_char(0);
+        let (next, escaped) = peek_char_or_escape(scanner, None)?;
         if next < 0 {
             break;
         }
-        let ch = next as u8 as char;
-        match ch {
-            '\\' => {
-                let s = escape_impl(scanner, true)?;
-                sb.push_str(&s);
-                wrote_newline = false;
+
+        if escaped {
+            if next == 'u' as i32 || next == 'U' as i32 {
+                let url = try_url_impl(scanner)?;
+                if !url.is_empty() {
+                    sb.push_str(&url);
+                } else {
+                    let (_, text) = raw_text_impl(scanner, state, |s, st| {
+                        identifier_impl(s, st, false, false)?;
+                        Ok(())
+                    })?;
+                    sb.push_str(&text);
+                }
+            } else {
+                let (_, text) = raw_text_impl(scanner, state, |s, st| {
+                    identifier_impl(s, st, false, false)?;
+                    Ok(())
+                })?;
+                sb.push_str(&text);
             }
+            wrote_newline = false;
+            continue;
+        }
+
+        let ch = char::from_u32(next as u32).unwrap_or('\0');
+        match ch {
             '"' | '\'' => {
                 let (_, text) = raw_text_impl(scanner, state, |s, _st| {
                     string_impl(s)?;
@@ -750,15 +771,21 @@ pub(crate) fn declaration_value_impl<'parse>(
                 if !url.is_empty() {
                     sb.push_str(&url);
                 } else {
-                    let c = scanner.read_char()?;
-                    sb.push(c);
+                    let (_, text) = raw_text_impl(scanner, state, |s, st| {
+                        identifier_impl(s, st, false, false)?;
+                        Ok(())
+                    })?;
+                    sb.push_str(&text);
                 }
                 wrote_newline = false;
             }
             _ => {
                 if looking_at_identifier(scanner, None) {
-                    let ident = identifier_impl(scanner, state, false, false)?;
-                    sb.push_str(&ident);
+                    let (_, text) = raw_text_impl(scanner, state, |s, st| {
+                        identifier_impl(s, st, false, false)?;
+                        Ok(())
+                    })?;
+                    sb.push_str(&text);
                 } else {
                     let c = scanner.read_char()?;
                     sb.push(c);
@@ -825,8 +852,9 @@ pub(crate) fn try_url_impl<'parse>(
         }
         match ch as u8 as char {
             '\\' => {
-                let s = escape_impl(scanner, false)?;
-                sb.push_str(&s);
+                let esc_start = scanner.pos();
+                consume_escaped_character(scanner)?;
+                sb.push_str(scanner.substring(esc_start, None));
             }
             '%' | '&' | '#' => {
                 let c = scanner.read_char()?;
@@ -1164,97 +1192,45 @@ impl<'parse> Parser<'parse> {
 
 // ## Characters
 
-/// Consumes an escape sequence and returns the text that defines it.
+/// Returns the character `offset` away from the scanner without consuming it.
 ///
-/// Follows <https://drafts.csswg.org/css-syntax-3/#consume-escaped-code-point>:
-/// hex escapes consume up to 6 hex digits plus one trailing whitespace;
-/// non-hex escapes are the backslash plus the escaped char verbatim.
-///
-/// If `identifier_start` is `true`, the escape is normalized as though at the
-/// beginning of an identifier: escapes resolving to a name-start char decode
-/// to that char, while control chars / `0x7F` / leading digits stay in
-/// `\XX ` hex form (so `$-\31 ` re-serializes safely).
-pub(crate) fn escape_impl<'parse>(
+/// If this character begins an escape, returns the resolved escape contents
+/// instead of a literal backslash. The second value is `true` when an escape
+/// was parsed.
+pub(crate) fn peek_char_or_escape<'parse>(
     scanner: &mut SpanScanner<'parse>,
-    identifier_start: bool,
-) -> ParseResult<'parse, String> {
-    let start = scanner.pos();
-    scanner.expect_char('\\')?;
-    let ch = scanner.peek_char(0);
-    if ch < 0 || character::is_newline(ch as u8 as char) {
-        return Err(Box::new(
-            scanner.error("Expected escape sequence.", None, 0).into(),
-        ));
+    offset: Option<isize>,
+) -> ParseResult<'parse, (i32, bool)> {
+    if scanner.peek_char(offset.unwrap_or(0)) == '\\' as i32 {
+        let start = scanner.state();
+        if let Some(off) = offset {
+            for _ in 0..off.max(0) {
+                scanner.read_char()?;
+            }
+        }
+        let result = escape_character_impl(scanner);
+        scanner.set_state(start);
+        return result.map(|ch| (ch, true));
     }
+    Ok((scanner.peek_char(offset.unwrap_or(0)), false))
+}
 
-    let value: i32 = if character::is_hex(ch as u8 as char) {
-        let mut v = 0i32;
-        for _ in 0..6 {
-            let next = scanner.peek_char(0);
-            if next < 0 || !character::is_hex(next as u8 as char) {
-                break;
-            }
-            let hex = scanner.read_char()?;
-            v = (v << 4) + character::as_hex(hex);
-        }
-        if character::is_whitespace(scanner.peek_char(0) as u8 as char) {
-            scanner.read_char()?;
-        }
-        v
+/// Consumes and returns the next character, resolving an escape sequence if
+/// one begins here. The second value is `true` when an escape was consumed.
+pub(crate) fn read_char_or_escape<'parse>(
+    scanner: &mut SpanScanner<'parse>,
+) -> ParseResult<'parse, (i32, bool)> {
+    if scanner.peek_char(0) == '\\' as i32 {
+        Ok((escape_character_impl(scanner)?, true))
     } else {
-        scanner.read_char()? as i32
-    };
-
-    let is_name_check = {
-        let raw_value = value as u32;
-        raw_value >= 0x0080
-            || match char::from_u32(raw_value) {
-                Some(ch) => {
-                    if identifier_start {
-                        character::is_name_start(ch)
-                    } else {
-                        character::is_name(ch)
-                    }
-                }
-                None => false,
-            }
-    };
-
-    if is_name_check {
-        if value < 0 || (0xD800..=0xDFFF).contains(&value) || value > char::MAX as i32 {
-            return Err(scanner
-                .error(
-                    "Invalid Unicode code point.",
-                    Some(start),
-                    (scanner.pos() - start) as isize,
-                )
-                .into());
-        }
-        Ok(char::from_u32(value as u32)
-            .unwrap_or('\u{FFFD}')
-            .to_string())
-    } else if value <= 0x1F
-        || value == 0x7F
-        || (identifier_start && character::is_digit(value as u8 as char))
-    {
-        let mut sb = String::new();
-        sb.push('\\');
-        if value > 0xF {
-            sb.push(character::hex_char_for(value >> 4));
-        }
-        sb.push(character::hex_char_for(value & 0xF));
-        sb.push(' ');
-        Ok(sb)
-    } else {
-        let c = char::from_u32(value as u32).unwrap_or('\u{FFFD}');
-        Ok(format!("\\{c}"))
+        Ok((scanner.read_char()? as i32, false))
     }
 }
 
 impl<'parse> Parser<'parse> {
-    /// Consumes an escape sequence. See [`escape_impl`].
-    pub fn escape(&mut self, identifier_start: bool) -> ParseResult<'parse, String> {
-        escape_impl(&mut self.scanner, identifier_start)
+    /// Consumes an escape sequence and returns the character it represents.
+    pub fn escape(&mut self) -> ParseResult<'parse, i32> {
+        escape_character_impl(&mut self.scanner)
     }
 }
 
@@ -2222,7 +2198,7 @@ pub fn consume_escaped_character<'parse>(
         if character::is_whitespace(scanner.peek_char(0) as u8 as char) {
             scanner.read_char()?;
         }
-        if value == 0 || (0xD800..=0xDFFF).contains(&value) || value >= MAX_ALLOWED_CHARACTER {
+        if value == 0 || (0xD800..=0xDFFF).contains(&value) || value > MAX_ALLOWED_CHARACTER {
             return Ok(0xFFFD);
         }
         return Ok(value);
@@ -2438,40 +2414,67 @@ mod tests {
     }
 
     #[test]
+    fn test_identifier_escaped_underscore_normalizes() {
+        let arena = Bump::new();
+        let mut p = make_parser(&arena, "a\\5f b");
+        assert_eq!(p.identifier(true, false).unwrap(), "a-b");
+    }
+
+    #[test]
+    fn test_identifier_escaped_name_start() {
+        let arena = Bump::new();
+        let mut p = make_parser(&arena, "\\31 foo");
+        assert_eq!(p.identifier(false, false).unwrap(), "1foo");
+    }
+
+    #[test]
+    fn test_consume_escaped_max_valid() {
+        let arena = Bump::new();
+        let mut s = make_scanner(&arena, "\\10FFFF");
+        assert_eq!(consume_escaped_character(&mut s).unwrap(), 0x10FFFF);
+    }
+
+    #[test]
+    fn test_consume_escaped_over_max_is_replacement() {
+        let arena = Bump::new();
+        let mut s = make_scanner(&arena, "\\110000");
+        assert_eq!(consume_escaped_character(&mut s).unwrap(), 0xFFFD);
+    }
+
+    #[test]
     fn test_escape_hex() {
         let arena = Bump::new();
         let mut p = make_parser(&arena, "\\41");
-        assert_eq!(p.escape(true).unwrap(), "A");
+        assert_eq!(p.escape().unwrap(), 0x41);
     }
 
     #[test]
     fn test_escape_hex_trailing_space() {
         let arena = Bump::new();
         let mut p = make_parser(&arena, "\\41 ");
-        assert_eq!(p.escape(true).unwrap(), "A");
+        assert_eq!(p.escape().unwrap(), 0x41);
     }
 
     #[test]
     fn test_escape_control_char() {
         let arena = Bump::new();
         let mut p = make_parser(&arena, "\\1");
-        let got = p.escape(false).unwrap();
-        assert!(got.starts_with('\\'));
-        assert!(got.len() >= 3);
+        assert_eq!(p.escape().unwrap(), 1);
+        assert_eq!(character::character_to_escape(1, false), "\\1 ");
     }
 
     #[test]
     fn test_escape_non_hex() {
         let arena = Bump::new();
         let mut p = make_parser(&arena, "\\@");
-        assert_eq!(p.escape(true).unwrap(), "\\@");
+        assert_eq!(p.escape().unwrap(), '@' as i32);
     }
 
     #[test]
     fn test_escape_newline_error() {
         let arena = Bump::new();
         let mut p = make_parser(&arena, "\\\n");
-        assert!(p.escape(false).is_err());
+        assert!(p.escape().is_err());
     }
 
     #[test]
@@ -3132,7 +3135,7 @@ mod tests {
         let arena = Bump::new();
         let mut parser = make_parser(&arena, "\\41  b;");
         let result = parser.declaration_value(false).unwrap();
-        assert_eq!(result, "A b");
+        assert_eq!(result, "\\41  b");
     }
 
     #[test]
@@ -3191,7 +3194,7 @@ mod tests {
         let arena = Bump::new();
         let mut parser = make_parser(&arena, "url(\\41 bc)");
         let result = parser.try_url().unwrap();
-        assert_eq!(result, "url(Abc)");
+        assert_eq!(result, "url(\\41 bc)");
     }
 
     #[test]
@@ -3244,42 +3247,38 @@ mod tests {
     fn test_escape_surrogate() {
         let arena = Bump::new();
         let mut parser = make_parser(&arena, "\\D800 ");
-        match *parser.escape(false).unwrap_err() {
-            ParseError::Scan(s) => assert_eq!(s.message, "Invalid Unicode code point."),
-            _ => panic!("expected Scan error"),
-        }
+        assert_eq!(parser.escape().unwrap(), 0xFFFD);
     }
 
     #[test]
     fn test_escape_digit_at_start() {
         let arena = Bump::new();
         let mut parser = make_parser(&arena, "\\31 ");
-        let result = parser.escape(true).unwrap();
-        assert_eq!(result, "\\31 ");
+        let result = parser.escape().unwrap();
+        assert_eq!(character::character_to_escape(result, true), "\\31 ");
     }
 
     #[test]
     fn test_escape_control_char_7f() {
         let arena = Bump::new();
         let mut parser = make_parser(&arena, "\\7F");
-        let result = parser.escape(false).unwrap();
-        assert_eq!(result, "\\7f ");
+        let result = parser.escape().unwrap();
+        assert_eq!(character::character_to_escape(result, false), "\\7f ");
     }
 
     #[test]
     fn test_escape_non_hex_name() {
         let arena = Bump::new();
         let mut parser = make_parser(&arena, "\\g");
-        let result = parser.escape(true).unwrap();
-        assert_eq!(result, "g");
+        let result = parser.escape().unwrap();
+        assert_eq!(character::character_to_escape(result, true), "g");
     }
 
     #[test]
     fn test_escape_six_hex_digits() {
         let arena = Bump::new();
         let mut parser = make_parser(&arena, "\\000041");
-        let result = parser.escape(false).unwrap();
-        assert_eq!(result, "A");
+        assert_eq!(parser.escape().unwrap(), 0x41);
     }
 
     // ================================================================

@@ -471,7 +471,7 @@ impl<'parse> IfConditionFunction<'parse> {
     }
 
     pub fn is_arbitrary_substitution(&self) -> bool {
-        if let Some(plain) = self.name.as_plain() {
+        if let Some(plain) = self.name.as_plain_identifier() {
             let lower = plain.to_lowercase();
             return lower == "if" || lower == "var" || lower == "attr" || lower.starts_with("--");
         }

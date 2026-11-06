@@ -383,7 +383,7 @@ fn prepend_parent<'compile: 'parse, 'parse>(
     match first {
         SimpleSelector::Universal(_) => Ok(None),
         SimpleSelector::Type(t) => {
-            if t.name.namespace.is_some() {
+            if !t.name.namespace.is_default() {
                 return Ok(None);
             }
             let rest = &compound.components[1..];

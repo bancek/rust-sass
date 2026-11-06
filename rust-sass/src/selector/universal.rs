@@ -9,12 +9,12 @@
 
 use crate::common::exception::{SassError, SassResult};
 use crate::common::file_span::FileSpan;
+use crate::selector::qualified_name::SelectorNamespace;
 use crate::selector::selector_assert_not_bogus_impl;
 use crate::selector::unify::unify_universal_and_element;
 use crate::selector::visitor::SelectorVisitor;
 use crate::selector::WarnLogger;
 use crate::serialize::SerializeVisitor;
-use crate::value::hash::string_opt_hash_code;
 use std::hash::Hash;
 use std::hash::Hasher;
 
@@ -26,12 +26,7 @@ pub struct UniversalSelector<'parse> {
     /// The source span covering this selector.
     pub span: FileSpan<'parse>,
     /// The selector namespace.
-    ///
-    /// `None` matches all elements in the default namespace; `Some("")`
-    /// matches all elements in no namespace; `Some("*")` matches all elements
-    /// in any namespace; otherwise it matches all elements in the given
-    /// namespace.
-    pub namespace: Option<String>,
+    pub namespace: SelectorNamespace,
 }
 
 // Matches Dart: structural equality over the namespace; the span is
@@ -46,7 +41,7 @@ impl<'parse> Eq for UniversalSelector<'parse> {}
 
 impl<'parse> UniversalSelector<'parse> {
     /// Creates a universal selector with the given namespace.
-    pub fn new(span: FileSpan<'parse>, namespace: Option<String>) -> Self {
+    pub fn new(span: FileSpan<'parse>, namespace: SelectorNamespace) -> Self {
         UniversalSelector { span, namespace }
     }
 
@@ -97,7 +92,7 @@ impl<'parse> UniversalSelector<'parse> {
 
     // Matches Dart: the hash of the namespace; the span is excluded.
     pub fn hash_code(&self) -> i32 {
-        string_opt_hash_code(&self.namespace)
+        self.namespace.hash_code()
     }
 
     /// Serializes this selector to CSS, quoting as `inspect` requests.
@@ -141,7 +136,7 @@ impl<'parse> UniversalSelector<'parse> {
         &self,
         other: &SimpleSelector<'parse>,
     ) -> SassResult<bool> {
-        if self.namespace.as_deref() == Some("*") {
+        if self.namespace.is_any() {
             return Ok(true);
         }
         match other {
@@ -153,7 +148,7 @@ impl<'parse> UniversalSelector<'parse> {
             }
             _ => {}
         }
-        if self.namespace.is_none() {
+        if self.namespace.is_default() {
             return Ok(true);
         }
         Ok(false)
@@ -194,7 +189,7 @@ impl<'parse> UniversalSelector<'parse> {
         if comps.is_empty() {
             return Ok(Some(vec![SimpleSelector::Universal(self.clone())]));
         }
-        if self.namespace.is_none() || self.namespace.as_deref() == Some("*") {
+        if self.namespace.is_default() || self.namespace.is_any() {
             return Ok(Some(comps.to_vec()));
         }
         let mut result = Vec::with_capacity(comps.len() + 1);
@@ -221,57 +216,57 @@ mod tests {
 
     #[test]
     fn test_new_universal_selector() {
-        let s = UniversalSelector::new(BOGUS_SPAN, None);
-        assert_eq!(s.namespace, None);
+        let s = UniversalSelector::new(BOGUS_SPAN, SelectorNamespace::Default);
+        assert_eq!(s.namespace, SelectorNamespace::Default);
     }
 
     #[test]
     fn test_new_universal_selector_with_namespace() {
-        let s = UniversalSelector::new(BOGUS_SPAN, Some("svg".into()));
-        assert_eq!(s.namespace, Some("svg".into()));
+        let s = UniversalSelector::new(BOGUS_SPAN, SelectorNamespace::named("svg".into()));
+        assert_eq!(s.namespace, SelectorNamespace::named("svg".into()));
     }
 
     #[test]
     fn test_universal_selector_is_invisible() {
-        let s = UniversalSelector::new(BOGUS_SPAN, None);
+        let s = UniversalSelector::new(BOGUS_SPAN, SelectorNamespace::Default);
         assert!(!s.is_invisible());
     }
 
     #[test]
     fn test_universal_selector_is_bogus() {
-        let s = UniversalSelector::new(BOGUS_SPAN, None);
+        let s = UniversalSelector::new(BOGUS_SPAN, SelectorNamespace::Default);
         assert!(!s.is_bogus());
     }
 
     #[test]
     fn test_universal_selector_specificity() {
-        let s = UniversalSelector::new(BOGUS_SPAN, None);
+        let s = UniversalSelector::new(BOGUS_SPAN, SelectorNamespace::Default);
         assert_eq!(s.specificity(), 0);
     }
 
     #[test]
     fn test_universal_selector_hash_code() {
-        let s1 = UniversalSelector::new(BOGUS_SPAN, None);
-        let s2 = UniversalSelector::new(BOGUS_SPAN, None);
+        let s1 = UniversalSelector::new(BOGUS_SPAN, SelectorNamespace::Default);
+        let s2 = UniversalSelector::new(BOGUS_SPAN, SelectorNamespace::Default);
         assert_eq!(s1.hash_code(), s2.hash_code());
     }
 
     #[test]
     fn test_universal_selector_partial_eq() {
-        let s1 = UniversalSelector::new(BOGUS_SPAN, None);
-        let s2 = UniversalSelector::new(BOGUS_SPAN, None);
+        let s1 = UniversalSelector::new(BOGUS_SPAN, SelectorNamespace::Default);
+        let s2 = UniversalSelector::new(BOGUS_SPAN, SelectorNamespace::Default);
         assert_eq!(s1, s2);
 
-        let s3 = UniversalSelector::new(BOGUS_SPAN, Some("svg".into()));
+        let s3 = UniversalSelector::new(BOGUS_SPAN, SelectorNamespace::named("svg".into()));
         assert_ne!(s1, s3);
 
-        let s4 = UniversalSelector::new(BOGUS_SPAN, Some("svg".into()));
+        let s4 = UniversalSelector::new(BOGUS_SPAN, SelectorNamespace::named("svg".into()));
         assert_eq!(s3, s4);
     }
 
     #[test]
     fn test_universal_selector_is_superselector_wildcard_ns() {
-        let s = UniversalSelector::new(BOGUS_SPAN, Some("*".into()));
+        let s = UniversalSelector::new(BOGUS_SPAN, SelectorNamespace::Any);
         let target = SimpleSelector::Type(TypeSelector::new(
             QualifiedName::new("div".into()),
             BOGUS_SPAN,
@@ -281,26 +276,26 @@ mod tests {
 
     #[test]
     fn test_universal_selector_is_superselector_nil_ns() {
-        let s = UniversalSelector::new(BOGUS_SPAN, None);
+        let s = UniversalSelector::new(BOGUS_SPAN, SelectorNamespace::Default);
         let target = SimpleSelector::Class(ClassSelector::new("foo".into(), BOGUS_SPAN));
         assert!(s.is_superselector_variant(&target).unwrap());
     }
 
     #[test]
     fn test_universal_selector_to_css_string() {
-        let s = UniversalSelector::new(BOGUS_SPAN, None);
+        let s = UniversalSelector::new(BOGUS_SPAN, SelectorNamespace::Default);
         assert_eq!(s.to_css_string(true).unwrap(), "*");
     }
 
     #[test]
     fn test_universal_selector_to_css_string_with_ns() {
-        let s = UniversalSelector::new(BOGUS_SPAN, Some("svg".into()));
+        let s = UniversalSelector::new(BOGUS_SPAN, SelectorNamespace::named("svg".into()));
         assert_eq!(s.to_css_string(true).unwrap(), "svg|*");
     }
 
     #[test]
     fn test_universal_selector_assert_not_bogus() {
-        let s = UniversalSelector::new(BOGUS_SPAN, None);
+        let s = UniversalSelector::new(BOGUS_SPAN, SelectorNamespace::Default);
         assert!(s.assert_not_bogus(None, None).is_ok());
     }
 }

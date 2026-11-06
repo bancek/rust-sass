@@ -13,6 +13,7 @@ use std::fmt::Write;
 use crate::common::ast_node::AstNode;
 use crate::common::exception::SassResult;
 use crate::common::file_span::FileSpan;
+use crate::util::css_identifier::to_css_identifier;
 
 use crate::ast::sass::parameter_list::ParameterList;
 use crate::ast::sass::statement::silent_comment::SilentComment;
@@ -76,7 +77,7 @@ impl<'parse> AstNode<'parse> for FunctionRule<'parse> {
 impl<'parse> FunctionRule<'parse> {
     pub fn to_display_string(&self) -> SassResult<String> {
         let mut buf = String::new();
-        write!(buf, "@function {}(", self.name).unwrap();
+        write!(buf, "@function {}(", to_css_identifier(&self.name)?).unwrap();
         write!(buf, "{}", self.parameters).unwrap();
         write!(buf, ") {{").unwrap();
         for child in &self.children {

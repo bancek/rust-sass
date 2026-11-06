@@ -201,7 +201,7 @@ pub(crate) fn media_query_impl<'b>(
     }
 
     let identifier1 = interpolated_identifier_impl(scanner, state)?;
-    if let Some(plain) = identifier1.as_plain() {
+    if let Some(plain) = identifier1.as_plain_identifier() {
         if plain.eq_ignore_ascii_case("not") {
             expect_whitespace_impl(scanner, &mut state.parser_state, false)?;
             if !looking_at_interpolated_identifier_impl(scanner) {
@@ -219,7 +219,7 @@ pub(crate) fn media_query_impl<'b>(
 
     buffer.write_char_code(' ');
     let identifier2 = interpolated_identifier_impl(scanner, state)?;
-    if let Some(plain2) = identifier2.as_plain() {
+    if let Some(plain2) = identifier2.as_plain_identifier() {
         if plain2.eq_ignore_ascii_case("and") {
             expect_whitespace_impl(scanner, &mut state.parser_state, false)?;
             buffer.write(" and ");

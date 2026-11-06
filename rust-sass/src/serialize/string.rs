@@ -167,7 +167,10 @@ fn try_private_use(
         return (code_unit, next_ch, Some(i));
     }
     let scalar = ch as u32;
-    if (0xF0000..=0xFFFFD).contains(&scalar) || (0x100000..=0x10FFFD).contains(&scalar) {
+    // Dart tests the high surrogate range 0xDB80..=0xDBFF, which covers all
+    // supplementary private-use code points including the trailing
+    // noncharacters U+FFFFE/U+FFFFF and U+10FFFE/U+10FFFF.
+    if (0xF0000..=0xFFFFF).contains(&scalar) || (0x100000..=0x10FFFF).contains(&scalar) {
         let skip = char_len_at(s, i);
         let after_next = s[i + skip..].chars().next();
         return (scalar as i32, after_next, Some(i));

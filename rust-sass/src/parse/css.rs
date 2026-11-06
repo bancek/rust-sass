@@ -75,9 +75,9 @@ pub(crate) fn css_at_rule_impl<'b>(
     scanner.expect_char('@')?;
     let name = interpolated_identifier_impl(scanner, state)?;
     whitespace_impl(scanner, &mut state.parser_state, true)?;
-    match name.as_plain() {
+    match name.as_plain_identifier() {
         None => css_forbidden_at_rule_impl(scanner, state, start),
-        Some(plain) => match plain {
+        Some(plain) => match plain.as_str() {
             "at-root" | "content" | "debug" | "each" | "error" | "extend" | "for" | "if"
             | "include" | "mixin" | "return" | "warn" | "while" => {
                 css_forbidden_at_rule_impl(scanner, state, start)
@@ -130,7 +130,7 @@ fn css_import_rule_impl<'b>(
     start: LineScannerState,
 ) -> ParseResult<'b, ImportRule<'b>> {
     let url_start = scanner.state();
-    let ch = scanner.peek_char(0);
+    let (ch, _) = crate::parse::parser::peek_char_or_escape(scanner, None)?;
     let url = if ch == 'u' as i32 || ch == 'U' as i32 {
         let url_expr = dynamic_url_impl(scanner, state)?;
         if let Expression::String(ref se) = url_expr {
@@ -145,7 +145,7 @@ fn css_import_rule_impl<'b>(
                 {
                     if let Expression::String(ref se) = ife.arguments.positional[0] {
                         let mut buf = InterpolationBuffer::new();
-                        buf.write(ife.name.as_plain().unwrap_or("url"));
+                        buf.write(ife.name.as_plain_identifier().as_deref().unwrap_or("url"));
                         buf.write_char_code('(');
                         let interp = se.as_interpolation(false, None).map_err(|e| {
                             let err_span = scanner.span_from(url_start);
@@ -261,7 +261,7 @@ pub(crate) fn css_identifier_like_impl<'b>(
 ) -> ParseResult<'b, Expression<'b>> {
     let start = scanner.state();
     let identifier = interpolated_identifier_impl(scanner, state)?;
-    let plain = identifier.as_plain().ok_or_else(|| {
+    let plain = identifier.as_plain_identifier().ok_or_else(|| {
         let span = span_from_impl(scanner, &state.parser_state, start)
             .unwrap_or_else(|_| Span::File(scanner.empty_span()));
         error_impl(
@@ -331,7 +331,7 @@ pub(crate) fn css_identifier_like_impl<'b>(
 
     // Check disallowed function names
     if let Syntax::Css(ref css_state) = state.parser_state.syntax {
-        if css_state.disallowed_function_names.contains(plain) {
+        if css_state.disallowed_function_names.contains(&plain) {
             let span = span_from_impl(scanner, &state.parser_state, start)?.file_span()?;
             return Err(Box::new(error_impl(
                 "This function isn't allowed in plain CSS.",

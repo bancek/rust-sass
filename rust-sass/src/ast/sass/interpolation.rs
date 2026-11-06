@@ -144,6 +144,17 @@ impl<'parse> Interpolation<'parse> {
         }
     }
 
+    /// If this contains no interpolated expressions, returns its text contents
+    /// with any CSS escape codes resolved.
+    ///
+    /// Returns `None` if the interpolation contains expressions or if the raw
+    /// text isn't a valid CSS identifier.
+    /// Matches Dart: `Interpolation.asPlainIdentifier`.
+    pub fn as_plain_identifier(&self) -> Option<String> {
+        self.as_plain()
+            .and_then(|text| crate::util::css_identifier::resolve_css_escapes(text).ok())
+    }
+
     /// Returns the plain text before the first interpolation, or the empty
     /// string.
     //

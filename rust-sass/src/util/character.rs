@@ -83,6 +83,34 @@ pub fn is_name(ch: char) -> bool {
     is_name_start(ch) || is_digit(ch) || ch == '-'
 }
 
+/// Returns the CSS escape sequence for `character`, or the literal character
+/// if it doesn't need to be escaped.
+///
+/// If `identifier_start` is `true`, escapes characters that are valid in
+/// identifier bodies but not at the beginning of identifiers.
+/// Matches Dart: `characterToEscape` (`utils.dart`).
+pub fn character_to_escape(character: i32, identifier_start: bool) -> String {
+    let ch = char::from_u32(character as u32).unwrap_or('\u{FFFD}');
+    if if identifier_start {
+        is_name_start(ch)
+    } else {
+        is_name(ch)
+    } {
+        ch.to_string()
+    } else if character <= 0x1F || character == 0x7F || (identifier_start && is_digit(ch)) {
+        let mut buf = String::new();
+        buf.push('\\');
+        if character > 0xF {
+            buf.push(hex_char_for(character >> 4));
+        }
+        buf.push(hex_char_for(character & 0xF));
+        buf.push(' ');
+        buf
+    } else {
+        format!("\\{ch}")
+    }
+}
+
 /// Returns the value of `ch` as a hex digit.
 ///
 /// Assumes `ch` is a hex digit; returns `0` otherwise (Dart asserts).

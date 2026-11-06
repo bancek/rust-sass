@@ -65,16 +65,17 @@ use crate::parse::util::looking_at_expression_impl;
 use crate::parse::util::looking_at_interpolated_identifier_body_impl;
 use crate::unvendor::unvendor;
 use crate::util::character;
+use crate::util::css_identifier::to_css_identifier;
 use crate::value::color::{ColorFormat, SassColor};
 use crate::value::ListSeparator;
 use indexmap::IndexMap;
 
 use crate::parse::anyvalue::{interpolated_declaration_value_impl, DeclarationValueOpts};
-use crate::parse::identifier::{interpolated_identifier_impl, single_interpolation_impl};
+use crate::parse::identifier::{interpolated_identifier_expr_impl, single_interpolation_impl};
 use crate::parse::parser::{
-    error_impl, escape_character_impl, escape_impl, expect_identifier_impl, identifier_impl,
-    looking_at_identifier, scan_identifier_impl, span_from_impl, whitespace_impl,
-    whitespace_without_comments_impl, ParseError, ParseResult,
+    error_impl, escape_character_impl, expect_identifier_impl, identifier_impl,
+    looking_at_identifier, peek_char_or_escape, scan_identifier_impl, span_from_impl,
+    whitespace_impl, whitespace_without_comments_impl, ParseError, ParseResult,
 };
 use crate::parse::stylesheet::{StylesheetParser, StylesheetState, Syntax};
 use crate::parse::util::looking_at_interpolated_identifier_impl;
@@ -163,7 +164,9 @@ pub(crate) fn number_impl<'parse>(
     } else if looking_at_identifier(scanner, None)
         && !(scanner.peek_char(0) == '-' as i32 && scanner.peek_char(1) == '-' as i32)
     {
-        unit = Some(identifier_impl(scanner, state, false, true)?);
+        unit = Some(to_css_identifier(&identifier_impl(
+            scanner, state, false, true,
+        )?)?);
     }
 
     let span = scanner.span_from(start);
@@ -848,7 +851,7 @@ fn hash_expression_impl<'parse>(
         )));
     }
     let after_hash = scanner.state();
-    let identifier = interpolated_identifier_impl(scanner, state)?;
+    let identifier = interpolated_identifier_expr_impl(scanner, state)?;
     if is_hex_color(&identifier) {
         scanner.set_state(after_hash);
         let color = hex_color_contents(scanner, start)?;
@@ -999,7 +1002,7 @@ fn unicode_range_impl<'parse>(
             &ParserState {
                 syntax: Syntax::Scss,
                 interpolation_map: None,
-                in_expression: false,
+                in_expression: true,
             },
             start,
         )?
@@ -1034,7 +1037,7 @@ fn unicode_range_impl<'parse>(
                 &ParserState {
                     syntax: Syntax::Scss,
                     interpolation_map: None,
-                    in_expression: false,
+                    in_expression: true,
                 },
                 s2,
             )?
@@ -1071,9 +1074,17 @@ fn ident_like<'parse>(
         return css_identifier_like_impl(scanner, state);
     }
     let start = scanner.state();
-    let identifier = interpolated_identifier_impl(scanner, state)?;
-    let plain = identifier.as_plain().map(|s| s.to_string());
+    let identifier = interpolated_identifier_expr_impl(scanner, state)?;
+    let plain = identifier.as_plain_identifier();
     if let Some(ref p) = plain {
+        if p == "\u{FFFD}" && scanner.substring(start.position, Some(start.position + 2)) == "\\0" {
+            // Special-case the exact identifier `\0 ` because it's used in CSS
+            // hacks. Matches Dart: `identifierLike` (`stylesheet.dart`).
+            let span = span_from_impl(scanner, &state.parser_state, start)?.file_span()?;
+            return Ok(Expression::String(StringExpression::plain(
+                "\\0 ", span, false,
+            )));
+        }
         if p == "if" && scanner.peek_char(0) == '(' as i32 {
             let before_paren = scanner.state();
             match argument_invocation(scanner, state, false, false) {
@@ -1757,7 +1768,7 @@ fn if_group<'parse>(
             scanner.span_from(start),
         )));
     }
-    let identifier = interpolated_identifier_impl(scanner, state)?;
+    let identifier = interpolated_identifier_expr_impl(scanner, state)?;
     if identifier.contents.len() == 1 {
         if let InterpolationPart::Expression(_) = &identifier.contents[0] {
             if scanner.peek_char(0) != '(' as i32 {
@@ -1765,7 +1776,7 @@ fn if_group<'parse>(
             }
         }
     }
-    if let Some(p) = identifier.as_plain() {
+    if let Some(p) = identifier.as_plain_identifier() {
         let lower = p.to_lowercase();
         if (lower == "and" || lower == "or" || lower == "not") && scanner.peek_char(0) == '(' as i32
         {
@@ -1784,6 +1795,7 @@ fn if_group<'parse>(
         scanner,
         state,
         DeclarationValueOpts {
+            expression: true,
             allow_empty: true,
             allow_semicolon: true,
             allow_colon: true,
@@ -1839,7 +1851,7 @@ fn try_arbitrary_substitution<'parse>(
             scanner.span_from(start),
         ));
     } else if scanner.peek_char(0) == '-' as i32 && scanner.peek_char(1) == '-' as i32 {
-        name = Some(interpolated_identifier_impl(scanner, state)?);
+        name = Some(interpolated_identifier_expr_impl(scanner, state)?);
     }
 
     let name = match name {
@@ -1859,6 +1871,7 @@ fn try_arbitrary_substitution<'parse>(
         scanner,
         state,
         DeclarationValueOpts {
+            expression: true,
             allow_empty: true,
             allow_semicolon: true,
             allow_colon: true,
@@ -2111,6 +2124,7 @@ pub(crate) fn try_special_function_impl<'parse>(
                     scanner,
                     state,
                     DeclarationValueOpts {
+                        expression: true,
                         allow_empty: true,
                         allow_semicolon: false,
                         allow_colon: true,
@@ -2199,6 +2213,7 @@ pub(crate) fn try_special_function_impl<'parse>(
                     scanner,
                     state,
                     DeclarationValueOpts {
+                        expression: true,
                         allow_empty: true,
                         allow_semicolon: false,
                         allow_colon: true,
@@ -2278,6 +2293,7 @@ fn calc_like<'parse>(
         scanner,
         state,
         DeclarationValueOpts {
+            expression: true,
             allow_empty: true,
             allow_semicolon: false,
             allow_colon: true,
@@ -2879,7 +2895,7 @@ where
                 add_single(scanner, state, &mut ops, &mut acc, e, start)?;
             }
             _ if ch == '!' as i32 => {
-                let n = scanner.peek_char(1);
+                let (n, n_escaped) = peek_char_or_escape(scanner, Some(1))?;
                 if n == '=' as i32 {
                     scanner.read_char()?;
                     let op_start = scanner.pos() - 1;
@@ -2895,7 +2911,7 @@ where
                 } else if n == 'i' as i32
                     || n == 'I' as i32
                     || n < 0
-                    || character::is_whitespace(n as u8 as char)
+                    || (!n_escaped && character::is_whitespace(n as u8 as char))
                 {
                     let bang = scanner.state();
                     scanner.read_char()?;
@@ -3104,8 +3120,8 @@ pub(crate) fn try_url_contents<'parse>(
             return Ok(None);
         }
         if ch == '\\' as i32 {
-            let s = escape_impl(scanner, false)?;
-            buffer.write(&s);
+            let value = escape_character_impl(scanner)?;
+            buffer.write(&character::character_to_escape(value, false));
         } else if ch == '#' as i32 && scanner.peek_char(1) == '{' as i32 {
             let (expr, span) = single_interpolation_impl(scanner, state)?;
             buffer.add(expr, span);
@@ -3294,6 +3310,7 @@ mod tests {
     use super::super::parser::ParseError;
     use super::*;
     use crate::common::source_span_file_source::FileSource;
+    use crate::parse::identifier::interpolated_identifier_impl;
     use crate::parse::parser::ParserState;
     use crate::parse::stylesheet::{CssState, Syntax};
     use bumpalo::Bump;
@@ -3313,7 +3330,7 @@ mod tests {
             parser_state: ParserState {
                 syntax: Syntax::Scss,
                 interpolation_map: None,
-                in_expression: false,
+                in_expression: true,
             },
             parse_selectors: false,
             is_use_allowed: true,

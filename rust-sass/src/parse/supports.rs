@@ -61,7 +61,7 @@ pub(crate) fn supports_condition_in_parens_impl<'b>(
     // Branch A: Interpolated identifier lead
     if looking_at_interpolated_identifier_impl(scanner) {
         let identifier = interpolated_identifier_impl(scanner, state)?;
-        if let Some(plain) = identifier.as_plain() {
+        if let Some(plain) = identifier.as_plain_identifier() {
             if plain.eq_ignore_ascii_case("not") {
                 let id_span = identifier
                     .span()
@@ -77,6 +77,7 @@ pub(crate) fn supports_condition_in_parens_impl<'b>(
                 scanner,
                 state,
                 DeclarationValueOpts {
+                    expression: false,
                     allow_empty: true,
                     allow_semicolon: true,
                     allow_colon: true,
@@ -171,6 +172,7 @@ pub(crate) fn supports_condition_in_parens_impl<'b>(
         scanner,
         state,
         DeclarationValueOpts {
+            expression: false,
             allow_empty: true,
             allow_semicolon: true,
             allow_colon: false,
@@ -385,6 +387,7 @@ fn try_import_supports_function_impl<'b>(
         scanner,
         state,
         DeclarationValueOpts {
+            expression: false,
             allow_empty: true,
             allow_semicolon: true,
             allow_colon: true,

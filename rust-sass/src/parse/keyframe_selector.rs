@@ -11,13 +11,14 @@
 //! (`50%`, including `+`/decimal/exponent forms). `consume_newlines` is
 //! always true, so newline handling needs no per-call discipline.
 
+use crate::ast::sass::interpolation_map::InterpolationMap;
 use crate::common::source_span_file_source::FileSource;
 use crate::common::span_scanner::SpanScanner;
 use crate::util::character;
 
 use crate::parse::parser::{
-    expect_identifier_impl, looking_at_identifier, scan_ident_char_impl, scan_identifier_impl,
-    whitespace_impl, wrap_span_format_exception_impl, ParseResult, Parser,
+    expect_identifier_impl, looking_at_identifier, scan_identifier_impl, whitespace_impl,
+    wrap_span_format_exception_impl, ParseResult, Parser,
 };
 use crate::parse::stylesheet::Syntax;
 
@@ -30,6 +31,18 @@ impl<'parse> KeyframeSelectorParser<'parse> {
     pub fn new(source: &'parse FileSource<'parse>) -> Self {
         KeyframeSelectorParser {
             parser: Parser::new(source, Syntax::Scss, None),
+        }
+    }
+
+    /// Creates a parser whose errors map through `interpolation_map`.
+    ///
+    /// Matches Dart: `KeyframeSelectorParser(..., interpolationMap:)`.
+    pub fn new_with_map(
+        source: &'parse FileSource<'parse>,
+        interpolation_map: Option<&'parse InterpolationMap<'parse>>,
+    ) -> Self {
+        KeyframeSelectorParser {
+            parser: Parser::new(source, Syntax::Scss, interpolation_map),
         }
     }
 
@@ -98,10 +111,7 @@ fn _percentage_impl<'parse>(scanner: &mut SpanScanner<'parse>) -> ParseResult<'p
         }
     }
 
-    let mut ok = scan_ident_char_impl(scanner, 'e' as i32, true)?;
-    if !ok {
-        ok = scan_ident_char_impl(scanner, 'E' as i32, true)?;
-    }
+    let ok = scanner.scan_char('e') || scanner.scan_char('E');
     if ok {
         buf.push('e');
         let ch = scanner.peek_char(0);
@@ -261,6 +271,19 @@ mod tests {
         let mut parser = make_parser(&arena, ".5%");
         let selectors = parser.parse().unwrap();
         assert_eq!(selectors[0], ".5%");
+    }
+
+    #[test]
+    fn test_parse_escaped_e_is_not_exponent() {
+        let arena = Bump::new();
+        let mut parser = make_parser(&arena, "1\\65 1%");
+        let err = parser.parse().unwrap_err();
+        match *err {
+            crate::parse::parser::ParseError::Scan(s) => {
+                assert_eq!(s.message, "expected \"%\".");
+            }
+            other => panic!("expected scan error, got {other:?}"),
+        }
     }
 
     #[test]

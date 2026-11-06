@@ -36,7 +36,7 @@ use crate::selector::list::SelectorList;
 use crate::selector::parent::ParentSelector;
 use crate::selector::placeholder::PlaceholderSelector;
 use crate::selector::pseudo::PseudoSelector;
-use crate::selector::qualified_name::QualifiedName;
+use crate::selector::qualified_name::{QualifiedName, SelectorNamespace};
 use crate::selector::ty::TypeSelector;
 use crate::selector::universal::UniversalSelector;
 use crate::selector::{Selector, SimpleSelector};
@@ -46,7 +46,7 @@ use crate::util::character;
 use crate::parse::parser::{
     declaration_value_impl, error_impl, expect_ident_char_impl, expect_identifier_impl,
     identifier_body_impl, identifier_impl, looking_at_identifier, looking_at_identifier_body,
-    scan_ident_char_impl, span_from_impl, string_impl, whitespace_impl,
+    peek_char_or_escape, scan_ident_char_impl, span_from_impl, string_impl, whitespace_impl,
     wrap_span_format_exception_impl, ParseError, ParseResult, Parser, ParserState,
 };
 use crate::parse::stylesheet::Syntax;
@@ -639,7 +639,7 @@ fn attribute_name_impl<'parse>(
         let name = identifier_impl(scanner, state, false, false)?;
         return Ok(QualifiedName::new_with_namespace(
             name,
-            Some("*".to_string()),
+            SelectorNamespace::Any,
         ));
     }
 
@@ -647,7 +647,7 @@ fn attribute_name_impl<'parse>(
         let name = identifier_impl(scanner, state, false, false)?;
         return Ok(QualifiedName::new_with_namespace(
             name,
-            Some("".to_string()),
+            SelectorNamespace::None,
         ));
     }
 
@@ -660,7 +660,7 @@ fn attribute_name_impl<'parse>(
     let name = identifier_impl(scanner, state, false, false)?;
     Ok(QualifiedName::new_with_namespace(
         name,
-        Some(name_or_namespace),
+        SelectorNamespace::named(name_or_namespace),
     ))
 }
 
@@ -858,7 +858,12 @@ fn a_n_plus_b_impl<'parse>(
 ) -> ParseResult<'parse, String> {
     let mut buf = String::new();
 
-    match scanner.peek_char(0) {
+    let (ch, escaped) = peek_char_or_escape(scanner, None)?;
+    match ch {
+        ch if (ch == 'e' as i32 || ch == 'E' as i32) && escaped => {
+            expect_identifier_impl(scanner, "even", "", false)?;
+            return Ok("even".to_string());
+        }
         ch if ch == 'e' as i32 || ch == 'E' as i32 => {
             expect_identifier_impl(scanner, "even", "", false)?;
             return Ok("even".to_string());
@@ -867,7 +872,7 @@ fn a_n_plus_b_impl<'parse>(
             expect_identifier_impl(scanner, "odd", "", false)?;
             return Ok("odd".to_string());
         }
-        ch if ch == '+' as i32 || ch == '-' as i32 => {
+        ch if !escaped && (ch == '+' as i32 || ch == '-' as i32) => {
             let c = scanner.read_char()?;
             buf.push(c);
         }
@@ -923,10 +928,11 @@ fn type_or_universal_selector_impl<'parse>(
         if !scanner.scan_char('|') {
             let span = span_from_impl(scanner, state, start)?.file_span()?;
             return Ok(SimpleSelector::Universal(UniversalSelector::new(
-                span, None,
+                span,
+                SelectorNamespace::Default,
             )));
         }
-        let wildcard = Some("*".to_string());
+        let wildcard = SelectorNamespace::Any;
         if scanner.scan_char('*') {
             let span = span_from_impl(scanner, state, start)?.file_span()?;
             return Ok(SimpleSelector::Universal(UniversalSelector::new(
@@ -942,7 +948,7 @@ fn type_or_universal_selector_impl<'parse>(
     }
 
     if scanner.scan_char('|') {
-        let empty = Some("".to_string());
+        let empty = SelectorNamespace::None;
         if scanner.scan_char('*') {
             let span = span_from_impl(scanner, state, start)?.file_span()?;
             return Ok(SimpleSelector::Universal(UniversalSelector::new(
@@ -968,13 +974,13 @@ fn type_or_universal_selector_impl<'parse>(
         let span = span_from_impl(scanner, state, start)?.file_span()?;
         Ok(SimpleSelector::Universal(UniversalSelector::new(
             span,
-            Some(name_or_namespace),
+            SelectorNamespace::named(name_or_namespace),
         )))
     } else {
         let name = identifier_impl(scanner, state, false, false)?;
         let span = span_from_impl(scanner, state, start)?.file_span()?;
         Ok(SimpleSelector::Type(TypeSelector::new(
-            QualifiedName::new_with_namespace(name, Some(name_or_namespace)),
+            QualifiedName::new_with_namespace(name, SelectorNamespace::named(name_or_namespace)),
             span,
         )))
     }
@@ -1167,6 +1173,18 @@ mod tests {
     // ================================================================
     // ParseSimpleSelector
     // ================================================================
+
+    #[test]
+    fn test_parse_class_escaped_dollar() {
+        let arena = Bump::new();
+        let mut parser = make_parser(&arena, ".u\\$");
+        let list = parser.parse().unwrap();
+        assert_eq!(list.0.components.len(), 1);
+        match list.0.components[0].components[0].selector.components[0] {
+            SimpleSelector::Class(ref c) => assert_eq!(c.name, "u$"),
+            ref other => panic!("expected class, got {other:?}"),
+        }
+    }
 
     #[test]
     fn test_parse_simple_class() {
@@ -1421,7 +1439,7 @@ mod tests {
         match sel {
             SimpleSelector::Type(t) => {
                 assert_eq!(t.name.name, "div");
-                assert!(t.name.namespace.is_none());
+                assert_eq!(t.name.namespace, SelectorNamespace::Default);
             }
             _ => panic!("expected TypeSelector"),
         }
@@ -1435,7 +1453,7 @@ mod tests {
         match sel {
             SimpleSelector::Type(t) => {
                 assert_eq!(t.name.name, "div");
-                assert_eq!(t.name.namespace.as_deref(), Some("*"));
+                assert_eq!(t.name.namespace, SelectorNamespace::Any);
             }
             _ => panic!("expected TypeSelector"),
         }
@@ -1449,7 +1467,7 @@ mod tests {
         match sel {
             SimpleSelector::Type(t) => {
                 assert_eq!(t.name.name, "div");
-                assert_eq!(t.name.namespace.as_deref(), Some(""));
+                assert_eq!(t.name.namespace, SelectorNamespace::None);
             }
             _ => panic!("expected TypeSelector"),
         }
@@ -1463,7 +1481,7 @@ mod tests {
         match sel {
             SimpleSelector::Type(t) => {
                 assert_eq!(t.name.name, "div");
-                assert_eq!(t.name.namespace.as_deref(), Some("ns"));
+                assert_eq!(t.name.namespace, SelectorNamespace::named("ns".into()));
             }
             _ => panic!("expected TypeSelector"),
         }
@@ -1525,7 +1543,7 @@ mod tests {
         let sel = parser.parse_simple_selector().unwrap();
         match sel {
             SimpleSelector::Universal(u) => {
-                assert_eq!(u.namespace.as_deref(), Some("*"));
+                assert_eq!(u.namespace, SelectorNamespace::Any);
             }
             _ => panic!("expected UniversalSelector"),
         }
@@ -1538,7 +1556,7 @@ mod tests {
         let sel = parser.parse_simple_selector().unwrap();
         match sel {
             SimpleSelector::Type(t) => {
-                assert_eq!(t.name.namespace.as_deref(), Some("*"));
+                assert_eq!(t.name.namespace, SelectorNamespace::Any);
             }
             _ => panic!("expected TypeSelector"),
         }
@@ -1551,7 +1569,7 @@ mod tests {
         let sel = parser.parse_simple_selector().unwrap();
         match sel {
             SimpleSelector::Universal(u) => {
-                assert_eq!(u.namespace.as_deref(), Some(""));
+                assert_eq!(u.namespace, SelectorNamespace::None);
             }
             _ => panic!("expected UniversalSelector"),
         }
@@ -1564,7 +1582,7 @@ mod tests {
         let sel = parser.parse_simple_selector().unwrap();
         match sel {
             SimpleSelector::Type(t) => {
-                assert_eq!(t.name.namespace.as_deref(), Some(""));
+                assert_eq!(t.name.namespace, SelectorNamespace::None);
             }
             _ => panic!("expected TypeSelector"),
         }
@@ -1578,7 +1596,7 @@ mod tests {
         match sel {
             SimpleSelector::Type(t) => {
                 assert_eq!(t.name.name, "div");
-                assert!(t.name.namespace.is_none());
+                assert_eq!(t.name.namespace, SelectorNamespace::Default);
             }
             _ => panic!("expected TypeSelector"),
         }
@@ -1810,6 +1828,19 @@ mod tests {
         match sel {
             SimpleSelector::Pseudo(p) => {
                 assert!(p.selector.is_some());
+            }
+            _ => panic!("expected PseudoSelector"),
+        }
+    }
+
+    #[test]
+    fn test_pseudo_nth_child_escaped_even() {
+        let arena = Bump::new();
+        let mut parser = make_parser(&arena, ":nth-child(\\65 ven)");
+        let sel = parser.parse_simple_selector().unwrap();
+        match sel {
+            SimpleSelector::Pseudo(p) => {
+                assert_eq!(p.argument.as_deref(), Some("even"));
             }
             _ => panic!("expected PseudoSelector"),
         }

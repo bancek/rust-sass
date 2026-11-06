@@ -80,8 +80,9 @@ use crate::parse::import_url::{is_plain_import_url, parse_import_url};
 use crate::parse::media_style::media_query_list_impl;
 use crate::parse::parser::{
     error_impl, expect_identifier_impl, identifier_impl, looking_at_identifier,
-    scan_identifier_impl, span_from_impl, span_from_to_impl, variable_name_impl, whitespace_impl,
-    whitespace_without_comments_impl, with_error_message_impl, ParseError, ParseResult,
+    peek_char_or_escape, scan_identifier_impl, span_from_impl, span_from_to_impl,
+    variable_name_impl, whitespace_impl, whitespace_without_comments_impl, with_error_message_impl,
+    ParseError, ParseResult,
 };
 use crate::parse::stylesheet::{
     at_end_of_statement_impl, children_impl, current_indentation_impl,
@@ -125,9 +126,9 @@ pub(crate) fn at_rule_impl<'b>(
     let name = interpolated_identifier_impl(scanner, state)?;
     let was_use_allowed = state.is_use_allowed;
     state.is_use_allowed = false;
-    match name.as_plain() {
+    match name.as_plain_identifier() {
         None => unknown_at_rule_impl(scanner, state, start, &name),
-        Some(plain) => match plain {
+        Some(plain) => match plain.as_str() {
             "at-root" => at_root_rule_impl(scanner, state, start).map(Statement::AtRootRule),
             "content" => content_rule_impl(scanner, state, start).map(Statement::ContentRule),
             "debug" => debug_rule_impl(scanner, state, start).map(Statement::DebugRule),
@@ -910,7 +911,7 @@ pub(crate) fn import_argument_impl<'b>(
     state: &mut StylesheetState<'b>,
 ) -> ParseResult<'b, Import<'b>> {
     let start = scanner.state();
-    let ch = scanner.peek_char(0);
+    let (ch, _) = peek_char_or_escape(scanner, None)?;
     if ch == 'u' as i32 || ch == 'U' as i32 {
         let url_expr = dynamic_url_impl(scanner, state)?;
         whitespace_impl(scanner, &mut state.parser_state, false)?;
@@ -973,7 +974,7 @@ pub(crate) fn try_import_modifiers_impl<'b>(
             }
             let identifier = interpolated_identifier_impl(scanner, state)?;
             buffer.add_interpolation(&identifier);
-            let name = identifier.as_plain();
+            let name = identifier.as_plain_identifier();
             let lower = name.map(|n| n.to_lowercase());
             if lower.as_deref() != Some("and") && scanner.scan_char('(') {
                 if lower.as_deref() == Some("supports") {
@@ -996,6 +997,7 @@ pub(crate) fn try_import_modifiers_impl<'b>(
                         scanner,
                         state,
                         DeclarationValueOpts {
+                            expression: false,
                             allow_empty: true,
                             allow_semicolon: true,
                             allow_colon: true,
@@ -1713,6 +1715,7 @@ pub(crate) fn unknown_at_rule_impl<'b>(
             scanner,
             state,
             DeclarationValueOpts {
+                expression: false,
                 allow_empty: false,
                 allow_semicolon: false,
                 allow_colon: true,
@@ -1772,6 +1775,7 @@ fn disallowed_at_rule_impl<'b>(
         scanner,
         state,
         DeclarationValueOpts {
+            expression: false,
             allow_empty: true,
             allow_semicolon: false,
             allow_colon: true,

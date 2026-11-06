@@ -14,6 +14,7 @@ use std::fmt::Write;
 use crate::common::ast_node::AstNode;
 use crate::common::exception::{SassError, SassResult};
 use crate::common::file_span::FileSpan;
+use crate::util::css_identifier::to_css_identifier;
 
 use crate::ast::sass::argument_list::ArgumentList;
 use crate::ast::sass::statement::content_block::ContentBlock;
@@ -185,9 +186,9 @@ impl<'parse> IncludeRule<'parse> {
         let mut buf = String::new();
         write!(buf, "@include ").unwrap();
         if let Some(ref ns) = self.namespace {
-            write!(buf, "{ns}.").unwrap();
+            write!(buf, "{}.", to_css_identifier(ns)?).unwrap();
         }
-        write!(buf, "{}", self.name).unwrap();
+        write!(buf, "{}", to_css_identifier(&self.name)?).unwrap();
         if !self.arguments.is_empty() || self.arguments.rest.is_some() {
             write!(buf, "({})", self.arguments).unwrap();
         }
