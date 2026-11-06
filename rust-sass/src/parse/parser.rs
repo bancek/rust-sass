@@ -214,6 +214,18 @@ impl<'parse> Parser<'parse> {
     }
 }
 
+/// Returns the leftmost index in `text` after any initial whitespace or
+/// comments (either loud or silent).
+///
+/// Matches Dart: `Parser.indexAfterWhitespaceAndComments`.
+pub(crate) fn index_after_whitespace_and_comments(text: &str) -> usize {
+    let arena = bumpalo::Bump::new();
+    let fs = FileSource::new_in(&arena, text, None);
+    let mut parser = Parser::new(fs, Syntax::Scss, None);
+    let _ = whitespace_impl(&mut parser.scanner, &mut parser.state, true);
+    parser.scanner.pos()
+}
+
 /// Consumes whitespace, but not comments.
 ///
 /// If `consume_newlines` is `true`, the indented syntax consumes newlines as

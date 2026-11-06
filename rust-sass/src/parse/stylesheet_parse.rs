@@ -39,6 +39,7 @@ use crate::common::span::Span;
 use crate::common::span_scanner::{LineScannerState, SpanScanner};
 use crate::deprecation;
 use crate::url::SassUrl;
+use crate::util::character;
 
 use crate::parse::anyvalue::{
     almost_any_value_impl, interpolated_declaration_value_impl, DeclarationValueOpts,
@@ -46,12 +47,14 @@ use crate::parse::anyvalue::{
 use crate::parse::atrule::{
     at_rule_impl, declaration_at_rule_impl, include_rule_impl, mixin_rule_impl,
 };
-use crate::parse::expression::{_expression_impl, ExpressionOpts};
+use crate::parse::expression::{
+    _expression_impl, interpolated_string_token_impl, try_url_contents, ExpressionOpts,
+};
 use crate::parse::identifier::interpolated_identifier_impl;
 use crate::parse::parser::{
     adjust_exception_span_impl, error_impl, expect_identifier_impl, has_prefix_ignore_case,
-    identifier_impl, looking_at_identifier, loud_comment_impl, raw_text_impl, span_from_impl,
-    span_from_to_impl, string_impl, variable_name_impl, whitespace_impl,
+    identifier_impl, looking_at_identifier, loud_comment_impl, peek_char_or_escape, raw_text_impl,
+    span_from_impl, span_from_to_impl, string_impl, variable_name_impl, whitespace_impl,
     whitespace_without_comments_impl, wrap_span_format_exception_impl, ParseError,
     ParseFormatError, ParseResult, ParserState,
 };
@@ -393,6 +396,154 @@ fn variable_declaration_or_interpolation_impl<'b>(
         }
     }
     Ok(DeclarationOrInterpolation::Interpolation(identifier))
+}
+
+// ======================================================================
+// lastIndexOfWhitespaceAndComments
+// ======================================================================
+
+/// Returns the index in `text` of the beginning of the final contiguous
+/// sequence of whitespace and/or comments.
+///
+/// If `text` doesn't end with whitespace or comments, returns `text.len()`.
+/// If it's entirely whitespace or comments, returns `0`. Assumes `text` is
+/// syntactically valid Sass source.
+///
+/// Matches Dart: `StylesheetParser.lastIndexOfWhitespaceAndComments`.
+pub(crate) fn last_index_of_whitespace_and_comments(text: &str) -> usize {
+    if let Some(index) = last_index_quick(text) {
+        return index;
+    }
+    last_index_full(text)
+}
+
+/// A partial implementation that scans right-to-left but falls back (`None`)
+/// on anything that could be a comment.
+fn last_index_quick(text: &str) -> Option<usize> {
+    let bytes = text.as_bytes();
+    let mut last_non_whitespace: Option<usize> = None;
+    for i in (0..bytes.len()).rev() {
+        match bytes[i] {
+            b'/' if i > 0 => {
+                if matches!(bytes[i - 1], b'/' | b'*') {
+                    return None;
+                }
+                last_non_whitespace.get_or_insert(i);
+            }
+            b'\n' | b'\r' | 0x0C if last_non_whitespace.is_some() => {
+                return Some(last_non_whitespace.unwrap() + 1);
+            }
+            b'\n' | b'\r' | 0x0C | b' ' | b'\t' => {}
+            _ => {
+                last_non_whitespace.get_or_insert(i);
+            }
+        }
+    }
+    Some(last_non_whitespace.map(|i| i + 1).unwrap_or(0))
+}
+
+fn last_index_full(text: &str) -> usize {
+    let arena = bumpalo::Bump::new();
+    let fs = FileSource::new_in(&arena, text, None);
+    let mut parser = StylesheetParser::new(fs, Syntax::Scss, None);
+    let scanner = &mut parser.scanner;
+    let state = &mut parser.state;
+    let mut index: Option<usize> = None;
+
+    while let Ok((ch, escaped)) = peek_char_or_escape(scanner, None) {
+        if ch < 0 {
+            break;
+        }
+        let c = char::from_u32(ch as u32).unwrap_or('\0');
+
+        if escaped {
+            if c == 'u' || c == 'U' {
+                if consume_url_or_identifier(scanner, state).is_err() {
+                    break;
+                }
+            } else if interpolated_identifier_impl(scanner, state).is_err() {
+                break;
+            }
+            index = None;
+            continue;
+        }
+
+        if character::is_whitespace(c) {
+            index = Some(scanner.pos());
+            if whitespace_impl(scanner, &mut state.parser_state, true).is_err() {
+                break;
+            }
+            continue;
+        }
+
+        if c == '/' && matches!(scanner.peek_char(1), 0x2F | 0x2A) {
+            index = Some(scanner.pos());
+            if whitespace_impl(scanner, &mut state.parser_state, true).is_err() {
+                break;
+            }
+            continue;
+        }
+
+        if c == '\'' || c == '"' {
+            if interpolated_string_token_impl(scanner, state).is_err() {
+                break;
+            }
+            index = None;
+            continue;
+        }
+
+        if c == '#' && scanner.peek_char(1) == '{' as i32 {
+            if interpolated_identifier_impl(scanner, state).is_err() {
+                break;
+            }
+            index = None;
+            continue;
+        }
+
+        if c == 'u' || c == 'U' {
+            if consume_url_or_identifier(scanner, state).is_err() {
+                break;
+            }
+            index = None;
+            continue;
+        }
+
+        if looking_at_identifier(scanner, None) {
+            if interpolated_identifier_impl(scanner, state).is_err() {
+                break;
+            }
+            index = None;
+            continue;
+        }
+
+        if scanner.read_char().is_err() {
+            break;
+        }
+        index = None;
+    }
+
+    index.unwrap_or(scanner.pos())
+}
+
+/// Consumes an identifier that may be `url(...)`, matching the URL arm of
+/// Dart's `lastIndexOfWhitespaceAndComments` tokenizer.
+fn consume_url_or_identifier<'parse>(
+    scanner: &mut SpanScanner<'parse>,
+    state: &mut StylesheetState<'parse>,
+) -> ParseResult<'parse, ()> {
+    let before = scanner.state();
+    let ident = interpolated_identifier_impl(scanner, state)?;
+    let plain = ident.as_plain_identifier();
+    if plain.as_deref() == Some("url") || plain.as_deref() == Some("url-prefix") {
+        let _ = try_url_contents(
+            scanner,
+            state,
+            before,
+            ident.as_plain().unwrap_or(""),
+            false,
+        )?;
+    }
+    Ok(())
 }
 
 // ======================================================================

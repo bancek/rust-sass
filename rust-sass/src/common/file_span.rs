@@ -229,10 +229,7 @@ impl<'parse> FileSpan<'parse> {
     /// Mirrors `SpanExtensions.trimRight`.
     pub fn trim_right(&self) -> Result<FileSpan<'parse>, SpanError> {
         let text = self.text();
-        let mut end = text.len();
-        while end > 0 && is_whitespace_byte(text.as_bytes()[end - 1]) {
-            end -= 1;
-        }
+        let end = crate::parse::stylesheet_parse::last_index_of_whitespace_and_comments(text);
         if end == text.len() {
             return Ok(*self);
         }
@@ -591,12 +588,7 @@ pub(crate) fn column_at(text: &str, offset: usize) -> usize {
 }
 
 pub(crate) fn trim_left_fs<'parse>(span: &FileSpan<'parse>) -> Result<FileSpan<'parse>, SpanError> {
-    let text = span.text();
-    let bytes = text.as_bytes();
-    let mut start = 0;
-    while start < bytes.len() && is_whitespace_byte(bytes[start]) {
-        start += 1;
-    }
+    let start = crate::parse::parser::index_after_whitespace_and_comments(span.text());
     if start == 0 {
         return Ok(*span);
     }
@@ -718,6 +710,44 @@ mod tests {
         let arena = Bump::new();
         let s = Span::File(FileSpan::new(Some(test_source(&arena, "abc\n\r ")), 0, 6));
         assert_eq!(s.trim_right().unwrap().text().unwrap(), "abc");
+    }
+
+    #[rust_sass_macros::maybe_test]
+    async fn test_trim_left_whitespace_and_comments() {
+        for (src, want) in [
+            ("foo", "foo"),
+            ("  \t\n\r\x0Cfoo", "foo"),
+            ("// foo\nbar", "bar"),
+            ("/* foo */bar", "bar"),
+            ("/* // */bar", "bar"),
+            ("// /*\n\"*/\"", "\"*/\""),
+            ("/* \"*/\" bar\"", "\" bar\""),
+            ("\"//\"", "\"//\""),
+        ] {
+            let arena = Bump::new();
+            let span = FileSpan::new(Some(test_source(&arena, src)), 0, src.len());
+            assert_eq!(span.trim_left().unwrap().text(), want, "src {src:?}");
+        }
+    }
+
+    #[rust_sass_macros::maybe_test]
+    async fn test_trim_right_whitespace_and_comments() {
+        for (src, want) in [
+            ("foo", "foo"),
+            ("foo \t\n\r\x0C", "foo"),
+            ("foo\n// bar", "foo"),
+            ("foo/* bar */", "foo"),
+            ("\"/*\"// */", "\"/*\""),
+            ("// /*\nfoo\n// */ bar", "// /*\nfoo"),
+            ("/* // */ foo", "/* // */ foo"),
+            ("/*\nfoo\n// */ bar", "/*\nfoo\n// */ bar"),
+            ("\"foo\"/*\" */", "\"foo\""),
+            ("\"//\" foo", "\"//\" foo"),
+        ] {
+            let arena = Bump::new();
+            let span = FileSpan::new(Some(test_source(&arena, src)), 0, src.len());
+            assert_eq!(span.trim_right().unwrap().text(), want, "src {src:?}");
+        }
     }
 
     #[test]
