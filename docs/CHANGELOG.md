@@ -1,9 +1,22 @@
 # Changelog
 
-Release history. Tags track the pinned dart-sass version (`v1.105.2`); the
+Release history. Tags track the pinned dart-sass version (`v1.106.0`); the
 procedure lives in [`docs/release.md`](docs/release.md).
 
 ## Unreleased
+
+## 1.106.0
+
+- Match dart-sass 1.106.0's CSS escape handling: escapes are preserved in
+  statement contexts and normalized only where SassScript observes them,
+  fixing escaped identifiers, variables, at-rules, and attribute values.
+- Fix keyframe selectors that use escaped `e` (`1\65 1%`), units that look
+  like numeric exponents (`1\65 1`), and duplicate rest/non-rest parameters
+  with multi-span errors.
+- Trim comments when computing span boundaries, and fix indented first
+  statements and interpolation spans containing `// */`.
+- Embedded protocol 3.3.0 (unchanged).
+- Byte-identical output to Dart Sass 1.106.0 (14399/14399 spec tests passing).
 
 ## 1.105.2
 

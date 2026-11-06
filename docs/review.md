@@ -26,8 +26,8 @@ crates map elsewhere: `rust-sass-embedded*` ↔ `lib/src/embedded/*` +
 `lib/src/executable/*`, `rust-sass-wasm` ↔ `lib/src/js/*`. Review those
 only when the finding lives at the seam (e.g. error → proto mapping).
 
-Pin under review: `PORTED_FROM` (`e01e268c6f6826ae309bf3105765d4c93024ebbc`,
-v1.105.2 per `upstream.md`) must agree with the `dart-sass/` submodule
+Pin under review: `PORTED_FROM` (`2ea4fc07b8560ba57e1657d9759b6ce8e89a64dd`,
+v1.106.0 per `upstream.md`) must agree with the `dart-sass/` submodule
 pin. Record both hashes in every finding log (§7).
 
 ## 2. File map (Dart → Rust)
