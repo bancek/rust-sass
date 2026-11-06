@@ -226,7 +226,7 @@ function __wbg_get_imports() {
         __wbg_log_363d83b9114c8831: function(arg0) {
             console.log(arg0);
         },
-        __wbg_new_6c387ab58870a701: function() {
+        __wbg_new_130de18ea5748864: function() {
             const ret = new Error();
             return ret;
         },
@@ -267,7 +267,7 @@ function __wbg_get_imports() {
             const ret = arg0.set(arg1, arg2);
             return ret;
         },
-        __wbg_stack_c73702ebdf9586d1: function(arg0, arg1) {
+        __wbg_stack_c7fac774d8fb0903: function(arg0, arg1) {
             const ret = arg1.stack;
             const ptr1 = passStringToWasm0(ret, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
             const len1 = WASM_VECTOR_LEN;
