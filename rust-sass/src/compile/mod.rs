@@ -834,6 +834,11 @@ mod tests {
             cause: None,
             loaded_urls: vec![],
         }));
+        // Dart's `ArgumentError` is not a `SassException` either.
+        assert!(!is_sass_exception(&SassError::ArgumentError {
+            name: None,
+            message: "test".into(),
+        }));
     }
 
     // Dart threads `useSpaces`/`indentWidth`/`lineFeed` from `compile` into

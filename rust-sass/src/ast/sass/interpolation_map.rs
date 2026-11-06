@@ -332,7 +332,11 @@ impl<'parse> InterpolationMap<'parse> {
     fn span_err_into_sass(&self, e: SpanError) -> SassResult<Span<'parse>> {
         match e {
             SpanError::Sass(e) => Err(e),
-            SpanError::Argument(msg) | SpanError::Range(msg) => Err(Box::new(SassError::Script {
+            SpanError::Argument(msg) => Err(Box::new(SassError::ArgumentError {
+                name: None,
+                message: msg,
+            })),
+            SpanError::Range(msg) => Err(Box::new(SassError::Script {
                 message: msg,
                 argument_name: None,
             })),

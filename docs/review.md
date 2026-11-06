@@ -122,8 +122,8 @@ the Rust file(s); judge behavior, not shape.
    `if`, swapped branch order, or combined/split check that changes which
    error fires first is a bug — even if each branch looks right alone.
 4. **Errors: variant, message, span, trace.** For every Dart `throw`:
-   variant (`SassError::{Script,Runtime,Format,Sass,MultiSpan,MultiSpanScript}`
-   in `common/exception.rs:22`), exact message text, span source node, and
+   variant (`SassError::{Script,ArgumentError,Runtime,Format,Sass,MultiSpan,MultiSpanScript}`
+   in `common/exception.rs`), exact message text, span source node, and
    trace/cause/`loaded_urls`. Key refs: `exception(state, msg, span)` in
    `eval/helpers.rs:35` (span falls back to stack top), `stack_trace` at
    `:61`, `add_exception_span` dual impls at `:272`, `with_member_use_span`

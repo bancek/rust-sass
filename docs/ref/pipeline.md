@@ -69,7 +69,7 @@ charset, source_map, include_source_map_sources })`. See `ref/serialize.md`
 5. **`CompileResult::new(eval_result, ser_result)`**.
 6. **Error path** — if `emit_error_css` and `is_sass_exception(err)`
    (the four spanned variants `Sass`/`Runtime`/`Format`/`MultiSpan` — never
-   the unspanned `Script`/`MultiSpanScript`, mirroring Dart's
+   the unspanned `Script`/`ArgumentError`/`MultiSpanScript`, mirroring Dart's
    `on SassException`), the error renders
    as CSS (`exception_to_css_string`) inside a synthetic `Ok`; otherwise the
    error propagates. See `ref/compile.md`.

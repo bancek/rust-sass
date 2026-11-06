@@ -166,6 +166,13 @@ pub struct CompilationContext<'compile, 'parse> {
     pub modules: Rc<RefCell<OpaqueRegistry<SassModule<'parse>>>>,
     /// The compilation's arena (source text + host signature parsing).
     pub arena: &'compile Bump,
+    /// A fatal protocol error raised while converting a host-provided value.
+    ///
+    /// Matches Dart's `CompilationDispatcher.sendError`: a `ProtocolError`
+    /// thrown during a host callback aborts the compilation and is sent to the
+    /// host instead of a `CompileResponse`. `handle_compile_request` checks this
+    /// slot after the compile returns.
+    pub protocol_error: RefCell<Option<ProtocolError>>,
 }
 
 /// An error produced while awaiting a host response.
@@ -186,7 +193,10 @@ impl From<HostError> for Box<SassError> {
 impl From<HostError> for SassError {
     fn from(e: HostError) -> Self {
         // Note: Dart/Go terminate the process (exit 76) on a protocol error
-        // during a host callback; we instead surface it as a compile failure.
+        // during a host callback; for this `HostError` path we instead surface
+        // it as a compile failure. (Protofier `ArgumentError`s take the fatal
+        // path via `CompilationContext::protocol_error`; see
+        // `handle_compile_request`.)
         match e {
             HostError::Protocol(pe) => SassError::Script {
                 message: pe.message,
@@ -345,6 +355,14 @@ where
         None => return Err(mandatory_error("CompileRequest.input")),
     };
 
+    // A host-provided value failed conversion (Dart's `on ArgumentError` in
+    // the protofier raises `paramsError`). The host callback records the
+    // protocol error here before aborting the compile; send it instead of a
+    // CompileResponse, matching `CompilationDispatcher.sendError`.
+    if let Some(pe) = take_protocol_error(&ctx) {
+        return Err(pe);
+    }
+
     match result {
         Ok(result) => {
             let mut success = compile_response::CompileSuccess {
@@ -373,6 +391,16 @@ where
             &highlight,
         )),
     }
+}
+
+/// Takes the fatal protocol error recorded by a host callback, if any.
+///
+/// The slot is one-shot: after a fatal error has been taken the compilation
+/// has already aborted, so later checks see `None`.
+fn take_protocol_error<'compile, 'parse>(
+    ctx: &CompilationContext<'compile, 'parse>,
+) -> Option<ProtocolError> {
+    ctx.protocol_error.borrow_mut().take()
 }
 
 // Embedded-proto → `CompileOptions` wiring; arity follows the request
@@ -573,6 +601,7 @@ where
         mixins: Rc::new(RefCell::new(OpaqueRegistry::<SassMixin<'parse>>::new())),
         modules: Rc::new(RefCell::new(OpaqueRegistry::<SassModule<'parse>>::new())),
         arena,
+        protocol_error: RefCell::new(None),
     })
 }
 
@@ -590,6 +619,7 @@ where
         mixins: Rc::new(RefCell::new(OpaqueRegistry::<SassMixin<'parse>>::new())),
         modules: Rc::new(RefCell::new(OpaqueRegistry::<SassModule<'parse>>::new())),
         arena,
+        protocol_error: RefCell::new(None),
     })
 }
 
@@ -668,5 +698,25 @@ mod tests {
         let ctx = test_host(rx);
         let err = ctx.send_and_wait(&outbound_canonicalize_request()).await;
         assert!(matches!(err, Err(HostError::MailboxClosed)));
+    }
+
+    #[rust_sass_macros::maybe_test]
+    async fn protocol_error_slot_is_one_shot() {
+        #[cfg(feature = "async")]
+        let (_tx, rx) = futures::channel::mpsc::unbounded::<Vec<u8>>();
+        #[cfg(not(feature = "async"))]
+        let (_tx, rx) = std::sync::mpsc::channel::<Vec<u8>>();
+        let arena = Bump::new();
+        let ctx = test_context(rx, &arena);
+
+        assert!(take_protocol_error(&ctx).is_none());
+        *ctx.protocol_error.borrow_mut() = Some(params_error("bad value"));
+        let pe = take_protocol_error(&ctx).expect("expected the recorded protocol error");
+        assert_eq!(
+            pe.r#type,
+            crate::embedded_sass::ProtocolErrorType::Params as i32
+        );
+        assert_eq!(pe.message, "bad value");
+        assert!(take_protocol_error(&ctx).is_none());
     }
 }

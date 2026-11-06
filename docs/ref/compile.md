@@ -65,9 +65,11 @@ lifetime entanglement between the cache and the evaluator.
 4. Emit `body::before { ...; content: <escaped>; }`.
 
 `emitErrorCss` applies only to the four spanned variants
-(`Sass`/`Runtime`/`Format`/`MultiSpan`) — **never `Script`/`MultiSpanScript`**
-(the unspanned `SassScriptException` family: I/O failures, `indentWidth`
-validation, empty-overload internals). This mirrors Dart's `on SassException`
+(`Sass`/`Runtime`/`Format`/`MultiSpan`) — **never
+`Script`/`ArgumentError`/`MultiSpanScript`** (unspanned internals: the
+`SassScriptException` family, Dart `ArgumentError`, I/O failures,
+`indentWidth` validation, empty-overload internals). This mirrors Dart's
+`on SassException`
 (`executable/compile_stylesheet.dart`): a parse error with `--error-css`
 renders CSS and exits 65, while a missing input file exits 66.
 

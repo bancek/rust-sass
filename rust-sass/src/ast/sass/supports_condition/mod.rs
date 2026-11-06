@@ -115,7 +115,11 @@ impl<'parse> fmt::Display for SupportsCondition<'parse> {
 pub(crate) fn convert_span_error(e: SpanError) -> Box<SassError> {
     match e {
         SpanError::Sass(e) => e,
-        SpanError::Argument(msg) | SpanError::Range(msg) => Box::new(SassError::Script {
+        SpanError::Argument(msg) => Box::new(SassError::ArgumentError {
+            name: None,
+            message: msg,
+        }),
+        SpanError::Range(msg) => Box::new(SassError::Script {
             message: msg,
             argument_name: None,
         }),

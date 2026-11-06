@@ -136,6 +136,7 @@ Dart's list parens, `serialize_value_inspect` is the raw serializer, and
 | ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `addExceptionSpan(v, node, func(){...})` | `add_exception_span(config, state, span, add_stack_frame, async \|config, state\| { ... })` (dual `sync_impl`/`async_impl` in `eval/helpers.rs`) |
 | `SassScriptException` (unspanned)        | `SassError::Script`                                                                                                                              |
+| `ArgumentError` (`dart:core`, unspanned) | `SassError::ArgumentError { name, message }`                                                                                                     |
 | `SassRuntimeException`                   | `SassError::Runtime { message, span, trace, .. }`                                                                                                |
 | `throwWithTrace(err, cause)`             | `SassError::Runtime` with `trace` from `stack_trace()`                                                                                           |
 | `errors.AsType[*T](err)`                 | `match err` on the `SassError` enum                                                                                                              |

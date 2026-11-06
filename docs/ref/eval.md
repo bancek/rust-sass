@@ -208,7 +208,7 @@ which is null in that state). On the imported-CSS path,
    already-built `SassResult`.
 4. At the API boundary, `emitErrorCss` decides whether to render the error as CSS
    (the four spanned variants `Sass`/`Runtime`/`Format`/`MultiSpan` — never
-   the unspanned `Script`/`MultiSpanScript`).
+   the unspanned `Script`/`ArgumentError`/`MultiSpanScript`).
 
 ## File mapping
 

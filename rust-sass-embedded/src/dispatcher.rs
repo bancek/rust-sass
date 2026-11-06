@@ -316,6 +316,7 @@ fn spawn_compilation(
             mixins: Rc::new(RefCell::new(OpaqueRegistry::new())),
             modules: Rc::new(RefCell::new(OpaqueRegistry::new())),
             arena: &arena,
+            protocol_error: RefCell::new(None),
         });
         #[cfg(feature = "async")]
         let result = futures::executor::block_on(run_compilation(ctx));

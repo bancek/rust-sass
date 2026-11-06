@@ -55,6 +55,18 @@ pub enum SassError {
         argument_name: Option<String>,
     },
 
+    /// An invalid argument was passed to a compiler API.
+    ///
+    /// Mirrors Dart's `ArgumentError` (`dart:core`), which is not a
+    /// `SassException` and is not given a span by the evaluator. `name` is the
+    /// invalid parameter's name when known. The embedded protofier converts
+    /// these into `PARAMS` protocol errors, matching dart-sass's
+    /// `on ArgumentError` in `lib/src/embedded/protofier.dart`.
+    ArgumentError {
+        name: Option<String>,
+        message: String,
+    },
+
     /// An error thrown while evaluating a stylesheet.
     ///
     /// Mirrors Dart's `SassRuntimeException`: a [`SassError::Sass`] plus the
@@ -132,6 +144,17 @@ impl Display for SassError {
                 message,
                 argument_name: None,
             } => write!(f, "{message}"),
+            // Matches Dart's `ArgumentError.toString()` for the plain-message
+            // constructor used at the ported sites: `name` is parenthesized, and
+            // `(s)` appears because no invalid value is supplied.
+            SassError::ArgumentError {
+                name: Some(name),
+                message,
+            } => write!(f, "Invalid argument ({name}): {message}"),
+            SassError::ArgumentError {
+                name: None,
+                message,
+            } => write!(f, "Invalid argument(s): {message}"),
             SassError::Runtime { message, .. }
             | SassError::Format { message, .. }
             | SassError::Sass { message, .. }
@@ -154,6 +177,7 @@ impl SassError {
     pub fn message(&self) -> &str {
         match self {
             SassError::Script { message, .. }
+            | SassError::ArgumentError { message, .. }
             | SassError::Runtime { message, .. }
             | SassError::Format { message, .. }
             | SassError::Sass { message, .. }
@@ -203,7 +227,7 @@ impl SassError {
     /// it" — so this returns `None` for them.
     pub fn span(&self) -> Option<&SourceSpanWithContext> {
         match self {
-            SassError::Script { .. } => None,
+            SassError::Script { .. } | SassError::ArgumentError { .. } => None,
             SassError::Runtime { span, .. }
             | SassError::Format { span, .. }
             | SassError::Sass { span, .. }
@@ -219,7 +243,7 @@ impl SassError {
     /// unspanned [`SassError::Script`] family carries none.
     pub fn loaded_urls(&self) -> &[SassUrl] {
         match self {
-            SassError::Script { .. } => &[],
+            SassError::Script { .. } | SassError::ArgumentError { .. } => &[],
             SassError::Runtime { loaded_urls, .. }
             | SassError::Format { loaded_urls, .. }
             | SassError::Sass { loaded_urls, .. }
@@ -235,7 +259,7 @@ impl SassError {
     /// `SassScriptException` family has no URLs to stamp).
     pub fn with_loaded_urls(mut self, loaded_urls: Vec<SassUrl>) -> Self {
         match &mut self {
-            SassError::Script { .. } => {}
+            SassError::Script { .. } | SassError::ArgumentError { .. } => {}
             SassError::Runtime {
                 loaded_urls: urls, ..
             }
@@ -275,7 +299,7 @@ impl SassError {
     /// Matches Go: ErrorWithOptions(opts HighlightOptions) on each exception type.
     pub fn to_error_string_with_options(&self, opts: &HighlightOptions, io: &dyn Io) -> String {
         match self {
-            SassError::Script { .. } => self.to_string(),
+            SassError::Script { .. } | SassError::ArgumentError { .. } => self.to_string(),
             SassError::MultiSpanScript { .. } => self.to_string(),
             SassError::Sass { message, span, .. } => {
                 format_single(message, span, None, None, None, opts, io)
@@ -392,6 +416,7 @@ impl SassError {
                         loaded_urls.clone(),
                     ),
                     SassError::Script { message, .. }
+                    | SassError::ArgumentError { message, .. }
                     | SassError::MultiSpanScript { message, .. } => {
                         (message.clone(), None, None, Trace::default(), vec![])
                     }
@@ -519,9 +544,9 @@ fn append_trace_lines(buf: &mut String, trace: &Trace, io: &dyn Io) {
 
 impl From<ArgumentError> for SassError {
     fn from(e: ArgumentError) -> Self {
-        SassError::Script {
+        SassError::ArgumentError {
+            name: e.name,
             message: e.message,
-            argument_name: None,
         }
     }
 }
@@ -655,12 +680,16 @@ impl From<SpanError> for SpanScannerError<'_> {
     fn from(e: SpanError) -> Self {
         match e {
             SpanError::Sass(s) => SpanScannerError::Sass(s),
-            SpanError::Argument(msg) | SpanError::Range(msg) => {
-                SpanScannerError::Sass(Box::new(SassError::Script {
+            SpanError::Argument(msg) => {
+                SpanScannerError::Sass(Box::new(SassError::ArgumentError {
+                    name: None,
                     message: msg,
-                    argument_name: None,
                 }))
             }
+            SpanError::Range(msg) => SpanScannerError::Sass(Box::new(SassError::Script {
+                message: msg,
+                argument_name: None,
+            })),
         }
     }
 }
@@ -759,7 +788,11 @@ impl From<SpanError> for SassError {
     fn from(e: SpanError) -> Self {
         match e {
             SpanError::Sass(e) => *e,
-            SpanError::Argument(msg) | SpanError::Range(msg) => SassError::Script {
+            SpanError::Argument(msg) => SassError::ArgumentError {
+                name: None,
+                message: msg,
+            },
+            SpanError::Range(msg) => SassError::Script {
                 message: msg,
                 argument_name: None,
             },
@@ -843,6 +876,45 @@ mod tests {
             argument_name: None,
         };
         assert_eq!(err.full_message(), "At least one argument must be passed.");
+    }
+
+    #[test]
+    fn test_argument_error_display_matches_dart_to_string() {
+        let unnamed = SassError::ArgumentError {
+            name: None,
+            message: "min() must have at least one argument.".into(),
+        };
+        assert_eq!(
+            unnamed.to_string(),
+            "Invalid argument(s): min() must have at least one argument."
+        );
+        assert_eq!(unnamed.message(), "min() must have at least one argument.");
+
+        let named = SassError::ArgumentError {
+            name: Some("branches".into()),
+            message: "may not be empty".into(),
+        };
+        assert_eq!(
+            named.to_string(),
+            "Invalid argument (branches): may not be empty"
+        );
+        assert_eq!(named.message(), "may not be empty");
+    }
+
+    #[test]
+    fn test_from_core_argument_error_keeps_the_variant() {
+        let err = SassError::from(ArgumentError {
+            name: Some("spans".into()),
+            message: "lengths differ".into(),
+        });
+        assert!(matches!(err, SassError::ArgumentError { .. }));
+        assert_eq!(err.to_string(), "Invalid argument (spans): lengths differ");
+        assert!(err.span().is_none());
+        assert!(err.loaded_urls().is_empty());
+        assert_eq!(
+            err.to_error_string(&test_io()),
+            "Invalid argument (spans): lengths differ"
+        );
     }
 
     #[test]

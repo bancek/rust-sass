@@ -10,6 +10,7 @@ other module builds on.
 ```rust
 pub enum SassError {
     Script   { message: String, argument_name: Option<String> },
+    ArgumentError { name: Option<String>, message: String },
     Runtime  { message, span: SourceSpanWithContext, trace: Trace, cause, loaded_urls },
     Format   { message, span, original_source, cause, loaded_urls },
     Sass     { message, span, cause, loaded_urls },
@@ -22,13 +23,18 @@ pub enum SassError {
 
 - `Script` is the unspanned error built-ins raise; the evaluator wraps it into
   `Runtime` (adding span + trace) at the boundary.
+- `ArgumentError` is Dart's `dart:core` `ArgumentError`, kept distinct from
+  `Script` (a `SassScriptException`). It has no span and is not wrapped by the
+  evaluator; the embedded protofier converts it into a `PARAMS` protocol error,
+  matching Dart's `on ArgumentError` in `protofier.dart`.
 - `Format` is the parse error (it carries the span and source context);
   `MultiSpan` carries secondary spans for multi-location errors (e.g. conflicting
   `@forward`s).
-- Every variant except `Script` carries `cause` (a chained error) and
-  `loaded_urls: Vec<SassUrl>` (the canonical URLs loaded so far — the embedded layer reports
-  these even on failure). `Runtime` and `MultiSpan` also carry `trace: Trace` (an
-  empty `MultiSpan.trace` means "derive the frame from the span").
+- Every variant except `Script` and `ArgumentError` carries `cause` (a chained
+  error) and `loaded_urls: Vec<SassUrl>` (the canonical URLs loaded so far — the
+  embedded layer reports these even on failure). `Runtime` and `MultiSpan` also
+  carry `trace: Trace` (an empty `MultiSpan.trace` means "derive the frame from
+  the span").
 - `loaded_urls` is stamped at the evaluate boundary on **all** spanned variants
   (`with_loaded_urls`, mirroring Dart's `error.withLoadedUrls` on every
   `SassException`), and `with_additional_span` preserves it when rebuilding a
@@ -77,10 +83,11 @@ ScanError → SpanScannerError → ParseError{Sass | Format(ParseFormatError) | 
   failure/wrong order; `Range` is a subspan out of bounds; `Sass` comes from a
   `LazyFileSpan` builder or a scan error. It is `Debug`-only (matched on and
   converted, never displayed), with `From<ArgumentError>`/`From<RangeError>`/
-  `From<SassError>` impls. At evaluator/parser boundaries, `Argument`/`Range`
-  become `SassError::Runtime` (with the current stack span) and `Sass` passes
-  through; `From<SpanError> for SassError` maps them to `SassError::Script` or
-  the pass-through.
+  `From<SassError>` impls. `From<SpanError> for SassError` maps `Argument` to
+  `SassError::ArgumentError` (Dart's unhandled `ArgumentError`), `Range` to
+  `SassError::Script`, and passes `Sass` through. The evaluator only wraps
+  `Script`/`MultiSpanScript` with a span and trace, so `Range` becomes a
+  `Runtime` at a callback boundary while `Argument` deliberately does not.
 
 The reason for the layering is **span adjustment**: a zero-length "expected X"
 error must be repositioned to point at the preceding newline, which requires the

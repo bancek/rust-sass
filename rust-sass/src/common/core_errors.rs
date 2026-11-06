@@ -13,7 +13,8 @@ use thiserror::Error;
 ///
 /// Matches Dart: `ArgumentError` (`dart:core`) — `name` is the argument name
 /// when known. Surfaced through [`SpanError`](super::span_error::SpanError)
-/// at span-utility boundaries rather than raised directly.
+/// at span-utility boundaries, or converted into
+/// [`SassError::ArgumentError`](super::exception::SassError::ArgumentError).
 #[derive(Debug, Error)]
 #[error("{message}")]
 pub struct ArgumentError {

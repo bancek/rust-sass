@@ -41,6 +41,12 @@ error), `76` (host-caused protocol error). A protocol error writes the
 `ProtocolError` packet to the host and **then** exits `70`/`76`; a compile
 _failure_ is a normal `CompileFailure` response and must **not** exit.
 
+An `ArgumentError` raised while deprotofying a host-provided value (Dart's
+`on ArgumentError` in `protofier.dart`) is a fatal `PARAMS` protocol error
+(exit `76`), not a `CompileFailure`: the protofier records it in
+`CompilationContext::protocol_error` and `handle_compile_request` sends it
+instead of a response.
+
 ## Decisions
 
 | #   | Decision                                                                                                                                                                                         |

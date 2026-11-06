@@ -348,9 +348,9 @@ pub fn new_min<'compile: 'parse, 'parse>(
 ) -> SassResult<Value<'parse>> {
     let simplified = simplify_arguments(args)?;
     if simplified.is_empty() {
-        return Err(Box::new(SassError::Script {
+        return Err(Box::new(SassError::ArgumentError {
+            name: None,
             message: "min() must have at least one argument.".into(),
-            argument_name: None,
         }));
     }
     let mut minimum: Option<SassNumber> = None;
@@ -397,9 +397,9 @@ pub fn new_max<'compile: 'parse, 'parse>(
 ) -> SassResult<Value<'parse>> {
     let simplified = simplify_arguments(args)?;
     if simplified.is_empty() {
-        return Err(Box::new(SassError::Script {
+        return Err(Box::new(SassError::ArgumentError {
+            name: None,
             message: "max() must have at least one argument.".into(),
-            argument_name: None,
         }));
     }
     let mut maximum: Option<SassNumber> = None;
@@ -445,9 +445,9 @@ pub fn new_hypot<'compile: 'parse, 'parse>(
 ) -> SassResult<Value<'parse>> {
     let simplified = simplify_arguments(args)?;
     if simplified.is_empty() {
-        return Err(Box::new(SassError::Script {
+        return Err(Box::new(SassError::ArgumentError {
+            name: None,
             message: "hypot() must have at least one argument.".into(),
-            argument_name: None,
         }));
     }
     verify_compatible_numbers(&simplified)?;
@@ -689,9 +689,9 @@ pub fn new_clamp<'compile: 'parse, 'parse>(
     max: Option<CalcArgument>,
 ) -> SassResult<Value<'parse>> {
     if value.is_none() && max.is_some() {
-        return Err(Box::new(SassError::Script {
+        return Err(Box::new(SassError::ArgumentError {
+            name: None,
             message: "If value is null, max must also be null.".into(),
-            argument_name: None,
         }));
     }
     let min = simplify(min)?;
@@ -1544,9 +1544,9 @@ fn round_with_step(
     step: &SassNumber,
 ) -> SassResult<SassNumber> {
     if strategy != "nearest" && strategy != "up" && strategy != "down" && strategy != "to-zero" {
-        return Err(Box::new(SassError::Script {
+        return Err(Box::new(SassError::ArgumentError {
+            name: None,
             message: format!("{} must be either nearest, up, down or to-zero.", strategy),
-            argument_name: None,
         }));
     }
     if (number.value.is_infinite() && step.value.is_infinite())
@@ -1862,6 +1862,56 @@ mod tests {
         let bump = Bump::new();
         let result = new_min(&bump, vec![CalcArgument::String("hello".to_string(), true)]);
         assert!(result.is_err(), "expected error for quoted string in min");
+    }
+
+    fn assert_argument_error<T>(result: SassResult<T>, message: &str) {
+        match result {
+            Err(e) => match *e {
+                SassError::ArgumentError { name, message: got } => {
+                    assert_eq!(name, None);
+                    assert_eq!(got, message);
+                }
+                other => panic!("expected ArgumentError, got {other:?}"),
+            },
+            Ok(_) => panic!("expected ArgumentError, got Ok"),
+        }
+    }
+
+    // These are Dart's `throw ArgumentError(...)` sites in
+    // lib/src/value/calculation.dart. Keeping the variant distinct is what
+    // lets the embedded protofier turn them into PARAMS errors.
+    #[test]
+    fn test_calculation_argument_errors() {
+        let bump = Bump::new();
+        assert_argument_error(
+            new_min(&bump, vec![]),
+            "min() must have at least one argument.",
+        );
+        assert_argument_error(
+            new_max(&bump, vec![]),
+            "max() must have at least one argument.",
+        );
+        assert_argument_error(
+            new_hypot(&bump, vec![]),
+            "hypot() must have at least one argument.",
+        );
+        assert_argument_error(
+            new_clamp(
+                &bump,
+                CalcArgument::Number(SassNumber::new(1.0, None)),
+                None,
+                Some(CalcArgument::Number(SassNumber::new(2.0, None))),
+            ),
+            "If value is null, max must also be null.",
+        );
+        assert_argument_error(
+            round_with_step(
+                "nope",
+                &SassNumber::new(1.0, None),
+                &SassNumber::new(1.0, None),
+            ),
+            "nope must be either nearest, up, down or to-zero.",
+        );
     }
 
     #[test]

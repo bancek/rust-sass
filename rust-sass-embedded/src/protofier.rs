@@ -13,7 +13,7 @@ use std::rc::Rc;
 
 use indexmap::IndexMap;
 
-use rust_sass::common::exception::SassResult;
+use rust_sass::common::exception::{SassError, SassResult};
 use rust_sass::value::color::ColorSpace;
 use rust_sass::value::{
     CalcArgument, CalculationOperator, ListSeparator, ListValue, SassArgumentList, SassBoolean,
@@ -27,9 +27,9 @@ use crate::embedded_sass::value::calculation::calculation_value;
 use crate::embedded_sass::value::calculation::{self, CalculationValue as ProtoCalculationValue};
 use crate::embedded_sass::{
     value as pv, CalculationOperator as ProtoCalcOperator, ListSeparator as ProtoListSeparator,
-    SingletonValue, Value as ProtoValue,
+    ProtocolError, SingletonValue, Value as ProtoValue,
 };
-use crate::error::script;
+use crate::error::{params_error, script};
 use crate::function::host_callable;
 
 /// Converts Sass `Value`s to/from protocol-buffer `Value`s, valid within the
@@ -69,11 +69,16 @@ impl<'compile: 'parse, 'parse: 'compile> Protofier<'compile, 'parse> {
 
     /// Converts a proto value to its Sass representation.
     pub fn deprotofy(&self, v: &ProtoValue) -> SassResult<SassValue<'parse>> {
-        let inner = v
-            .value
-            .as_ref()
-            .ok_or_else(|| script("Missing mandatory field value"))?;
-        self.deprotofy_inner(inner)
+        let result = match v.value.as_ref() {
+            None => Err(script("Missing mandatory field value")),
+            Some(inner) => self.deprotofy_inner(inner),
+        };
+        if let Err(e) = &result {
+            if let Some(pe) = argument_error_to_protocol(e) {
+                *self.ctx.protocol_error.borrow_mut() = Some(pe);
+            }
+        }
+        result
     }
 
     /// Converts a `FunctionCallResponse`'s return value to a Sass value,
@@ -520,6 +525,19 @@ impl<'compile: 'parse, 'parse: 'compile> ValueVisitor<'parse> for Protofier<'com
     }
 }
 
+/// Converts a host-value `ArgumentError` into Dart's `paramsError`.
+///
+/// Matches Dart: `Protofier._deprotofy`'s `on ArgumentError catch (error) {
+/// throw paramsError(error.toString()); }`. The returned `ProtocolError` is
+/// stored in [`CompilationContext::protocol_error`] so the compilation
+/// boundary sends it instead of a `CompileResponse`.
+fn argument_error_to_protocol(err: &SassError) -> Option<ProtocolError> {
+    match err {
+        SassError::ArgumentError { .. } => Some(params_error(&err.to_string())),
+        _ => None,
+    }
+}
+
 fn protofy_separator(sep: ListSeparator) -> SassResult<i32> {
     Ok(match sep {
         ListSeparator::Comma => ProtoListSeparator::Comma as i32,
@@ -610,7 +628,53 @@ mod tests {
     {
         let mut protofier = Protofier::new(ctx.clone());
         let proto = protofier.protofy(v).unwrap();
-        protofier.deprotofy(&proto).unwrap()
+        let back = protofier.deprotofy(&proto).unwrap();
+        assert!(
+            ctx.protocol_error.borrow().is_none(),
+            "a valid value must not record a protocol error"
+        );
+        back
+    }
+
+    #[test]
+    fn argument_error_becomes_params_protocol_error() {
+        let err = SassError::ArgumentError {
+            name: None,
+            message: "min() must have at least one argument.".into(),
+        };
+        let pe =
+            argument_error_to_protocol(&err).expect("ArgumentError must become a protocol error");
+        assert_eq!(
+            pe.r#type,
+            crate::embedded_sass::ProtocolErrorType::Params as i32
+        );
+        assert_eq!(
+            pe.message,
+            "Invalid argument(s): min() must have at least one argument."
+        );
+    }
+
+    #[test]
+    fn non_argument_errors_are_not_params_errors() {
+        let err = SassError::Script {
+            message: "min() must have at least one argument.".into(),
+            argument_name: None,
+        };
+        assert!(argument_error_to_protocol(&err).is_none());
+    }
+
+    #[test]
+    fn argument_error_is_stored_on_the_context() {
+        let arena = Bump::new();
+        let ctx = test_ctx(&arena);
+        let err = SassError::ArgumentError {
+            name: Some("x".into()),
+            message: "bad value".into(),
+        };
+        *ctx.protocol_error.borrow_mut() = argument_error_to_protocol(&err);
+        let recorded = ctx.protocol_error.borrow_mut().take().unwrap();
+        assert_eq!(recorded.message, "Invalid argument (x): bad value");
+        assert!(ctx.protocol_error.borrow().is_none());
     }
 
     fn rgb(r: f64, g: f64, b: f64, a: f64) -> SassColor {

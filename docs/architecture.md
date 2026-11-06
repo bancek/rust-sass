@@ -319,9 +319,11 @@ freeze→clone→freeze'd internally.
 
 ## 11. Error system
 
-`SassError` is a 6-variant enum (`Script`, `Runtime`, `Format`, `Sass`,
-`MultiSpan`, `MultiSpanScript` — the last carries no primary span yet; the
-eval call site attaches it via `with_member_use_span`). Internal errors are
+`SassError` is a 7-variant enum (`Script`, `ArgumentError`, `Runtime`, `Format`,
+`Sass`, `MultiSpan`, `MultiSpanScript` — the last carries no primary span yet;
+the eval call site attaches it via `with_member_use_span`; `ArgumentError` is
+Dart's unspanned `dart:core` error, converted by the embedded protofier into a
+`PARAMS` protocol error rather than a `CompileFailure`). Internal errors are
 zero-copy (they borrow `FileSpan<'parse>`);
 at the public boundary `SourceSpanWithContext::from_span()` copies the source
 text, so `'parse` never leaks into a public error type. The parser layers its
