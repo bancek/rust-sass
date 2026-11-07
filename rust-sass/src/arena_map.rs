@@ -25,6 +25,7 @@
 
 use std::borrow::Borrow;
 use std::collections::hash_map::RandomState;
+use std::fmt;
 use std::hash::{BuildHasher, Hash};
 use std::ops::{Index, IndexMut};
 
@@ -92,6 +93,16 @@ impl<'parse, K, V, S> ArenaMap<'parse, K, V, S> {
     pub fn clear(&mut self) {
         self.entries.clear();
         self.indices.clear();
+    }
+
+    /// Rebuilds the hash index from `entries`; used after in-place reordering.
+    fn rebuild_indices(&mut self) {
+        self.indices.clear();
+        let entries = &self.entries;
+        for (index, bucket) in entries.iter().enumerate() {
+            self.indices
+                .insert_unique(bucket.hash, index, |&stored| entries[stored].hash);
+        }
     }
 
     /// Iterates entries in insertion order.
@@ -213,6 +224,92 @@ where
             .insert_unique(hash, index, |&stored| entries[stored].hash);
         (index, None)
     }
+
+    /// Removes `key`, moving the last entry into its place (O(1) bookkeeping,
+    /// order changes), returning its value.
+    pub fn swap_remove<Q>(&mut self, key: &Q) -> Option<V>
+    where
+        K: Borrow<Q>,
+        Q: Hash + Eq + ?Sized,
+    {
+        self.swap_remove_full(key).map(|(_, _, value)| value)
+    }
+
+    /// Like [`swap_remove`](Self::swap_remove), also returning the removed
+    /// entry's index and the key it had.
+    pub fn swap_remove_full<Q>(&mut self, key: &Q) -> Option<(usize, K, V)>
+    where
+        K: Borrow<Q>,
+        Q: Hash + Eq + ?Sized,
+    {
+        let hash = self.hash(key);
+        let index = self.take_index(key, hash)?;
+        let last = self.entries.len() - 1;
+        let bucket = self.entries.swap_remove(index);
+        if index != last {
+            let moved_hash = self.entries[index].hash;
+            if let Some(moved) = self.indices.find_mut(moved_hash, |&stored| stored == last) {
+                *moved = index;
+            }
+        }
+        Some((index, bucket.key, bucket.value))
+    }
+
+    /// Removes `key`, preserving the order of the remaining entries (O(n)),
+    /// returning its value.
+    pub fn shift_remove<Q>(&mut self, key: &Q) -> Option<V>
+    where
+        K: Borrow<Q>,
+        Q: Hash + Eq + ?Sized,
+    {
+        self.shift_remove_full(key).map(|(_, _, value)| value)
+    }
+
+    /// Like [`shift_remove`](Self::shift_remove), also returning the removed
+    /// entry's index and the key it had.
+    pub fn shift_remove_full<Q>(&mut self, key: &Q) -> Option<(usize, K, V)>
+    where
+        K: Borrow<Q>,
+        Q: Hash + Eq + ?Sized,
+    {
+        let hash = self.hash(key);
+        let index = self.take_index(key, hash)?;
+        let bucket = self.entries.remove(index);
+        for position in index..self.entries.len() {
+            let hash = self.entries[position].hash;
+            if let Some(moved) = self
+                .indices
+                .find_mut(hash, |&stored| stored == position + 1)
+            {
+                *moved = position;
+            }
+        }
+        Some((index, bucket.key, bucket.value))
+    }
+
+    /// Keeps only the entries for which `keep` returns `true`, preserving
+    /// their order.
+    pub fn retain<F>(&mut self, mut keep: F)
+    where
+        F: FnMut(&K, &mut V) -> bool,
+    {
+        self.entries
+            .retain_mut(|bucket| keep(&bucket.key, &mut bucket.value));
+        self.rebuild_indices();
+    }
+
+    /// Removes `key` from the hash index, returning its entry index.
+    fn take_index<Q>(&mut self, key: &Q, hash: u64) -> Option<usize>
+    where
+        K: Borrow<Q>,
+        Q: Hash + Eq + ?Sized,
+    {
+        let entry = self
+            .indices
+            .find_entry(hash, |&index| self.entries[index].key.borrow() == key)
+            .ok()?;
+        Some(entry.remove().0)
+    }
 }
 
 impl<'parse, K, V, S, Q> Index<&Q> for ArenaMap<'parse, K, V, S>
@@ -241,6 +338,209 @@ where
         match self.get_mut(key) {
             Some(value) => value,
             None => panic!("ArenaMap: no entry found for key"),
+        }
+    }
+}
+
+/// A view into one map entry, which may be occupied or vacant.
+pub enum Entry<'a, 'parse, K, V, S> {
+    Occupied(OccupiedEntry<'a, 'parse, K, V, S>),
+    Vacant(VacantEntry<'a, 'parse, K, V, S>),
+}
+
+impl<'a, 'parse, K, V, S> Entry<'a, 'parse, K, V, S> {
+    /// The key this entry is for.
+    pub fn key(&self) -> &K {
+        match self {
+            Entry::Occupied(entry) => entry.key(),
+            Entry::Vacant(entry) => entry.key(),
+        }
+    }
+
+    /// Returns the entry's value, inserting `default` first if vacant.
+    pub fn or_insert(self, default: V) -> &'a mut V {
+        match self {
+            Entry::Occupied(entry) => entry.into_mut(),
+            Entry::Vacant(entry) => entry.insert(default),
+        }
+    }
+
+    /// Returns the entry's value, inserting `default()` first if vacant.
+    pub fn or_insert_with<F: FnOnce() -> V>(self, default: F) -> &'a mut V {
+        match self {
+            Entry::Occupied(entry) => entry.into_mut(),
+            Entry::Vacant(entry) => entry.insert(default()),
+        }
+    }
+
+    /// Returns the entry's value, inserting `V::default()` first if vacant.
+    pub fn or_default(self) -> &'a mut V
+    where
+        V: Default,
+    {
+        self.or_insert_with(V::default)
+    }
+
+    /// Runs `f` on the value if the entry is occupied.
+    pub fn and_modify<F: FnOnce(&mut V)>(mut self, f: F) -> Self {
+        if let Entry::Occupied(entry) = &mut self {
+            f(entry.get_mut());
+        }
+        self
+    }
+}
+
+/// An occupied [`Entry`].
+pub struct OccupiedEntry<'a, 'parse, K, V, S> {
+    map: &'a mut ArenaMap<'parse, K, V, S>,
+    index: usize,
+}
+
+impl<'a, 'parse, K, V, S> OccupiedEntry<'a, 'parse, K, V, S> {
+    pub fn key(&self) -> &K {
+        &self.map.entries[self.index].key
+    }
+
+    pub fn get(&self) -> &V {
+        &self.map.entries[self.index].value
+    }
+
+    pub fn get_mut(&mut self) -> &mut V {
+        &mut self.map.entries[self.index].value
+    }
+
+    pub fn into_mut(self) -> &'a mut V {
+        let Self { map, index } = self;
+        &mut map.entries[index].value
+    }
+
+    pub fn insert(&mut self, value: V) -> V {
+        std::mem::replace(&mut self.map.entries[self.index].value, value)
+    }
+
+    pub fn index(&self) -> usize {
+        self.index
+    }
+}
+
+/// A vacant [`Entry`].
+pub struct VacantEntry<'a, 'parse, K, V, S> {
+    map: &'a mut ArenaMap<'parse, K, V, S>,
+    key: K,
+    hash: u64,
+}
+
+impl<'a, 'parse, K, V, S> VacantEntry<'a, 'parse, K, V, S> {
+    pub fn key(&self) -> &K {
+        &self.key
+    }
+
+    pub fn into_key(self) -> K {
+        self.key
+    }
+
+    /// The index the inserted entry will have.
+    pub fn index(&self) -> usize {
+        self.map.entries.len()
+    }
+
+    pub fn insert(self, value: V) -> &'a mut V {
+        let Self { map, key, hash } = self;
+        let index = map.entries.len();
+        map.entries.push(Bucket { hash, key, value });
+        let entries = &map.entries;
+        map.indices
+            .insert_unique(hash, index, |&stored| entries[stored].hash);
+        &mut map.entries[index].value
+    }
+}
+
+impl<'parse, K, V, S> ArenaMap<'parse, K, V, S>
+where
+    K: Hash + Eq,
+    S: BuildHasher,
+{
+    /// Returns a view into the entry for `key`.
+    pub fn entry(&mut self, key: K) -> Entry<'_, 'parse, K, V, S> {
+        let hash = self.hash(&key);
+        let found = self
+            .indices
+            .find(hash, |&index| self.entries[index].key == key)
+            .copied();
+        match found {
+            Some(index) => Entry::Occupied(OccupiedEntry { map: self, index }),
+            None => Entry::Vacant(VacantEntry {
+                map: self,
+                key,
+                hash,
+            }),
+        }
+    }
+}
+
+impl<K, V, S> Clone for ArenaMap<'_, K, V, S>
+where
+    K: Clone,
+    V: Clone,
+    S: Clone,
+{
+    /// Clones the map into the **same** arena. The copy is retained until the
+    /// compilation ends, so do not clone in a per-operation hot path.
+    fn clone(&self) -> Self {
+        let mut map = Self::with_capacity_and_hasher_in(
+            self.len(),
+            self.hasher.clone(),
+            self.entries.allocator(),
+        );
+        for bucket in self.entries.iter() {
+            map.entries.push(Bucket {
+                hash: bucket.hash,
+                key: bucket.key.clone(),
+                value: bucket.value.clone(),
+            });
+        }
+        map.rebuild_indices();
+        map
+    }
+}
+
+impl<K: fmt::Debug, V: fmt::Debug, S> fmt::Debug for ArenaMap<'_, K, V, S> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_map().entries(self.iter()).finish()
+    }
+}
+
+impl<K, V, S> PartialEq for ArenaMap<'_, K, V, S>
+where
+    K: Hash + Eq,
+    V: PartialEq,
+    S: BuildHasher,
+{
+    /// Equality is order-insensitive, matching `IndexMap`.
+    fn eq(&self, other: &Self) -> bool {
+        self.len() == other.len()
+            && self
+                .iter()
+                .all(|(key, value)| other.get(key) == Some(value))
+    }
+}
+
+impl<K, V, S> Eq for ArenaMap<'_, K, V, S>
+where
+    K: Hash + Eq,
+    V: Eq,
+    S: BuildHasher,
+{
+}
+
+impl<K, V, S> Extend<(K, V)> for ArenaMap<'_, K, V, S>
+where
+    K: Hash + Eq,
+    S: BuildHasher,
+{
+    fn extend<I: IntoIterator<Item = (K, V)>>(&mut self, iter: I) {
+        for (key, value) in iter {
+            self.insert(key, value);
         }
     }
 }
@@ -369,5 +669,189 @@ mod tests {
         assert_eq!(map.len(), 3);
         let order: Vec<_> = map.keys().copied().collect();
         assert_eq!(order, ["a", "b", "c"]);
+    }
+
+    #[test]
+    fn entry_api() {
+        let arena = Bump::new();
+        let mut map: ArenaMap<'_, &str, i32> = ArenaMap::new_in(&arena);
+
+        *map.entry("a").or_default() += 1;
+        *map.entry("a").or_insert(5) += 1;
+        map.entry("b").or_insert_with(|| 7);
+        map.entry("a").and_modify(|value| *value *= 2);
+        assert_eq!(map.get("a"), Some(&4));
+        assert_eq!(map.get("b"), Some(&7));
+
+        match map.entry("c") {
+            Entry::Vacant(entry) => {
+                assert_eq!(entry.key(), &"c");
+                let index = entry.index();
+                assert_eq!(index, 2);
+                entry.insert(9);
+            }
+            Entry::Occupied(_) => panic!("expected a vacant entry"),
+        }
+        assert_eq!(map.get("c"), Some(&9));
+
+        match map.entry("c") {
+            Entry::Occupied(mut entry) => {
+                assert_eq!(entry.key(), &"c");
+                assert_eq!(entry.get(), &9);
+                *entry.get_mut() += 1;
+                assert_eq!(entry.insert(11), 10);
+                assert_eq!(entry.index(), 2);
+            }
+            Entry::Vacant(_) => panic!("expected an occupied entry"),
+        }
+        assert_eq!(map.get("c"), Some(&11));
+    }
+
+    #[test]
+    fn removals_preserve_or_reorder_as_documented() {
+        let arena = Bump::new();
+        let mut map: ArenaMap<'_, &str, i32> = ArenaMap::new_in(&arena);
+        for (index, key) in ["a", "b", "c", "d"].into_iter().enumerate() {
+            map.insert(key, index as i32);
+        }
+
+        // swap_remove moves the last entry into the hole.
+        assert_eq!(map.swap_remove("b"), Some(1));
+        let order: Vec<_> = map.keys().copied().collect();
+        assert_eq!(order, ["a", "d", "c"]);
+        assert_eq!(map.get("d"), Some(&3));
+        assert_eq!(map.len(), 3);
+
+        // shift_remove keeps the order.
+        assert_eq!(map.shift_remove_full("a"), Some((0, "a", 0)));
+        let order: Vec<_> = map.keys().copied().collect();
+        assert_eq!(order, ["d", "c"]);
+        assert_eq!(map.get("c"), Some(&2));
+
+        assert_eq!(map.shift_remove("missing"), None);
+        assert_eq!(map.swap_remove("missing"), None);
+    }
+
+    #[test]
+    fn retain_keeps_order_and_lookups() {
+        let arena = Bump::new();
+        let mut map: ArenaMap<'_, i32, i32> = ArenaMap::new_in(&arena);
+        for key in 0..6 {
+            map.insert(key, key * 10);
+        }
+
+        map.retain(|key, value| {
+            *value += 1;
+            key % 2 == 0
+        });
+
+        let entries: Vec<_> = map.iter().map(|(key, value)| (*key, *value)).collect();
+        assert_eq!(entries, [(0, 1), (2, 21), (4, 41)]);
+        assert_eq!(map.get(&2), Some(&21));
+        assert_eq!(map.get(&1), None);
+    }
+
+    #[test]
+    fn clone_into_same_arena() {
+        let arena = Bump::new();
+        let mut map: ArenaMap<'_, &str, i32> = ArenaMap::new_in(&arena);
+        map.insert("a", 1);
+        map.insert("b", 2);
+
+        let clone = map.clone();
+        assert_eq!(clone, map);
+        assert_eq!(clone.len(), 2);
+        let order: Vec<_> = clone.iter().map(|(key, value)| (*key, *value)).collect();
+        assert_eq!(order, [("a", 1), ("b", 2)]);
+
+        // The clone has its own storage: mutating the original does not show.
+        map.insert("a", 10);
+        assert_eq!(clone.get("a"), Some(&1));
+    }
+
+    struct Lcg(u64);
+
+    impl Lcg {
+        fn next(&mut self) -> u64 {
+            self.0 = self
+                .0
+                .wrapping_mul(6_364_136_223_846_793_005)
+                .wrapping_add(1_442_695_040_888_963_407);
+            self.0 >> 33
+        }
+    }
+
+    #[test]
+    fn differential_against_indexmap() {
+        use indexmap::IndexMap;
+
+        let arena = Bump::new();
+        for seed in [1, 7, 42] {
+            let mut ours: ArenaMap<'_, u32, u32> = ArenaMap::new_in(&arena);
+            let mut theirs: IndexMap<u32, u32> = IndexMap::new();
+            let mut rng = Lcg(seed);
+
+            for op in 0..2_000 {
+                let key = (rng.next() % 32) as u32;
+                match rng.next() % 8 {
+                    0..=2 => {
+                        let value = rng.next() as u32;
+                        assert_eq!(
+                            ours.insert(key, value),
+                            theirs.insert(key, value),
+                            "seed {seed}, op {op}: insert"
+                        );
+                    }
+                    3 => {
+                        assert_eq!(
+                            ours.get(&key),
+                            theirs.get(&key),
+                            "seed {seed}, op {op}: get"
+                        );
+                    }
+                    4 => {
+                        assert_eq!(
+                            ours.swap_remove(&key),
+                            theirs.swap_remove(&key),
+                            "seed {seed}, op {op}: swap_remove"
+                        );
+                    }
+                    5 => {
+                        assert_eq!(
+                            ours.shift_remove(&key),
+                            theirs.shift_remove(&key),
+                            "seed {seed}, op {op}: shift_remove"
+                        );
+                    }
+                    6 => {
+                        let modulus = (rng.next() % 3) as u32;
+                        ours.retain(|candidate, _| candidate % 3 != modulus);
+                        theirs.retain(|candidate, _| candidate % 3 != modulus);
+                        assert_eq!(ours.len(), theirs.len(), "seed {seed}, op {op}: retain");
+                    }
+                    _ => {
+                        let value = rng.next() as u32;
+                        *ours.entry(key).or_insert(0) = value;
+                        *theirs.entry(key).or_insert(0) = value;
+                    }
+                }
+
+                assert_eq!(ours.len(), theirs.len(), "seed {seed}, op {op}: len");
+                let ours_entries: Vec<_> = ours.iter().map(|(key, value)| (*key, *value)).collect();
+                let theirs_entries: Vec<_> =
+                    theirs.iter().map(|(key, value)| (*key, *value)).collect();
+                assert_eq!(
+                    ours_entries, theirs_entries,
+                    "seed {seed}, op {op}: order/values"
+                );
+
+                if op % 97 == 0 {
+                    let clone = ours.clone();
+                    let clone_entries: Vec<_> =
+                        clone.iter().map(|(key, value)| (*key, *value)).collect();
+                    assert_eq!(clone_entries, theirs_entries, "seed {seed}, op {op}: clone");
+                }
+            }
+        }
     }
 }
