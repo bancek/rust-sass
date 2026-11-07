@@ -11,6 +11,9 @@ publish = false
 
 [features]
 async = ["rust-sass/async"]
+# Heap-leak gate: a counting global allocator plus per-test live-byte deltas.
+# Off by default so normal spec runs pay nothing (see src/leak_gate.rs).
+leak-gate = []
 # Forward rust-sass's `glibc-math`: `math::pow` then uses a Rust port of glibc's
 # e_pow.c instead of the platform libm, so wasm (which has no libm) matches the
 # native libm the spec goldens were produced against. See rust-sass/Cargo.toml.

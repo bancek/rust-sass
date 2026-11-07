@@ -532,6 +532,9 @@ fn run_spec_test_wrapped(
         .map(|p| p.to_string_lossy().to_string())
         .unwrap_or_else(|_| test_dir.to_string());
 
+    #[cfg(feature = "leak-gate")]
+    let _leak_guard = crate::leak_gate::TestGuard::new(&rel_path);
+
     let n = stats.inc_total();
 
     let _ = writeln!(std::io::stderr().lock(), "[{}] {} ...", n + 1, rel_path);
