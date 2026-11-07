@@ -9,8 +9,10 @@ repository.workspace = true
 rust-version.workspace = true
 
 [dependencies]
-bumpalo = { workspace = true, features = ["boxed"] }
+allocator-api2.workspace = true
+bumpalo = { workspace = true, features = ["boxed", "allocator-api2"] }
 futures.workspace = true
+hashbrown = { workspace = true, features = ["allocator-api2"] }
 indexmap.workspace = true
 log.workspace = true
 percent-encoding.workspace = true

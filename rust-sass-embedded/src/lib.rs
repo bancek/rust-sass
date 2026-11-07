@@ -7,6 +7,8 @@
 // dart-source: lib/src/embedded/executable.dart
 // go-source: go/embedded/executable.go
 
+#![forbid(unsafe_code)]
+
 pub mod compilation;
 pub mod dispatcher;
 pub use rust_sass_embedded_pb::embedded_sass;

@@ -1,3 +1,5 @@
+#![forbid(unsafe_code)]
+
 mod console;
 mod error;
 mod js_host;

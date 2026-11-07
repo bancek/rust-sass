@@ -7,6 +7,8 @@
 // dart-source: bin/sass.dart
 // go-source: go/gosass/gosass.go
 
+#![forbid(unsafe_code)]
+
 use crate::options::CliOptions;
 use std::env;
 use std::rc::Rc;
