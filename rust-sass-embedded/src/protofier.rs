@@ -169,7 +169,12 @@ impl<'compile: 'parse, 'parse: 'compile> Protofier<'compile, 'parse> {
                     }
                     SassValue::new_with_arena(
                         self.ctx.arena,
-                        ValueKind::List(SassList::new(contents, separator, l.has_brackets)),
+                        ValueKind::List(SassList::new(
+                            self.ctx.arena,
+                            contents,
+                            separator,
+                            l.has_brackets,
+                        )),
                     )
                 }
             }
@@ -421,7 +426,7 @@ impl<'compile: 'parse, 'parse: 'compile> Protofier<'compile, 'parse> {
 
     fn protofy_argument_list(&mut self, a: &SassArgumentList<'parse>) -> SassResult<pv::Value> {
         let id = (self.argument_lists.len() + 1) as u32;
-        let contents = self.protofy_values(&a.list.contents)?;
+        let contents = self.protofy_values(a.list.contents)?;
         let mut keywords = HashMap::new();
         for (k, v) in a.keywords_without_marking() {
             keywords.insert(k.clone(), self.protofy_owned(v)?);
@@ -482,7 +487,7 @@ impl<'compile: 'parse, 'parse: 'compile> ValueVisitor<'parse> for Protofier<'com
     fn visit_list(&mut self, value: &ListValue<'_, 'parse>) -> SassResult<pv::Value> {
         match value {
             ListValue::List(l) => {
-                let contents = self.protofy_values(&l.contents)?;
+                let contents = self.protofy_values(l.contents)?;
                 Ok(pv::Value::List(pv::List {
                     separator: protofy_separator(l.separator)?,
                     has_brackets: l.has_brackets,
@@ -796,6 +801,7 @@ mod tests {
             SassValue::new_with_arena(
                 &arena,
                 ValueKind::List(SassList::new(
+                    &arena,
                     vec![
                         SassValue::new_with_arena(
                             &arena,

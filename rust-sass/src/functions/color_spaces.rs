@@ -755,6 +755,7 @@ where
                                     components: Value::new_with_arena(
                                         arena,
                                         ValueKind::List(SassList::new(
+                                            arena,
                                             nl,
                                             ListSeparator::Space,
                                             false,
@@ -775,7 +776,7 @@ where
                                 arena,
                                 ValueKind::Number(before.clone()),
                             ));
-                            let sl = SassList::new(nl, ListSeparator::Space, false);
+                            let sl = SassList::new(arena, nl, ListSeparator::Space, false);
                             return Ok(Some(SlashResult {
                                 components: Value::new_with_arena(arena, ValueKind::List(sl)),
                                 alpha: Some(Value::new_with_arena(
@@ -851,11 +852,13 @@ where
                           args: Vec<Value<'parse>>,
                           arena: &'compile Bump| {
                         let inner = SassList::new(
+                            arena,
                             vec![args[0], args[1], args[2]],
                             ListSeparator::Space,
                             false,
                         );
                         let outer = SassList::new(
+                            arena,
                             vec![
                                 Value::new_with_arena(arena, ValueKind::List(inner)),
                                 args[3],

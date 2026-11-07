@@ -44,7 +44,7 @@ impl<'parse> SassArgumentList<'parse> {
         separator: ListSeparator,
     ) -> Self {
         SassArgumentList {
-            list: SassList::new(contents, separator, false),
+            list: SassList::new(arena, contents, separator, false),
             keywords,
             were_keywords_accessed: arena.alloc(Cell::new(false)),
         }
@@ -187,7 +187,7 @@ mod tests {
         let v1 = ValueKind::unitless_number(&arena, 1.0);
         let v2 = ValueKind::unitless_number(&arena, 2.0);
         let al = SassArgumentList::new(&arena, vec![v1, v2], IndexMap::new(), ListSeparator::Space);
-        let l = SassList::new(vec![v1, v2], ListSeparator::Space, false);
+        let l = SassList::new(&arena, vec![v1, v2], ListSeparator::Space, false);
         assert!(al.equals(&l));
         assert!(l.equals(&al.list));
     }
@@ -205,6 +205,7 @@ mod tests {
             ListSeparator::Space,
         );
         let l = SassList::new(
+            &arena,
             vec![
                 ValueKind::unitless_number(&arena, 1.0),
                 ValueKind::unitless_number(&arena, 2.0),
@@ -219,6 +220,7 @@ mod tests {
     fn test_arglist_to_css_string() {
         let arena = Bump::new();
         let list = SassList::new(
+            &arena,
             vec![
                 ValueKind::unitless_number(&arena, 1.0),
                 ValueKind::unitless_number(&arena, 2.0),
@@ -228,7 +230,7 @@ mod tests {
         );
         let al = SassArgumentList::new(
             &arena,
-            list.contents,
+            list.contents.to_vec(),
             Default::default(),
             ListSeparator::Space,
         );
@@ -241,6 +243,7 @@ mod tests {
         let arena = Bump::new();
         // Mirrors Go: TestArgListString — String() adds Dart toString parens.
         let list = SassList::new(
+            &arena,
             vec![
                 ValueKind::unitless_number(&arena, 1.0),
                 ValueKind::unitless_number(&arena, 2.0),
@@ -250,7 +253,7 @@ mod tests {
         );
         let al = SassArgumentList::new(
             &arena,
-            list.contents,
+            list.contents.to_vec(),
             Default::default(),
             ListSeparator::Space,
         );

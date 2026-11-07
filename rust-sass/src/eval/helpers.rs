@@ -3167,6 +3167,7 @@ mod tests {
         let span = make_span(&arena, "test");
         let (config, mut state) = test_visitor(&arena);
         let lst = SassList::new(
+            &arena,
             vec![
                 Value::new_with_arena(&arena, ValueKind::Number(SassNumber::new(1.0, None))),
                 Value::new_with_arena(&arena, ValueKind::Number(SassNumber::new(2.0, None))),

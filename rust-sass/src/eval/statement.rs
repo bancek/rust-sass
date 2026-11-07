@@ -4533,6 +4533,7 @@ mod tests {
             span,
         });
         let list = SassList::new(
+            &arena,
             vec![Value::new_with_arena(&arena, ValueKind::Null)],
             ListSeparator::Undecided,
             false,

@@ -1747,6 +1747,7 @@ mod tests {
     async fn test_global_color_red() {
         let arena = Bump::new();
         let list = SassList::new(
+            &arena,
             vec![
                 Value::new_with_arena(
                     &arena,
@@ -1776,6 +1777,7 @@ mod tests {
     async fn test_global_color_error_invalid() {
         let arena = Bump::new();
         let list = SassList::new(
+            &arena,
             vec![Value::new_with_arena(
                 &arena,
                 ValueKind::String(SassString::new(arena.alloc_str("not-a-space"), false)),

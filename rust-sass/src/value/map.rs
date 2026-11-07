@@ -116,7 +116,7 @@ impl<'parse> SassMap<'parse> {
         self.entries
             .iter()
             .map(|(k, v)| {
-                let pair = SassList::new(vec![*k, *v], ListSeparator::Space, false);
+                let pair = SassList::new(arena, vec![*k, *v], ListSeparator::Space, false);
                 Value::new_with_arena(arena, ValueKind::List(pair))
             })
             .collect()

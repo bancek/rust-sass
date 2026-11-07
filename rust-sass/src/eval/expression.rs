@@ -430,7 +430,7 @@ where
         let val = evaluate_expression(config, state, arena, element).await?;
         contents.push(val);
     }
-    let list = SassList::new(contents, expr.separator, expr.has_brackets);
+    let list = SassList::new(arena, contents, expr.separator, expr.has_brackets);
     Ok(Value::new_with_arena(arena, ValueKind::List(list)))
 }
 

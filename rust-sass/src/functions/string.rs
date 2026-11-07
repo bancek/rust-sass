@@ -705,7 +705,7 @@ where
     if s.text.is_empty() {
         return Ok(Value::new_with_arena(
             arena,
-            ValueKind::List(SassList::new(vec![], ListSeparator::Comma, true)),
+            ValueKind::List(SassList::new(arena, vec![], ListSeparator::Comma, true)),
         ));
     }
 
@@ -725,7 +725,7 @@ where
             .collect();
         return Ok(Value::new_with_arena(
             arena,
-            ValueKind::List(SassList::new(chunks, ListSeparator::Comma, true)),
+            ValueKind::List(SassList::new(arena, chunks, ListSeparator::Comma, true)),
         ));
     }
 
@@ -757,7 +757,7 @@ where
         .collect();
     Ok(Value::new_with_arena(
         arena,
-        ValueKind::List(SassList::new(result, ListSeparator::Comma, true)),
+        ValueKind::List(SassList::new(arena, result, ListSeparator::Comma, true)),
     ))
 }
 

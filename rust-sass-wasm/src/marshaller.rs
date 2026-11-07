@@ -224,7 +224,7 @@ fn to_serializable<'parse>(
         ValueKind::List(l) => SerializableValue::List {
             separator: separator_str(l.separator),
             has_brackets: l.has_brackets,
-            contents: to_serializable_values(ctx, &l.contents)?,
+            contents: to_serializable_values(ctx, l.contents)?,
         },
         ValueKind::ArgumentList(a) => {
             let id = {
@@ -241,7 +241,7 @@ fn to_serializable<'parse>(
                 id,
                 separator: separator_str(a.list.separator),
                 has_brackets: a.list.has_brackets,
-                contents: to_serializable_values(ctx, &a.list.contents)?,
+                contents: to_serializable_values(ctx, a.list.contents)?,
                 keywords,
             }
         }
@@ -435,7 +435,7 @@ pub fn js_to_value<'compile: 'parse, 'parse: 'compile>(
                 }
                 SassValue::new_with_arena(
                     arena,
-                    ValueKind::List(SassList::new(contents, separator, has_brackets)),
+                    ValueKind::List(SassList::new(arena, contents, separator, has_brackets)),
                 )
             }
         }
@@ -912,6 +912,7 @@ mod tests {
             SassValue::new_with_arena(
                 &arena,
                 ValueKind::List(SassList::new(
+                    &arena,
                     vec![
                         SassValue::new_with_arena(
                             &arena,

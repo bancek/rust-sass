@@ -454,8 +454,8 @@ impl<'parse> ValueKind<'parse> {
         arena: &'compile Bump,
     ) -> SassResult<Vec<Value<'parse>>> {
         match self {
-            ValueKind::List(l) => Ok(l.contents.clone()),
-            ValueKind::ArgumentList(a) => Ok(a.list.contents.clone()),
+            ValueKind::List(l) => Ok(l.contents.to_vec()),
+            ValueKind::ArgumentList(a) => Ok(a.list.contents.to_vec()),
             ValueKind::Map(m) => Ok(m.as_list(arena)),
             _ => Ok(vec![Value::new_with_arena(arena, self.clone())]),
         }
@@ -1348,7 +1348,7 @@ pub fn with_list_contents<'compile: 'parse, 'parse>(
     let has_brackets = brackets.unwrap_or_else(|| v.has_brackets());
     Value::new_with_arena(
         arena,
-        ValueKind::List(SassList::new(contents, sep, has_brackets)),
+        ValueKind::List(SassList::new(arena, contents, sep, has_brackets)),
     )
 }
 
@@ -1521,7 +1521,7 @@ mod tests {
         assert_eq!(ValueKind::Null.separator(), ListSeparator::Undecided);
         let l = Value::new_with_arena(
             &arena,
-            ValueKind::List(SassList::new(vec![], ListSeparator::Comma, false)),
+            ValueKind::List(SassList::new(&arena, vec![], ListSeparator::Comma, false)),
         );
         assert_eq!(l.separator(), ListSeparator::Comma);
     }
@@ -1532,7 +1532,7 @@ mod tests {
         assert!(!ValueKind::Null.has_brackets());
         let l = Value::new_with_arena(
             &arena,
-            ValueKind::List(SassList::new(vec![], ListSeparator::Space, true)),
+            ValueKind::List(SassList::new(&arena, vec![], ListSeparator::Space, true)),
         );
         assert!(l.has_brackets());
     }
@@ -1544,6 +1544,7 @@ mod tests {
         let l = Value::new_with_arena(
             &arena,
             ValueKind::List(SassList::new(
+                &arena,
                 vec![
                     ValueKind::unitless_number(&arena, 1.0),
                     ValueKind::unitless_number(&arena, 2.0),
@@ -1636,6 +1637,7 @@ mod tests {
         let v = Value::new_with_arena(
             &arena,
             ValueKind::List(SassList::new(
+                &arena,
                 vec![ValueKind::unitless_number(&arena, 1.0)],
                 ListSeparator::Space,
                 false,
@@ -1692,6 +1694,7 @@ mod tests {
         let v = Value::new_with_arena(
             &arena,
             ValueKind::List(SassList::new(
+                &arena,
                 vec![
                     ValueKind::unitless_number(&arena, 1.0),
                     ValueKind::unitless_number(&arena, 2.0),
@@ -1785,7 +1788,7 @@ mod tests {
         let v = ValueKind::unitless_number(&arena, 1.0);
         let l = Value::new_with_arena(
             &arena,
-            ValueKind::List(SassList::new(vec![v], ListSeparator::Space, false)),
+            ValueKind::List(SassList::new(&arena, vec![v], ListSeparator::Space, false)),
         );
         let a = Value::new_with_arena(
             &arena,
@@ -2014,6 +2017,7 @@ mod tests {
         let l = Value::new_with_arena(
             &arena,
             ValueKind::List(SassList::new(
+                &arena,
                 vec![ValueKind::unitless_number(&arena, 1.0)],
                 ListSeparator::Space,
                 true,
@@ -2201,6 +2205,7 @@ mod tests {
         let list = Value::new_with_arena(
             &arena,
             ValueKind::List(SassList::new(
+                &arena,
                 vec![
                     ValueKind::unitless_number(&arena, 1.0),
                     ValueKind::unitless_number(&arena, 2.0),
@@ -2247,6 +2252,7 @@ mod tests {
         let list = Value::new_with_arena(
             &arena,
             ValueKind::List(SassList::new(
+                &arena,
                 vec![ValueKind::unitless_number(&arena, 1.0)],
                 ListSeparator::Space,
                 false,
@@ -2256,6 +2262,7 @@ mod tests {
         let comma_list = Value::new_with_arena(
             &arena,
             ValueKind::List(SassList::new(
+                &arena,
                 vec![
                     ValueKind::unitless_number(&arena, 1.0),
                     ValueKind::unitless_number(&arena, 2.0),
@@ -2402,7 +2409,7 @@ mod tests {
         let mut v = TestVisitor {
             visited: &mut visited,
         };
-        let l = SassList::new(vec![], ListSeparator::Space, false);
+        let l = SassList::new(&arena, vec![], ListSeparator::Space, false);
         Value::new_with_arena(&arena, ValueKind::List(l))
             .accept(&mut v)
             .unwrap();

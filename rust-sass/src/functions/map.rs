@@ -414,7 +414,7 @@ where
                 }
                 Ok(Value::new_with_arena(
                     arena,
-                    ValueKind::List(SassList::new(keys, ListSeparator::Comma, false)),
+                    ValueKind::List(SassList::new(arena, keys, ListSeparator::Comma, false)),
                 ))
             },
         ),
@@ -449,7 +449,7 @@ where
                 }
                 Ok(Value::new_with_arena(
                     arena,
-                    ValueKind::List(SassList::new(vals, ListSeparator::Comma, false)),
+                    ValueKind::List(SassList::new(arena, vals, ListSeparator::Comma, false)),
                 ))
             },
         ),
@@ -749,7 +749,10 @@ mod tests {
         sep: ListSeparator,
         contents: Vec<Value<'parse>>,
     ) -> Value<'parse> {
-        Value::new_with_arena(arena, ValueKind::List(SassList::new(contents, sep, false)))
+        Value::new_with_arena(
+            arena,
+            ValueKind::List(SassList::new(arena, contents, sep, false)),
+        )
     }
 
     fn empty_rest<'compile: 'parse, 'parse>(arena: &'compile Bump) -> Value<'parse> {

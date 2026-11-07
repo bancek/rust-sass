@@ -170,7 +170,7 @@ where
                 let bracketed = a.has_brackets();
                 Ok(Value::new_with_arena(
                     arena,
-                    ValueKind::List(SassList::new(v, sep, bracketed)),
+                    ValueKind::List(SassList::new(arena, v, sep, bracketed)),
                 ))
             },
         ),
@@ -204,7 +204,7 @@ where
                 v.extend(l2.iter().cloned());
                 Ok(Value::new_with_arena(
                     arena,
-                    ValueKind::List(SassList::new(v, sep, bracketed)),
+                    ValueKind::List(SassList::new(arena, v, sep, bracketed)),
                 ))
             },
         ),
@@ -290,7 +290,7 @@ where
                 v.push(args[1]);
                 Ok(Value::new_with_arena(
                     arena,
-                    ValueKind::List(SassList::new(v, sep, a.has_brackets())),
+                    ValueKind::List(SassList::new(arena, v, sep, a.has_brackets())),
                 ))
             },
         ),
@@ -362,13 +362,13 @@ where
                     let entry: Vec<Value<'_>> = sub_lists.iter().map(|l| l[i]).collect();
                     results.push(Value::new_with_arena(
                         arena,
-                        ValueKind::List(SassList::new(entry, ListSeparator::Space, false)),
+                        ValueKind::List(SassList::new(arena, entry, ListSeparator::Space, false)),
                     ));
                     i += 1;
                 }
                 Ok(Value::new_with_arena(
                     arena,
-                    ValueKind::List(SassList::new(results, ListSeparator::Comma, false)),
+                    ValueKind::List(SassList::new(arena, results, ListSeparator::Comma, false)),
                 ))
             },
         ),
@@ -481,7 +481,7 @@ where
                 let v: Vec<Value<'_>> = list.to_vec();
                 Ok(Value::new_with_arena(
                     arena,
-                    ValueKind::List(SassList::new(v, ListSeparator::Slash, false)),
+                    ValueKind::List(SassList::new(arena, v, ListSeparator::Slash, false)),
                 ))
             },
         ),
@@ -512,7 +512,12 @@ mod tests {
     ) -> Value<'parse> {
         Value::new_with_arena(
             arena,
-            ValueKind::List(SassList::new(items.to_vec(), ListSeparator::Comma, false)),
+            ValueKind::List(SassList::new(
+                arena,
+                items.to_vec(),
+                ListSeparator::Comma,
+                false,
+            )),
         )
     }
 
@@ -522,7 +527,12 @@ mod tests {
     ) -> Value<'parse> {
         Value::new_with_arena(
             arena,
-            ValueKind::List(SassList::new(items.to_vec(), ListSeparator::Space, false)),
+            ValueKind::List(SassList::new(
+                arena,
+                items.to_vec(),
+                ListSeparator::Space,
+                false,
+            )),
         )
     }
 
@@ -532,7 +542,12 @@ mod tests {
     ) -> Value<'parse> {
         Value::new_with_arena(
             arena,
-            ValueKind::List(SassList::new(items.to_vec(), ListSeparator::Space, true)),
+            ValueKind::List(SassList::new(
+                arena,
+                items.to_vec(),
+                ListSeparator::Space,
+                true,
+            )),
         )
     }
 
@@ -542,7 +557,12 @@ mod tests {
     ) -> Value<'parse> {
         Value::new_with_arena(
             arena,
-            ValueKind::List(SassList::new(items.to_vec(), ListSeparator::Slash, false)),
+            ValueKind::List(SassList::new(
+                arena,
+                items.to_vec(),
+                ListSeparator::Slash,
+                false,
+            )),
         )
     }
 

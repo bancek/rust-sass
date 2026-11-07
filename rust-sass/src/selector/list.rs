@@ -612,12 +612,12 @@ impl<'parse> SelectorList<'parse> {
             }
             complexes.push(Value::new_with_arena(
                 arena,
-                ValueKind::List(SassList::new(parts, ListSeparator::Space, false)),
+                ValueKind::List(SassList::new(arena, parts, ListSeparator::Space, false)),
             ));
         }
         Ok(Value::new_with_arena(
             arena,
-            ValueKind::List(SassList::new(complexes, ListSeparator::Comma, false)),
+            ValueKind::List(SassList::new(arena, complexes, ListSeparator::Comma, false)),
         ))
     }
 

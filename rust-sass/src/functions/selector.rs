@@ -513,7 +513,7 @@ where
     }
     Ok(Value::new_with_arena(
         arena,
-        ValueKind::List(SassList::new(items, ListSeparator::Comma, false)),
+        ValueKind::List(SassList::new(arena, items, ListSeparator::Comma, false)),
     ))
 }
 
@@ -1046,7 +1046,7 @@ mod tests {
     ) -> Value<'parse> {
         Value::new_with_arena(
             arena,
-            ValueKind::List(SassList::new(items.to_vec(), sep, false)),
+            ValueKind::List(SassList::new(arena, items.to_vec(), sep, false)),
         )
     }
 

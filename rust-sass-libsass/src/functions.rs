@@ -641,7 +641,12 @@ where
                 }
                 Ok(Value::new_with_arena(
                     arena,
-                    ValueKind::List(SassList::new(contents, sep, sass_list_get_is_bracketed(v))),
+                    ValueKind::List(SassList::new(
+                        arena,
+                        contents,
+                        sep,
+                        sass_list_get_is_bracketed(v),
+                    )),
                 ))
             }
             SASS_MAP => {
