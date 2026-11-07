@@ -395,6 +395,7 @@ impl UserImporter for JsImporter {
 pub struct JsFileImporter {
     find_file_url: js_sys::Function,
     fs: FilesystemImporter,
+    io: Rc<dyn rust_sass::io::Io>,
 }
 
 impl fmt::Debug for JsFileImporter {
@@ -410,7 +411,8 @@ impl JsFileImporter {
         // the embedded crate's FileImporter.
         JsFileImporter {
             find_file_url,
-            fs: FilesystemImporter::new_no_load_path(io),
+            fs: FilesystemImporter::new_no_load_path(Rc::clone(&io)),
+            io,
         }
     }
 }
@@ -425,10 +427,14 @@ impl UserImporter for JsFileImporter {
     ) -> LocalBoxFuture<'a, SassResult<Option<SassUrl>>> {
         if url.is_file() {
             let fs = &self.fs;
-            return Box::pin(async move { fs.canonicalize(url, context, &NoOpWarnLogger).await });
+            let io = &*self.io;
+            return Box::pin(
+                async move { fs.canonicalize(io, url, context, &NoOpWarnLogger).await },
+            );
         }
         let f = self.find_file_url.clone();
         let fs = self.fs.clone();
+        let io = Rc::clone(&self.io);
         let args = canonicalize_args(url, context);
         Box::pin(async move {
             let result = call_js_spread(&f, &args)?;
@@ -440,7 +446,7 @@ impl UserImporter for JsFileImporter {
             } else {
                 result
             };
-            parse_file_url_result(&result, url, &fs, context).await
+            parse_file_url_result(&result, url, &fs, &*io, context).await
         })
     }
 
@@ -452,17 +458,21 @@ impl UserImporter for JsFileImporter {
     ) -> LocalBoxFuture<'a, SassResult<Option<SassUrl>>> {
         if url.is_file() {
             let fs = &self.fs;
-            return Box::pin(async move { fs.canonicalize(url, context, &NoOpWarnLogger).await });
+            let io = &*self.io;
+            return Box::pin(
+                async move { fs.canonicalize(io, url, context, &NoOpWarnLogger).await },
+            );
         }
         let f = self.find_file_url.clone();
         let fs = self.fs.clone();
+        let io = Rc::clone(&self.io);
         let args = canonicalize_args(url, context);
         Box::pin(async move {
             let result = call_js_spread(&f, &args)?;
             if is_promise(&result) {
                 return Err(script("The findFileUrl() function can't return a Promise for synchron compile functions."));
             }
-            parse_file_url_result(&result, url, &fs, context).await
+            parse_file_url_result(&result, url, &fs, &*io, context).await
         })
     }
 
@@ -472,7 +482,8 @@ impl UserImporter for JsFileImporter {
         url: &'a SassUrl,
     ) -> LocalBoxFuture<'a, SassResult<Option<ImporterResult>>> {
         let fs = &self.fs;
-        Box::pin(async move { fs.load(url).await })
+        let io = Rc::clone(&self.io);
+        Box::pin(async move { fs.load(&*io, url).await })
     }
 
     fn is_non_canonical_scheme(&self, scheme: &str) -> bool {
@@ -488,6 +499,7 @@ async fn parse_file_url_result(
     result: &JsValue,
     original_url: &SassUrl,
     fs: &FilesystemImporter,
+    io: &dyn rust_sass::io::Io,
     context: &mut CanonicalizeContext,
 ) -> SassResult<Option<SassUrl>> {
     if result.is_null() || result.is_undefined() {
@@ -504,7 +516,8 @@ async fn parse_file_url_result(
             "The findFileUrl() must return a URL with scheme file://, was \"{original_url}\"."
         )));
     }
-    fs.canonicalize(&file_url, context, &NoOpWarnLogger).await
+    fs.canonicalize(io, &file_url, context, &NoOpWarnLogger)
+        .await
 }
 
 // ==== Logger =================================================================

@@ -20,6 +20,7 @@ pub mod utils;
 
 use bumpalo::Bump;
 
+use crate::io::Io;
 pub use canonicalize_context::CanonicalizeContext;
 pub use filesystem::FilesystemImporter;
 pub use no_op::NoOpImporter;
@@ -148,6 +149,7 @@ impl<'parse> Importer<'parse> {
     #[rust_sass_macros::maybe_async]
     pub async fn canonicalize(
         &self,
+        io: &dyn Io,
         url: &SassUrl,
         ctx: &mut CanonicalizeContext,
     ) -> SassResult<Option<SassUrl>> {
@@ -157,22 +159,22 @@ impl<'parse> Importer<'parse> {
         // matches the pre-fix behavior; the F15a fix threads the logger at
         // the `canonicalize_with` call sites, not here.
         match self.0 {
-            ImporterKind::Filesystem(f) => f.canonicalize(url, ctx, &NoOpWarnLogger).await,
+            ImporterKind::Filesystem(f) => f.canonicalize(io, url, ctx, &NoOpWarnLogger).await,
             ImporterKind::NoOp => NoOpImporter.canonicalize(url, ctx),
             ImporterKind::User(u) => u.canonicalize(url, ctx).await,
-            ImporterKind::Package(p) => p.canonicalize(url, ctx, &NoOpWarnLogger).await,
-            ImporterKind::NodePackage(n) => n.canonicalize(url, ctx, &NoOpWarnLogger).await,
+            ImporterKind::Package(p) => p.canonicalize(io, url, ctx, &NoOpWarnLogger).await,
+            ImporterKind::NodePackage(n) => n.canonicalize(io, url, ctx, &NoOpWarnLogger).await,
         }
     }
 
     #[rust_sass_macros::maybe_async]
-    pub async fn load(&self, url: &SassUrl) -> SassResult<Option<ImporterResult>> {
+    pub async fn load(&self, io: &dyn Io, url: &SassUrl) -> SassResult<Option<ImporterResult>> {
         match self.0 {
-            ImporterKind::Filesystem(f) => f.load(url).await,
+            ImporterKind::Filesystem(f) => f.load(io, url).await,
             ImporterKind::NoOp => NoOpImporter.load(url),
             ImporterKind::User(u) => u.load(url).await,
-            ImporterKind::Package(p) => p.load(url).await,
-            ImporterKind::NodePackage(n) => n.load(url).await,
+            ImporterKind::Package(p) => p.load(io, url).await,
+            ImporterKind::NodePackage(n) => n.load(io, url).await,
         }
     }
 

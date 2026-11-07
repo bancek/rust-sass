@@ -31,7 +31,6 @@ use crate::logger::WarnLogger;
 pub struct FilesystemImporter {
     pub load_path: Option<String>,
     pub load_path_deprecated: bool,
-    pub io: Rc<dyn Io>,
 }
 
 impl fmt::Debug for FilesystemImporter {
@@ -39,7 +38,6 @@ impl fmt::Debug for FilesystemImporter {
         f.debug_struct("FilesystemImporter")
             .field("load_path", &self.load_path)
             .field("load_path_deprecated", &self.load_path_deprecated)
-            .field("io", &"...")
             .finish()
     }
 }
@@ -53,7 +51,6 @@ impl FilesystemImporter {
         FilesystemImporter {
             load_path: Some(abs.to_string_lossy().into_owned()),
             load_path_deprecated: false,
-            io,
         }
     }
 
@@ -68,7 +65,6 @@ impl FilesystemImporter {
         FilesystemImporter {
             load_path: Some(abs),
             load_path_deprecated: true,
-            io,
         }
     }
 
@@ -76,11 +72,10 @@ impl FilesystemImporter {
     /// relative to the current file.
     ///
     /// Matches Dart: `FilesystemImporter.noLoadPath`.
-    pub fn new_no_load_path(io: Rc<dyn Io>) -> Self {
+    pub fn new_no_load_path(_io: Rc<dyn Io>) -> Self {
         FilesystemImporter {
             load_path: None,
             load_path_deprecated: false,
-            io,
         }
     }
 
@@ -124,6 +119,7 @@ impl FilesystemImporter {
     #[rust_sass_macros::maybe_async]
     pub async fn canonicalize<'parse>(
         &self,
+        io: &dyn Io,
         url: &SassUrl,
         ctx: &mut CanonicalizeContext,
         warn_logger: &dyn WarnLogger<'parse>,
@@ -133,7 +129,7 @@ impl FilesystemImporter {
             // retries the original relative URL against the importer chain,
             // where the load-path branch below applies (filesystem.dart).
             let fs_path = url.fs_path();
-            resolve_import_path(&*self.io, &fs_path, ctx.from_import).await?
+            resolve_import_path(io, &fs_path, ctx.from_import).await?
         } else if url.is_relative() {
             // Scheme-less relative URL. Dart resolves it against the load path
             // (`p.join(loadPath, p.fromUri(url))`); an importer without a load
@@ -143,7 +139,7 @@ impl FilesystemImporter {
                 let decoded = crate::url::file_path::decode_relative_path(url.path());
                 let joined = Path::new(load_path).join(decoded);
                 let path_str = joined.to_string_lossy().to_string();
-                let resolved = resolve_import_path(&*self.io, &path_str, ctx.from_import).await?;
+                let resolved = resolve_import_path(io, &path_str, ctx.from_import).await?;
                 if resolved.is_some() && self.load_path_deprecated {
                     warn_logger.warn_deprecation(
                         "Using the current working directory as an implicit load path is \
@@ -163,7 +159,7 @@ impl FilesystemImporter {
             let decoded = crate::url::file_path::decode_relative_path(url.path());
             let joined = Path::new(load_path).join(decoded);
             let path_str = joined.to_string_lossy().to_string();
-            let resolved = resolve_import_path(&*self.io, &path_str, ctx.from_import).await?;
+            let resolved = resolve_import_path(io, &path_str, ctx.from_import).await?;
             if resolved.is_some() && self.load_path_deprecated {
                 warn_logger.warn_deprecation(
                     "Using the current working directory as an implicit load path is \
@@ -181,8 +177,7 @@ impl FilesystemImporter {
         match resolved {
             None => Ok(None),
             Some(resolved_path) => {
-                let canonical = self
-                    .io
+                let canonical = io
                     .canonicalize(Path::new(&resolved_path))
                     .await
                     .map_err(|e| SassError::Script {
@@ -203,7 +198,7 @@ impl FilesystemImporter {
     ///
     /// Matches Dart: `FilesystemImporter.load`.
     #[rust_sass_macros::maybe_async]
-    pub async fn load(&self, url: &SassUrl) -> SassResult<Option<ImporterResult>> {
+    pub async fn load(&self, io: &dyn Io, url: &SassUrl) -> SassResult<Option<ImporterResult>> {
         let path_str = if url.is_file_like() {
             url.fs_path()
         } else {
@@ -213,14 +208,10 @@ impl FilesystemImporter {
             }));
         };
         let path = Path::new(&path_str);
-        let contents = self
-            .io
-            .read_file(path)
-            .await
-            .map_err(|e| SassError::Script {
-                message: e.to_string(),
-                argument_name: None,
-            })?;
+        let contents = io.read_file(path).await.map_err(|e| SassError::Script {
+            message: e.to_string(),
+            argument_name: None,
+        })?;
         let contents_str = String::from_utf8_lossy(&contents).into_owned();
         let syntax = syntax_for_path(path);
         Ok(Some(ImporterResult::new(
@@ -272,7 +263,7 @@ mod tests {
     #[test]
     fn new_constructor_sets_load_path() {
         let io = make_io();
-        let imp = FilesystemImporter::new("/tmp/sass", io);
+        let imp = FilesystemImporter::new("/tmp/sass", Rc::clone(&io));
         assert!(imp.load_path.unwrap().ends_with("sass"));
         assert!(!imp.load_path_deprecated);
     }
@@ -280,14 +271,14 @@ mod tests {
     #[test]
     fn new_cwd_sets_deprecated() {
         let io = make_io();
-        let imp = FilesystemImporter::new_cwd(io);
+        let imp = FilesystemImporter::new_cwd(Rc::clone(&io));
         assert!(imp.load_path_deprecated);
     }
 
     #[test]
     fn new_no_load_path_has_none() {
         let io = make_io();
-        let imp = FilesystemImporter::new_no_load_path(io);
+        let imp = FilesystemImporter::new_no_load_path(Rc::clone(&io));
         assert!(imp.load_path.is_none());
         assert!(!imp.load_path_deprecated);
     }
@@ -295,7 +286,7 @@ mod tests {
     #[test]
     fn is_non_canonical_scheme_always_false() {
         let io = make_io();
-        let imp = FilesystemImporter::new_no_load_path(io);
+        let imp = FilesystemImporter::new_no_load_path(Rc::clone(&io));
         assert!(!imp.is_non_canonical_scheme("file"));
         assert!(!imp.is_non_canonical_scheme("pkg"));
     }
@@ -303,7 +294,7 @@ mod tests {
     #[test]
     fn could_canonicalize_rejects_non_file_urls() {
         let io = make_io();
-        let imp = FilesystemImporter::new_no_load_path(io);
+        let imp = FilesystemImporter::new_no_load_path(Rc::clone(&io));
         let url = SassUrl::parse("http://example.com/style.scss").unwrap();
         let canonical = SassUrl::parse("file:///style.scss").unwrap();
         assert!(!imp.could_canonicalize(&url, &canonical));
@@ -312,7 +303,7 @@ mod tests {
     #[test]
     fn could_canonicalize_matches_basename() {
         let io = make_io();
-        let imp = FilesystemImporter::new_no_load_path(io);
+        let imp = FilesystemImporter::new_no_load_path(Rc::clone(&io));
         let url = SassUrl::parse("file:///foo/bar/style.scss").unwrap();
         let canonical = SassUrl::parse("file:///baz/style.scss").unwrap();
         assert!(imp.could_canonicalize(&url, &canonical));
@@ -321,7 +312,7 @@ mod tests {
     #[test]
     fn could_canonicalize_allows_partial_prefix() {
         let io = make_io();
-        let imp = FilesystemImporter::new_no_load_path(io);
+        let imp = FilesystemImporter::new_no_load_path(Rc::clone(&io));
         let url = SassUrl::parse("file:///foo/style.scss").unwrap();
         let canonical = SassUrl::parse("file:///foo/_style.scss").unwrap();
         assert!(imp.could_canonicalize(&url, &canonical));
@@ -330,7 +321,7 @@ mod tests {
     #[test]
     fn could_canonicalize_ignores_extension() {
         let io = make_io();
-        let imp = FilesystemImporter::new_no_load_path(io);
+        let imp = FilesystemImporter::new_no_load_path(Rc::clone(&io));
         let url = SassUrl::parse("file:///foo/style").unwrap();
         let canonical = SassUrl::parse("file:///foo/style.scss").unwrap();
         assert!(imp.could_canonicalize(&url, &canonical));
@@ -350,14 +341,14 @@ mod tests {
         let io: Rc<dyn Io> = Rc::new(VirtualIo::with_files(files));
         // `FilesystemImporter::new` joins the load path onto the CWD
         // (`VirtualIo` CWD is `/`), so pass the absolute path through.
-        let imp = FilesystemImporter::new("lp", io);
+        let imp = FilesystemImporter::new("lp", Rc::clone(&io));
         let ctx_url = SassUrl::parse("file:///ctx/main.scss").unwrap();
 
         // Scheme-less relative URL: resolves under the load path.
         let relative = SassUrl::parse("real").unwrap();
         let mut ctx = CanonicalizeContext::new(Some(ctx_url.clone()), false);
         let result = imp
-            .canonicalize(&relative, &mut ctx, &NoOpWarnLogger)
+            .canonicalize(&*io, &relative, &mut ctx, &NoOpWarnLogger)
             .await
             .unwrap();
         assert_eq!(
@@ -370,7 +361,7 @@ mod tests {
         let missing = SassUrl::parse("file:///ctx/real").unwrap();
         let mut ctx = CanonicalizeContext::new(Some(ctx_url.clone()), false);
         let missing_result = imp
-            .canonicalize(&missing, &mut ctx, &NoOpWarnLogger)
+            .canonicalize(&*io, &missing, &mut ctx, &NoOpWarnLogger)
             .await
             .unwrap();
         assert!(missing_result.is_none());
@@ -380,7 +371,7 @@ mod tests {
         let abs_url = SassUrl::parse("file:///abs/real.scss").unwrap();
         let mut ctx = CanonicalizeContext::new(Some(ctx_url), false);
         let result = imp
-            .canonicalize(&abs_url, &mut ctx, &NoOpWarnLogger)
+            .canonicalize(&*io, &abs_url, &mut ctx, &NoOpWarnLogger)
             .await
             .unwrap();
         assert_eq!(

@@ -5074,7 +5074,12 @@ mod tests {
     {
         let (config, mut state) = test_visitor_with_root_and_stylesheet(arena, false);
         let empty_importers: Vec<Importer<'parse>> = vec![];
-        state.import_cache = Some(ImportCache::new(arena, empty_importers, false));
+        state.import_cache = Some(ImportCache::new(
+            arena,
+            empty_importers,
+            false,
+            Rc::new(VirtualIo::new()),
+        ));
         (config, state)
     }
 

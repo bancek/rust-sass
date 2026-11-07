@@ -67,7 +67,10 @@ impl UserImporter for FileImporter {
     ) -> LocalBoxFuture<'a, SassResult<Option<SassUrl>>> {
         if url.scheme() == "file" {
             let fs = &self.fs;
-            return Box::pin(async move { fs.canonicalize(url, context, &NoOpWarnLogger).await });
+            let io = &*self.ctx.io;
+            return Box::pin(
+                async move { fs.canonicalize(io, url, context, &NoOpWarnLogger).await },
+            );
         }
 
         let request = OutboundMessage {
@@ -85,6 +88,7 @@ impl UserImporter for FileImporter {
         };
         let ctx = self.ctx.clone();
         let fs = self.fs.clone();
+        let io = self.ctx.io.clone();
         Box::pin(async move {
             let response = ctx.send_and_wait(&request).await?;
             let response = match response {
@@ -102,7 +106,8 @@ impl UserImporter for FileImporter {
                             "The file importer must return a file: URL, was \"{file_url}\""
                         )));
                     }
-                    fs.canonicalize(&file_url, context, &NoOpWarnLogger).await
+                    fs.canonicalize(&*io, &file_url, context, &NoOpWarnLogger)
+                        .await
                 }
                 Some(file_import_response::Result::Error(e)) => Err(script(&e)),
                 None => Ok(None),
@@ -115,7 +120,8 @@ impl UserImporter for FileImporter {
         url: &'a SassUrl,
     ) -> LocalBoxFuture<'a, SassResult<Option<ImporterResult>>> {
         let fs = &self.fs;
-        Box::pin(async move { fs.load(url).await })
+        let io = self.ctx.io.clone();
+        Box::pin(async move { fs.load(&*io, url).await })
     }
 
     fn could_canonicalize(&self, _url: &SassUrl, _base_url: &SassUrl) -> bool {
