@@ -687,7 +687,6 @@ where
         state.stylesheet = Some(stylesheet);
         state.extension_store = Some(DefaultExtensionStore::new(
             ExtendMode::Normal,
-            config.io.clone(),
             config.unicode,
         ));
 

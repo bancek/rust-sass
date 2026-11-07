@@ -30,7 +30,6 @@ use indexmap::IndexMap;
 use crate::ast::css::media_query::CssMediaQuery;
 use crate::ast::sass::statement::extend_rule::ExtendRule;
 use crate::common::exception::{SassError, SassResult};
-use crate::io::Io;
 use crate::selector::complex::ComplexSelector;
 use crate::selector::complex_component::ComplexSelectorComponent;
 use crate::selector::compound::CompoundSelector;
@@ -164,18 +163,23 @@ pub enum ExtensionStore<'parse> {
     Empty,
 }
 
+impl<'parse> Default for ExtensionStore<'parse> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl<'parse> ExtensionStore<'parse> {
-    pub fn new(io: Rc<dyn Io>) -> Self {
+    pub fn new() -> Self {
         ExtensionStore::Default(Rc::new(RefCell::new(DefaultExtensionStore::new(
             ExtendMode::Normal,
-            io,
             true,
         ))))
     }
 
-    pub fn new_with_mode(mode: ExtendMode, io: Rc<dyn Io>, unicode: bool) -> Self {
+    pub fn new_with_mode(mode: ExtendMode, unicode: bool) -> Self {
         ExtensionStore::Default(Rc::new(RefCell::new(DefaultExtensionStore::new(
-            mode, io, unicode,
+            mode, unicode,
         ))))
     }
 
@@ -351,12 +355,11 @@ pub struct DefaultExtensionStore<'parse> {
     pub(crate) originals: HashSet<ComplexSelector<'parse>>,
     /// The mode that controls this store's behavior.
     pub(crate) mode: ExtendMode,
-    pub(crate) io: Rc<dyn Io>,
     pub(crate) unicode: bool,
 }
 
 impl<'parse> DefaultExtensionStore<'parse> {
-    pub fn new(mode: ExtendMode, io: Rc<dyn Io>, unicode: bool) -> Self {
+    pub fn new(mode: ExtendMode, unicode: bool) -> Self {
         DefaultExtensionStore {
             selectors: IndexMap::new(),
             extensions: IndexMap::new(),
@@ -365,7 +368,6 @@ impl<'parse> DefaultExtensionStore<'parse> {
             source_specificity: IndexMap::new(),
             originals: HashSet::new(),
             mode,
-            io,
             unicode,
         }
     }
@@ -386,7 +388,6 @@ impl<'parse> DefaultExtensionStore<'parse> {
         media_contexts: HashMap<MutableBox<SelectorList<'parse>>, Vec<CssMediaQuery<'parse>>>,
         source_specificity: IndexMap<SimpleSelector<'parse>, usize>,
         originals: HashSet<ComplexSelector<'parse>>,
-        io: Rc<dyn Io>,
         unicode: bool,
     ) -> Self {
         DefaultExtensionStore {
@@ -397,7 +398,6 @@ impl<'parse> DefaultExtensionStore<'parse> {
             source_specificity,
             originals,
             mode: ExtendMode::Normal,
-            io,
             unicode,
         }
     }
@@ -632,7 +632,7 @@ impl<'parse> DefaultExtensionStore<'parse> {
         mode: ExtendMode,
         span: FileSpan<'parse>,
     ) -> SassResult<SelectorList<'parse>> {
-        let mut extender = DefaultExtensionStore::new(mode, self.io.clone(), self.unicode);
+        let mut extender = DefaultExtensionStore::new(mode, self.unicode);
         if !sel.is_invisible() {
             for c in &sel.0.components {
                 extender.originals.insert(c.clone());
@@ -855,7 +855,6 @@ impl<'parse> DefaultExtensionStore<'parse> {
             new_mcs,
             new_ss,
             new_orig,
-            self.io.clone(),
             self.unicode,
         );
 
@@ -1684,9 +1683,8 @@ pub fn extend_static<'compile: 'parse, 'parse>(
     source: &SelectorList<'parse>,
     targets: &SelectorList<'parse>,
     span: FileSpan<'parse>,
-    io: Rc<dyn Io>,
 ) -> SassResult<SelectorList<'parse>> {
-    let store = DefaultExtensionStore::new(ExtendMode::AllTargets, io, true);
+    let store = DefaultExtensionStore::new(ExtendMode::AllTargets, true);
     store.extend_or_replace(arena, sel, source, targets, ExtendMode::AllTargets, span)
 }
 
@@ -1696,9 +1694,8 @@ pub fn replace_static<'compile: 'parse, 'parse>(
     source: &SelectorList<'parse>,
     targets: &SelectorList<'parse>,
     span: FileSpan<'parse>,
-    io: Rc<dyn Io>,
 ) -> SassResult<SelectorList<'parse>> {
-    let store = DefaultExtensionStore::new(ExtendMode::Replace, io, true);
+    let store = DefaultExtensionStore::new(ExtendMode::Replace, true);
     store.extend_or_replace(arena, sel, source, targets, ExtendMode::Replace, span)
 }
 
@@ -1779,7 +1776,6 @@ mod tests {
     use crate::ast::sass::statement::extend_rule::ExtendRule;
     use crate::common::ast_css_value::CssValue;
     use crate::common::file_span::BOGUS_SPAN;
-    use crate::io::VirtualIo;
     use crate::selector::class::ClassSelector;
     use crate::selector::combinator::Combinator;
     use crate::selector::complex::ComplexSelector;
@@ -1845,14 +1841,14 @@ mod tests {
 
     #[test]
     fn test_is_empty() {
-        let store = ExtensionStore::new(Rc::new(VirtualIo::new()));
+        let store = ExtensionStore::new();
         assert!(store.is_empty());
     }
 
     #[test]
     fn test_is_empty_after_add_extension() {
         let arena = Bump::new();
-        let store = ExtensionStore::new(Rc::new(VirtualIo::new()));
+        let store = ExtensionStore::new();
         let extender = make_complex("a");
         let sel = make_selector_list(&arena, vec![extender]);
         let target = class("b");
@@ -1865,7 +1861,7 @@ mod tests {
     #[test]
     fn test_simple_selectors() {
         let arena = Bump::new();
-        let store = ExtensionStore::new(Rc::new(VirtualIo::new()));
+        let store = ExtensionStore::new();
         let complex = make_complex("a");
         let sel = make_selector_list(&arena, vec![complex]);
         store.add_selector(&arena, &sel, None).unwrap();
@@ -1880,7 +1876,7 @@ mod tests {
     #[test]
     fn test_add_selector_no_extensions() {
         let arena = Bump::new();
-        let store = ExtensionStore::new(Rc::new(VirtualIo::new()));
+        let store = ExtensionStore::new();
         let complex = make_complex("a");
         let sel = make_selector_list(&arena, vec![complex.clone()]);
         let result = store.add_selector(&arena, &sel, None).unwrap();
@@ -1890,7 +1886,7 @@ mod tests {
     #[test]
     fn test_add_selector_with_extension() {
         let arena = Bump::new();
-        let store = ExtensionStore::new(Rc::new(VirtualIo::new()));
+        let store = ExtensionStore::new();
 
         // .a { @extend .b; }
         let extender = make_complex("a");
@@ -1917,7 +1913,7 @@ mod tests {
     #[test]
     fn test_retroactive() {
         let arena = Bump::new();
-        let store = ExtensionStore::new(Rc::new(VirtualIo::new()));
+        let store = ExtensionStore::new();
 
         // Register .b first
         let complex_b = make_complex("b");
@@ -1952,7 +1948,7 @@ mod tests {
     #[test]
     fn test_chained_extension() {
         let arena = Bump::new();
-        let store = ExtensionStore::new(Rc::new(VirtualIo::new()));
+        let store = ExtensionStore::new();
 
         // .a extends .b — .a is now an extender for .b
         let ext_a = make_complex("a");
@@ -1997,7 +1993,7 @@ mod tests {
     #[test]
     fn test_useless_extender() {
         let arena = Bump::new();
-        let store = ExtensionStore::new(Rc::new(VirtualIo::new()));
+        let store = ExtensionStore::new();
 
         // Useless: >1 leading combinator
         let c1 = CompoundSelector::new(vec![class("a")], BOGUS_SPAN).unwrap();
@@ -2032,7 +2028,7 @@ mod tests {
     #[test]
     fn test_complex_extension() {
         let arena = Bump::new();
-        let store = ExtensionStore::new(Rc::new(VirtualIo::new()));
+        let store = ExtensionStore::new();
 
         // .x > .y { @extend .z; }
         let extender = make_complex_with_combinator("x", "y");
@@ -2061,7 +2057,7 @@ mod tests {
     #[test]
     fn test_clone() {
         let arena = Bump::new();
-        let store = ExtensionStore::new(Rc::new(VirtualIo::new()));
+        let store = ExtensionStore::new();
         let complex_a = make_complex("a");
         let sel = make_selector_list(&arena, vec![complex_a]);
         store.add_selector(&arena, &sel, None).unwrap();
@@ -2079,8 +2075,8 @@ mod tests {
     #[test]
     fn test_add_extensions() {
         let arena = Bump::new();
-        let store1 = ExtensionStore::new(Rc::new(VirtualIo::new()));
-        let store2 = ExtensionStore::new(Rc::new(VirtualIo::new()));
+        let store1 = ExtensionStore::new();
+        let store2 = ExtensionStore::new();
 
         // store2 has .a { @extend .b; }
         let ext_a = make_complex("a");
@@ -2112,8 +2108,8 @@ mod tests {
     #[test]
     fn test_add_extensions_private_placeholder() {
         let arena = Bump::new();
-        let store1 = ExtensionStore::new(Rc::new(VirtualIo::new()));
-        let store2 = ExtensionStore::new(Rc::new(VirtualIo::new()));
+        let store1 = ExtensionStore::new();
+        let store2 = ExtensionStore::new();
 
         // store2 has .a { @extend %_private; }
         let ext_a = make_complex("a");
@@ -2140,7 +2136,7 @@ mod tests {
     #[test]
     fn test_extensions_where_target() {
         let arena = Bump::new();
-        let store = ExtensionStore::new(Rc::new(VirtualIo::new()));
+        let store = ExtensionStore::new();
 
         let ext_a = make_complex("a");
         store
@@ -2162,7 +2158,7 @@ mod tests {
     #[test]
     fn test_extensions_where_target_optional() {
         let arena = Bump::new();
-        let store = ExtensionStore::new(Rc::new(VirtualIo::new()));
+        let store = ExtensionStore::new();
 
         let ext_a = make_complex("a");
         store
@@ -2189,15 +2185,7 @@ mod tests {
         let targets = make_selector_list(&arena, vec![make_complex("b")]);
         let sel = make_selector_list(&arena, vec![make_complex("b")]);
 
-        let result = extend_static(
-            &arena,
-            &sel,
-            &source,
-            &targets,
-            BOGUS_SPAN,
-            Rc::new(VirtualIo::new()),
-        )
-        .unwrap();
+        let result = extend_static(&arena, &sel, &source, &targets, BOGUS_SPAN).unwrap();
         assert!(
             has_class(&result, "a"),
             "expected .a in extendStatic result"
@@ -2211,15 +2199,7 @@ mod tests {
         let targets = make_selector_list(&arena, vec![make_complex("b")]);
         let sel = make_selector_list(&arena, vec![make_complex("b")]);
 
-        let result = replace_static(
-            &arena,
-            &sel,
-            &source,
-            &targets,
-            BOGUS_SPAN,
-            Rc::new(VirtualIo::new()),
-        )
-        .unwrap();
+        let result = replace_static(&arena, &sel, &source, &targets, BOGUS_SPAN).unwrap();
         assert!(
             !has_class(&result, "b"),
             "replace mode should not keep original .b"
@@ -2233,7 +2213,7 @@ mod tests {
     #[test]
     fn test_media_context() {
         let arena = Bump::new();
-        let store = ExtensionStore::new(Rc::new(VirtualIo::new()));
+        let store = ExtensionStore::new();
 
         // .a { @extend .b; } inside @media screen
         let extender = make_complex("a");
@@ -2267,7 +2247,7 @@ mod tests {
     #[test]
     fn test_seal_box() {
         let arena = Bump::new();
-        let store = ExtensionStore::new(Rc::new(VirtualIo::new()));
+        let store = ExtensionStore::new();
         let complex = make_complex("a");
         let sel = make_selector_list(&arena, vec![complex]);
         let sealed = store.add_selector(&arena, &sel, None).unwrap();

@@ -386,7 +386,6 @@ mod tests {
     use crate::common::ast_css_value::CssValue;
     use crate::common::file_span::{FileSpan, BOGUS_SPAN};
     use crate::common::source_span_file_source::FileSource;
-    use crate::io::VirtualIo;
     use crate::selector::class::ClassSelector;
     use crate::selector::complex::ComplexSelector;
     use crate::selector::complex_component::ComplexSelectorComponent;
@@ -453,7 +452,7 @@ mod tests {
     fn test_clone_css_stylesheet_empty() {
         let arena = Bump::new();
         let sheet = make_stylesheet(&arena);
-        let store = ExtensionStore::new(Rc::new(VirtualIo::new()));
+        let store = ExtensionStore::new();
 
         let (result, _) = clone_css_stylesheet(&arena, &sheet, &store).unwrap();
         assert_eq!(result.children().unwrap().len(), 0);
@@ -469,7 +468,7 @@ mod tests {
             ModifiableCssNodeKind::Comment(ModifiableCssComment::new("/* hello */".into(), span)),
         );
         sheet.add_child(&comment).unwrap();
-        let store = ExtensionStore::new(Rc::new(VirtualIo::new()));
+        let store = ExtensionStore::new();
 
         let (result, _) = clone_css_stylesheet(&arena, &sheet, &store).unwrap();
         let children = result.children().unwrap();
@@ -501,7 +500,7 @@ mod tests {
             ),
         );
         sheet.add_child(&decl).unwrap();
-        let store = ExtensionStore::new(Rc::new(VirtualIo::new()));
+        let store = ExtensionStore::new();
 
         let (result, _) = clone_css_stylesheet(&arena, &sheet, &store).unwrap();
         let children = result.children().unwrap();
@@ -530,7 +529,7 @@ mod tests {
             }),
         );
         sheet.add_child(&imp).unwrap();
-        let store = ExtensionStore::new(Rc::new(VirtualIo::new()));
+        let store = ExtensionStore::new();
 
         let (result, _) = clone_css_stylesheet(&arena, &sheet, &store).unwrap();
         let children = result.children().unwrap();
@@ -555,7 +554,7 @@ mod tests {
             ModifiableCssNodeKind::AtRule(ModifiableCssAtRule::new(name, span, true, None)),
         );
         sheet.add_child(&at_rule).unwrap();
-        let store = ExtensionStore::new(Rc::new(VirtualIo::new()));
+        let store = ExtensionStore::new();
 
         let (result, _) = clone_css_stylesheet(&arena, &sheet, &store).unwrap();
         assert_eq!(result.children().unwrap().len(), 1);
@@ -577,7 +576,7 @@ mod tests {
         );
         at_rule.add_child(&comment).unwrap();
         sheet.add_child(&at_rule).unwrap();
-        let store = ExtensionStore::new(Rc::new(VirtualIo::new()));
+        let store = ExtensionStore::new();
 
         let (result, _) = clone_css_stylesheet(&arena, &sheet, &store).unwrap();
         let children = result.children().unwrap();
@@ -594,7 +593,7 @@ mod tests {
     #[test]
     fn test_clone_css_stylesheet_style_rule() {
         let arena = Bump::new();
-        let store = ExtensionStore::new(Rc::new(VirtualIo::new()));
+        let store = ExtensionStore::new();
         let sel = make_selector_list(&arena, ".foo");
         let store_box = store.add_selector(&arena, &sel, None).unwrap();
         let span = make_span(&arena, "test");
@@ -632,7 +631,7 @@ mod tests {
         );
         media.add_child(&comment).unwrap();
         sheet.add_child(&media).unwrap();
-        let store = ExtensionStore::new(Rc::new(VirtualIo::new()));
+        let store = ExtensionStore::new();
 
         let (result, _) = clone_css_stylesheet(&arena, &sheet, &store).unwrap();
         let children = result.children().unwrap();
@@ -662,7 +661,7 @@ mod tests {
         );
         supports.add_child(&comment).unwrap();
         sheet.add_child(&supports).unwrap();
-        let store = ExtensionStore::new(Rc::new(VirtualIo::new()));
+        let store = ExtensionStore::new();
 
         let (result, _) = clone_css_stylesheet(&arena, &sheet, &store).unwrap();
         let children = result.children().unwrap();
@@ -693,7 +692,7 @@ mod tests {
         );
         block.add_child(&comment).unwrap();
         sheet.add_child(&block).unwrap();
-        let store = ExtensionStore::new(Rc::new(VirtualIo::new()));
+        let store = ExtensionStore::new();
 
         let (result, _) = clone_css_stylesheet(&arena, &sheet, &store).unwrap();
         let children = result.children().unwrap();
@@ -710,7 +709,7 @@ mod tests {
     #[test]
     fn test_clone_css_stylesheet_nested() {
         let arena = Bump::new();
-        let store = ExtensionStore::new(Rc::new(VirtualIo::new()));
+        let store = ExtensionStore::new();
         let sel_outer = make_selector_list(&arena, ".outer");
         let store_box_outer = store.add_selector(&arena, &sel_outer, None).unwrap();
         let span = make_span(&arena, "test");
@@ -765,7 +764,7 @@ mod tests {
         );
         comment.set_is_group_end(true);
         sheet.add_child(&comment).unwrap();
-        let store = ExtensionStore::new(Rc::new(VirtualIo::new()));
+        let store = ExtensionStore::new();
 
         let (result, _) = clone_css_stylesheet(&arena, &sheet, &store).unwrap();
         let children = result.children().unwrap();
@@ -785,7 +784,7 @@ mod tests {
             )),
         );
         sheet.add_child(&comment).unwrap();
-        let store = ExtensionStore::new(Rc::new(VirtualIo::new()));
+        let store = ExtensionStore::new();
 
         let (result, _) = clone_css_stylesheet(&arena, &sheet, &store).unwrap();
 

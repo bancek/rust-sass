@@ -3418,7 +3418,6 @@ where
     state.out_of_order_imports.clear();
     state.extension_store = Some(DefaultExtensionStore::new(
         ExtendMode::Normal,
-        config.io.clone(),
         config.unicode,
     ));
     state.pre_module_comments = None;
@@ -4314,7 +4313,6 @@ mod tests {
         state.parent = Some(root);
         state.extension_store = Some(DefaultExtensionStore::new(
             ExtendMode::Normal,
-            config.io.clone(),
             config.unicode,
         ));
         (config, state)

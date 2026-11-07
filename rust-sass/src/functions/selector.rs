@@ -800,14 +800,7 @@ where
         Some(&mut WarnLoggerAdapter { config, state } as &mut dyn WarnLogger),
     )?;
     let current_callable_span = state.callable_span.unwrap_or(BOGUS_SPAN);
-    let result = extend_static(
-        arena,
-        &sel,
-        &source,
-        &target,
-        current_callable_span,
-        config.io.clone(),
-    )?;
+    let result = extend_static(arena, &sel, &source, &target, current_callable_span)?;
     result.as_sass_list(arena)
 }
 
@@ -879,14 +872,7 @@ where
         Some(&mut WarnLoggerAdapter { config, state } as &mut dyn WarnLogger),
     )?;
     let current_callable_span = state.callable_span.unwrap_or(BOGUS_SPAN);
-    let result = replace_static(
-        arena,
-        &sel,
-        &source,
-        &target,
-        current_callable_span,
-        config.io.clone(),
-    )?;
+    let result = replace_static(arena, &sel, &source, &target, current_callable_span)?;
     result.as_sass_list(arena)
 }
 
