@@ -794,14 +794,14 @@ fn read_accessed_argument_lists(envelope: &JsValue) -> SassResult<Vec<u32>> {
 /// Reads the `{value, accessedArgumentLists}` envelope returned by the shim's
 /// wrapped JS function and converts it to a Sass value.
 fn parse_function_result<'compile: 'parse, 'parse: 'compile>(
-    ctx: &MarshallingContext<'parse>,
+    ctx: &'parse MarshallingContext<'parse>,
     arena: &'compile Bump,
     envelope: &JsValue,
 ) -> SassResult<Value<'parse>> {
     let accessed = read_accessed_argument_lists(envelope)?;
     let value = Reflect::get(envelope, &JsValue::from_str("value"))
         .map_err(|e| script(format!("function result is missing a value: {e:?}")))?;
-    let host_builder = host_function_builder(ctx.clone());
+    let host_builder = host_function_builder(ctx);
     value_from_js_with_accessed(ctx, arena, &value, &accessed, &*host_builder)
 }
 
@@ -812,20 +812,20 @@ fn parse_function_result<'compile: 'parse, 'parse: 'compile>(
 pub fn make_host_callable<'compile: 'parse, 'parse>(
     signature: &str,
     js_fn: js_sys::Function,
-    ctx: MarshallingContext<'parse>,
+    ctx: &'parse MarshallingContext<'parse>,
     arena: &'compile Bump,
 ) -> SassResult<BuiltInCallable<'compile, 'parse>> {
     let (name, params) = split_signature(signature)?;
     let cb: SyncBuiltInCallback<'compile, 'parse> =
         rust_sass::callable::built_in_callback(arena, move |_config, _state, args, arena| {
-            let js_args = args_to_js(&ctx, &args)?;
+            let js_args = args_to_js(ctx, &args)?;
             let result = call_js(&js_fn, &js_args)?;
             if is_promise(&result) {
                 return Err(script(
                     "can't return a Promise for synchronous compile functions",
                 ));
             }
-            parse_function_result(&ctx, arena, &result)
+            parse_function_result(ctx, arena, &result)
         });
     Ok(BuiltInCallable::function(&name, &params, "", arena, cb))
 }
@@ -837,7 +837,7 @@ pub fn make_host_callable<'compile: 'parse, 'parse>(
 pub fn make_host_callable<'compile: 'parse, 'parse>(
     signature: &str,
     js_fn: js_sys::Function,
-    ctx: MarshallingContext<'parse>,
+    ctx: &'parse MarshallingContext<'parse>,
     arena: &'compile Bump,
 ) -> SassResult<BuiltInCallable<'compile, 'parse>> {
     let (name, params) = split_signature(signature)?;
@@ -849,9 +849,8 @@ pub fn make_host_callable<'compile: 'parse, 'parse>(
               args,
               _call_arena|
               -> LocalBoxFuture<'_, SassResult<Value<'parse>>> {
-            let ctx = ctx.clone();
             let js_fn = js_fn.clone();
-            let js_args = match args_to_js(&ctx, &args) {
+            let js_args = match args_to_js(ctx, &args) {
                 Ok(a) => a,
                 Err(e) => return Box::pin(async move { Err(e) }),
             };
@@ -865,7 +864,7 @@ pub fn make_host_callable<'compile: 'parse, 'parse>(
                 } else {
                     result
                 };
-                parse_function_result(&ctx, arena, &result)
+                parse_function_result(ctx, arena, &result)
             })
         },
     );
@@ -877,7 +876,7 @@ pub fn make_host_callable<'compile: 'parse, 'parse>(
 /// Builds a host-defined `Callable` for a JS-created `SassFunction(signature,
 /// callback)` value (the wire format's `hostFunction`).
 pub fn host_function_builder<'compile: 'parse, 'parse>(
-    ctx: MarshallingContext<'parse>,
+    ctx: &'parse MarshallingContext<'parse>,
 ) -> Box<HostFunctionBuilder<'compile, 'parse>> {
     Box::new(
         move |signature: &str, callback: &JsValue, arena: &'compile Bump| {
@@ -885,7 +884,7 @@ pub fn host_function_builder<'compile: 'parse, 'parse>(
                 .clone()
                 .dyn_into::<js_sys::Function>()
                 .map_err(|_| script("host function callback is not a function"))?;
-            let callable = make_host_callable(signature, js_fn, ctx.clone(), arena)?;
+            let callable = make_host_callable(signature, js_fn, ctx, arena)?;
             Ok(Callable::new(arena, CallableKind::BuiltIn(callable)))
         },
     )

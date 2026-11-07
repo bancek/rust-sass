@@ -842,6 +842,7 @@ dependencies = [
 name = "rust-sass-wasm"
 version = "1.106.1"
 dependencies = [
+ "allocator-api2",
  "futures",
  "getrandom",
  "indexmap",

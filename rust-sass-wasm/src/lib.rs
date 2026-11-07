@@ -33,7 +33,7 @@ pub async fn compile_string_js(source: &str, options: &JsValue) -> Result<JsValu
     let arena = Bump::new();
     let io = make_io(options);
     let hl = error::highlight_from_options(options);
-    let ctx = marshaller::MarshallingContext::new();
+    let ctx = arena.alloc(marshaller::MarshallingContext::new_in(&arena));
     let opts = match options::parse_options(&arena, options, io.clone(), ctx) {
         Ok(o) => o,
         Err(e) => return Err(error::sass_error_to_js(&e, &*io, hl)),
@@ -55,7 +55,7 @@ pub async fn compile_js(path: &str, options: &JsValue) -> Result<JsValue, JsValu
     let arena = Bump::new();
     let io = make_io(options);
     let hl = error::highlight_from_options(options);
-    let ctx = marshaller::MarshallingContext::new();
+    let ctx = arena.alloc(marshaller::MarshallingContext::new_in(&arena));
     let opts = match options::parse_options(&arena, options, io.clone(), ctx) {
         Ok(o) => o,
         Err(e) => return Err(error::sass_error_to_js(&e, &*io, hl)),
@@ -81,7 +81,7 @@ pub async fn compile_bytes_js(source: &[u8], options: &JsValue) -> Result<JsValu
     let arena = Bump::new();
     let io = make_io(options);
     let hl = error::highlight_from_options(options);
-    let ctx = marshaller::MarshallingContext::new();
+    let ctx = arena.alloc(marshaller::MarshallingContext::new_in(&arena));
     let opts = match options::parse_options(&arena, options, io.clone(), ctx) {
         Ok(o) => o,
         Err(e) => return Err(error::sass_error_to_js(&e, &*io, hl)),

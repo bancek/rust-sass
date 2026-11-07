@@ -8,8 +8,8 @@
 // dart-source: lib/src/embedded/protofier.dart
 // go-source: go/embedded/protofier.go  (via rust-sass-embedded/src/protofier.rs)
 
+use allocator_api2::vec::Vec as ArenaVec;
 use std::cell::RefCell;
-use std::rc::Rc;
 
 use indexmap::IndexMap;
 use js_sys::{Array, Object, Reflect};
@@ -36,20 +36,23 @@ pub(crate) fn script(message: impl Into<String>) -> Box<SassError> {
 
 /// Per-compilation opaque registries used while marshalling values across the
 /// JS boundary: argument lists (1-based ids) and function/mixin references
-/// (0-based ids). Shared (Rc<RefCell>) so function callbacks and importers can
-/// borrow it. Lives for exactly one compilation (dropped with the compile).
-/// `Clone` shares the registries (Rc clone) — used to move into callbacks.
-#[derive(Default, Clone)]
+/// (0-based ids). Allocated in the arena and borrowed by function callbacks
+/// and importers, so nothing here owns heap memory.
 pub struct MarshallingContext<'parse> {
-    argument_lists: Rc<RefCell<Vec<SassValue<'parse>>>>,
-    functions: Rc<RefCell<Vec<SassFunction<'parse>>>>,
-    mixins: Rc<RefCell<Vec<SassMixin<'parse>>>>,
-    modules: Rc<RefCell<Vec<SassModule<'parse>>>>,
+    argument_lists: RefCell<ArenaVec<SassValue<'parse>, &'parse Bump>>,
+    functions: RefCell<ArenaVec<SassFunction<'parse>, &'parse Bump>>,
+    mixins: RefCell<ArenaVec<SassMixin<'parse>, &'parse Bump>>,
+    modules: RefCell<ArenaVec<SassModule<'parse>, &'parse Bump>>,
 }
 
 impl<'parse> MarshallingContext<'parse> {
-    pub fn new() -> Self {
-        Self::default()
+    pub fn new_in(arena: &'parse Bump) -> Self {
+        MarshallingContext {
+            argument_lists: RefCell::new(ArenaVec::new_in(arena)),
+            functions: RefCell::new(ArenaVec::new_in(arena)),
+            mixins: RefCell::new(ArenaVec::new_in(arena)),
+            modules: RefCell::new(ArenaVec::new_in(arena)),
+        }
     }
 
     /// Marks the keywords of the argument lists with the given 1-based ids as
@@ -765,8 +768,8 @@ fn get_missing(obj: &JsValue, c1: bool, c2: bool, c3: bool, alpha: bool) -> Sass
 mod tests {
     use super::*;
 
-    fn test_ctx<'p>() -> MarshallingContext<'p> {
-        MarshallingContext::new()
+    fn test_ctx<'p>(arena: &'p Bump) -> &'p MarshallingContext<'p> {
+        arena.alloc(MarshallingContext::new_in(arena))
     }
 
     fn roundtrip<'compile: 'parse, 'parse: 'compile>(
@@ -806,14 +809,14 @@ mod tests {
     #[wasm_bindgen_test::wasm_bindgen_test]
     fn roundtrip_boolean() {
         let arena = Bump::new();
-        let ctx = test_ctx();
+        let ctx = test_ctx(&arena);
         roundtrip(
-            &ctx,
+            ctx,
             &arena,
             SassValue::new_with_arena(&arena, ValueKind::Boolean(SASS_TRUE)),
         );
         roundtrip(
-            &ctx,
+            ctx,
             &arena,
             SassValue::new_with_arena(&arena, ValueKind::Boolean(SASS_FALSE)),
         );
@@ -822,9 +825,9 @@ mod tests {
     #[wasm_bindgen_test::wasm_bindgen_test]
     fn roundtrip_null() {
         let arena = Bump::new();
-        let ctx = test_ctx();
+        let ctx = test_ctx(&arena);
         roundtrip(
-            &ctx,
+            ctx,
             &arena,
             SassValue::new_with_arena(&arena, ValueKind::Null),
         );
@@ -833,9 +836,9 @@ mod tests {
     #[wasm_bindgen_test::wasm_bindgen_test]
     fn roundtrip_string() {
         let arena = Bump::new();
-        let ctx = test_ctx();
+        let ctx = test_ctx(&arena);
         roundtrip(
-            &ctx,
+            ctx,
             &arena,
             SassValue::new_with_arena(
                 &arena,
@@ -843,7 +846,7 @@ mod tests {
             ),
         );
         roundtrip(
-            &ctx,
+            ctx,
             &arena,
             SassValue::new_with_arena(
                 &arena,
@@ -855,9 +858,9 @@ mod tests {
     #[wasm_bindgen_test::wasm_bindgen_test]
     fn roundtrip_number() {
         let arena = Bump::new();
-        let ctx = test_ctx();
+        let ctx = test_ctx(&arena);
         roundtrip(
-            &ctx,
+            ctx,
             &arena,
             SassValue::new_with_arena(
                 &arena,
@@ -869,7 +872,7 @@ mod tests {
             ),
         );
         roundtrip(
-            &ctx,
+            ctx,
             &arena,
             SassValue::new_with_arena(&arena, ValueKind::Number(SassNumber::new(42.0, None))),
         );
@@ -878,14 +881,14 @@ mod tests {
     #[wasm_bindgen_test::wasm_bindgen_test]
     fn roundtrip_color() {
         let arena = Bump::new();
-        let ctx = test_ctx();
+        let ctx = test_ctx(&arena);
         roundtrip(
-            &ctx,
+            ctx,
             &arena,
             SassValue::new_with_arena(&arena, ValueKind::Color(rgb(1.0, 2.0, 3.0, 0.5))),
         );
         roundtrip(
-            &ctx,
+            ctx,
             &arena,
             SassValue::new_with_arena(
                 &arena,
@@ -902,9 +905,9 @@ mod tests {
     #[wasm_bindgen_test::wasm_bindgen_test]
     fn roundtrip_list() {
         let arena = Bump::new();
-        let ctx = test_ctx();
+        let ctx = test_ctx(&arena);
         roundtrip(
-            &ctx,
+            ctx,
             &arena,
             SassValue::new_with_arena(
                 &arena,
@@ -925,7 +928,7 @@ mod tests {
             ),
         );
         roundtrip(
-            &ctx,
+            ctx,
             &arena,
             SassValue::new_with_arena(
                 &arena,
@@ -937,9 +940,9 @@ mod tests {
     #[wasm_bindgen_test::wasm_bindgen_test]
     fn roundtrip_map() {
         let arena = Bump::new();
-        let ctx = test_ctx();
+        let ctx = test_ctx(&arena);
         roundtrip(
-            &ctx,
+            ctx,
             &arena,
             SassValue::new_with_arena(
                 &arena,
@@ -969,7 +972,7 @@ mod tests {
     #[wasm_bindgen_test::wasm_bindgen_test]
     fn roundtrip_argument_list() {
         let arena = Bump::new();
-        let ctx = test_ctx();
+        let ctx = test_ctx(&arena);
         let mut keywords = IndexMap::new();
         keywords.insert(
             "kw".to_string(),
@@ -979,7 +982,7 @@ mod tests {
             ),
         );
         roundtrip(
-            &ctx,
+            ctx,
             &arena,
             SassValue::new_with_arena(
                 &arena,
@@ -999,9 +1002,9 @@ mod tests {
     #[wasm_bindgen_test::wasm_bindgen_test]
     fn roundtrip_calculation() {
         let arena = Bump::new();
-        let ctx = test_ctx();
+        let ctx = test_ctx(&arena);
         roundtrip(
-            &ctx,
+            ctx,
             &arena,
             SassValue::new_with_arena(
                 &arena,
@@ -1012,7 +1015,7 @@ mod tests {
             ),
         );
         roundtrip(
-            &ctx,
+            ctx,
             &arena,
             SassValue::new_with_arena(
                 &arena,
@@ -1030,7 +1033,7 @@ mod tests {
     #[wasm_bindgen_test::wasm_bindgen_test]
     fn argument_list_referenced_by_id_returns_same_value() {
         let arena = Bump::new();
-        let ctx = test_ctx();
+        let ctx = test_ctx(&arena);
         let arg_list = SassValue::new_with_arena(
             &arena,
             ValueKind::ArgumentList(SassArgumentList::new(
@@ -1043,14 +1046,14 @@ mod tests {
                 ListSeparator::Undecided,
             )),
         );
-        let js = value_to_js(&ctx, &arg_list).unwrap();
+        let js = value_to_js(ctx, &arg_list).unwrap();
         // id 1 means the host builds a fresh list; id != 0 refers back.
         let id = Reflect::get(&js, &JsValue::from_str("id"))
             .unwrap()
             .as_f64()
             .unwrap();
         assert_eq!(id, 1.0);
-        let back = js_to_value(&ctx, &arena, &js, &|_s, _c, _a| Err(script("unexpected"))).unwrap();
+        let back = js_to_value(ctx, &arena, &js, &|_s, _c, _a| Err(script("unexpected"))).unwrap();
         assert!(arg_list.equals(&back));
         assert_eq!(
             Reflect::get(&js, &JsValue::from_str("type"))

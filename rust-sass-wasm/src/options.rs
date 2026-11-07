@@ -31,7 +31,7 @@ pub fn parse_options<'compile: 'parse, 'parse>(
     arena: &'compile Bump,
     options: &JsValue,
     io: Rc<dyn Io>,
-    ctx: MarshallingContext<'parse>,
+    ctx: &'parse MarshallingContext<'parse>,
 ) -> SassResult<CompileOptions<'compile, 'parse>> {
     let mut opts = CompileOptions::new(arena);
     if options.is_undefined() || options.is_null() {
@@ -166,7 +166,7 @@ pub fn parse_options<'compile: 'parse, 'parse>(
             let js_fn = f
                 .dyn_into::<js_sys::Function>()
                 .map_err(|_| script(format!("options.functions: {sig} is not a function")))?;
-            let callable = make_host_callable(&sig, js_fn, ctx.clone(), arena)?;
+            let callable = make_host_callable(&sig, js_fn, ctx, arena)?;
             opts.functions
                 .push(Callable::new(arena, CallableKind::BuiltIn(callable)));
         }
@@ -451,7 +451,8 @@ mod tests {
     fn parse<'a>(arena: &'a Bump, opts: &Object) -> SassResult<CompileOptions<'a, 'a>> {
         let io: Rc<dyn Io> = Rc::new(VirtualIo::new());
         let options: JsValue = opts.clone().into();
-        parse_options(arena, &options, io, MarshallingContext::new())
+        let ctx = arena.alloc(MarshallingContext::new_in(arena));
+        parse_options(arena, &options, io, ctx)
     }
 
     fn script_err(r: SassResult<CompileOptions<'_, '_>>) -> String {
