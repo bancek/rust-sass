@@ -234,7 +234,9 @@ where
     'compile: 'parse,
     'parse: 'compile,
 {
-    Rc::new(
+    let arena = ctx.arena;
+    rust_sass::callable::built_in_callback_async(
+        arena,
         move |_config, _state, args, _arena| -> LocalBoxFuture<'_, SassResult<Value<'parse>>> {
             let ctx = ctx.clone();
             let name = name.clone();
@@ -301,7 +303,9 @@ where
     'compile: 'parse,
     'parse: 'compile,
 {
-    Rc::new(
+    let arena = ctx.arena;
+    rust_sass::callable::built_in_callback_async(
+        arena,
         move |_config, _state, args, _arena| -> LocalBoxFuture<'_, SassResult<Value<'parse>>> {
             let ctx = ctx.clone();
             let name = name.clone();

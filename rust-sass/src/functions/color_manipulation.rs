@@ -14,7 +14,6 @@
 use crate::eval::warn::warn_deprecation;
 use crate::functions::color_helpers::wrap_unquoted_err;
 use crate::value::color_channel_types::LinearChannel;
-use std::rc::Rc;
 
 use bumpalo::Bump;
 
@@ -181,13 +180,16 @@ where
         "$color",
         "sass:color",
         arena,
-        Rc::new(move |config, state, args, arena: &'compile Bump| {
-            if matches!(&*args[0], ValueKind::Number(_)) || args[0].is_special_number() {
-                return function_string(arena, "grayscale", &args[..1]);
-            }
-            warn_for_global_builtin(config, state, "color", "grayscale")?;
-            grayscale_impl(arena, value::assert_color(&args[0], Some("color"))?)
-        }),
+        crate::callable::built_in_callback(
+            arena,
+            move |config, state, args, arena: &'compile Bump| {
+                if matches!(&*args[0], ValueKind::Number(_)) || args[0].is_special_number() {
+                    return function_string(arena, "grayscale", &args[..1]);
+                }
+                warn_for_global_builtin(config, state, "color", "grayscale")?;
+                grayscale_impl(arena, value::assert_color(&args[0], Some("color"))?)
+            },
+        ),
     )
 }
 /// Creates the module `color.grayscale()` function (`$color`).
@@ -208,15 +210,18 @@ where
         "$color",
         "sass:color",
         arena,
-        Rc::new(move |config, state, args, arena: &'compile Bump| {
-            if let ValueKind::Number(_) = &*args[0] {
-                let result = function_string(arena, "grayscale", &args[..1])?;
-                let arg_str = args[0].to_display_string()?;
-                warn_deprecation(config, state, &format!("Passing a number ({arg_str}) to color.grayscale() is deprecated.\n\nRecommendation: {}", result.to_display_string()?), &de::COLOR_MODULE_COMPAT)?;
-                return Ok(result);
-            }
-            grayscale_impl(arena, value::assert_color(&args[0], Some("color"))?)
-        }),
+        crate::callable::built_in_callback(
+            arena,
+            move |config, state, args, arena: &'compile Bump| {
+                if let ValueKind::Number(_) = &*args[0] {
+                    let result = function_string(arena, "grayscale", &args[..1])?;
+                    let arg_str = args[0].to_display_string()?;
+                    warn_deprecation(config, state, &format!("Passing a number ({arg_str}) to color.grayscale() is deprecated.\n\nRecommendation: {}", result.to_display_string()?), &de::COLOR_MODULE_COMPAT)?;
+                    return Ok(result);
+                }
+                grayscale_impl(arena, value::assert_color(&args[0], Some("color"))?)
+            },
+        ),
     )
 }
 /// Grayscales `color` with no plain-CSS handling.
@@ -280,37 +285,44 @@ where
         vec![
             (
                 "$amount",
-                Rc::new(move |_config, _state, args, arena: &'compile Bump| {
-                    if matches!(&*args[0], ValueKind::Number(_)) || args[0].is_special_number() {
-                        return function_string(arena, "saturate", &args);
-                    }
-                    Ok(Value::new_with_arena(
-                        arena,
-                        ValueKind::String(SassString::new(
-                            arena.alloc_str(&format!(
-                                "saturate({})",
-                                num_str(value::assert_number(&args[0], Some("amount"))?)?
+                crate::callable::built_in_callback(
+                    arena,
+                    move |_config, _state, args, arena: &'compile Bump| {
+                        if matches!(&*args[0], ValueKind::Number(_)) || args[0].is_special_number()
+                        {
+                            return function_string(arena, "saturate", &args);
+                        }
+                        Ok(Value::new_with_arena(
+                            arena,
+                            ValueKind::String(SassString::new(
+                                arena.alloc_str(&format!(
+                                    "saturate({})",
+                                    num_str(value::assert_number(&args[0], Some("amount"))?)?
+                                )),
+                                false,
                             )),
-                            false,
-                        )),
-                    ))
-                }),
+                        ))
+                    },
+                ),
             ),
             (
                 "$color, $amount",
-                Rc::new(move |config, state, args, arena: &'compile Bump| {
-                    warn_for_global_builtin(config, state, "color", "adjust")?;
-                    let color = value::assert_color(&args[0], Some("color"))?;
-                    let amount = value::assert_number(&args[1], Some("amount"))?;
-                    if !color.is_legacy() {
-                        return Err(Box::new(SassError::Script { message: "saturate() is only supported for legacy colors. Please use color.adjust() instead with an explicit $space argument.".into(), argument_name: None }));
-                    }
-                    amount.value_in_range(0.0, 100.0, Some("amount"))?;
-                    let v = clamp_like_css(color.saturation()? + amount.value, 0.0, 100.0);
-                    let result = color.change_hsl(None, Some(v), None, None)?;
-                    warn_deprecation(config, state, &format!("saturate() is deprecated. {}\n\nMore info: https://sass-lang.com/d/color-functions", suggest_scale_and_adjust(color, amount.value, "saturation")), &de::COLOR_FUNCTIONS)?;
-                    Ok(Value::new_with_arena(arena, ValueKind::Color(result)))
-                }),
+                crate::callable::built_in_callback(
+                    arena,
+                    move |config, state, args, arena: &'compile Bump| {
+                        warn_for_global_builtin(config, state, "color", "adjust")?;
+                        let color = value::assert_color(&args[0], Some("color"))?;
+                        let amount = value::assert_number(&args[1], Some("amount"))?;
+                        if !color.is_legacy() {
+                            return Err(Box::new(SassError::Script { message: "saturate() is only supported for legacy colors. Please use color.adjust() instead with an explicit $space argument.".into(), argument_name: None }));
+                        }
+                        amount.value_in_range(0.0, 100.0, Some("amount"))?;
+                        let v = clamp_like_css(color.saturation()? + amount.value, 0.0, 100.0);
+                        let result = color.change_hsl(None, Some(v), None, None)?;
+                        warn_deprecation(config, state, &format!("saturate() is deprecated. {}\n\nMore info: https://sass-lang.com/d/color-functions", suggest_scale_and_adjust(color, amount.value, "saturation")), &de::COLOR_FUNCTIONS)?;
+                        Ok(Value::new_with_arena(arena, ValueKind::Color(result)))
+                    },
+                ),
             ),
         ],
         arena,
@@ -334,18 +346,21 @@ where
         "$color, $amount",
         "sass:color",
         arena,
-        Rc::new(move |config, state, args, arena: &'compile Bump| {
-            let color = value::assert_color(&args[0], Some("color"))?;
-            let amount = value::assert_number(&args[1], Some("amount"))?;
-            if !color.is_legacy() {
-                return Err(Box::new(SassError::Script { message: "desaturate() is only supported for legacy colors. Please use color.adjust() instead with an explicit $space argument.".into(), argument_name: None }));
-            }
-            amount.value_in_range(0.0, 100.0, Some("amount"))?;
-            let v = clamp_like_css(color.saturation()? - amount.value, 0.0, 100.0);
-            let result = color.change_hsl(None, Some(v), None, None)?;
-            warn_deprecation(config, state, &format!("desaturate() is deprecated. {}\n\nMore info: https://sass-lang.com/d/color-functions", suggest_scale_and_adjust(color, -amount.value, "saturation")), &de::COLOR_FUNCTIONS)?;
-            Ok(Value::new_with_arena(arena, ValueKind::Color(result)))
-        }),
+        crate::callable::built_in_callback(
+            arena,
+            move |config, state, args, arena: &'compile Bump| {
+                let color = value::assert_color(&args[0], Some("color"))?;
+                let amount = value::assert_number(&args[1], Some("amount"))?;
+                if !color.is_legacy() {
+                    return Err(Box::new(SassError::Script { message: "desaturate() is only supported for legacy colors. Please use color.adjust() instead with an explicit $space argument.".into(), argument_name: None }));
+                }
+                amount.value_in_range(0.0, 100.0, Some("amount"))?;
+                let v = clamp_like_css(color.saturation()? - amount.value, 0.0, 100.0);
+                let result = color.change_hsl(None, Some(v), None, None)?;
+                warn_deprecation(config, state, &format!("desaturate() is deprecated. {}\n\nMore info: https://sass-lang.com/d/color-functions", suggest_scale_and_adjust(color, -amount.value, "saturation")), &de::COLOR_FUNCTIONS)?;
+                Ok(Value::new_with_arena(arena, ValueKind::Color(result)))
+            },
+        ),
     )
 }
 
@@ -366,17 +381,20 @@ where
         "$color, $degrees",
         "sass:color",
         arena,
-        Rc::new(move |config, state, args, arena: &'compile Bump| {
-            let color = value::assert_color(&args[0], Some("color"))?;
-            let degrees = angle_value(config, state, &args[1], "degrees")?;
-            if !color.is_legacy() {
-                return Err(Box::new(SassError::Script { message: "adjust-hue() is only supported for legacy colors. Please use color.adjust() instead with an explicit $space argument.".into(), argument_name: None }));
-            }
-            let deg_css = num_css(&SassNumber::new(degrees, Some("deg"))).unwrap_or_default();
-            warn_deprecation(config, state, &format!("adjust-hue() is deprecated. Suggestion:\n\ncolor.adjust($color, $hue: {deg_css})\n\nMore info: https://sass-lang.com/d/color-functions"), &de::COLOR_FUNCTIONS)?;
-            let result = color.change_hsl(Some(color.hue()? + degrees), None, None, None)?;
-            Ok(Value::new_with_arena(arena, ValueKind::Color(result)))
-        }),
+        crate::callable::built_in_callback(
+            arena,
+            move |config, state, args, arena: &'compile Bump| {
+                let color = value::assert_color(&args[0], Some("color"))?;
+                let degrees = angle_value(config, state, &args[1], "degrees")?;
+                if !color.is_legacy() {
+                    return Err(Box::new(SassError::Script { message: "adjust-hue() is only supported for legacy colors. Please use color.adjust() instead with an explicit $space argument.".into(), argument_name: None }));
+                }
+                let deg_css = num_css(&SassNumber::new(degrees, Some("deg"))).unwrap_or_default();
+                warn_deprecation(config, state, &format!("adjust-hue() is deprecated. Suggestion:\n\ncolor.adjust($color, $hue: {deg_css})\n\nMore info: https://sass-lang.com/d/color-functions"), &de::COLOR_FUNCTIONS)?;
+                let result = color.change_hsl(Some(color.hue()? + degrees), None, None, None)?;
+                Ok(Value::new_with_arena(arena, ValueKind::Color(result)))
+            },
+        ),
     )
 }
 
@@ -397,18 +415,21 @@ where
         "$color, $amount",
         "sass:color",
         arena,
-        Rc::new(move |config, state, args, arena: &'compile Bump| {
-            let color = value::assert_color(&args[0], Some("color"))?;
-            let amount = value::assert_number(&args[1], Some("amount"))?;
-            if !color.is_legacy() {
-                return Err(Box::new(SassError::Script { message: "lighten() is only supported for legacy colors. Please use color.adjust() instead with an explicit $space argument.".into(), argument_name: None }));
-            }
-            amount.value_in_range(0.0, 100.0, Some("amount"))?;
-            let v = clamp_like_css(color.lightness()? + amount.value, 0.0, 100.0);
-            let result = color.change_hsl(None, None, Some(v), None)?;
-            warn_deprecation(config, state, &format!("lighten() is deprecated. {}\n\nMore info: https://sass-lang.com/d/color-functions", suggest_scale_and_adjust(color, amount.value, "lightness")), &de::COLOR_FUNCTIONS)?;
-            Ok(Value::new_with_arena(arena, ValueKind::Color(result)))
-        }),
+        crate::callable::built_in_callback(
+            arena,
+            move |config, state, args, arena: &'compile Bump| {
+                let color = value::assert_color(&args[0], Some("color"))?;
+                let amount = value::assert_number(&args[1], Some("amount"))?;
+                if !color.is_legacy() {
+                    return Err(Box::new(SassError::Script { message: "lighten() is only supported for legacy colors. Please use color.adjust() instead with an explicit $space argument.".into(), argument_name: None }));
+                }
+                amount.value_in_range(0.0, 100.0, Some("amount"))?;
+                let v = clamp_like_css(color.lightness()? + amount.value, 0.0, 100.0);
+                let result = color.change_hsl(None, None, Some(v), None)?;
+                warn_deprecation(config, state, &format!("lighten() is deprecated. {}\n\nMore info: https://sass-lang.com/d/color-functions", suggest_scale_and_adjust(color, amount.value, "lightness")), &de::COLOR_FUNCTIONS)?;
+                Ok(Value::new_with_arena(arena, ValueKind::Color(result)))
+            },
+        ),
     )
 }
 /// Creates the global `darken()` function (`$color, $amount`).
@@ -425,18 +446,21 @@ where
         "$color, $amount",
         "sass:color",
         arena,
-        Rc::new(move |config, state, args, arena: &'compile Bump| {
-            let color = value::assert_color(&args[0], Some("color"))?;
-            let amount = value::assert_number(&args[1], Some("amount"))?;
-            if !color.is_legacy() {
-                return Err(Box::new(SassError::Script { message: "darken() is only supported for legacy colors. Please use color.adjust() instead with an explicit $space argument.".into(), argument_name: None }));
-            }
-            amount.value_in_range(0.0, 100.0, Some("amount"))?;
-            let v = clamp_like_css(color.lightness()? - amount.value, 0.0, 100.0);
-            let result = color.change_hsl(None, None, Some(v), None)?;
-            warn_deprecation(config, state, &format!("darken() is deprecated. {}\n\nMore info: https://sass-lang.com/d/color-functions", suggest_scale_and_adjust(color, -amount.value, "lightness")), &de::COLOR_FUNCTIONS)?;
-            Ok(Value::new_with_arena(arena, ValueKind::Color(result)))
-        }),
+        crate::callable::built_in_callback(
+            arena,
+            move |config, state, args, arena: &'compile Bump| {
+                let color = value::assert_color(&args[0], Some("color"))?;
+                let amount = value::assert_number(&args[1], Some("amount"))?;
+                if !color.is_legacy() {
+                    return Err(Box::new(SassError::Script { message: "darken() is only supported for legacy colors. Please use color.adjust() instead with an explicit $space argument.".into(), argument_name: None }));
+                }
+                amount.value_in_range(0.0, 100.0, Some("amount"))?;
+                let v = clamp_like_css(color.lightness()? - amount.value, 0.0, 100.0);
+                let result = color.change_hsl(None, None, Some(v), None)?;
+                warn_deprecation(config, state, &format!("darken() is deprecated. {}\n\nMore info: https://sass-lang.com/d/color-functions", suggest_scale_and_adjust(color, -amount.value, "lightness")), &de::COLOR_FUNCTIONS)?;
+                Ok(Value::new_with_arena(arena, ValueKind::Color(result)))
+            },
+        ),
     )
 }
 
@@ -460,46 +484,52 @@ where
         vec![
             (
                 "$color",
-                Rc::new(move |config, state, args, arena: &'compile Bump| {
-                    if is_microsoft_filter(&args[0]) {
-                        return function_string(arena, "alpha", &args);
-                    }
-                    if let ValueKind::Color(c) = &*args[0] {
-                        if !c.is_legacy() {
-                            return Err(Box::new(SassError::Script { message: "alpha() is only supported for legacy colors. Please use color.channel() instead.".into(), argument_name: None }));
+                crate::callable::built_in_callback(
+                    arena,
+                    move |config, state, args, arena: &'compile Bump| {
+                        if is_microsoft_filter(&args[0]) {
+                            return function_string(arena, "alpha", &args);
                         }
-                    }
-                    warn_for_global_builtin(config, state, "color", "alpha")?;
-                    Ok(Value::new_with_arena(
-                        arena,
-                        ValueKind::Number(SassNumber::new(
-                            value::assert_color(&args[0], Some("color"))?.alpha,
-                            None,
-                        )),
-                    ))
-                }),
+                        if let ValueKind::Color(c) = &*args[0] {
+                            if !c.is_legacy() {
+                                return Err(Box::new(SassError::Script { message: "alpha() is only supported for legacy colors. Please use color.channel() instead.".into(), argument_name: None }));
+                            }
+                        }
+                        warn_for_global_builtin(config, state, "color", "alpha")?;
+                        Ok(Value::new_with_arena(
+                            arena,
+                            ValueKind::Number(SassNumber::new(
+                                value::assert_color(&args[0], Some("color"))?.alpha,
+                                None,
+                            )),
+                        ))
+                    },
+                ),
             ),
             (
                 "$args...",
-                Rc::new(move |_config, _state, args, _arena: &'compile Bump| {
-                    let rest = args[0].as_list(arena)?;
-                    if !rest.is_empty() && rest.iter().all(|v| is_microsoft_filter(v)) {
-                        return function_string(arena, "alpha", &args);
-                    }
-                    if rest.is_empty() {
-                        return Err(Box::new(SassError::Script {
-                            message: "Missing argument $color.".into(),
+                crate::callable::built_in_callback(
+                    arena,
+                    move |_config, _state, args, _arena: &'compile Bump| {
+                        let rest = args[0].as_list(arena)?;
+                        if !rest.is_empty() && rest.iter().all(|v| is_microsoft_filter(v)) {
+                            return function_string(arena, "alpha", &args);
+                        }
+                        if rest.is_empty() {
+                            return Err(Box::new(SassError::Script {
+                                message: "Missing argument $color.".into(),
+                                argument_name: None,
+                            }));
+                        }
+                        Err(Box::new(SassError::Script {
+                            message: format!(
+                                "Only 1 argument allowed, but {} were passed.",
+                                rest.len()
+                            ),
                             argument_name: None,
-                        }));
-                    }
-                    Err(Box::new(SassError::Script {
-                        message: format!(
-                            "Only 1 argument allowed, but {} were passed.",
-                            rest.len()
-                        ),
-                        argument_name: None,
-                    }))
-                }),
+                        }))
+                    },
+                ),
             ),
         ],
         arena,
@@ -525,43 +555,49 @@ where
         vec![
             (
                 "$color",
-                Rc::new(move |config, state, args, arena: &'compile Bump| {
-                    if is_microsoft_filter(&args[0]) {
-                        let r = function_string(arena, "alpha", &args)?;
-                        warn_deprecation(config, state, &format!("Using color.alpha() for a Microsoft filter is deprecated.\n\nRecommendation: {}", r.to_display_string()?), &de::COLOR_MODULE_COMPAT)?;
-                        return Ok(r);
-                    }
-                    if let ValueKind::Color(c) = &*args[0] {
-                        if !c.is_legacy() {
-                            return Err(Box::new(SassError::Script { message: "color.alpha() is only supported for legacy colors. Please use color.channel() instead.".into(), argument_name: None }));
+                crate::callable::built_in_callback(
+                    arena,
+                    move |config, state, args, arena: &'compile Bump| {
+                        if is_microsoft_filter(&args[0]) {
+                            let r = function_string(arena, "alpha", &args)?;
+                            warn_deprecation(config, state, &format!("Using color.alpha() for a Microsoft filter is deprecated.\n\nRecommendation: {}", r.to_display_string()?), &de::COLOR_MODULE_COMPAT)?;
+                            return Ok(r);
                         }
-                    }
-                    Ok(Value::new_with_arena(
-                        arena,
-                        ValueKind::Number(SassNumber::new(
-                            value::assert_color(&args[0], Some("color"))?.alpha,
-                            None,
-                        )),
-                    ))
-                }),
+                        if let ValueKind::Color(c) = &*args[0] {
+                            if !c.is_legacy() {
+                                return Err(Box::new(SassError::Script { message: "color.alpha() is only supported for legacy colors. Please use color.channel() instead.".into(), argument_name: None }));
+                            }
+                        }
+                        Ok(Value::new_with_arena(
+                            arena,
+                            ValueKind::Number(SassNumber::new(
+                                value::assert_color(&args[0], Some("color"))?.alpha,
+                                None,
+                            )),
+                        ))
+                    },
+                ),
             ),
             (
                 "$args...",
-                Rc::new(move |config, state, args, _arena: &'compile Bump| {
-                    let rest = args[0].as_list(arena)?;
-                    if rest.iter().all(|v| is_microsoft_filter(v)) {
-                        let r = function_string(arena, "alpha", &args)?;
-                        warn_deprecation(config, state, &format!("Using color.alpha() for a Microsoft filter is deprecated.\n\nRecommendation: {}", r.to_display_string()?), &de::COLOR_MODULE_COMPAT)?;
-                        return Ok(r);
-                    }
-                    Err(Box::new(SassError::Script {
-                        message: format!(
-                            "Only 1 argument allowed, but {} were passed.",
-                            rest.len()
-                        ),
-                        argument_name: None,
-                    }))
-                }),
+                crate::callable::built_in_callback(
+                    arena,
+                    move |config, state, args, _arena: &'compile Bump| {
+                        let rest = args[0].as_list(arena)?;
+                        if rest.iter().all(|v| is_microsoft_filter(v)) {
+                            let r = function_string(arena, "alpha", &args)?;
+                            warn_deprecation(config, state, &format!("Using color.alpha() for a Microsoft filter is deprecated.\n\nRecommendation: {}", r.to_display_string()?), &de::COLOR_MODULE_COMPAT)?;
+                            return Ok(r);
+                        }
+                        Err(Box::new(SassError::Script {
+                            message: format!(
+                                "Only 1 argument allowed, but {} were passed.",
+                                rest.len()
+                            ),
+                            argument_name: None,
+                        }))
+                    },
+                ),
             ),
         ],
         arena,
@@ -585,19 +621,22 @@ where
         "$color",
         "sass:color",
         arena,
-        Rc::new(move |config, state, args, arena: &'compile Bump| {
-            if matches!(&*args[0], ValueKind::Number(_)) || args[0].is_special_number() {
-                return function_string(arena, "opacity", &args);
-            }
-            warn_for_global_builtin(config, state, "color", "opacity")?;
-            Ok(Value::new_with_arena(
-                arena,
-                ValueKind::Number(SassNumber::new(
-                    value::assert_color(&args[0], Some("color"))?.alpha,
-                    None,
-                )),
-            ))
-        }),
+        crate::callable::built_in_callback(
+            arena,
+            move |config, state, args, arena: &'compile Bump| {
+                if matches!(&*args[0], ValueKind::Number(_)) || args[0].is_special_number() {
+                    return function_string(arena, "opacity", &args);
+                }
+                warn_for_global_builtin(config, state, "color", "opacity")?;
+                Ok(Value::new_with_arena(
+                    arena,
+                    ValueKind::Number(SassNumber::new(
+                        value::assert_color(&args[0], Some("color"))?.alpha,
+                        None,
+                    )),
+                ))
+            },
+        ),
     )
 }
 /// Creates the module `color.opacity()` function (`$color`).
@@ -617,21 +656,24 @@ where
         "$color",
         "sass:color",
         arena,
-        Rc::new(move |config, state, args, arena: &'compile Bump| {
-            if let ValueKind::Number(_) = &*args[0] {
-                let r = function_string(arena, "opacity", &args)?;
-                let a = args[0].to_display_string()?;
-                warn_deprecation(config, state, &format!("Passing a number ({a} to color.opacity() is deprecated.\n\nRecommendation: {}", r.to_display_string()?), &de::COLOR_MODULE_COMPAT)?;
-                return Ok(r);
-            }
-            Ok(Value::new_with_arena(
-                arena,
-                ValueKind::Number(SassNumber::new(
-                    value::assert_color(&args[0], Some("color"))?.alpha,
-                    None,
-                )),
-            ))
-        }),
+        crate::callable::built_in_callback(
+            arena,
+            move |config, state, args, arena: &'compile Bump| {
+                if let ValueKind::Number(_) = &*args[0] {
+                    let r = function_string(arena, "opacity", &args)?;
+                    let a = args[0].to_display_string()?;
+                    warn_deprecation(config, state, &format!("Passing a number ({a} to color.opacity() is deprecated.\n\nRecommendation: {}", r.to_display_string()?), &de::COLOR_MODULE_COMPAT)?;
+                    return Ok(r);
+                }
+                Ok(Value::new_with_arena(
+                    arena,
+                    ValueKind::Number(SassNumber::new(
+                        value::assert_color(&args[0], Some("color"))?.alpha,
+                        None,
+                    )),
+                ))
+            },
+        ),
     )
 }
 
@@ -651,13 +693,16 @@ where
         "$color, $weight: 100%, $space: null",
         "sass:color",
         arena,
-        Rc::new(move |config, state, args, arena: &'compile Bump| {
-            let is_n = matches!(&*args[0], ValueKind::Number(_)) || args[0].is_special_number();
-            if !is_n {
-                warn_for_global_builtin(config, state, "color", "invert")?;
-            }
-            invert_impl(config, state, arena, &args, true)
-        }),
+        crate::callable::built_in_callback(
+            arena,
+            move |config, state, args, arena: &'compile Bump| {
+                let is_n = matches!(&*args[0], ValueKind::Number(_)) || args[0].is_special_number();
+                if !is_n {
+                    warn_for_global_builtin(config, state, "color", "invert")?;
+                }
+                invert_impl(config, state, arena, &args, true)
+            },
+        ),
     )
 }
 /// Creates the module `color.invert()` function (`$color, $weight: 100%, $space: null`).
@@ -677,14 +722,17 @@ where
         "$color, $weight: 100%, $space: null",
         "sass:color",
         arena,
-        Rc::new(move |config, state, args, arena: &'compile Bump| {
-            let r = invert_impl(config, state, arena, &args, false)?;
-            if let ValueKind::String(s) = &*r {
-                let a = args[0].to_display_string()?;
-                warn_deprecation(config, state, &format!("Passing a number ({a}) to color.invert() is deprecated.\n\nRecommendation: {}", s.text), &de::COLOR_MODULE_COMPAT)?;
-            }
-            Ok(r)
-        }),
+        crate::callable::built_in_callback(
+            arena,
+            move |config, state, args, arena: &'compile Bump| {
+                let r = invert_impl(config, state, arena, &args, false)?;
+                if let ValueKind::String(s) = &*r {
+                    let a = args[0].to_display_string()?;
+                    warn_deprecation(config, state, &format!("Passing a number ({a}) to color.invert() is deprecated.\n\nRecommendation: {}", s.text), &de::COLOR_MODULE_COMPAT)?;
+                }
+                Ok(r)
+            },
+        ),
     )
 }
 /// Implements `invert()` for both global and module callables.
@@ -847,51 +895,58 @@ where
         "$color, $space: null",
         "sass:color",
         arena,
-        Rc::new(move |_config, _state, args, arena: &'compile Bump| {
-            let color = value::assert_color(&args[0], Some("color"))?;
-            let space = if color.is_legacy() && matches!(&*args[1], ValueKind::Null) {
-                ColorSpace::Hsl
-            } else {
-                let s = value::assert_string(&args[1], Some("space"))?;
-                // Matches Dart: (..assertUnquoted("space")) carries the
-                // argument name.
-                s.assert_unquoted()
-                    .map_err(|e| wrap_unquoted_err(e, "space"))?;
-                ColorSpace::from_name(s.text, Some("space"))?
-            };
-            if !space.is_polar() {
-                return Err(Box::new(SassError::Script {
-                    message: format!("Color space {} doesn't have a hue channel.", space.name()),
-                    argument_name: Some("space".into()),
-                }));
-            }
-            let in_space = color.to_space(space, Some(!matches!(&*args[1], ValueKind::Null)))?;
-            let result = if space.is_legacy() {
-                // Legacy: adjust hue (channel 0) by 180
-                let c0 = adjust_polar_channel(in_space.channel0_or_nil(), &in_space, 180.0)?;
-                new_color_for_space_internal(
-                    space,
-                    c0,
-                    in_space.channel1_or_nil(),
-                    in_space.channel2_or_nil(),
-                    in_space.alpha_or_nil(),
-                )?
-            } else {
-                // Non-legacy: adjust hue (channel 2) by 180
-                let c2 = adjust_polar_channel(in_space.channel2_or_nil(), &in_space, 180.0)?;
-                new_color_for_space_internal(
-                    space,
-                    in_space.channel0_or_nil(),
-                    in_space.channel1_or_nil(),
-                    c2,
-                    in_space.alpha_or_nil(),
-                )?
-            };
-            Ok(Value::new_with_arena(
-                arena,
-                ValueKind::Color(result.to_space(color.space, Some(false))?),
-            ))
-        }),
+        crate::callable::built_in_callback(
+            arena,
+            move |_config, _state, args, arena: &'compile Bump| {
+                let color = value::assert_color(&args[0], Some("color"))?;
+                let space = if color.is_legacy() && matches!(&*args[1], ValueKind::Null) {
+                    ColorSpace::Hsl
+                } else {
+                    let s = value::assert_string(&args[1], Some("space"))?;
+                    // Matches Dart: (..assertUnquoted("space")) carries the
+                    // argument name.
+                    s.assert_unquoted()
+                        .map_err(|e| wrap_unquoted_err(e, "space"))?;
+                    ColorSpace::from_name(s.text, Some("space"))?
+                };
+                if !space.is_polar() {
+                    return Err(Box::new(SassError::Script {
+                        message: format!(
+                            "Color space {} doesn't have a hue channel.",
+                            space.name()
+                        ),
+                        argument_name: Some("space".into()),
+                    }));
+                }
+                let in_space =
+                    color.to_space(space, Some(!matches!(&*args[1], ValueKind::Null)))?;
+                let result = if space.is_legacy() {
+                    // Legacy: adjust hue (channel 0) by 180
+                    let c0 = adjust_polar_channel(in_space.channel0_or_nil(), &in_space, 180.0)?;
+                    new_color_for_space_internal(
+                        space,
+                        c0,
+                        in_space.channel1_or_nil(),
+                        in_space.channel2_or_nil(),
+                        in_space.alpha_or_nil(),
+                    )?
+                } else {
+                    // Non-legacy: adjust hue (channel 2) by 180
+                    let c2 = adjust_polar_channel(in_space.channel2_or_nil(), &in_space, 180.0)?;
+                    new_color_for_space_internal(
+                        space,
+                        in_space.channel0_or_nil(),
+                        in_space.channel1_or_nil(),
+                        c2,
+                        in_space.alpha_or_nil(),
+                    )?
+                };
+                Ok(Value::new_with_arena(
+                    arena,
+                    ValueKind::Color(result.to_space(color.space, Some(false))?),
+                ))
+            },
+        ),
     )
 }
 /// Rotates a hue channel value by `adjustment` degrees, wrapped to `[0, 360)`.
@@ -933,45 +988,48 @@ where
         "$color1, $color2, $weight: 50%, $method: null",
         "sass:color",
         arena,
-        Rc::new(move |config, state, args, arena: &'compile Bump| {
-            let c1 = value::assert_color(&args[0], Some("color1"))?;
-            let c2 = value::assert_color(&args[1], Some("color2"))?;
-            let weight = value::assert_number(&args[2], Some("weight"))?;
-            if !matches!(&*args[3], ValueKind::Null) {
-                let method = InterpolationMethod::from_value(arena, &args[3], Some("method"))?;
-                weight.assert_unit("%", Some("weight"))?;
-                weight.value_in_range(0.0, 100.0, Some("weight"))?;
-                return Ok(Value::new_with_arena(
-                    arena,
-                    ValueKind::Color(c1.interpolate(
-                        c2,
-                        &method,
-                        false,
-                        Some(weight.value / 100.0),
-                    )?),
-                ));
-            }
-            check_percent(config, state, weight, "weight")?;
-            if !c1.is_legacy() {
-                let s = color_str(c1)?;
-                return Err(Box::new(SassError::Script {
-                    message: format!(
+        crate::callable::built_in_callback(
+            arena,
+            move |config, state, args, arena: &'compile Bump| {
+                let c1 = value::assert_color(&args[0], Some("color1"))?;
+                let c2 = value::assert_color(&args[1], Some("color2"))?;
+                let weight = value::assert_number(&args[2], Some("weight"))?;
+                if !matches!(&*args[3], ValueKind::Null) {
+                    let method = InterpolationMethod::from_value(arena, &args[3], Some("method"))?;
+                    weight.assert_unit("%", Some("weight"))?;
+                    weight.value_in_range(0.0, 100.0, Some("weight"))?;
+                    return Ok(Value::new_with_arena(
+                        arena,
+                        ValueKind::Color(c1.interpolate(
+                            c2,
+                            &method,
+                            false,
+                            Some(weight.value / 100.0),
+                        )?),
+                    ));
+                }
+                check_percent(config, state, weight, "weight")?;
+                if !c1.is_legacy() {
+                    let s = color_str(c1)?;
+                    return Err(Box::new(SassError::Script {
+                        message: format!(
                         "To use color.mix() with non-legacy color {s}, you must provide a $method."
                     ),
-                    argument_name: Some("color1".into()),
-                }));
-            }
-            if !c2.is_legacy() {
-                let s = color_str(c2)?;
-                return Err(Box::new(SassError::Script {
-                    message: format!(
+                        argument_name: Some("color1".into()),
+                    }));
+                }
+                if !c2.is_legacy() {
+                    let s = color_str(c2)?;
+                    return Err(Box::new(SassError::Script {
+                        message: format!(
                         "To use color.mix() with non-legacy color {s}, you must provide a $method."
                     ),
-                    argument_name: Some("color2".into()),
-                }));
-            }
-            mix_legacy(arena, c1, c2, weight)
-        }),
+                        argument_name: Some("color2".into()),
+                    }));
+                }
+                mix_legacy(arena, c1, c2, weight)
+            },
+        ),
     )
 }
 /// Mixes two legacy colors by `weight` with Sass's alpha-aware algorithm.
@@ -1026,35 +1084,38 @@ pub fn opacify_callable<'compile, 'parse>(
 where
     'compile: 'parse,
 {
-    let n = name.to_string();
-    let fn_name = n.clone();
+    let n: &str = arena.alloc_str(name);
+    let fn_name = n;
     BuiltInCallable::function(
-        &fn_name,
+        fn_name,
         "$color, $amount",
         "sass:color",
         arena,
-        Rc::new(move |config, state, args, arena: &'compile Bump| {
-            let c = value::assert_color(&args[0], Some("color"))?;
-            let a = value::assert_number(&args[1], Some("amount"))?;
-            if !c.is_legacy() {
-                return Err(Box::new(SassError::Script { message: format!("{n}() is only supported for legacy colors. Please use color.adjust() instead with an explicit $space argument."), argument_name: None }));
-            }
-            a.value_in_range_with_unit(0.0, 1.0, "amount", "")?;
-            let na = clamp_like_css(c.alpha + a.value, 0.0, 1.0);
-            warn_deprecation(
-                config,
-                state,
-                &format!(
+        crate::callable::built_in_callback(
+            arena,
+            move |config, state, args, arena: &'compile Bump| {
+                let c = value::assert_color(&args[0], Some("color"))?;
+                let a = value::assert_number(&args[1], Some("amount"))?;
+                if !c.is_legacy() {
+                    return Err(Box::new(SassError::Script { message: format!("{n}() is only supported for legacy colors. Please use color.adjust() instead with an explicit $space argument."), argument_name: None }));
+                }
+                a.value_in_range_with_unit(0.0, 1.0, "amount", "")?;
+                let na = clamp_like_css(c.alpha + a.value, 0.0, 1.0);
+                warn_deprecation(
+                    config,
+                    state,
+                    &format!(
                     "{n}() is deprecated. {}\n\nMore info: https://sass-lang.com/d/color-functions",
                     suggest_scale_and_adjust(c, a.value, "alpha")
                 ),
-                &de::COLOR_FUNCTIONS,
-            )?;
-            Ok(Value::new_with_arena(
-                arena,
-                ValueKind::Color(c.change_alpha(na)?),
-            ))
-        }),
+                    &de::COLOR_FUNCTIONS,
+                )?;
+                Ok(Value::new_with_arena(
+                    arena,
+                    ValueKind::Color(c.change_alpha(na)?),
+                ))
+            },
+        ),
     )
 }
 /// Creates the `transparentize()`/`fade-out()` function (`$color, $amount`).
@@ -1070,35 +1131,38 @@ pub fn transparentize_callable<'compile, 'parse>(
 where
     'compile: 'parse,
 {
-    let n = name.to_string();
-    let fn_name = n.clone();
+    let n: &str = arena.alloc_str(name);
+    let fn_name = n;
     BuiltInCallable::function(
-        &fn_name,
+        fn_name,
         "$color, $amount",
         "sass:color",
         arena,
-        Rc::new(move |config, state, args, arena: &'compile Bump| {
-            let c = value::assert_color(&args[0], Some("color"))?;
-            let a = value::assert_number(&args[1], Some("amount"))?;
-            if !c.is_legacy() {
-                return Err(Box::new(SassError::Script { message: format!("{n}() is only supported for legacy colors. Please use color.adjust() instead with an explicit $space argument."), argument_name: None }));
-            }
-            a.value_in_range_with_unit(0.0, 1.0, "amount", "")?;
-            let na = clamp_like_css(c.alpha - a.value, 0.0, 1.0);
-            warn_deprecation(
-                config,
-                state,
-                &format!(
+        crate::callable::built_in_callback(
+            arena,
+            move |config, state, args, arena: &'compile Bump| {
+                let c = value::assert_color(&args[0], Some("color"))?;
+                let a = value::assert_number(&args[1], Some("amount"))?;
+                if !c.is_legacy() {
+                    return Err(Box::new(SassError::Script { message: format!("{n}() is only supported for legacy colors. Please use color.adjust() instead with an explicit $space argument."), argument_name: None }));
+                }
+                a.value_in_range_with_unit(0.0, 1.0, "amount", "")?;
+                let na = clamp_like_css(c.alpha - a.value, 0.0, 1.0);
+                warn_deprecation(
+                    config,
+                    state,
+                    &format!(
                     "{n}() is deprecated. {}\n\nMore info: https://sass-lang.com/d/color-functions",
                     suggest_scale_and_adjust(c, -a.value, "alpha")
                 ),
-                &de::COLOR_FUNCTIONS,
-            )?;
-            Ok(Value::new_with_arena(
-                arena,
-                ValueKind::Color(c.change_alpha(na)?),
-            ))
-        }),
+                    &de::COLOR_FUNCTIONS,
+                )?;
+                Ok(Value::new_with_arena(
+                    arena,
+                    ValueKind::Color(c.change_alpha(na)?),
+                ))
+            },
+        ),
     )
 }
 
@@ -1119,35 +1183,38 @@ where
         "$color",
         "sass:color",
         arena,
-        Rc::new(move |_config, _state, args, arena: &'compile Bump| {
-            let color = value::assert_color(&args[0], Some("color"))?;
-            let rgb = color.to_space(ColorSpace::Rgb, None)?;
-            let gamut = rgb.to_gamut(GamutMapMethod::LocalMinde)?;
-            // Matches Dart: fuzzyRound per component (_ieHexStr hexString).
-            let a = nu::fuzzy_round(gamut.alpha * 255.0).map_err(|m| SassError::Script {
-                message: m,
-                argument_name: None,
-            })?;
-            let r = nu::fuzzy_round(gamut.channel0).map_err(|m| SassError::Script {
-                message: m,
-                argument_name: None,
-            })?;
-            let g = nu::fuzzy_round(gamut.channel1).map_err(|m| SassError::Script {
-                message: m,
-                argument_name: None,
-            })?;
-            let b = nu::fuzzy_round(gamut.channel2).map_err(|m| SassError::Script {
-                message: m,
-                argument_name: None,
-            })?;
-            Ok(Value::new_with_arena(
-                arena,
-                ValueKind::String(SassString::new(
-                    arena.alloc_str(&format!("#{a:02X}{r:02X}{g:02X}{b:02X}")),
-                    false,
-                )),
-            ))
-        }),
+        crate::callable::built_in_callback(
+            arena,
+            move |_config, _state, args, arena: &'compile Bump| {
+                let color = value::assert_color(&args[0], Some("color"))?;
+                let rgb = color.to_space(ColorSpace::Rgb, None)?;
+                let gamut = rgb.to_gamut(GamutMapMethod::LocalMinde)?;
+                // Matches Dart: fuzzyRound per component (_ieHexStr hexString).
+                let a = nu::fuzzy_round(gamut.alpha * 255.0).map_err(|m| SassError::Script {
+                    message: m,
+                    argument_name: None,
+                })?;
+                let r = nu::fuzzy_round(gamut.channel0).map_err(|m| SassError::Script {
+                    message: m,
+                    argument_name: None,
+                })?;
+                let g = nu::fuzzy_round(gamut.channel1).map_err(|m| SassError::Script {
+                    message: m,
+                    argument_name: None,
+                })?;
+                let b = nu::fuzzy_round(gamut.channel2).map_err(|m| SassError::Script {
+                    message: m,
+                    argument_name: None,
+                })?;
+                Ok(Value::new_with_arena(
+                    arena,
+                    ValueKind::String(SassString::new(
+                        arena.alloc_str(&format!("#{a:02X}{r:02X}{g:02X}{b:02X}")),
+                        false,
+                    )),
+                ))
+            },
+        ),
     )
 }
 

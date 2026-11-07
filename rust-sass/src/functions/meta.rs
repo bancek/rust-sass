@@ -9,7 +9,6 @@
 
 use crate::eval::warn::warn_deprecation;
 use crate::serialize::serialize_value_inspect;
-use std::rc::Rc;
 
 use bumpalo::Bump;
 
@@ -162,7 +161,7 @@ where
         "feature-exists",
         "$feature",
         arena,
-        Rc::new(feature_exists_impl),
+        crate::callable::built_in_callback(arena, feature_exists_impl),
     )
 }
 
@@ -189,7 +188,12 @@ fn inspect_function<'compile, 'parse>(arena: &'compile Bump) -> BuiltInCallable<
 where
     'compile: 'parse,
 {
-    meta_function("inspect", "$value", arena, Rc::new(inspect_impl))
+    meta_function(
+        "inspect",
+        "$value",
+        arena,
+        crate::callable::built_in_callback(arena, inspect_impl),
+    )
 }
 
 fn type_of_impl<'compile, 'parse>(
@@ -229,7 +233,12 @@ fn type_of_function<'compile, 'parse>(arena: &'compile Bump) -> BuiltInCallable<
 where
     'compile: 'parse,
 {
-    meta_function("type-of", "$value", arena, Rc::new(type_of_impl))
+    meta_function(
+        "type-of",
+        "$value",
+        arena,
+        crate::callable::built_in_callback(arena, type_of_impl),
+    )
 }
 
 fn keywords_impl<'compile, 'parse>(
@@ -273,7 +282,12 @@ fn keywords_function<'compile, 'parse>(arena: &'compile Bump) -> BuiltInCallable
 where
     'compile: 'parse,
 {
-    meta_function("keywords", "$args", arena, Rc::new(keywords_impl))
+    meta_function(
+        "keywords",
+        "$args",
+        arena,
+        crate::callable::built_in_callback(arena, keywords_impl),
+    )
 }
 
 // ---- Module-only functions ----
@@ -301,7 +315,12 @@ fn calc_name_function<'compile, 'parse>(arena: &'compile Bump) -> BuiltInCallabl
 where
     'compile: 'parse,
 {
-    meta_function("calc-name", "$calc", arena, Rc::new(calc_name_impl))
+    meta_function(
+        "calc-name",
+        "$calc",
+        arena,
+        crate::callable::built_in_callback(arena, calc_name_impl),
+    )
 }
 
 fn calc_args_impl<'compile, 'parse>(
@@ -355,7 +374,12 @@ fn calc_args_function<'compile, 'parse>(arena: &'compile Bump) -> BuiltInCallabl
 where
     'compile: 'parse,
 {
-    meta_function("calc-args", "$calc", arena, Rc::new(calc_args_impl))
+    meta_function(
+        "calc-args",
+        "$calc",
+        arena,
+        crate::callable::built_in_callback(arena, calc_args_impl),
+    )
 }
 
 fn accepts_content_impl<'compile, 'parse>(
@@ -405,7 +429,7 @@ where
         "accepts-content",
         "$mixin",
         arena,
-        Rc::new(accepts_content_impl),
+        crate::callable::built_in_callback(arena, accepts_content_impl),
     )
 }
 

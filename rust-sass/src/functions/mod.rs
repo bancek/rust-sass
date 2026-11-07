@@ -7,8 +7,6 @@
 // dart-source: lib/src/functions.dart
 // go-source: go/functions/functions.go
 
-use std::rc::Rc;
-
 use bumpalo::Bump;
 
 use crate::callable::{BuiltInCallable, Callable, CallableKind};
@@ -94,7 +92,8 @@ where
             "$condition, $if-true, $if-false",
             "",
             arena,
-            Rc::new(
+            crate::callable::built_in_callback(
+                arena,
                 |_config, _state, args: Vec<Value<'parse>>, _arena: &'compile Bump| {
                     if args[0].is_truthy() {
                         Ok(args[1])

@@ -12,7 +12,6 @@
 // go-source: go/functions/string.go + go/functions/functions_string_init.go
 
 use std::cell::Cell;
-use std::rc::Rc;
 
 use bumpalo::Bump;
 
@@ -206,7 +205,7 @@ where
         "$string",
         "sass:string",
         arena,
-        Rc::new(unquote_impl),
+        crate::callable::built_in_callback(arena, unquote_impl),
     )
 }
 
@@ -240,7 +239,7 @@ where
         "$string",
         "sass:string",
         arena,
-        Rc::new(quote_impl),
+        crate::callable::built_in_callback(arena, quote_impl),
     )
 }
 
@@ -276,7 +275,7 @@ where
         "$string",
         "sass:string",
         arena,
-        Rc::new(to_upper_case_impl),
+        crate::callable::built_in_callback(arena, to_upper_case_impl),
     )
 }
 
@@ -312,7 +311,7 @@ where
         "$string",
         "sass:string",
         arena,
-        Rc::new(to_lower_case_impl),
+        crate::callable::built_in_callback(arena, to_lower_case_impl),
     )
 }
 
@@ -341,7 +340,8 @@ where
         "",
         "sass:string",
         arena,
-        Rc::new(
+        crate::callable::built_in_callback(
+            arena,
             move |_config: &EvalConfig<'compile, 'parse>,
                   _state: &mut EvalState<'compile, 'parse>,
                   _args: Vec<Value<'parse>>,
@@ -415,7 +415,7 @@ where
         "$string",
         "sass:string",
         arena,
-        Rc::new(str_length_impl),
+        crate::callable::built_in_callback(arena, str_length_impl),
     )
 }
 
@@ -428,7 +428,7 @@ where
         "$string",
         "sass:string",
         arena,
-        Rc::new(str_length_impl),
+        crate::callable::built_in_callback(arena, str_length_impl),
     )
 }
 
@@ -463,7 +463,7 @@ where
         "$string, $insert, $index",
         "sass:string",
         arena,
-        Rc::new(str_insert_impl),
+        crate::callable::built_in_callback(arena, str_insert_impl),
     )
 }
 
@@ -476,7 +476,7 @@ where
         "$string, $insert, $index",
         "sass:string",
         arena,
-        Rc::new(str_insert_impl),
+        crate::callable::built_in_callback(arena, str_insert_impl),
     )
 }
 
@@ -539,7 +539,7 @@ where
         "$string, $substring",
         "sass:string",
         arena,
-        Rc::new(str_index_impl),
+        crate::callable::built_in_callback(arena, str_index_impl),
     )
 }
 
@@ -552,7 +552,7 @@ where
         "$string, $substring",
         "sass:string",
         arena,
-        Rc::new(str_index_impl),
+        crate::callable::built_in_callback(arena, str_index_impl),
     )
 }
 
@@ -595,7 +595,7 @@ where
         "$string, $start-at, $end-at: -1",
         "sass:string",
         arena,
-        Rc::new(str_slice_impl),
+        crate::callable::built_in_callback(arena, str_slice_impl),
     )
 }
 
@@ -608,7 +608,7 @@ where
         "$string, $start-at, $end-at: -1",
         "sass:string",
         arena,
-        Rc::new(str_slice_impl),
+        crate::callable::built_in_callback(arena, str_slice_impl),
     )
 }
 
@@ -770,7 +770,7 @@ where
         "$string, $separator, $limit: null",
         "sass:string",
         arena,
-        Rc::new(split_impl),
+        crate::callable::built_in_callback(arena, split_impl),
     )
 }
 

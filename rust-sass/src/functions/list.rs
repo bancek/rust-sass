@@ -8,7 +8,6 @@
 // go-source: go/functions/list.go
 
 use crate::value::SassNumber;
-use std::rc::Rc;
 
 use crate::callable::{BuiltInCallable, Callable, CallableKind};
 use crate::common::exception::{SassError, SassResult};
@@ -113,12 +112,15 @@ where
         "$list",
         "sass:list",
         arena,
-        Rc::new(move |_config, _state, args, arena: &'compile Bump| {
-            Ok(Value::new_with_arena(
-                arena,
-                ValueKind::Number(SassNumber::new(args[0].length_as_list() as f64, None)),
-            ))
-        }),
+        crate::callable::built_in_callback(
+            arena,
+            move |_config, _state, args, arena: &'compile Bump| {
+                Ok(Value::new_with_arena(
+                    arena,
+                    ValueKind::Number(SassNumber::new(args[0].length_as_list() as f64, None)),
+                ))
+            },
+        ),
     )
 }
 
@@ -131,14 +133,17 @@ where
         "$list, $n",
         "sass:list",
         arena,
-        Rc::new(move |config, state, args, arena: &'compile Bump| {
-            let a = args[0];
-            let warn_buf = BufferedWarnLogger::new(arena);
-            let index = sass_index_to_list_index(&a, &args[1], "n", &warn_buf)?;
-            flush_buffered_warnings(&warn_buf, config, state)?;
-            let list = a.as_list(arena)?;
-            Ok(list[index])
-        }),
+        crate::callable::built_in_callback(
+            arena,
+            move |config, state, args, arena: &'compile Bump| {
+                let a = args[0];
+                let warn_buf = BufferedWarnLogger::new(arena);
+                let index = sass_index_to_list_index(&a, &args[1], "n", &warn_buf)?;
+                flush_buffered_warnings(&warn_buf, config, state)?;
+                let list = a.as_list(arena)?;
+                Ok(list[index])
+            },
+        ),
     )
 }
 
@@ -151,7 +156,8 @@ where
         "$list, $n, $value",
         "sass:list",
         arena,
-        Rc::new(
+        crate::callable::built_in_callback(
+            arena,
             move |config, state, args: Vec<Value<'parse>>, arena: &'compile Bump| {
                 let a = args[0];
                 let warn_buf = BufferedWarnLogger::new(arena);
@@ -180,7 +186,8 @@ where
         "$list1, $list2, $separator: auto, $bracketed: auto",
         "sass:list",
         arena,
-        Rc::new(
+        crate::callable::built_in_callback(
+            arena,
             move |_config,
                   _state,
                   args: Vec<Value<'parse>>,
@@ -274,7 +281,8 @@ where
         "$list, $val, $separator: auto",
         "sass:list",
         arena,
-        Rc::new(
+        crate::callable::built_in_callback(
+            arena,
             move |_config, _state, args: Vec<Value<'parse>>, arena: &'compile Bump| {
                 let a = args[0];
                 let mut v: Vec<Value<'_>> = a.as_list(arena)?;
@@ -330,7 +338,8 @@ where
         "$lists...",
         "sass:list",
         arena,
-        Rc::new(
+        crate::callable::built_in_callback(
+            arena,
             move |_config, _state, args, arena: &'compile Bump| -> SassResult<Value<'parse>> {
                 let a = args[0];
                 let lists = a.as_list(arena)?;
@@ -375,7 +384,8 @@ where
         "$list, $value",
         "sass:list",
         arena,
-        Rc::new(
+        crate::callable::built_in_callback(
+            arena,
             move |_config, _state, args: Vec<Value<'parse>>, arena: &'compile Bump| {
                 let a = args[0];
                 let list = a.as_list(arena)?;
@@ -404,7 +414,8 @@ where
         "$list",
         "sass:list",
         arena,
-        Rc::new(
+        crate::callable::built_in_callback(
+            arena,
             move |_config, _state, args: Vec<Value<'parse>>, arena: &'compile Bump| {
                 Ok(Value::new_with_arena(
                     arena,
@@ -428,7 +439,8 @@ where
         "$list",
         "sass:list",
         arena,
-        Rc::new(
+        crate::callable::built_in_callback(
+            arena,
             move |_config, _state, args: Vec<Value<'parse>>, arena: &'compile Bump| {
                 Ok(Value::new_with_arena(
                     arena,
@@ -455,7 +467,8 @@ where
         "$elements...",
         "sass:list",
         arena,
-        Rc::new(
+        crate::callable::built_in_callback(
+            arena,
             move |_config, _state, args: Vec<Value<'parse>>, arena: &'compile Bump| {
                 let a = args[0];
                 let list = a.as_list(arena)?;

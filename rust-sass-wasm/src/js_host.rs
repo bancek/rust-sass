@@ -816,16 +816,17 @@ pub fn make_host_callable<'compile: 'parse, 'parse>(
     arena: &'compile Bump,
 ) -> SassResult<BuiltInCallable<'compile, 'parse>> {
     let (name, params) = split_signature(signature)?;
-    let cb: SyncBuiltInCallback<'compile, 'parse> = Rc::new(move |_config, _state, args, arena| {
-        let js_args = args_to_js(&ctx, &args)?;
-        let result = call_js(&js_fn, &js_args)?;
-        if is_promise(&result) {
-            return Err(script(
-                "can't return a Promise for synchronous compile functions",
-            ));
-        }
-        parse_function_result(&ctx, arena, &result)
-    });
+    let cb: SyncBuiltInCallback<'compile, 'parse> =
+        rust_sass::callable::built_in_callback(arena, move |_config, _state, args, arena| {
+            let js_args = args_to_js(&ctx, &args)?;
+            let result = call_js(&js_fn, &js_args)?;
+            if is_promise(&result) {
+                return Err(script(
+                    "can't return a Promise for synchronous compile functions",
+                ));
+            }
+            parse_function_result(&ctx, arena, &result)
+        });
     Ok(BuiltInCallable::function(&name, &params, "", arena, cb))
 }
 
@@ -841,7 +842,8 @@ pub fn make_host_callable<'compile: 'parse, 'parse>(
 ) -> SassResult<BuiltInCallable<'compile, 'parse>> {
     let (name, params) = split_signature(signature)?;
     let arena = arena; // captured &'compile Bump; the per-call &'a Bump is the wrong lifetime
-    let cb: AsyncBuiltInCallback<'compile, 'parse> = Rc::new(
+    let cb: AsyncBuiltInCallback<'compile, 'parse> = rust_sass::callable::built_in_callback_async(
+        arena,
         move |_config,
               _state,
               args,

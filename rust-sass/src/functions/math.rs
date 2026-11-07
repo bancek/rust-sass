@@ -13,7 +13,6 @@ use crate::math::pow;
 use crate::math::sqrt;
 use std::f64::consts::E;
 use std::f64::consts::PI;
-use std::rc::Rc;
 
 use bumpalo::Bump;
 use indexmap::IndexMap;
@@ -209,7 +208,8 @@ where
         "$number",
         "sass:math",
         arena,
-        Rc::new(
+        crate::callable::built_in_callback(
+            arena,
             move |_config: &EvalConfig<'compile, 'parse>,
                   _state: &mut EvalState<'compile, 'parse>,
                   args: Vec<Value<'parse>>,
@@ -248,7 +248,8 @@ where
         "$number",
         "sass:math",
         arena,
-        Rc::new(
+        crate::callable::built_in_callback(
+            arena,
             move |_config: &EvalConfig<'compile, 'parse>,
                   _state: &mut EvalState<'compile, 'parse>,
                   args: Vec<Value<'parse>>,
@@ -276,7 +277,8 @@ where
         "$number",
         "sass:math",
         arena,
-        Rc::new(
+        crate::callable::built_in_callback(
+            arena,
             move |config: &EvalConfig<'compile, 'parse>,
                   state: &mut EvalState<'compile, 'parse>,
                   args: Vec<Value<'parse>>,
@@ -427,7 +429,8 @@ where
         "$numbers...",
         "sass:math",
         arena,
-        Rc::new(
+        crate::callable::built_in_callback(
+            arena,
             move |_config: &EvalConfig<'compile, 'parse>,
                   _state: &mut EvalState<'compile, 'parse>,
                   args: Vec<Value<'parse>>,
@@ -474,7 +477,8 @@ where
         "$numbers...",
         "sass:math",
         arena,
-        Rc::new(
+        crate::callable::built_in_callback(
+            arena,
             move |_config: &EvalConfig<'compile, 'parse>,
                   _state: &mut EvalState<'compile, 'parse>,
                   args: Vec<Value<'parse>>,
@@ -520,7 +524,8 @@ where
         "$number",
         "sass:math",
         arena,
-        Rc::new(
+        crate::callable::built_in_callback(
+            arena,
             move |_config: &EvalConfig<'compile, 'parse>,
                   _state: &mut EvalState<'compile, 'parse>,
                   args: Vec<Value<'parse>>,
@@ -588,7 +593,8 @@ where
         "$y, $x",
         "sass:math",
         arena,
-        Rc::new(
+        crate::callable::built_in_callback(
+            arena,
             move |_config: &EvalConfig<'compile, 'parse>,
                   _state: &mut EvalState<'compile, 'parse>,
                   args: Vec<Value<'parse>>,
@@ -620,7 +626,8 @@ where
         "$min, $number, $max",
         "sass:math",
         arena,
-        Rc::new(
+        crate::callable::built_in_callback(
+            arena,
             move |_config: &EvalConfig<'compile, 'parse>,
                   _state: &mut EvalState<'compile, 'parse>,
                   args: Vec<Value<'parse>>,
@@ -676,7 +683,8 @@ where
         "$number1, $number2",
         "sass:math",
         arena,
-        Rc::new(
+        crate::callable::built_in_callback(
+            arena,
             move |config: &EvalConfig<'compile, 'parse>,
                   state: &mut EvalState<'compile, 'parse>,
                   args: Vec<Value<'parse>>,
@@ -718,7 +726,8 @@ where
         "$numbers...",
         "sass:math",
         arena,
-        Rc::new(
+        crate::callable::built_in_callback(
+            arena,
             move |_config: &EvalConfig<'compile, 'parse>,
                   _state: &mut EvalState<'compile, 'parse>,
                   args: Vec<Value<'parse>>,
@@ -772,7 +781,8 @@ where
         "$number",
         "sass:math",
         arena,
-        Rc::new(
+        crate::callable::built_in_callback(
+            arena,
             move |_config: &EvalConfig<'compile, 'parse>,
                   _state: &mut EvalState<'compile, 'parse>,
                   args: Vec<Value<'parse>>,
@@ -802,7 +812,8 @@ where
         "$number, $base: null",
         "sass:math",
         arena,
-        Rc::new(
+        crate::callable::built_in_callback(
+            arena,
             move |_config: &EvalConfig<'compile, 'parse>,
                   _state: &mut EvalState<'compile, 'parse>,
                   args: Vec<Value<'parse>>,
@@ -840,7 +851,8 @@ where
         "$base, $exponent",
         "sass:math",
         arena,
-        Rc::new(
+        crate::callable::built_in_callback(
+            arena,
             move |_config: &EvalConfig<'compile, 'parse>,
                   _state: &mut EvalState<'compile, 'parse>,
                   args: Vec<Value<'parse>>,
@@ -903,7 +915,8 @@ where
         "$number",
         "sass:math",
         arena,
-        Rc::new(
+        crate::callable::built_in_callback(
+            arena,
             move |_config: &EvalConfig<'compile, 'parse>,
                   _state: &mut EvalState<'compile, 'parse>,
                   args: Vec<Value<'parse>>,
@@ -987,7 +1000,7 @@ where
         "$number1, $number2",
         "sass:math",
         arena,
-        Rc::new(compatible_impl),
+        crate::callable::built_in_callback(arena, compatible_impl),
     )
 }
 
@@ -1005,7 +1018,7 @@ where
         "$number1, $number2",
         "sass:math",
         arena,
-        Rc::new(compatible_impl),
+        crate::callable::built_in_callback(arena, compatible_impl),
     )
 }
 
@@ -1048,7 +1061,7 @@ where
         "$number",
         "sass:math",
         arena,
-        Rc::new(unitless_impl),
+        crate::callable::built_in_callback(arena, unitless_impl),
     )
 }
 
@@ -1068,7 +1081,7 @@ where
         "$number",
         "sass:math",
         arena,
-        Rc::new(unitless_impl),
+        crate::callable::built_in_callback(arena, unitless_impl),
     )
 }
 
@@ -1106,7 +1119,8 @@ where
         "$limit: null",
         "sass:math",
         arena,
-        Rc::new(
+        crate::callable::built_in_callback(
+            arena,
             move |config: &EvalConfig<'compile, 'parse>,
                   state: &mut EvalState<'compile, 'parse>,
                   args: Vec<Value<'parse>>,
@@ -1160,6 +1174,7 @@ mod tests {
     use std::f64::consts::E;
     use std::f64::consts::FRAC_PI_2;
     use std::f64::consts::PI;
+    use std::rc::Rc;
 
     use crate::functions::test_utils::{
         assert_is_false, assert_is_true, assert_no_warnings, assert_single_warning, eval,

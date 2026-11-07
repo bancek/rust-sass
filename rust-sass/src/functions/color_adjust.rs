@@ -11,7 +11,6 @@
 
 use crate::eval::warn::warn_deprecation;
 use crate::value::color_channel_types::ALPHA_CHANNEL;
-use std::rc::Rc;
 
 use bumpalo::Bump;
 use indexmap::IndexMap;
@@ -446,7 +445,8 @@ where
         "$color, $kwargs...",
         "sass:color",
         arena,
-        Rc::new(
+        crate::callable::built_in_callback(
+            arena,
             move |config: &EvalConfig<'compile, 'parse>,
                   state: &mut EvalState<'compile, 'parse>,
                   args,
@@ -470,7 +470,8 @@ where
         "$color, $kwargs...",
         "sass:color",
         arena,
-        Rc::new(
+        crate::callable::built_in_callback(
+            arena,
             move |config: &EvalConfig<'compile, 'parse>,
                   state: &mut EvalState<'compile, 'parse>,
                   args,
@@ -494,7 +495,8 @@ where
         "$color, $kwargs...",
         "sass:color",
         arena,
-        Rc::new(
+        crate::callable::built_in_callback(
+            arena,
             move |config: &EvalConfig<'compile, 'parse>,
                   state: &mut EvalState<'compile, 'parse>,
                   args,

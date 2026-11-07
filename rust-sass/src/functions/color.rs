@@ -15,7 +15,6 @@ use crate::util::number::fuzzy_equals;
 use crate::value::color_conversions_base::space_channels;
 use crate::value::color_conversions_base::GamutMapMethod;
 use crate::value::SassString;
-use std::rc::Rc;
 
 use bumpalo::Bump;
 
@@ -366,7 +365,8 @@ where
         "$description",
         "sass:color",
         arena,
-        Rc::new(
+        crate::callable::built_in_callback(
+            arena,
             move |config: &EvalConfig<'compile, 'parse>,
                   state: &mut EvalState<'compile, 'parse>,
                   args: Vec<Value<'parse>>,
@@ -393,7 +393,8 @@ where
         "$color",
         "sass:color",
         arena,
-        Rc::new(
+        crate::callable::built_in_callback(
+            arena,
             move |_config: &EvalConfig<'compile, 'parse>,
                   _state: &mut EvalState<'compile, 'parse>,
                   args: Vec<Value<'parse>>,
@@ -427,7 +428,8 @@ where
         "$color, $space",
         "sass:color",
         arena,
-        Rc::new(
+        crate::callable::built_in_callback(
+            arena,
             move |_config: &EvalConfig<'compile, 'parse>,
                   _state: &mut EvalState<'compile, 'parse>,
                   args: Vec<Value<'parse>>,
@@ -463,7 +465,8 @@ where
         "$color",
         "sass:color",
         arena,
-        Rc::new(
+        crate::callable::built_in_callback(
+            arena,
             move |_config: &EvalConfig<'compile, 'parse>,
                   _state: &mut EvalState<'compile, 'parse>,
                   args: Vec<Value<'parse>>,
@@ -496,7 +499,8 @@ where
         "$color, $channel",
         "sass:color",
         arena,
-        Rc::new(
+        crate::callable::built_in_callback(
+            arena,
             move |_config: &EvalConfig<'compile, 'parse>,
                   _state: &mut EvalState<'compile, 'parse>,
                   args: Vec<Value<'parse>>,
@@ -533,7 +537,8 @@ where
         "$color, $space: null",
         "sass:color",
         arena,
-        Rc::new(
+        crate::callable::built_in_callback(
+            arena,
             move |_config: &EvalConfig<'compile, 'parse>,
                   _state: &mut EvalState<'compile, 'parse>,
                   args: Vec<Value<'parse>>,
@@ -570,7 +575,8 @@ where
         "$color, $space: null, $method: null",
         "sass:color",
         arena,
-        Rc::new(
+        crate::callable::built_in_callback(
+            arena,
             move |_config: &EvalConfig<'compile, 'parse>,
                   _state: &mut EvalState<'compile, 'parse>,
                   args: Vec<Value<'parse>>,
@@ -632,7 +638,8 @@ where
         "$color, $channel, $space: null",
         "sass:color",
         arena,
-        Rc::new(
+        crate::callable::built_in_callback(
+            arena,
             move |_config: &EvalConfig<'compile, 'parse>,
                   _state: &mut EvalState<'compile, 'parse>,
                   args: Vec<Value<'parse>>,
@@ -703,7 +710,8 @@ where
         "$color1, $color2",
         "sass:color",
         arena,
-        Rc::new(
+        crate::callable::built_in_callback(
+            arena,
             move |_config: &EvalConfig<'compile, 'parse>,
                   _state: &mut EvalState<'compile, 'parse>,
                   args: Vec<Value<'parse>>,
@@ -749,7 +757,8 @@ where
         "$color, $channel, $space: null",
         "sass:color",
         arena,
-        Rc::new(
+        crate::callable::built_in_callback(
+            arena,
             move |_config: &EvalConfig<'compile, 'parse>,
                   _state: &mut EvalState<'compile, 'parse>,
                   args: Vec<Value<'parse>>,

@@ -600,7 +600,6 @@ mod tests {
     use crate::callable::SyncBuiltInCallback;
     use crate::environment::Environment;
     use crate::value::SassNumber;
-    use std::rc::Rc;
 
     use crate::ast::css::comment::ModifiableCssComment;
     use crate::ast::css::modifiable_node::{ModifiableCssNode, ModifiableCssNodeKind};
@@ -623,10 +622,12 @@ mod tests {
         'parse: 'compile,
     {
         let pl = ParameterList::empty(test_span());
-        let cb: SyncBuiltInCallback<'compile, 'parse> =
-            Rc::new(|_config, _state, _args, arena: &'compile Bump| {
+        let cb: SyncBuiltInCallback<'compile, 'parse> = crate::callable::built_in_callback(
+            arena,
+            |_config, _state, _args, arena: &'compile Bump| {
                 Ok(Value::new_with_arena(arena, ValueKind::Null))
-            });
+            },
+        );
         let bic = BuiltInCallable::new(arena, name, pl, cb);
         Callable::new(arena, CallableKind::BuiltIn(bic))
     }

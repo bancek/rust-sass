@@ -28,7 +28,6 @@ use crate::eval::statement::combine_css;
 use crate::eval::statement::load_module;
 use crate::eval::warn::warn_deprecation;
 use crate::functions::meta::meta_module;
-use std::rc::Rc;
 
 use bumpalo::Bump;
 #[cfg(feature = "async")]
@@ -426,7 +425,8 @@ where
                 arena,
                 {
                     let cctx = compile_context;
-                    Rc::new(
+                    crate::callable::built_in_callback(
+                        arena,
                         move |_config: &EvalConfig<'compile, 'parse>,
                               state: &mut EvalState<'compile, 'parse>,
                               args: Vec<Value<'parse>>,
@@ -456,7 +456,8 @@ where
         Callable::new(
             arena,
             CallableKind::BuiltIn(meta_fn("variable-exists", "$name", arena, {
-                Rc::new(
+                crate::callable::built_in_callback(
+                    arena,
                     move |_config: &EvalConfig<'compile, 'parse>,
                           state: &mut EvalState<'compile, 'parse>,
                           args: Vec<Value<'parse>>,
@@ -478,7 +479,8 @@ where
             arena,
             CallableKind::BuiltIn(meta_fn("function-exists", "$name, $module: null", arena, {
                 let cctx = compile_context;
-                Rc::new(
+                crate::callable::built_in_callback(
+                    arena,
                     move |_config: &EvalConfig<'compile, 'parse>,
                           state: &mut EvalState<'compile, 'parse>,
                           args: Vec<Value<'parse>>,
@@ -511,7 +513,8 @@ where
             arena,
             CallableKind::BuiltIn(meta_fn("mixin-exists", "$name, $module: null", arena, {
                 let cctx = compile_context;
-                Rc::new(
+                crate::callable::built_in_callback(
+                    arena,
                     move |_config: &EvalConfig<'compile, 'parse>,
                           state: &mut EvalState<'compile, 'parse>,
                           args: Vec<Value<'parse>>,
@@ -540,7 +543,8 @@ where
         Callable::new(
             arena,
             CallableKind::BuiltIn(meta_fn("content-exists", "", arena, {
-                Rc::new(
+                crate::callable::built_in_callback(
+                    arena,
                     move |_config: &EvalConfig<'compile, 'parse>,
                           state: &mut EvalState<'compile, 'parse>,
                           _args: Vec<Value<'parse>>,
@@ -567,7 +571,8 @@ where
             arena,
             CallableKind::BuiltIn(meta_fn("module-variables", "$module", arena, {
                 let cctx = compile_context;
-                Rc::new(
+                crate::callable::built_in_callback(
+                    arena,
                     move |_config: &EvalConfig<'compile, 'parse>,
                           state: &mut EvalState<'compile, 'parse>,
                           args: Vec<Value<'parse>>,
@@ -597,7 +602,8 @@ where
             arena,
             CallableKind::BuiltIn(meta_fn("module-functions", "$module", arena, {
                 let cctx = compile_context;
-                Rc::new(
+                crate::callable::built_in_callback(
+                    arena,
                     move |_config: &EvalConfig<'compile, 'parse>,
                           state: &mut EvalState<'compile, 'parse>,
                           args: Vec<Value<'parse>>,
@@ -633,7 +639,8 @@ where
             arena,
             CallableKind::BuiltIn(meta_fn("module-mixins", "$module", arena, {
                 let cctx = compile_context;
-                Rc::new(
+                crate::callable::built_in_callback(
+                    arena,
                     move |_config: &EvalConfig<'compile, 'parse>,
                           state: &mut EvalState<'compile, 'parse>,
                           args: Vec<Value<'parse>>,
@@ -673,7 +680,8 @@ where
                 arena,
                 {
                     let cctx = compile_context;
-                    Rc::new(
+                    crate::callable::built_in_callback(
+                        arena,
                         move |_config: &EvalConfig<'compile, 'parse>,
                               state: &mut EvalState<'compile, 'parse>,
                               args: Vec<Value<'parse>>,
@@ -731,7 +739,8 @@ where
             arena,
             CallableKind::BuiltIn(meta_fn("get-mixin", "$name, $module: null", arena, {
                 let cctx = compile_context;
-                Rc::new(
+                crate::callable::built_in_callback(
+                    arena,
                     move |_config: &EvalConfig<'compile, 'parse>,
                           state: &mut EvalState<'compile, 'parse>,
                           args: Vec<Value<'parse>>,
@@ -763,7 +772,8 @@ where
             arena,
             CallableKind::BuiltIn(meta_fn("get-module", "$module", arena, {
                 let cctx = compile_context;
-                Rc::new(
+                crate::callable::built_in_callback(
+                    arena,
                     move |_config: &EvalConfig<'compile, 'parse>,
                           state: &mut EvalState<'compile, 'parse>,
                           args: Vec<Value<'parse>>,
@@ -783,7 +793,8 @@ where
             arena,
             CallableKind::BuiltIn(meta_fn_async("load", r"$url, $with: null", arena, {
                 let cctx = compile_context;
-                Rc::new(
+                crate::callable::built_in_callback_async(
+                    arena,
                     move |config,
                           state,
                           args,
@@ -800,7 +811,8 @@ where
             arena,
             CallableKind::BuiltIn(meta_fn_async("call", r"$function, $args...", arena, {
                 let cctx = compile_context;
-                Rc::new(
+                crate::callable::built_in_callback_async(
+                    arena,
                     move |config,
                           state,
                           args,
@@ -1134,7 +1146,8 @@ where
             arena,
             CallableKind::BuiltIn(meta_mixin_fn_async("css", "$module", false, arena, {
                 let cctx = compile_context;
-                Rc::new(
+                crate::callable::built_in_callback_async(
+                    arena,
                     move |config,
                           state,
                           args,
@@ -1155,7 +1168,7 @@ where
                 false,
                 arena,
                 {
-                    Rc::new(
+                    crate::callable::built_in_callback_async(arena,
                     move |config,
                           state,
                           args,
@@ -1177,7 +1190,7 @@ where
                 arena,
                 {
                     let cctx = compile_context;
-                    Rc::new(
+                    crate::callable::built_in_callback_async(arena,
                     move |config,
                           state,
                           args,
@@ -1319,7 +1332,8 @@ mod tests {
                 arena,
                 name,
                 ParameterList::empty(BOGUS_SPAN),
-                Rc::new(
+                crate::callable::built_in_callback(
+                    arena,
                     |_config: &EvalConfig<'compile, 'parse>,
                      _state: &mut EvalState<'compile, 'parse>,
                      _args: Vec<Value<'parse>>,

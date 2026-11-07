@@ -58,7 +58,6 @@ use crate::importers::ImportEntry;
 use sass_value_get_tag as tag_of;
 use std::ffi::{c_char, c_void, CStr, CString};
 use std::ptr;
-use std::rc::Rc;
 
 use bumpalo::Bump;
 
@@ -863,16 +862,17 @@ where
                 argument_name: None,
             }));
         };
-        let fn_name = name.clone();
-        let cb: SyncBuiltInCallback<'compile, 'parse> = Rc::new(move |_, state, args, arena| {
-            guard(
-                Err(Box::new(SassError::Script {
-                    message: format!("custom function '{fn_name}' failed"),
-                    argument_name: None,
-                })),
-                || invoke_c_function(fn_name.clone(), entry, callback, args, state, arena),
-            )
-        });
+        let fn_name: &str = arena.alloc_str(&name);
+        let cb: SyncBuiltInCallback<'compile, 'parse> =
+            rust_sass::callable::built_in_callback(arena, move |_, state, args, arena| {
+                guard(
+                    Err(Box::new(SassError::Script {
+                        message: format!("custom function '{fn_name}' failed"),
+                        argument_name: None,
+                    })),
+                    || invoke_c_function(fn_name.to_string(), entry, callback, args, state, arena),
+                )
+            });
         out.push(Callable::new(
             arena,
             CallableKind::BuiltIn(BuiltInCallable::new(arena, &name, params, cb)),

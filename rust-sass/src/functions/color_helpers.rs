@@ -9,9 +9,7 @@
 //   _removedColorFunction, _function, _forcePercent is in color_spaces_shared.rs)
 // go-source: go/functions/color_helpers.go
 
-use std::rc::Rc;
-
-use crate::callable::{BuiltInCallable, SyncBuiltInCallback};
+use crate::callable::BuiltInCallable;
 use crate::common::exception::{SassError, SassResult};
 use crate::deprecation::{COLOR_FUNCTIONS, FUNCTION_UNITS};
 use crate::eval::warn::warn_deprecation;
@@ -241,25 +239,28 @@ pub fn removed_color_function<'compile, 'parse>(
 where
     'compile: 'parse,
 {
-    let n = name.to_string();
-    let a = argument.to_string();
+    let n: &str = arena.alloc_str(name);
+    let a: &str = arena.alloc_str(argument);
     BuiltInCallable::function(
         name,
         "$color, $amount",
         "sass:color",
         arena,
-        Rc::new(move |_config, _state, args, _arena: &'compile Bump| {
-            let arg0_str = args[0].to_display_string()?;
-            let arg1_str = args[1].to_display_string()?;
-            Err(Box::new(SassError::Script {
-                message: format!(
-                    "The function {n}() isn't in the sass:color module.\n\n\
+        crate::callable::built_in_callback(
+            arena,
+            move |_config, _state, args, _arena: &'compile Bump| {
+                let arg0_str = args[0].to_display_string()?;
+                let arg1_str = args[1].to_display_string()?;
+                Err(Box::new(SassError::Script {
+                    message: format!(
+                        "The function {n}() isn't in the sass:color module.\n\n\
                      Recommendation: color.adjust({arg0_str}, ${a}: {arg1_str})\n\n\
                      More info: https://sass-lang.com/documentation/functions/color#{n}",
-                ),
-                argument_name: None,
-            }))
-        }),
+                    ),
+                    argument_name: None,
+                }))
+            },
+        ),
     )
 }
 
@@ -276,25 +277,28 @@ pub fn removed_color_function_negative<'compile, 'parse>(
 where
     'compile: 'parse,
 {
-    let n = name.to_string();
-    let a = argument.to_string();
+    let n: &str = arena.alloc_str(name);
+    let a: &str = arena.alloc_str(argument);
     BuiltInCallable::function(
         name,
         "$color, $amount",
         "sass:color",
         arena,
-        Rc::new(move |_config, _state, args, _arena: &'compile Bump| {
-            let arg0_str = args[0].to_display_string()?;
-            let arg1_str = args[1].to_display_string()?;
-            Err(Box::new(SassError::Script {
-                message: format!(
-                    "The function {n}() isn't in the sass:color module.\n\n\
+        crate::callable::built_in_callback(
+            arena,
+            move |_config, _state, args, _arena: &'compile Bump| {
+                let arg0_str = args[0].to_display_string()?;
+                let arg1_str = args[1].to_display_string()?;
+                Err(Box::new(SassError::Script {
+                    message: format!(
+                        "The function {n}() isn't in the sass:color module.\n\n\
                      Recommendation: color.adjust({arg0_str}, ${a}: -{arg1_str})\n\n\
                      More info: https://sass-lang.com/documentation/functions/color#{n}",
-                ),
-                argument_name: None,
-            }))
-        }),
+                    ),
+                    argument_name: None,
+                }))
+            },
+        ),
     )
 }
 
@@ -392,15 +396,16 @@ fn new_built_in_channel_function<'compile, 'parse>(
 where
     'compile: 'parse,
 {
-    let n = name.to_string();
-    let u = unit.to_string();
-    let space_name = space.name().to_string();
+    let n: &str = arena.alloc_str(name);
+    let u: &str = arena.alloc_str(unit);
+    let space_name: &str = arena.alloc_str(space.name());
     BuiltInCallable::function(
         name,
         "$color",
         "sass:color",
         arena,
-        Rc::new(
+        crate::callable::built_in_callback(
+            arena,
             move |config: &EvalConfig<'compile, 'parse>,
                   state: &mut EvalState<'compile, 'parse>,
                   args: Vec<Value<'parse>>,
@@ -423,11 +428,11 @@ where
                 let num = if u.is_empty() {
                     SassNumber::new(v, None)
                 } else {
-                    SassNumber::new(v, Some(&u))
+                    SassNumber::new(v, Some(u))
                 };
                 Ok(Value::new_with_arena(arena, ValueKind::Number(num)))
             },
-        ) as SyncBuiltInCallback<'compile, 'parse>,
+        ),
     )
 }
 

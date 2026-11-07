@@ -47,7 +47,8 @@ where
             arena,
             name,
             ParameterList::empty(BOGUS_SPAN),
-            Rc::new(
+            crate::callable::built_in_callback(
+                arena,
                 |_config: &EvalConfig<'compile, 'parse>,
                  _state: &mut EvalState<'compile, 'parse>,
                  _args: Vec<Value<'parse>>,
@@ -74,7 +75,8 @@ where
         arena,
         "m",
         ParameterList::empty(BOGUS_SPAN),
-        Rc::new(
+        crate::callable::built_in_callback(
+            arena,
             |_config: &EvalConfig<'compile, 'parse>,
              _state: &mut EvalState<'compile, 'parse>,
              _args: Vec<Value<'parse>>,

@@ -24,7 +24,6 @@ use crate::parse::stylesheet_parse::parse_parameter_list;
 use std::collections::HashSet;
 use std::fmt;
 use std::hash::{Hash, Hasher};
-use std::rc::Rc;
 
 use crate::ast::sass::parameter_list::ParameterList;
 use crate::ast::sass::statement::CallableDeclaration;
@@ -40,36 +39,81 @@ use futures::future::LocalBoxFuture;
 /// out. Callables using this form work in both the sync and async builds, so
 /// prefer it whenever the callback needs no asynchronous work (Dart's
 /// `Callable` extends `AsyncCallable` for the same reason).
-pub type SyncBuiltInCallback<'compile, 'parse> = Rc<
-    dyn Fn(
+pub type SyncBuiltInCallback<'compile, 'parse> = &'parse dyn Fn(
+    &EvalConfig<'compile, 'parse>,
+    &mut EvalState<'compile, 'parse>,
+    Vec<Value<'parse>>,
+    &'compile Bump,
+) -> SassResult<Value<'parse>>;
+
+/// Allocates a synchronous built-in callback in the compile arena.
+///
+/// The callback is retained until the compilation ends and must not capture
+/// heap-owning values: the arena never runs `Drop`, so a captured `String`,
+/// `Vec`, or `Rc` would leak. Capture only `Copy` references and arena data.
+pub fn built_in_callback<'compile, 'parse>(
+    arena: &'parse Bump,
+    callback: impl Fn(
             &EvalConfig<'compile, 'parse>,
             &mut EvalState<'compile, 'parse>,
             Vec<Value<'parse>>,
             &'compile Bump,
         ) -> SassResult<Value<'parse>>
         + 'parse,
->;
+) -> SyncBuiltInCallback<'compile, 'parse> {
+    arena.alloc(callback)
+}
 
 /// A built-in function callback for callables that *need* to do asynchronous
 /// work (`meta.load-css`/`call`/`apply`, host-provided async functions). Only
 /// compatible with the async build; anything that can work synchronously
 /// should be [`SyncBuiltInCallback`] instead.
 #[rust_sass_macros::async_impl]
-pub type AsyncBuiltInCallback<'compile, 'parse> = Rc<
-    dyn for<'a> Fn(
+pub type AsyncBuiltInCallback<'compile, 'parse> =
+    &'parse dyn for<'a> Fn(
+        &'a EvalConfig<'compile, 'parse>,
+        &'a mut EvalState<'compile, 'parse>,
+        Vec<Value<'parse>>,
+        &'a Bump,
+    ) -> LocalBoxFuture<'a, SassResult<Value<'parse>>>;
+
+/// Allocates an asynchronous built-in callback in the compile arena. Same
+/// capture rules as [`built_in_callback`].
+#[rust_sass_macros::async_impl]
+pub fn built_in_callback_async<'compile, 'parse>(
+    arena: &'parse Bump,
+    callback: impl for<'a> Fn(
             &'a EvalConfig<'compile, 'parse>,
             &'a mut EvalState<'compile, 'parse>,
             Vec<Value<'parse>>,
             &'a Bump,
         ) -> LocalBoxFuture<'a, SassResult<Value<'parse>>>
         + 'parse,
->;
+) -> AsyncBuiltInCallback<'compile, 'parse> {
+    arena.alloc(callback)
+}
+
+/// Sync-build twin of [`built_in_callback_async`]: `#[maybe_async]` converts
+/// the same source closures to plain returns before this is type-checked.
+#[rust_sass_macros::sync_impl]
+pub fn built_in_callback_async<'compile, 'parse>(
+    arena: &'parse Bump,
+    callback: impl Fn(
+            &EvalConfig<'compile, 'parse>,
+            &mut EvalState<'compile, 'parse>,
+            Vec<Value<'parse>>,
+            &'compile Bump,
+        ) -> SassResult<Value<'parse>>
+        + 'parse,
+) -> SyncBuiltInCallback<'compile, 'parse> {
+    arena.alloc(callback)
+}
 
 /// Selects how a built-in runs: `Sync` boxes no future (the fast path for
 /// the ~380 pure built-ins) while `Async` awaits a boxed future. In the sync
 /// build the enum collapses to the `Sync` alias.
 #[rust_sass_macros::async_impl]
-#[derive(Clone)]
+#[derive(Clone, Copy)]
 pub enum BuiltInCallback<'compile, 'parse> {
     Sync(SyncBuiltInCallback<'compile, 'parse>),
     Async(AsyncBuiltInCallback<'compile, 'parse>),
@@ -91,7 +135,7 @@ impl<'compile: 'parse, 'parse> Clone for BuiltInOverload<'compile, 'parse> {
     fn clone(&self) -> Self {
         BuiltInOverload {
             params: self.params.clone(),
-            callback: self.callback.clone(),
+            callback: self.callback,
         }
     }
 }
@@ -625,23 +669,17 @@ impl<'compile: 'parse, 'parse: 'compile> BuiltInCallable<'compile, 'parse> {
             .iter()
             .map(|ov| {
                 let params = ov.params.clone();
-                let module = module.to_string();
-                let name = n.to_string();
                 match &ov.callback {
                     BuiltInCallback::Sync(original) => BuiltInOverload {
                         params,
                         callback: BuiltInCallback::Sync(with_deprecation_sync_wrapper(
-                            Rc::clone(original),
-                            module,
-                            name,
+                            arena, *original, module, n,
                         )),
                     },
                     BuiltInCallback::Async(original) => BuiltInOverload {
                         params,
                         callback: BuiltInCallback::Async(with_deprecation_async_wrapper(
-                            Rc::clone(original),
-                            module,
-                            name,
+                            arena, *original, module, n,
                         )),
                     },
                 }
@@ -672,11 +710,9 @@ impl<'compile: 'parse, 'parse: 'compile> BuiltInCallable<'compile, 'parse> {
             .iter()
             .map(|ov| {
                 let params = ov.params.clone();
-                let module = module.to_string();
-                let name = n.to_string();
                 BuiltInOverload {
                     params,
-                    callback: with_deprecation_sync_wrapper(Rc::clone(&ov.callback), module, name),
+                    callback: with_deprecation_sync_wrapper(arena, ov.callback, module, n),
                 }
             })
             .collect();
@@ -694,23 +730,25 @@ impl<'compile: 'parse, 'parse: 'compile> BuiltInCallable<'compile, 'parse> {
 /// Wraps a `SyncBuiltInCallback` with a deprecation warning, returning a new
 /// `SyncBuiltInCallback` that emits the warning before invoking the original.
 fn with_deprecation_sync_wrapper<'compile, 'parse>(
+    arena: &'parse Bump,
     original: SyncBuiltInCallback<'compile, 'parse>,
-    module: String,
-    name: String,
+    module: &str,
+    name: &str,
 ) -> SyncBuiltInCallback<'compile, 'parse>
 where
     'compile: 'parse,
 {
     // The message is constant per wrapper — format it once at registration
     // instead of on every built-in invocation.
-    let message = global_builtin_deprecation_message(&module, &name);
-    Rc::new(
+    let message: &'parse str = arena.alloc_str(&global_builtin_deprecation_message(module, name));
+    built_in_callback(
+        arena,
         move |config: &EvalConfig<'compile, 'parse>,
               state: &mut EvalState<'compile, 'parse>,
               args: Vec<Value<'parse>>,
               arena: &'compile Bump|
               -> SassResult<Value<'parse>> {
-            warn_for_global_builtin_message(config, state, &message)?;
+            warn_for_global_builtin_message(config, state, message)?;
             original(config, state, args, arena)
         },
     )
@@ -733,22 +771,22 @@ fn global_builtin_deprecation_message(module: &str, name: &str) -> String {
 /// trait coercion (see docs/ref/macros.md, "Lifetime invariance").
 #[rust_sass_macros::async_impl]
 fn with_deprecation_async_wrapper<'compile, 'parse>(
+    arena: &'parse Bump,
     original: AsyncBuiltInCallback<'compile, 'parse>,
-    module: String,
-    name: String,
+    module: &str,
+    name: &str,
 ) -> AsyncBuiltInCallback<'compile, 'parse>
 where
     'compile: 'parse,
     'parse: 'compile,
 {
-    let message = global_builtin_deprecation_message(&module, &name);
-    Rc::new(
-        move |config, state, args, arena| -> LocalBoxFuture<'_, SassResult<Value<'parse>>> {
-            let message = message.clone();
-            let original = original.clone();
+    let message: &'parse str = arena.alloc_str(&global_builtin_deprecation_message(module, name));
+    built_in_callback_async(
+        arena,
+        move |config, state, args, call_arena| -> LocalBoxFuture<'_, SassResult<Value<'parse>>> {
             Box::pin(async move {
-                warn_for_global_builtin_message(config, state, &message)?;
-                original(config, state, args, arena).await
+                warn_for_global_builtin_message(config, state, message)?;
+                original(config, state, args, call_arena).await
             })
         },
     )
@@ -777,12 +815,13 @@ mod tests {
         FileSpan::new(Some(fs), 0, text.len())
     }
 
-    fn noop_callback<'compile, 'parse>() -> SyncBuiltInCallback<'compile, 'parse>
+    fn noop_callback<'compile, 'parse>(arena: &'parse Bump) -> SyncBuiltInCallback<'compile, 'parse>
     where
         'compile: 'parse,
         'parse: 'compile,
     {
-        Rc::new(
+        built_in_callback(
+            arena,
             |_config: &EvalConfig<'compile, 'parse>,
              _state: &mut EvalState<'compile, 'parse>,
              _args: Vec<Value<'parse>>,
@@ -794,21 +833,23 @@ mod tests {
     }
 
     #[cfg(feature = "async")]
-    fn noop_callback_cfg<'compile, 'parse>() -> BuiltInCallback<'compile, 'parse>
+    fn noop_callback_cfg<'compile, 'parse>(arena: &'parse Bump) -> BuiltInCallback<'compile, 'parse>
     where
         'compile: 'parse,
         'parse: 'compile,
     {
-        BuiltInCallback::Sync(noop_callback())
+        BuiltInCallback::Sync(noop_callback(arena))
     }
 
     #[cfg(not(feature = "async"))]
-    fn noop_callback_cfg<'compile, 'parse>() -> SyncBuiltInCallback<'compile, 'parse>
+    fn noop_callback_cfg<'compile, 'parse>(
+        arena: &'parse Bump,
+    ) -> SyncBuiltInCallback<'compile, 'parse>
     where
         'compile: 'parse,
         'parse: 'compile,
     {
-        noop_callback()
+        noop_callback(arena)
     }
 
     fn empty_params<'compile, 'parse>(arena: &'compile Bump) -> ParameterList<'parse>
@@ -872,7 +913,7 @@ mod tests {
     fn test_built_in_callable_new() {
         let arena = Bump::new();
         let pl = empty_params(&arena);
-        let fn_ = BuiltInCallable::new(&arena, "test-fn", pl, noop_callback());
+        let fn_ = BuiltInCallable::new(&arena, "test-fn", pl, noop_callback(&arena));
         assert_eq!(fn_.name(), "test-fn");
     }
 
@@ -884,11 +925,11 @@ mod tests {
         let overloads = vec![
             BuiltInOverload {
                 params: pl1,
-                callback: noop_callback_cfg(),
+                callback: noop_callback_cfg(&arena),
             },
             BuiltInOverload {
                 params: pl2,
-                callback: noop_callback_cfg(),
+                callback: noop_callback_cfg(&arena),
             },
         ];
         let fn_ = BuiltInCallable::new_overloaded(&arena, "overloaded", overloads);
@@ -899,7 +940,7 @@ mod tests {
     fn test_built_in_callable_accepts_content_default() {
         let arena = Bump::new();
         let pl = empty_params(&arena);
-        let fn_ = BuiltInCallable::new(&arena, "test", pl, noop_callback());
+        let fn_ = BuiltInCallable::new(&arena, "test", pl, noop_callback(&arena));
         assert!(!fn_.accepts_content());
     }
 
@@ -907,7 +948,7 @@ mod tests {
     fn test_built_in_callable_set_accepts_content() {
         let arena = Bump::new();
         let pl = empty_params(&arena);
-        let mut fn_ = BuiltInCallable::new(&arena, "test", pl, noop_callback());
+        let mut fn_ = BuiltInCallable::new(&arena, "test", pl, noop_callback(&arena));
         fn_.set_accepts_content(true);
         assert!(fn_.accepts_content());
     }
@@ -916,7 +957,7 @@ mod tests {
     fn test_built_in_callable_with_name() {
         let arena = Bump::new();
         let pl = empty_params(&arena);
-        let fn_ = BuiltInCallable::new(&arena, "original", pl, noop_callback());
+        let fn_ = BuiltInCallable::new(&arena, "original", pl, noop_callback(&arena));
         let renamed = fn_.with_name(&arena, "renamed");
         assert_eq!(fn_.name(), "original");
         assert_eq!(renamed.name(), "renamed");
@@ -928,7 +969,7 @@ mod tests {
     fn test_callback_for_exact_match_single_overload() {
         let arena = Bump::new();
         let pl = empty_params(&arena);
-        let fn_ = BuiltInCallable::new(&arena, "test", pl.clone(), noop_callback());
+        let fn_ = BuiltInCallable::new(&arena, "test", pl.clone(), noop_callback(&arena));
 
         let result = fn_.callback_for(0, &HashSet::new()).unwrap();
         assert_eq!(result.params.span, pl.span);
@@ -942,11 +983,11 @@ mod tests {
         let overloads = vec![
             BuiltInOverload {
                 params: pl1.clone(),
-                callback: noop_callback_cfg(),
+                callback: noop_callback_cfg(&arena),
             },
             BuiltInOverload {
                 params: pl2,
-                callback: noop_callback_cfg(),
+                callback: noop_callback_cfg(&arena),
             },
         ];
         let fn_ = BuiltInCallable::new_overloaded(&arena, "test", overloads);
@@ -963,11 +1004,11 @@ mod tests {
         let overloads = vec![
             BuiltInOverload {
                 params: pl1,
-                callback: noop_callback_cfg(),
+                callback: noop_callback_cfg(&arena),
             },
             BuiltInOverload {
                 params: pl2.clone(),
-                callback: noop_callback_cfg(),
+                callback: noop_callback_cfg(&arena),
             },
         ];
         let fn_ = BuiltInCallable::new_overloaded(&arena, "test", overloads);
@@ -984,11 +1025,11 @@ mod tests {
         let overloads = vec![
             BuiltInOverload {
                 params: pl3,
-                callback: noop_callback_cfg(),
+                callback: noop_callback_cfg(&arena),
             },
             BuiltInOverload {
                 params: pl2.clone(),
-                callback: noop_callback_cfg(),
+                callback: noop_callback_cfg(&arena),
             },
         ];
         let fn_ = BuiltInCallable::new_overloaded(&arena, "test", overloads);
@@ -1005,11 +1046,11 @@ mod tests {
         let overloads = vec![
             BuiltInOverload {
                 params: pl_fewer,
-                callback: noop_callback_cfg(),
+                callback: noop_callback_cfg(&arena),
             },
             BuiltInOverload {
                 params: pl_more.clone(),
-                callback: noop_callback_cfg(),
+                callback: noop_callback_cfg(&arena),
             },
         ];
         let fn_ = BuiltInCallable::new_overloaded(&arena, "test", overloads);
@@ -1111,7 +1152,7 @@ mod tests {
     fn test_callable_identity_same_rc() {
         let arena = Bump::new();
         let pl = empty_params(&arena);
-        let builtin = BuiltInCallable::new(&arena, "test", pl, noop_callback());
+        let builtin = BuiltInCallable::new(&arena, "test", pl, noop_callback(&arena));
         let c1 = Callable::new(&arena, CallableKind::BuiltIn(builtin));
         let c2 = c1;
 
@@ -1123,8 +1164,8 @@ mod tests {
         let arena = Bump::new();
         let pl1 = empty_params(&arena);
         let pl2 = empty_params(&arena);
-        let builtin1 = BuiltInCallable::new(&arena, "a", pl1, noop_callback());
-        let builtin2 = BuiltInCallable::new(&arena, "a", pl2, noop_callback());
+        let builtin1 = BuiltInCallable::new(&arena, "a", pl1, noop_callback(&arena));
+        let builtin2 = BuiltInCallable::new(&arena, "a", pl2, noop_callback(&arena));
         let c1 = Callable::new(&arena, CallableKind::BuiltIn(builtin1));
         let c2 = Callable::new(&arena, CallableKind::BuiltIn(builtin2));
 
@@ -1135,7 +1176,7 @@ mod tests {
     fn test_callable_identity_hash() {
         let arena = Bump::new();
         let pl = empty_params(&arena);
-        let builtin = BuiltInCallable::new(&arena, "test", pl, noop_callback());
+        let builtin = BuiltInCallable::new(&arena, "test", pl, noop_callback(&arena));
         let c1 = Callable::new(&arena, CallableKind::BuiltIn(builtin));
         let c2 = c1;
 
@@ -1147,7 +1188,7 @@ mod tests {
     fn test_callable_builtin_via_kind() {
         let arena = Bump::new();
         let pl = empty_params(&arena);
-        let builtin = BuiltInCallable::new(&arena, "test", pl, noop_callback());
+        let builtin = BuiltInCallable::new(&arena, "test", pl, noop_callback(&arena));
         let c = Callable::new(&arena, CallableKind::BuiltIn(builtin));
 
         match c.kind() {

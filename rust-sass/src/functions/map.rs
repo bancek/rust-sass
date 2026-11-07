@@ -7,8 +7,6 @@
 // dart-source: lib/src/functions/map.dart
 // go-source: go/functions/map.go
 
-use std::rc::Rc;
-
 use bumpalo::Bump;
 
 use crate::callable::{BuiltInCallable, Callable, CallableKind};
@@ -128,7 +126,8 @@ where
         "$map, $key, $keys...",
         "sass:map",
         arena,
-        Rc::new(
+        crate::callable::built_in_callback(
+            arena,
             move |_config: &EvalConfig<'compile, 'parse>,
                   _state: &mut EvalState<'compile, 'parse>,
                   args: Vec<Value<'parse>>,
@@ -183,7 +182,8 @@ where
         vec![
             (
                 "$map, $key, $value",
-                Rc::new(
+                crate::callable::built_in_callback(
+                    arena,
                     move |_config: &EvalConfig<'compile, 'parse>,
                           _state: &mut EvalState<'compile, 'parse>,
                           args: Vec<Value<'parse>>,
@@ -199,7 +199,8 @@ where
             ),
             (
                 "$map, $args...",
-                Rc::new(
+                crate::callable::built_in_callback(
+                    arena,
                     move |_config: &EvalConfig<'compile, 'parse>,
                           _state: &mut EvalState<'compile, 'parse>,
                           args: Vec<Value<'parse>>,
@@ -252,7 +253,8 @@ where
         vec![
             (
                 "$map1, $map2",
-                Rc::new(
+                crate::callable::built_in_callback(
+                    arena,
                     move |_config: &EvalConfig<'compile, 'parse>,
                           _state: &mut EvalState<'compile, 'parse>,
                           args: Vec<Value<'parse>>,
@@ -270,7 +272,8 @@ where
             ),
             (
                 "$map1, $args...",
-                Rc::new(
+                crate::callable::built_in_callback(
+                    arena,
                     move |_config: &EvalConfig<'compile, 'parse>,
                           _state: &mut EvalState<'compile, 'parse>,
                           args: Vec<Value<'parse>>,
@@ -339,7 +342,8 @@ where
                 // doesn't allow zero keys to be passed. We want to allow that case,
                 // so we add an explicit overload for it.
                 "$map",
-                Rc::new(
+                crate::callable::built_in_callback(
+                    arena,
                     move |_config: &EvalConfig<'compile, 'parse>,
                           _state: &mut EvalState<'compile, 'parse>,
                           args: Vec<Value<'parse>>,
@@ -356,7 +360,8 @@ where
                 // The first argument has special handling so that the $key
                 // parameter can be passed by name.
                 "$map, $key, $keys...",
-                Rc::new(
+                crate::callable::built_in_callback(
+                    arena,
                     move |_config: &EvalConfig<'compile, 'parse>,
                           _state: &mut EvalState<'compile, 'parse>,
                           args: Vec<Value<'parse>>,
@@ -395,7 +400,8 @@ where
         "$map",
         "sass:map",
         arena,
-        Rc::new(
+        crate::callable::built_in_callback(
+            arena,
             move |_config: &EvalConfig<'compile, 'parse>,
                   _state: &mut EvalState<'compile, 'parse>,
                   args: Vec<Value<'parse>>,
@@ -429,7 +435,8 @@ where
         "$map",
         "sass:map",
         arena,
-        Rc::new(
+        crate::callable::built_in_callback(
+            arena,
             move |_config: &EvalConfig<'compile, 'parse>,
                   _state: &mut EvalState<'compile, 'parse>,
                   args: Vec<Value<'parse>>,
@@ -467,7 +474,8 @@ where
         "$map, $key, $keys...",
         "sass:map",
         arena,
-        Rc::new(
+        crate::callable::built_in_callback(
+            arena,
             move |_config: &EvalConfig<'compile, 'parse>,
                   _state: &mut EvalState<'compile, 'parse>,
                   args: Vec<Value<'parse>>,
@@ -516,7 +524,8 @@ where
         "$map1, $map2",
         "sass:map",
         arena,
-        Rc::new(
+        crate::callable::built_in_callback(
+            arena,
             move |_config: &EvalConfig<'compile, 'parse>,
                   _state: &mut EvalState<'compile, 'parse>,
                   args: Vec<Value<'parse>>,
@@ -551,7 +560,8 @@ where
         "$map, $key, $keys...",
         "sass:map",
         arena,
-        Rc::new(
+        crate::callable::built_in_callback(
+            arena,
             move |_config: &EvalConfig<'compile, 'parse>,
                   _state: &mut EvalState<'compile, 'parse>,
                   args: Vec<Value<'parse>>,
@@ -715,6 +725,7 @@ mod tests {
     use crate::value::SassNumber;
     use std::cell::Cell;
     use std::collections::HashSet;
+    use std::rc::Rc;
 
     use crate::common::file_span::BOGUS_SPAN;
     use crate::logger::test_utils::RecordLogger;

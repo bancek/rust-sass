@@ -14,7 +14,6 @@ use crate::eval::warn::WarnLoggerAdapter;
 use crate::extend::extend_static;
 use crate::extend::replace_static;
 use crate::termglyph::GlyphSet;
-use std::rc::Rc;
 
 use bumpalo::Bump;
 
@@ -482,7 +481,7 @@ where
         "$super, $sub",
         "sass:selector",
         arena,
-        Rc::new(is_superselector_impl),
+        crate::callable::built_in_callback(arena, is_superselector_impl),
     )
 }
 
@@ -533,7 +532,7 @@ where
         "$selector",
         "sass:selector",
         arena,
-        Rc::new(simple_selectors_impl),
+        crate::callable::built_in_callback(arena, simple_selectors_impl),
     )
 }
 
@@ -570,7 +569,7 @@ where
         "$selector",
         "sass:selector",
         arena,
-        Rc::new(parse_impl),
+        crate::callable::built_in_callback(arena, parse_impl),
     )
 }
 
@@ -589,7 +588,7 @@ where
         "$selector",
         "sass:selector",
         arena,
-        Rc::new(parse_impl),
+        crate::callable::built_in_callback(arena, parse_impl),
     )
 }
 
@@ -639,7 +638,7 @@ where
         "$selectors...",
         "sass:selector",
         arena,
-        Rc::new(nest_impl),
+        crate::callable::built_in_callback(arena, nest_impl),
     )
 }
 
@@ -658,7 +657,7 @@ where
         "$selectors...",
         "sass:selector",
         arena,
-        Rc::new(nest_impl),
+        crate::callable::built_in_callback(arena, nest_impl),
     )
 }
 
@@ -748,7 +747,7 @@ where
         "$selectors...",
         "sass:selector",
         arena,
-        Rc::new(append_impl),
+        crate::callable::built_in_callback(arena, append_impl),
     )
 }
 
@@ -767,7 +766,7 @@ where
         "$selectors...",
         "sass:selector",
         arena,
-        Rc::new(append_impl),
+        crate::callable::built_in_callback(arena, append_impl),
     )
 }
 
@@ -827,7 +826,7 @@ where
         "$selector, $extendee, $extender",
         "sass:selector",
         arena,
-        Rc::new(extend_impl),
+        crate::callable::built_in_callback(arena, extend_impl),
     )
 }
 
@@ -846,7 +845,7 @@ where
         "$selector, $extendee, $extender",
         "sass:selector",
         arena,
-        Rc::new(extend_impl),
+        crate::callable::built_in_callback(arena, extend_impl),
     )
 }
 
@@ -906,7 +905,7 @@ where
         "$selector, $original, $replacement",
         "sass:selector",
         arena,
-        Rc::new(replace_impl),
+        crate::callable::built_in_callback(arena, replace_impl),
     )
 }
 
@@ -925,7 +924,7 @@ where
         "$selector, $original, $replacement",
         "sass:selector",
         arena,
-        Rc::new(replace_impl),
+        crate::callable::built_in_callback(arena, replace_impl),
     )
 }
 
@@ -975,7 +974,7 @@ where
         "$selector1, $selector2",
         "sass:selector",
         arena,
-        Rc::new(unify_impl),
+        crate::callable::built_in_callback(arena, unify_impl),
     )
 }
 
@@ -994,7 +993,7 @@ where
         "$selector1, $selector2",
         "sass:selector",
         arena,
-        Rc::new(unify_impl),
+        crate::callable::built_in_callback(arena, unify_impl),
     )
 }
 
