@@ -194,7 +194,7 @@ where
             let keyword_rest = match &*rest_val {
                 ValueKind::ArgumentList(al) if !al.keywords.is_empty() => {
                     let mut kw_entries: Vec<(Value<'parse>, Value<'parse>)> = Vec::new();
-                    for (name, val) in &al.keywords {
+                    for (name, val) in al.keywords.iter() {
                         kw_entries.push((
                             Value::new_with_arena(
                                 arena,

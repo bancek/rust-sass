@@ -1704,8 +1704,8 @@ where
                 separator = arg_list.list.separator;
                 for (key, val) in arg_list.keywords().iter() {
                     let cleaned = without_slash(config, state, arena, *val, rest_span)?;
-                    named.insert(key.clone(), cleaned);
-                    named_nodes.insert(key.clone(), rest_span);
+                    named.insert((*key).to_string(), cleaned);
+                    named_nodes.insert((*key).to_string(), rest_span);
                 }
             }
             ValueKind::List(l) => {
@@ -2390,7 +2390,7 @@ where
             for (key, val) in arg_list.keywords().iter() {
                 let cleaned = without_slash(config, state, arena, *val, rest_span)?;
                 named.insert(
-                    key.clone(),
+                    (*key).to_string(),
                     Expression::Value(ValueExpression {
                         value: Box::new(cleaned),
                         span: rest_args_span,

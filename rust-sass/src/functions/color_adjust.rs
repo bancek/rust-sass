@@ -13,7 +13,6 @@ use crate::eval::warn::warn_deprecation;
 use crate::value::color_channel_types::ALPHA_CHANNEL;
 
 use bumpalo::Bump;
-use indexmap::IndexMap;
 
 use crate::callable::BuiltInCallable;
 use crate::common::exception::{SassError, SassResult};
@@ -415,9 +414,11 @@ where
 ///
 /// Ports Dart's `_sniffLegacyColorSpace` (color.dart:1311), used for the
 /// backwards-compat path that converts legacy colors before keyword updates.
-fn sniff_legacy_color_space(keywords: &IndexMap<String, Value<'_>>) -> Option<ColorSpace> {
+fn sniff_legacy_color_space(
+    keywords: &crate::arena_map::ArenaMap<'_, &str, Value<'_>>,
+) -> Option<ColorSpace> {
     for key in keywords.keys() {
-        match key.as_str() {
+        match *key {
             "red" | "green" | "blue" => return Some(ColorSpace::Rgb),
             "saturation" | "lightness" => return Some(ColorSpace::Hsl),
             "whiteness" | "blackness" => return Some(ColorSpace::Hwb),
@@ -537,7 +538,7 @@ where
     if !argument_list.as_list().is_empty() {
         return Err(Box::new(SassError::Script { message: "Only one positional argument is allowed. All other arguments must be passed by name.".into(), argument_name: None }));
     }
-    let all_keywords: IndexMap<String, Value<'parse>> = argument_list.keywords().clone();
+    let all_keywords = argument_list.keywords().clone();
     let mut keywords = all_keywords;
     let original_color = value::assert_color(&args[0], Some("color"))?;
     let space_keyword = keywords.swap_remove("space");
@@ -569,7 +570,7 @@ where
     for (key, val) in keywords.iter() {
         let mut found = false;
         for (i, ch) in chs.iter().enumerate() {
-            if ch.channel.name == key.as_str() {
+            if ch.channel.name == *key {
                 channel_args[i] = Some(*val);
                 found = true;
                 break;
@@ -581,7 +582,7 @@ where
                     "Color space {} doesn't have a channel with this name.",
                     color.space.name()
                 ),
-                argument_name: Some(key.clone()),
+                argument_name: Some((*key).to_string()),
             }));
         }
     }

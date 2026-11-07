@@ -428,8 +428,8 @@ impl<'compile: 'parse, 'parse: 'compile> Protofier<'compile, 'parse> {
         let id = (self.argument_lists.len() + 1) as u32;
         let contents = self.protofy_values(a.list.contents)?;
         let mut keywords = HashMap::new();
-        for (k, v) in a.keywords_without_marking() {
-            keywords.insert(k.clone(), self.protofy_owned(v)?);
+        for (k, v) in a.keywords_without_marking().iter() {
+            keywords.insert((*k).to_string(), self.protofy_owned(v)?);
         }
         self.argument_lists.push(SassValue::new_with_arena(
             self.ctx.arena,

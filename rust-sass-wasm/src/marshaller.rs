@@ -235,7 +235,7 @@ fn to_serializable<'parse>(
             let keywords = a
                 .keywords_without_marking()
                 .iter()
-                .map(|(k, val)| Ok((k.clone(), to_serializable(ctx, val)?)))
+                .map(|(k, val)| Ok(((*k).to_string(), to_serializable(ctx, val)?)))
                 .collect::<SassResult<IndexMap<_, _>>>()?;
             SerializableValue::ArgumentList {
                 id,

@@ -253,7 +253,7 @@ where
     match &*args[0] {
         ValueKind::ArgumentList(arg_list) => {
             let mut m = SassMap::empty();
-            for (key, val) in arg_list.keywords() {
+            for (key, val) in arg_list.keywords().iter() {
                 m.set(
                     arena,
                     Value::new_with_arena(
