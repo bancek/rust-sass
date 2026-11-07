@@ -8,7 +8,6 @@
 // go-source: go/value/mixin.go
 
 use std::hash::{Hash, Hasher};
-use std::rc::Rc;
 
 use crate::callable::Callable;
 use crate::common::exception::{SassError, SassResult};
@@ -86,8 +85,8 @@ impl<'parse> SassMixin<'parse> {
     /// Asserts that this mixin belongs to `compile_context` and returns it.
     /// Matches Dart: `SassMixin.assertCompileContext`.
     pub fn assert_compile_context(&self, compile_context: &CompileContext) -> SassResult<&Self> {
-        if let Some(ref ctx) = self.compile_context {
-            if !Rc::ptr_eq(ctx, compile_context) {
+        if let Some(ctx) = self.compile_context {
+            if ctx != *compile_context {
                 let repr = self.to_display_string()?;
                 return Err(Box::new(SassError::Script {
                     message: format!("{} does not belong to current compilation.", repr),
@@ -228,7 +227,7 @@ mod tests {
     fn test_mixin_assert_compile_context_matching() {
         let arena = Bump::new();
         let ctx = new_compile_context();
-        let m = SassMixin::with_compile_context(test_callable(&arena, "m"), Some(ctx.clone()));
+        let m = SassMixin::with_compile_context(test_callable(&arena, "m"), Some(ctx));
         let same = m.assert_compile_context(&ctx).unwrap();
         assert!(same.equals(&m));
     }

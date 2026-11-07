@@ -414,7 +414,7 @@ where
     // handles — never `&mut state` (see `ref/eval.md` borrow patterns).
     let env = v.state.env;
     let built_in_functions = v.config.built_in_functions;
-    let compile_context = v.config.compile_context.clone();
+    let compile_context = v.config.compile_context;
 
     [
         // --- global-variable-exists ---
@@ -425,7 +425,7 @@ where
                 "$name, $module: null",
                 arena,
                 {
-                    let cctx = compile_context.clone();
+                    let cctx = compile_context;
                     Rc::new(
                         move |_config: &EvalConfig<'compile, 'parse>,
                               state: &mut EvalState<'compile, 'parse>,
@@ -477,7 +477,7 @@ where
         Callable::new(
             arena,
             CallableKind::BuiltIn(meta_fn("function-exists", "$name, $module: null", arena, {
-                let cctx = compile_context.clone();
+                let cctx = compile_context;
                 Rc::new(
                     move |_config: &EvalConfig<'compile, 'parse>,
                           state: &mut EvalState<'compile, 'parse>,
@@ -510,7 +510,7 @@ where
         Callable::new(
             arena,
             CallableKind::BuiltIn(meta_fn("mixin-exists", "$name, $module: null", arena, {
-                let cctx = compile_context.clone();
+                let cctx = compile_context;
                 Rc::new(
                     move |_config: &EvalConfig<'compile, 'parse>,
                           state: &mut EvalState<'compile, 'parse>,
@@ -566,7 +566,7 @@ where
         Callable::new(
             arena,
             CallableKind::BuiltIn(meta_fn("module-variables", "$module", arena, {
-                let cctx = compile_context.clone();
+                let cctx = compile_context;
                 Rc::new(
                     move |_config: &EvalConfig<'compile, 'parse>,
                           state: &mut EvalState<'compile, 'parse>,
@@ -596,7 +596,7 @@ where
         Callable::new(
             arena,
             CallableKind::BuiltIn(meta_fn("module-functions", "$module", arena, {
-                let cctx = compile_context.clone();
+                let cctx = compile_context;
                 Rc::new(
                     move |_config: &EvalConfig<'compile, 'parse>,
                           state: &mut EvalState<'compile, 'parse>,
@@ -618,7 +618,7 @@ where
                                     arena,
                                     ValueKind::Function(SassFunction::with_compile_context(
                                         fn_,
-                                        Some(cctx.clone()),
+                                        Some(cctx),
                                     )),
                                 ),
                             );
@@ -632,7 +632,7 @@ where
         Callable::new(
             arena,
             CallableKind::BuiltIn(meta_fn("module-mixins", "$module", arena, {
-                let cctx = compile_context.clone();
+                let cctx = compile_context;
                 Rc::new(
                     move |_config: &EvalConfig<'compile, 'parse>,
                           state: &mut EvalState<'compile, 'parse>,
@@ -654,7 +654,7 @@ where
                                     arena,
                                     ValueKind::Mixin(SassMixin::with_compile_context(
                                         mx,
-                                        Some(cctx.clone()),
+                                        Some(cctx),
                                     )),
                                 ),
                             );
@@ -672,7 +672,7 @@ where
                 "$name, $css: false, $module: null",
                 arena,
                 {
-                    let cctx = compile_context.clone();
+                    let cctx = compile_context;
                     Rc::new(
                         move |_config: &EvalConfig<'compile, 'parse>,
                               state: &mut EvalState<'compile, 'parse>,
@@ -699,7 +699,7 @@ where
                                     arena,
                                     ValueKind::Function(SassFunction::with_compile_context(
                                         Callable::new(arena, CallableKind::PlainCss(pc)),
-                                        Some(cctx.clone()),
+                                        Some(cctx),
                                     )),
                                 ));
                             }
@@ -716,7 +716,7 @@ where
                                     arena,
                                     ValueKind::Function(SassFunction::with_compile_context(
                                         c,
-                                        Some(cctx.clone()),
+                                        Some(cctx),
                                     )),
                                 )),
                                 None => Err(function_not_found(name)?),
@@ -730,7 +730,7 @@ where
         Callable::new(
             arena,
             CallableKind::BuiltIn(meta_fn("get-mixin", "$name, $module: null", arena, {
-                let cctx = compile_context.clone();
+                let cctx = compile_context;
                 Rc::new(
                     move |_config: &EvalConfig<'compile, 'parse>,
                           state: &mut EvalState<'compile, 'parse>,
@@ -750,10 +750,7 @@ where
                         match local {
                             Some(c) => Ok(Value::new_with_arena(
                                 arena,
-                                ValueKind::Mixin(SassMixin::with_compile_context(
-                                    c,
-                                    Some(cctx.clone()),
-                                )),
+                                ValueKind::Mixin(SassMixin::with_compile_context(c, Some(cctx))),
                             )),
                             None => Err(mixin_not_found(name)?),
                         }
@@ -765,7 +762,7 @@ where
         Callable::new(
             arena,
             CallableKind::BuiltIn(meta_fn("get-module", "$module", arena, {
-                let cctx = compile_context.clone();
+                let cctx = compile_context;
                 Rc::new(
                     move |_config: &EvalConfig<'compile, 'parse>,
                           state: &mut EvalState<'compile, 'parse>,
@@ -775,10 +772,7 @@ where
                         let module = get_module(&args[0], state.env, &cctx)?;
                         Ok(Value::new_with_arena(
                             arena,
-                            ValueKind::Module(SassModule::with_compile_context(
-                                module,
-                                Some(cctx.clone()),
-                            )),
+                            ValueKind::Module(SassModule::with_compile_context(module, Some(cctx))),
                         ))
                     },
                 )
@@ -788,14 +782,14 @@ where
         Callable::new(
             arena,
             CallableKind::BuiltIn(meta_fn_async("load", r"$url, $with: null", arena, {
-                let cctx = compile_context.clone();
+                let cctx = compile_context;
                 Rc::new(
                     move |config,
                           state,
                           args,
                           _arena|
                           -> LocalBoxFuture<'_, SassResult<Value<'parse>>> {
-                        let cctx = cctx.clone();
+                        let cctx = cctx;
                         box_rec!(load_impl(config, state, args, arena, cctx))
                     },
                 )
@@ -805,14 +799,14 @@ where
         Callable::new(
             arena,
             CallableKind::BuiltIn(meta_fn_async("call", r"$function, $args...", arena, {
-                let cctx = compile_context.clone();
+                let cctx = compile_context;
                 Rc::new(
                     move |config,
                           state,
                           args,
                           _arena|
                           -> LocalBoxFuture<'_, SassResult<Value<'parse>>> {
-                        let cctx = cctx.clone();
+                        let cctx = cctx;
                         box_rec!(call_impl(config, state, arena, args, cctx))
                     },
                 )
@@ -1132,21 +1126,21 @@ where
     'compile: 'parse,
     'parse: 'compile,
 {
-    let compile_context = v.config.compile_context.clone();
+    let compile_context = v.config.compile_context;
 
     [
         // --- css ---
         Callable::new(
             arena,
             CallableKind::BuiltIn(meta_mixin_fn_async("css", "$module", false, arena, {
-                let cctx = compile_context.clone();
+                let cctx = compile_context;
                 Rc::new(
                     move |config,
                           state,
                           args,
                           __arena|
                           -> LocalBoxFuture<'_, SassResult<Value<'parse>>> {
-                        let cctx = cctx.clone();
+                        let cctx = cctx;
                         box_rec!(css_impl(config, state, args, cctx, arena))
                     },
                 )
@@ -1182,14 +1176,14 @@ where
                 true,
                 arena,
                 {
-                    let cctx = compile_context.clone();
+                    let cctx = compile_context;
                     Rc::new(
                     move |config,
                           state,
                           args,
                           __arena|
                           -> LocalBoxFuture<'_, SassResult<Value<'parse>>> {
-                        let cctx = cctx.clone();
+                        let cctx = cctx;
                         box_rec!(apply_impl(config, state, args, cctx, arena))
                     },
                 )

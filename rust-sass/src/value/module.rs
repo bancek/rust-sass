@@ -8,7 +8,6 @@
 // go-source: go/value/module.go
 
 use std::hash::{Hash, Hasher};
-use std::rc::Rc;
 
 use crate::common::exception::{SassError, SassResult};
 use crate::compile_context::CompileContext;
@@ -80,8 +79,8 @@ impl<'parse> SassModule<'parse> {
     ///
     /// Matches Dart: `SassModule.assertCompileContext`.
     pub fn assert_compile_context(&self, compile_context: &CompileContext) -> SassResult<&Self> {
-        if let Some(ref ctx) = self.compile_context {
-            if !Rc::ptr_eq(ctx, compile_context) {
+        if let Some(ctx) = self.compile_context {
+            if ctx != *compile_context {
                 let repr = self.to_display_string()?;
                 return Err(Box::new(SassError::Script {
                     message: format!("{} does not belong to current compilation.", repr),
@@ -106,8 +105,8 @@ impl<'parse> SassModule<'parse> {
     /// Matches Dart: `other is SassModule && _compileContext ==
     /// other._compileContext && module == other.module`.
     pub fn equals(&self, other: &SassModule<'parse>) -> bool {
-        let same_context = match (&self.compile_context, &other.compile_context) {
-            (Some(a), Some(b)) => Rc::ptr_eq(a, b),
+        let same_context = match (self.compile_context, other.compile_context) {
+            (Some(a), Some(b)) => a == b,
             (None, None) => true,
             _ => false,
         };
@@ -254,7 +253,7 @@ mod tests {
         let arena = Bump::new();
         let module = test_module(&arena, "a");
         let ctx = crate::compile_context::new_compile_context();
-        let value = SassModule::with_compile_context(module, Some(ctx.clone()));
+        let value = SassModule::with_compile_context(module, Some(ctx));
         assert!(value.assert_compile_context(&ctx).is_ok());
         let other = crate::compile_context::new_compile_context();
         let err = value.assert_compile_context(&other).unwrap_err();

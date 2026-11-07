@@ -8,7 +8,6 @@
 // go-source: go/value/function.go
 
 use std::hash::{Hash, Hasher};
-use std::rc::Rc;
 
 use crate::callable::Callable;
 use crate::common::exception::{SassError, SassResult};
@@ -86,8 +85,8 @@ impl<'parse> SassFunction<'parse> {
     /// Asserts that this function belongs to `compile_context` and returns it.
     /// Matches Dart: `SassFunction.assertCompileContext`.
     pub fn assert_compile_context(&self, compile_context: &CompileContext) -> SassResult<&Self> {
-        if let Some(ref ctx) = self.compile_context {
-            if !Rc::ptr_eq(ctx, compile_context) {
+        if let Some(ctx) = self.compile_context {
+            if ctx != *compile_context {
                 let repr = self.to_display_string()?;
                 return Err(Box::new(SassError::Script {
                     message: format!("{} does not belong to current compilation.", repr),
@@ -226,7 +225,7 @@ mod tests {
     fn test_function_assert_compile_context_matching() {
         let arena = Bump::new();
         let ctx = new_compile_context();
-        let f = SassFunction::with_compile_context(test_callable(&arena, "f"), Some(ctx.clone()));
+        let f = SassFunction::with_compile_context(test_callable(&arena, "f"), Some(ctx));
         let same = f.assert_compile_context(&ctx).unwrap();
         assert!(same.equals(&f));
     }
