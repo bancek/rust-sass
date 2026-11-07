@@ -1689,7 +1689,7 @@ where
         match &*rest_val {
             ValueKind::Map(m) => {
                 add_rest_map(config, state, arena, &mut named, m, rest_span, rest.span()?)?;
-                for (key, _val) in &m.entries {
+                for (key, _val) in m.iter() {
                     if let ValueKind::String(s) = &**key {
                         named_nodes.insert(s.text.to_string(), rest_span);
                     }
@@ -1738,7 +1738,7 @@ where
                     kw_span,
                     kw_rest.span()?,
                 )?;
-                for (key, _val) in &m.entries {
+                for (key, _val) in m.iter() {
                     if let ValueKind::String(s) = &**key {
                         named_nodes.insert(s.text.to_string(), kw_span);
                     }
@@ -2288,7 +2288,7 @@ pub(crate) fn add_rest_map<'compile, 'parse>(
 where
     'compile: 'parse,
 {
-    for (key, val) in &map.entries {
+    for (key, val) in map.iter() {
         if let ValueKind::String(s) = &**key {
             let cleaned = without_slash(config, state, arena, *val, span)?;
             values.insert(s.text.to_string(), cleaned);
@@ -2352,7 +2352,7 @@ where
 
     match &*rest {
         ValueKind::Map(m) => {
-            for (key, val) in &m.entries {
+            for (key, val) in m.iter() {
                 if let ValueKind::String(s) = &**key {
                     let cleaned = without_slash(config, state, arena, *val, rest_span)?;
                     named.insert(
@@ -2421,7 +2421,7 @@ where
 
     match &*keyword_rest {
         ValueKind::Map(m) => {
-            for (key, val) in &m.entries {
+            for (key, val) in m.iter() {
                 if let ValueKind::String(s) = &**key {
                     let cleaned = without_slash(config, state, arena, *val, kw_span)?;
                     named.insert(
@@ -3127,22 +3127,19 @@ mod tests {
         let arena = Bump::new();
         let span = make_span(&arena, "test");
         let (config, mut state) = test_visitor(&arena);
-        let m = SassMap {
-            entries: {
-                let mut e = IndexMap::new();
-                e.insert(
-                    Value::new_with_arena(
-                        &arena,
-                        ValueKind::String(SassString {
-                            text: "k",
-                            has_quotes: false,
-                        }),
-                    ),
-                    Value::new_with_arena(&arena, ValueKind::Number(SassNumber::new(1.0, None))),
-                );
-                e
-            },
-        };
+        let m = SassMap::from_entries(
+            &arena,
+            [(
+                Value::new_with_arena(
+                    &arena,
+                    ValueKind::String(SassString {
+                        text: "k",
+                        has_quotes: false,
+                    }),
+                ),
+                Value::new_with_arena(&arena, ValueKind::Number(SassNumber::new(1.0, None))),
+            )],
+        );
         let args = make_args(
             vec![],
             IndexMap::new(),
@@ -3297,22 +3294,19 @@ mod tests {
         let arena = Bump::new();
         let span = make_span(&arena, "test");
         let (config, mut state) = test_visitor(&arena);
-        let m = SassMap {
-            entries: {
-                let mut e = IndexMap::new();
-                e.insert(
-                    Value::new_with_arena(
-                        &arena,
-                        ValueKind::String(SassString {
-                            text: "k",
-                            has_quotes: false,
-                        }),
-                    ),
-                    Value::new_with_arena(&arena, ValueKind::Number(SassNumber::new(5.0, None))),
-                );
-                e
-            },
-        };
+        let m = SassMap::from_entries(
+            &arena,
+            [(
+                Value::new_with_arena(
+                    &arena,
+                    ValueKind::String(SassString {
+                        text: "k",
+                        has_quotes: false,
+                    }),
+                ),
+                Value::new_with_arena(&arena, ValueKind::Number(SassNumber::new(5.0, None))),
+            )],
+        );
         let args = make_args(
             vec![],
             IndexMap::new(),

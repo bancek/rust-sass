@@ -477,7 +477,7 @@ where
             }));
         }
         key_spans.push((key, key_expr.span()?));
-        map.set(key, val);
+        map.set(arena, key, val);
     }
     Ok(Value::new_with_arena(arena, ValueKind::Map(map)))
 }

@@ -193,7 +193,7 @@ impl<'compile: 'parse, 'parse: 'compile> Protofier<'compile, 'parse> {
                 }
                 SassValue::new_with_arena(
                     self.ctx.arena,
-                    ValueKind::Map(SassMap::from_entries(entries)),
+                    ValueKind::Map(SassMap::from_entries(self.ctx.arena, entries)),
                 )
             }
             pv::Value::Singleton(s) => match *s {
@@ -499,8 +499,8 @@ impl<'compile: 'parse, 'parse: 'compile> ValueVisitor<'parse> for Protofier<'com
     }
 
     fn visit_map(&mut self, value: &SassMap<'parse>) -> SassResult<pv::Value> {
-        let mut entries = Vec::with_capacity(value.entries.len());
-        for (k, v) in &value.entries {
+        let mut entries = Vec::with_capacity(value.len());
+        for (k, v) in value.iter() {
             entries.push(pv::map::Entry {
                 key: Some(self.protofy_owned(k)?),
                 value: Some(self.protofy_owned(v)?),
@@ -835,25 +835,28 @@ mod tests {
             ctx,
             SassValue::new_with_arena(
                 &arena,
-                ValueKind::Map(SassMap::from_entries(vec![
-                    (
-                        SassValue::new_with_arena(
-                            &arena,
-                            ValueKind::String(SassString::new(arena.alloc_str("key"), true)),
+                ValueKind::Map(SassMap::from_entries(
+                    &arena,
+                    vec![
+                        (
+                            SassValue::new_with_arena(
+                                &arena,
+                                ValueKind::String(SassString::new(arena.alloc_str("key"), true)),
+                            ),
+                            SassValue::new_with_arena(
+                                &arena,
+                                ValueKind::Number(SassNumber::new(1.0, None)),
+                            ),
                         ),
-                        SassValue::new_with_arena(
-                            &arena,
-                            ValueKind::Number(SassNumber::new(1.0, None)),
+                        (
+                            SassValue::new_with_arena(
+                                &arena,
+                                ValueKind::Number(SassNumber::new(2.0, None)),
+                            ),
+                            SassValue::new_with_arena(&arena, ValueKind::Boolean(SASS_TRUE)),
                         ),
-                    ),
-                    (
-                        SassValue::new_with_arena(
-                            &arena,
-                            ValueKind::Number(SassNumber::new(2.0, None)),
-                        ),
-                        SassValue::new_with_arena(&arena, ValueKind::Boolean(SASS_TRUE)),
-                    ),
-                ])),
+                    ],
+                )),
             ),
         );
     }

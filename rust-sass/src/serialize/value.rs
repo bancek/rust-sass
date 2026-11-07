@@ -223,7 +223,7 @@ pub(crate) fn visit_map_impl(
     }
     buf.write_char('(').unwrap();
     let mut first = true;
-    for (k, v) in &value.entries {
+    for (k, v) in value.iter() {
         if first {
             first = false;
         } else {

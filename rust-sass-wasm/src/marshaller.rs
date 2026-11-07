@@ -246,8 +246,8 @@ fn to_serializable<'parse>(
             }
         }
         ValueKind::Map(m) => {
-            let mut entries = Vec::with_capacity(m.entries.len());
-            for (k, val) in m.entries.iter() {
+            let mut entries = Vec::with_capacity(m.len());
+            for (k, val) in m.iter() {
                 entries.push(SerializableMapEntry {
                     key: to_serializable(ctx, k)?,
                     value: to_serializable(ctx, val)?,
@@ -464,7 +464,7 @@ pub fn js_to_value<'compile: 'parse, 'parse: 'compile>(
                 let val = js_to_value(ctx, arena, &get(&entry, "value")?, host_function)?;
                 entries.push((key, val));
             }
-            SassValue::new_with_arena(arena, ValueKind::Map(SassMap::from_entries(entries)))
+            SassValue::new_with_arena(arena, ValueKind::Map(SassMap::from_entries(arena, entries)))
         }
         "calculation" => {
             let name = get_str(value, "name")?;
@@ -947,25 +947,28 @@ mod tests {
             &arena,
             SassValue::new_with_arena(
                 &arena,
-                ValueKind::Map(SassMap::from_entries(vec![
-                    (
-                        SassValue::new_with_arena(
-                            &arena,
-                            ValueKind::String(SassString::new(arena.alloc_str("key"), true)),
+                ValueKind::Map(SassMap::from_entries(
+                    &arena,
+                    vec![
+                        (
+                            SassValue::new_with_arena(
+                                &arena,
+                                ValueKind::String(SassString::new(arena.alloc_str("key"), true)),
+                            ),
+                            SassValue::new_with_arena(
+                                &arena,
+                                ValueKind::Number(SassNumber::new(1.0, None)),
+                            ),
                         ),
-                        SassValue::new_with_arena(
-                            &arena,
-                            ValueKind::Number(SassNumber::new(1.0, None)),
+                        (
+                            SassValue::new_with_arena(
+                                &arena,
+                                ValueKind::Number(SassNumber::new(2.0, None)),
+                            ),
+                            SassValue::new_with_arena(&arena, ValueKind::Boolean(SASS_TRUE)),
                         ),
-                    ),
-                    (
-                        SassValue::new_with_arena(
-                            &arena,
-                            ValueKind::Number(SassNumber::new(2.0, None)),
-                        ),
-                        SassValue::new_with_arena(&arena, ValueKind::Boolean(SASS_TRUE)),
-                    ),
-                ])),
+                    ],
+                )),
             ),
         );
     }

@@ -154,7 +154,7 @@ where
                     let ValueKind::Map(next) = &*v else {
                         return Ok(Value::new_with_arena(arena, ValueKind::Null));
                     };
-                    m = next.clone();
+                    m = std::borrow::Cow::Owned(next.clone());
                 }
                 Ok(Value::new_with_arena(arena, ValueKind::Null))
             },
@@ -263,8 +263,8 @@ where
                         let map1 = assert_map(&args[0], Some("map1"))?;
                         let map2 = assert_map(&args[1], Some("map2"))?;
                         let mut merged = map1.copy();
-                        for (k, v) in map2.entries.iter() {
-                            merged.set(*k, *v);
+                        for (k, v) in map2.iter() {
+                            merged.set(arena, *k, *v);
                         }
                         Ok(Value::new_with_arena(arena, ValueKind::Map(merged)))
                     },
@@ -299,12 +299,12 @@ where
                                     match nested_map {
                                         None => Value::new_with_arena(
                                             arena,
-                                            ValueKind::Map(map2.clone()),
+                                            ValueKind::Map(map2.clone().into_owned()),
                                         ),
                                         Some(nested_map) => {
                                             let mut merged = nested_map.copy();
-                                            for (k, v) in map2.entries.iter() {
-                                                merged.set(*k, *v);
+                                            for (k, v) in map2.iter() {
+                                                merged.set(arena, *k, *v);
                                             }
                                             Value::new_with_arena(arena, ValueKind::Map(merged))
                                         }
@@ -351,7 +351,7 @@ where
                           -> SassResult<Value<'parse>> {
                         Ok(Value::new_with_arena(
                             arena,
-                            ValueKind::Map(assert_map(&args[0], Some("map"))?),
+                            ValueKind::Map(assert_map(&args[0], Some("map"))?.into_owned()),
                         ))
                     },
                 ),
@@ -409,7 +409,7 @@ where
                   -> SassResult<Value<'parse>> {
                 let m = assert_map(&args[0], Some("map"))?;
                 let mut keys: Vec<Value<'parse>> = Vec::with_capacity(m.len());
-                for (k, _) in m.entries.iter() {
+                for (k, _) in m.iter() {
                     keys.push(*k);
                 }
                 Ok(Value::new_with_arena(
@@ -444,7 +444,7 @@ where
                   -> SassResult<Value<'parse>> {
                 let m = assert_map(&args[0], Some("map"))?;
                 let mut vals: Vec<Value<'parse>> = Vec::with_capacity(m.len());
-                for (_, v) in m.entries.iter() {
+                for (_, v) in m.iter() {
                     vals.push(*v);
                 }
                 Ok(Value::new_with_arena(
@@ -502,7 +502,7 @@ where
                     let ValueKind::Map(next) = &*v else {
                         return Ok(Value::new_with_arena(arena, ValueKind::Boolean(SASS_FALSE)));
                     };
-                    m = next.clone();
+                    m = std::borrow::Cow::Owned(next.clone());
                 }
                 Ok(Value::new_with_arena(arena, ValueKind::Boolean(SASS_FALSE)))
             },
@@ -614,7 +614,7 @@ fn deep_merge_impl<'compile: 'parse, 'parse>(
         return map1.copy();
     }
     let mut result = map1.copy();
-    for (key, val) in map2.entries.iter() {
+    for (key, val) in map2.iter() {
         let existing = result.get(key).cloned();
         match existing {
             Some(existing) => {
@@ -629,13 +629,17 @@ fn deep_merge_impl<'compile: 'parse, 'parse>(
                     if merged.equals(&existing_map) {
                         continue;
                     }
-                    result.set(*key, Value::new_with_arena(arena, ValueKind::Map(merged)));
+                    result.set(
+                        arena,
+                        *key,
+                        Value::new_with_arena(arena, ValueKind::Map(merged)),
+                    );
                 } else {
-                    result.set(*key, *val);
+                    result.set(arena, *key, *val);
                 }
             }
             None => {
-                result.set(*key, *val);
+                result.set(arena, *key, *val);
             }
         }
     }
@@ -690,15 +694,16 @@ fn modify_nested_map<'compile: 'parse, 'parse>(
             Some(v) => *v,
             None => Value::new_with_arena(arena, ValueKind::Null),
         };
-        result.set(*key, modify(old));
+        result.set(arena, *key, modify(old));
         return result;
     }
     let nested_map = result.get(key).and_then(|next| next.try_map());
     if nested_map.is_none() && !add_nesting {
         return result;
     }
-    let nested_map = nested_map.unwrap_or_else(SassMap::empty);
+    let nested_map = nested_map.unwrap_or_else(|| std::borrow::Cow::Owned(SassMap::empty()));
     result.set(
+        arena,
         *key,
         Value::new_with_arena(
             arena,
@@ -759,10 +764,13 @@ mod tests {
         mk_list(arena, ListSeparator::Comma, vec![])
     }
 
-    fn mk_map<'parse>(pairs: Vec<(Value<'parse>, Value<'parse>)>) -> SassMap<'parse> {
+    fn mk_map<'parse>(
+        arena: &'parse Bump,
+        pairs: Vec<(Value<'parse>, Value<'parse>)>,
+    ) -> SassMap<'parse> {
         let mut m = SassMap::empty();
         for (k, v) in pairs {
-            m.set(k, v);
+            m.set(arena, k, v);
         }
         m
     }
@@ -771,7 +779,7 @@ mod tests {
         arena: &'compile Bump,
         pairs: Vec<(Value<'parse>, Value<'parse>)>,
     ) -> Value<'parse> {
-        Value::new_with_arena(arena, ValueKind::Map(mk_map(pairs)))
+        Value::new_with_arena(arena, ValueKind::Map(mk_map(arena, pairs)))
     }
 
     fn inspect(v: &Value<'_>) -> String {
@@ -1190,7 +1198,7 @@ mod tests {
     #[rust_sass_macros::maybe_test]
     async fn test_map_set_three_args_does_not_mutate_original() {
         let arena = Bump::new();
-        let m = mk_map(vec![(mk_str(&arena, "a"), mk_num(&arena, 1.0))]);
+        let m = mk_map(&arena, vec![(mk_str(&arena, "a"), mk_num(&arena, 1.0))]);
         call_fn_ok(
             &set_function(&arena),
             &arena,
@@ -1577,8 +1585,8 @@ mod tests {
     #[rust_sass_macros::maybe_test]
     async fn test_map_merge_does_not_mutate_originals() {
         let arena = Bump::new();
-        let map1 = mk_map(vec![(mk_str(&arena, "a"), mk_num(&arena, 1.0))]);
-        let map2 = mk_map(vec![(mk_str(&arena, "b"), mk_num(&arena, 2.0))]);
+        let map1 = mk_map(&arena, vec![(mk_str(&arena, "a"), mk_num(&arena, 1.0))]);
+        let map2 = mk_map(&arena, vec![(mk_str(&arena, "b"), mk_num(&arena, 2.0))]);
         call_fn_ok(
             &map_merge_function(&arena),
             &arena,
@@ -2010,10 +2018,13 @@ mod tests {
     #[rust_sass_macros::maybe_test]
     async fn test_map_remove_does_not_mutate_original() {
         let arena = Bump::new();
-        let m = mk_map(vec![
-            (mk_str(&arena, "a"), mk_num(&arena, 1.0)),
-            (mk_str(&arena, "b"), mk_num(&arena, 2.0)),
-        ]);
+        let m = mk_map(
+            &arena,
+            vec![
+                (mk_str(&arena, "a"), mk_num(&arena, 1.0)),
+                (mk_str(&arena, "b"), mk_num(&arena, 2.0)),
+            ],
+        );
         call_fn_ok(
             &map_remove_function(&arena),
             &arena,
@@ -2711,14 +2722,20 @@ mod tests {
     #[rust_sass_macros::maybe_test]
     async fn test_deep_merge_does_not_mutate_originals() {
         let arena = Bump::new();
-        let map1 = mk_map(vec![(
-            mk_str(&arena, "a"),
-            map_val(&arena, vec![(mk_str(&arena, "x"), mk_num(&arena, 1.0))]),
-        )]);
-        let map2 = mk_map(vec![(
-            mk_str(&arena, "a"),
-            map_val(&arena, vec![(mk_str(&arena, "y"), mk_num(&arena, 2.0))]),
-        )]);
+        let map1 = mk_map(
+            &arena,
+            vec![(
+                mk_str(&arena, "a"),
+                map_val(&arena, vec![(mk_str(&arena, "x"), mk_num(&arena, 1.0))]),
+            )],
+        );
+        let map2 = mk_map(
+            &arena,
+            vec![(
+                mk_str(&arena, "a"),
+                map_val(&arena, vec![(mk_str(&arena, "y"), mk_num(&arena, 2.0))]),
+            )],
+        );
         call_fn_ok(
             &deep_merge_function(&arena),
             &arena,
@@ -2781,7 +2798,7 @@ mod tests {
     #[rust_sass_macros::maybe_test]
     async fn test_deep_merge_impl_empty_map1_returns_map2() {
         let arena = Bump::new();
-        let map2 = mk_map(vec![(mk_str(&arena, "a"), mk_num(&arena, 1.0))]);
+        let map2 = mk_map(&arena, vec![(mk_str(&arena, "a"), mk_num(&arena, 1.0))]);
         let got = deep_merge_impl(&arena, &SassMap::empty(), &map2);
         assert!(
             got.equals(&map2),
@@ -2792,7 +2809,7 @@ mod tests {
     #[rust_sass_macros::maybe_test]
     async fn test_deep_merge_impl_empty_map2_returns_map1() {
         let arena = Bump::new();
-        let map1 = mk_map(vec![(mk_str(&arena, "a"), mk_num(&arena, 1.0))]);
+        let map1 = mk_map(&arena, vec![(mk_str(&arena, "a"), mk_num(&arena, 1.0))]);
         let got = deep_merge_impl(&arena, &map1, &SassMap::empty());
         assert!(
             got.equals(&map1),
@@ -2803,17 +2820,23 @@ mod tests {
     #[rust_sass_macros::maybe_test]
     async fn test_deep_merge_impl_recursive() {
         let arena = Bump::new();
-        let map1 = mk_map(vec![
-            (
+        let map1 = mk_map(
+            &arena,
+            vec![
+                (
+                    mk_str(&arena, "a"),
+                    map_val(&arena, vec![(mk_str(&arena, "x"), mk_num(&arena, 1.0))]),
+                ),
+                (mk_str(&arena, "b"), mk_num(&arena, 2.0)),
+            ],
+        );
+        let map2 = mk_map(
+            &arena,
+            vec![(
                 mk_str(&arena, "a"),
-                map_val(&arena, vec![(mk_str(&arena, "x"), mk_num(&arena, 1.0))]),
-            ),
-            (mk_str(&arena, "b"), mk_num(&arena, 2.0)),
-        ]);
-        let map2 = mk_map(vec![(
-            mk_str(&arena, "a"),
-            map_val(&arena, vec![(mk_str(&arena, "y"), mk_num(&arena, 3.0))]),
-        )]);
+                map_val(&arena, vec![(mk_str(&arena, "y"), mk_num(&arena, 3.0))]),
+            )],
+        );
         let got = deep_merge_impl(&arena, &map1, &map2);
         assert_eq!(
             inspect(&Value::new_with_arena(&arena, ValueKind::Map(got))),
@@ -3027,10 +3050,13 @@ mod tests {
     #[rust_sass_macros::maybe_test]
     async fn test_deep_remove_does_not_mutate_original() {
         let arena = Bump::new();
-        let m = mk_map(vec![(
-            mk_str(&arena, "a"),
-            map_val(&arena, vec![(mk_str(&arena, "b"), mk_num(&arena, 1.0))]),
-        )]);
+        let m = mk_map(
+            &arena,
+            vec![(
+                mk_str(&arena, "a"),
+                map_val(&arena, vec![(mk_str(&arena, "b"), mk_num(&arena, 1.0))]),
+            )],
+        );
         call_fn_ok(
             &deep_remove_function(&arena),
             &arena,
@@ -3069,7 +3095,7 @@ mod tests {
     #[rust_sass_macros::maybe_test]
     async fn test_modify_map_no_keys() {
         let arena = Bump::new();
-        let m = mk_map(vec![(mk_str(&arena, "a"), mk_num(&arena, 1.0))]);
+        let m = mk_map(&arena, vec![(mk_str(&arena, "a"), mk_num(&arena, 1.0))]);
         let modify = |old: Value<'_>| -> Value<'_> {
             assert!(
                 matches!(&*old, ValueKind::Map(_)),
@@ -3085,10 +3111,13 @@ mod tests {
     #[rust_sass_macros::maybe_test]
     async fn test_modify_map_single_key_existing() {
         let arena = Bump::new();
-        let m = mk_map(vec![
-            (mk_str(&arena, "a"), mk_num(&arena, 1.0)),
-            (mk_str(&arena, "b"), mk_num(&arena, 2.0)),
-        ]);
+        let m = mk_map(
+            &arena,
+            vec![
+                (mk_str(&arena, "a"), mk_num(&arena, 1.0)),
+                (mk_str(&arena, "b"), mk_num(&arena, 2.0)),
+            ],
+        );
         let modify = |old: Value<'_>| -> Value<'_> {
             assert_eq!(inspect(&old), "1");
             mk_num(&arena, 9.0)
@@ -3104,7 +3133,7 @@ mod tests {
     #[rust_sass_macros::maybe_test]
     async fn test_modify_map_single_key_missing() {
         let arena = Bump::new();
-        let m = mk_map(vec![(mk_str(&arena, "a"), mk_num(&arena, 1.0))]);
+        let m = mk_map(&arena, vec![(mk_str(&arena, "a"), mk_num(&arena, 1.0))]);
         let modify = |old: Value<'_>| -> Value<'_> {
             assert!(
                 matches!(&*old, ValueKind::Null),
@@ -3140,10 +3169,13 @@ mod tests {
     #[rust_sass_macros::maybe_test]
     async fn test_modify_map_nested_existing_path() {
         let arena = Bump::new();
-        let m = mk_map(vec![(
-            mk_str(&arena, "a"),
-            map_val(&arena, vec![(mk_str(&arena, "b"), mk_num(&arena, 1.0))]),
-        )]);
+        let m = mk_map(
+            &arena,
+            vec![(
+                mk_str(&arena, "a"),
+                map_val(&arena, vec![(mk_str(&arena, "b"), mk_num(&arena, 1.0))]),
+            )],
+        );
         let modify = |old: Value<'_>| -> Value<'_> {
             assert_eq!(inspect(&old), "1");
             mk_num(&arena, 9.0)
@@ -3161,7 +3193,7 @@ mod tests {
     #[rust_sass_macros::maybe_test]
     async fn test_modify_map_nested_non_map_intermediate_add_nesting() {
         let arena = Bump::new();
-        let m = mk_map(vec![(mk_str(&arena, "a"), mk_num(&arena, 5.0))]);
+        let m = mk_map(&arena, vec![(mk_str(&arena, "a"), mk_num(&arena, 5.0))]);
         let modify = |_old: Value<'_>| -> Value<'_> { mk_num(&arena, 9.0) };
         let got = modify_map(
             &arena,
@@ -3176,7 +3208,7 @@ mod tests {
     #[rust_sass_macros::maybe_test]
     async fn test_modify_map_nested_missing_no_nesting() {
         let arena = Bump::new();
-        let m = mk_map(vec![(mk_str(&arena, "x"), mk_num(&arena, 1.0))]);
+        let m = mk_map(&arena, vec![(mk_str(&arena, "x"), mk_num(&arena, 1.0))]);
         let called = Cell::new(false);
         let modify = |_old: Value<'_>| -> Value<'_> {
             called.set(true);
@@ -3199,7 +3231,7 @@ mod tests {
     #[rust_sass_macros::maybe_test]
     async fn test_modify_map_nested_non_map_intermediate_no_nesting() {
         let arena = Bump::new();
-        let m = mk_map(vec![(mk_str(&arena, "a"), mk_num(&arena, 5.0))]);
+        let m = mk_map(&arena, vec![(mk_str(&arena, "a"), mk_num(&arena, 5.0))]);
         let called = Cell::new(false);
         let modify = |_old: Value<'_>| -> Value<'_> {
             called.set(true);
@@ -3224,10 +3256,13 @@ mod tests {
         let arena = Bump::new();
         // try_map converts an empty list to an empty map even when add_nesting
         // is false, so traversal continues.
-        let m = mk_map(vec![(
-            mk_str(&arena, "a"),
-            mk_list(&arena, ListSeparator::Space, vec![]),
-        )]);
+        let m = mk_map(
+            &arena,
+            vec![(
+                mk_str(&arena, "a"),
+                mk_list(&arena, ListSeparator::Space, vec![]),
+            )],
+        );
         let modify = |_old: Value<'_>| -> Value<'_> { mk_num(&arena, 9.0) };
         let got = modify_map(
             &arena,

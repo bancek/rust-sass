@@ -1093,7 +1093,7 @@ mod tests {
     ) -> Value<'parse> {
         let mut m = SassMap::empty();
         for (k, v) in pairs {
-            m.set(*k, *v);
+            m.set(arena, *k, *v);
         }
         Value::new_with_arena(arena, ValueKind::Map(m))
     }

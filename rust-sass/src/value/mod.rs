@@ -436,11 +436,15 @@ impl<'parse> ValueKind<'parse> {
 
     /// Returns `self` as a [`SassMap`] if it is one (including empty lists,
     /// which count as empty maps), or `None` if it is not.
-    pub fn try_map(&self) -> Option<SassMap<'parse>> {
+    pub fn try_map(&self) -> Option<std::borrow::Cow<'_, SassMap<'parse>>> {
         match self {
-            ValueKind::Map(m) => Some(m.clone()),
-            ValueKind::List(l) if l.contents.is_empty() => Some(SassMap::empty()),
-            ValueKind::ArgumentList(a) if a.list.contents.is_empty() => Some(SassMap::empty()),
+            ValueKind::Map(m) => Some(std::borrow::Cow::Borrowed(m)),
+            ValueKind::List(l) if l.contents.is_empty() => {
+                Some(std::borrow::Cow::Owned(SassMap::empty()))
+            }
+            ValueKind::ArgumentList(a) if a.list.contents.is_empty() => {
+                Some(std::borrow::Cow::Owned(SassMap::empty()))
+            }
             _ => None,
         }
     }
@@ -954,17 +958,21 @@ pub fn assert_list<'v, 'parse>(
 /// has no inner map to borrow. Returns an error if `v` is neither a map nor
 /// an empty list. If the value came from a function argument, `name` is the
 /// argument name (without the `$`), used for error reporting.
-pub fn assert_map<'parse>(
-    v: &ValueKind<'parse>,
+pub fn assert_map<'v, 'parse>(
+    v: &'v ValueKind<'parse>,
     name: Option<&str>,
-) -> SassResult<SassMap<'parse>> {
+) -> SassResult<std::borrow::Cow<'v, SassMap<'parse>>> {
     match v {
-        ValueKind::Map(m) => Ok(m.clone()),
-        ValueKind::List(l) if l.contents.is_empty() => Ok(SassMap::empty()),
+        ValueKind::Map(m) => Ok(std::borrow::Cow::Borrowed(m)),
+        ValueKind::List(l) if l.contents.is_empty() => {
+            Ok(std::borrow::Cow::Owned(SassMap::empty()))
+        }
         // Dart `SassList.assertMap` is inherited by `SassArgumentList`: an
         // empty argument list counts as an empty map (per SassList.assertMap inheritance;
         // `try_map` already covers both — this arm was accidentally omitted).
-        ValueKind::ArgumentList(a) if a.list.contents.is_empty() => Ok(SassMap::empty()),
+        ValueKind::ArgumentList(a) if a.list.contents.is_empty() => {
+            Ok(std::borrow::Cow::Owned(SassMap::empty()))
+        }
         _ => Err(Box::new(SassError::Script {
             message: format!("{} is not a map.", v.to_display_string()?),
             argument_name: name.map(str::to_string),
@@ -1599,10 +1607,13 @@ mod tests {
     #[test]
     fn test_value_try_map_on_map() {
         let arena = Bump::new();
-        let m = SassMap::from_entries(vec![(
-            ValueKind::unitless_number(&arena, 1.0),
-            ValueKind::unitless_number(&arena, 2.0),
-        )]);
+        let m = SassMap::from_entries(
+            &arena,
+            vec![(
+                ValueKind::unitless_number(&arena, 1.0),
+                ValueKind::unitless_number(&arena, 2.0),
+            )],
+        );
         let v = Value::new_with_arena(&arena, ValueKind::Map(m.clone()));
         let got = v.try_map().expect("map try_map should return the map");
         assert!(got.equals(&m));
@@ -1731,13 +1742,16 @@ mod tests {
     #[test]
     fn test_value_as_list_on_map() {
         let arena = Bump::new();
-        let m = SassMap::from_entries(vec![(
-            Value::new_with_arena(
-                &arena,
-                ValueKind::String(SassString::new(arena.alloc_str("a"), true)),
-            ),
-            ValueKind::unitless_number(&arena, 1.0),
-        )]);
+        let m = SassMap::from_entries(
+            &arena,
+            vec![(
+                Value::new_with_arena(
+                    &arena,
+                    ValueKind::String(SassString::new(arena.alloc_str("a"), true)),
+                ),
+                ValueKind::unitless_number(&arena, 1.0),
+            )],
+        );
         let got = Value::new_with_arena(&arena, ValueKind::Map(m))
             .as_list(&arena)
             .unwrap();

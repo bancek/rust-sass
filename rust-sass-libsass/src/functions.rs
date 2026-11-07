@@ -660,7 +660,7 @@ where
                 }
                 Ok(Value::new_with_arena(
                     arena,
-                    ValueKind::Map(SassMap::from_entries(entries)),
+                    ValueKind::Map(SassMap::from_entries(arena, entries)),
                 ))
             }
             SASS_ERROR => Err(Box::new(SassError::Script {
@@ -769,14 +769,14 @@ pub(crate) fn core_to_c(v: Value<'_>) -> SassResult<*mut SassValue> {
                 Ok(out)
             }
             ValueKind::Map(m) => {
-                let out = sass_make_map(m.entries.len());
+                let out = sass_make_map(m.len());
                 if out.is_null() {
                     return Err(Box::new(SassError::Script {
                         message: "out of memory".to_string(),
                         argument_name: None,
                     }));
                 }
-                for (i, (k, val)) in m.entries.iter().enumerate() {
+                for (i, (k, val)) in m.iter().enumerate() {
                     sass_map_set_key(out, i, core_to_c(*k)?);
                     sass_map_set_value(out, i, core_to_c(*val)?);
                 }

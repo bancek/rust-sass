@@ -255,6 +255,7 @@ where
             let mut m = SassMap::empty();
             for (key, val) in arg_list.keywords() {
                 m.set(
+                    arena,
                     Value::new_with_arena(
                         arena,
                         ValueKind::String(SassString::new(arena.alloc_str(key), false)),
@@ -501,6 +502,7 @@ mod tests {
         let mut m = SassMap::empty();
         for (k, v) in pairs {
             m.set(
+                arena,
                 Value::new_with_arena(
                     arena,
                     ValueKind::String(SassString::new(arena.alloc_str(k), false)),
@@ -1020,7 +1022,7 @@ mod tests {
             panic!("expected Map, got {got:?}");
         };
         assert_eq!(m.len(), 1);
-        for (k, _) in &m.entries {
+        for (k, _) in m.iter() {
             assert_unquoted_string(k, "key");
         }
     }

@@ -202,7 +202,7 @@ where
                             *val,
                         ));
                     }
-                    let kw_map = SassMap::from_entries(kw_entries);
+                    let kw_map = SassMap::from_entries(arena, kw_entries);
                     Some(Expression::Value(ValueExpression::new(
                         Value::new_with_arena(arena, ValueKind::Map(kw_map)),
                         span,
@@ -582,6 +582,7 @@ where
                         let mut m = SassMap::empty();
                         for (name, val) in module.variables().entries() {
                             m.set(
+                                arena,
                                 Value::new_with_arena(
                                     arena,
                                     ValueKind::String(SassString::new(
@@ -613,6 +614,7 @@ where
                         let mut m = SassMap::empty();
                         for (name, fn_) in module.functions().entries() {
                             m.set(
+                                arena,
                                 Value::new_with_arena(
                                     arena,
                                     ValueKind::String(SassString::new(
@@ -650,6 +652,7 @@ where
                         let mut m = SassMap::empty();
                         for (name, mx) in module.mixins().entries() {
                             m.set(
+                                arena,
                                 Value::new_with_arena(
                                     arena,
                                     ValueKind::String(SassString::new(
@@ -999,7 +1002,7 @@ where
         let span = state.callable_span.unwrap_or(BOGUS_SPAN);
         let mut values: IndexMap<String, ConfiguredValue> = IndexMap::new();
         let mut private_deprecation = false;
-        for (variable, val) in &with_map.entries {
+        for (variable, val) in with_map.iter() {
             let name_str = match &**variable {
                 ValueKind::String(s) => s.text.replace("_", "-"),
                 _ => {
@@ -2048,7 +2051,7 @@ mod tests {
             panic!("expected Map")
         };
         assert_eq!(m.len(), 1);
-        for (k, val) in &m.entries {
+        for (k, val) in m.iter() {
             let ValueKind::String(ks) = &**k else {
                 panic!("key not string")
             };
@@ -2071,7 +2074,7 @@ mod tests {
         let ValueKind::Map(m) = got.kind() else {
             panic!("expected Map")
         };
-        for (k, val) in &m.entries {
+        for (k, val) in m.iter() {
             let ValueKind::String(ks) = &**k else {
                 panic!("key not string")
             };
@@ -2468,6 +2471,7 @@ mod tests {
         let mut v = new_visitor(&arena);
         let mut with = SassMap::empty();
         with.set(
+            &arena,
             Value::new_with_arena(
                 &arena,
                 ValueKind::String(SassString::new(arena.alloc_str("a_b"), true)),
@@ -2475,6 +2479,7 @@ mod tests {
             num_val(&arena, 1.0),
         );
         with.set(
+            &arena,
             Value::new_with_arena(
                 &arena,
                 ValueKind::String(SassString::new(arena.alloc_str("a-b"), true)),
@@ -2506,6 +2511,7 @@ mod tests {
         v.config.logger = logger.clone();
         let mut with = SassMap::empty();
         with.set(
+            &arena,
             Value::new_with_arena(
                 &arena,
                 ValueKind::String(SassString::new(arena.alloc_str("-priv"), true)),
