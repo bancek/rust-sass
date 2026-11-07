@@ -356,6 +356,7 @@ mod tests {
         let arg_text = Interpolation::plain("file:///baz".into(), test_span(&arena, "file:///baz"));
         let str_expr = Expression::String(StringExpression::new(arg_text, true));
         let args = ArgumentList::new(
+            &arena,
             vec![str_expr],
             indexmap::IndexMap::new(),
             indexmap::IndexMap::new(),

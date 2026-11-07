@@ -1663,7 +1663,7 @@ where
 {
     let mut positional: Vec<Value<'parse>> = Vec::with_capacity(args.positional.len());
     let mut positional_nodes: Vec<FileSpan<'parse>> = Vec::with_capacity(args.positional.len());
-    for expr in &args.positional {
+    for expr in args.positional {
         let val = evaluate_expression(config, state, arena, expr).await?;
         let span = expression_node(config, state, expr)?;
         let cleaned = without_slash(config, state, arena, val, span)?;
@@ -1673,17 +1673,17 @@ where
 
     let mut named: IndexMap<String, Value<'parse>> = IndexMap::new();
     let mut named_nodes: IndexMap<String, FileSpan<'parse>> = IndexMap::new();
-    for (name, expr) in &args.named {
+    for (name, expr) in args.named {
         let span = expression_node(config, state, expr)?;
         let val = evaluate_expression(config, state, arena, expr).await?;
         let cleaned = without_slash(config, state, arena, val, span)?;
-        named.insert(name.clone(), cleaned);
-        named_nodes.insert(name.clone(), span);
+        named.insert((*name).to_string(), cleaned);
+        named_nodes.insert((*name).to_string(), span);
     }
 
     let mut separator = ListSeparator::Undecided;
 
-    if let Some(ref rest) = args.rest {
+    if let Some(rest) = args.rest {
         let rest_val = evaluate_expression(config, state, arena, rest).await?;
         let rest_span = expression_node(config, state, rest)?;
         match &*rest_val {
@@ -1724,7 +1724,7 @@ where
         }
     }
 
-    if let Some(ref kw_rest) = args.keyword_rest {
+    if let Some(kw_rest) = args.keyword_rest {
         let kw_val = evaluate_expression(config, state, arena, kw_rest).await?;
         let kw_span = expression_node(config, state, kw_rest)?;
         match &*kw_val {
@@ -2335,15 +2335,21 @@ where
     let rest_args = match &args.rest {
         Some(rest_expr) => rest_expr,
         None => {
-            return Ok((args.positional.clone(), args.named.clone()));
+            return Ok((
+                args.positional.to_vec(),
+                args.named
+                    .iter()
+                    .map(|(k, v)| ((*k).to_string(), v.clone()))
+                    .collect(),
+            ));
         }
     };
 
-    let mut positional: Vec<Expression<'parse>> = args.positional.clone();
+    let mut positional: Vec<Expression<'parse>> = args.positional.to_vec();
     let mut named: IndexMap<String, Expression<'parse>> = args
         .named
         .iter()
-        .map(|(k, v)| (k.clone(), v.clone()))
+        .map(|(k, v)| ((*k).to_string(), v.clone()))
         .collect();
 
     let rest = evaluate_expression(config, state, arena, rest_args).await?;
@@ -3023,7 +3029,15 @@ mod tests {
         let arena = Bump::new();
         let span = make_span(&arena, "a, b");
         let (config, mut state) = test_visitor(&arena);
-        let args = ArgumentList::new(vec![], IndexMap::new(), IndexMap::new(), span, None, None);
+        let args = ArgumentList::new(
+            &arena,
+            vec![],
+            IndexMap::new(),
+            IndexMap::new(),
+            span,
+            None,
+            None,
+        );
         let result = evaluate_arguments(&config, &mut state, &arena, &args)
             .await
             .unwrap();
@@ -3106,20 +3120,22 @@ mod tests {
     // ── evaluateArguments rest/kwRest ──
 
     fn make_args<'parse>(
+        arena: &'parse Bump,
         positional: Vec<Expression<'parse>>,
         named: IndexMap<String, Expression<'parse>>,
         rest: Option<Box<Expression<'parse>>>,
         kw_rest: Option<Box<Expression<'parse>>>,
         span: FileSpan<'parse>,
     ) -> ArgumentList<'parse> {
-        ArgumentList {
+        ArgumentList::new(
+            arena,
             positional,
             named,
-            named_spans: IndexMap::new(),
+            IndexMap::new(),
             span,
-            rest,
-            keyword_rest: kw_rest,
-        }
+            rest.map(|expression| *expression),
+            kw_rest.map(|expression| *expression),
+        )
     }
 
     #[rust_sass_macros::maybe_test]
@@ -3141,6 +3157,7 @@ mod tests {
             )],
         );
         let args = make_args(
+            &arena,
             vec![],
             IndexMap::new(),
             Some(Box::new(Expression::Value(ValueExpression {
@@ -3173,6 +3190,7 @@ mod tests {
             false,
         );
         let args = make_args(
+            &arena,
             vec![],
             IndexMap::new(),
             Some(Box::new(Expression::Value(ValueExpression {
@@ -3195,6 +3213,7 @@ mod tests {
         let span = make_span(&arena, "test");
         let (config, mut state) = test_visitor(&arena);
         let args = make_args(
+            &arena,
             vec![],
             IndexMap::new(),
             Some(Box::new(Expression::Value(ValueExpression {
@@ -3220,6 +3239,7 @@ mod tests {
         let span = make_span(&arena, "test");
         let (config, mut state) = test_visitor(&arena);
         let args = make_args(
+            &arena,
             vec![],
             IndexMap::new(),
             None,
@@ -3247,6 +3267,7 @@ mod tests {
         let span = make_span(&arena, "test");
         let (config, mut state) = test_visitor(&arena);
         let args = make_args(
+            &arena,
             vec![Expression::Value(ValueExpression {
                 value: Box::new(Value::new_with_arena(
                     &arena,
@@ -3281,7 +3302,7 @@ mod tests {
             )),
             span,
         });
-        let args = make_args(vec![pos_expr], IndexMap::new(), None, None, span);
+        let args = make_args(&arena, vec![pos_expr], IndexMap::new(), None, None, span);
         let (pos, named) = evaluate_macro_arguments(&config, &mut state, &arena, &args, span)
             .await
             .unwrap();
@@ -3308,6 +3329,7 @@ mod tests {
             )],
         );
         let args = make_args(
+            &arena,
             vec![],
             IndexMap::new(),
             Some(Box::new(Expression::Value(ValueExpression {
@@ -3331,6 +3353,7 @@ mod tests {
         let span = make_span(&arena, "test");
         let (config, mut state) = test_visitor(&arena);
         let args = make_args(
+            &arena,
             vec![],
             IndexMap::new(),
             Some(Box::new(Expression::Value(ValueExpression {

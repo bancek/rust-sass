@@ -343,7 +343,15 @@ pub(crate) fn css_identifier_like_impl<'b>(
     // Matches Dart: spanFrom(beforeArguments) — the args span starts after
     // the `(` (at the `beforeArguments` state), not at the function name.
     let arg_span = scanner.span_from(before_arguments);
-    let arg_list = ArgumentList::new(args, IndexMap::new(), IndexMap::new(), arg_span, None, None);
+    let arg_list = ArgumentList::new(
+        state.arena,
+        args,
+        IndexMap::new(),
+        IndexMap::new(),
+        arg_span,
+        None,
+        None,
+    );
     let span = span_from_impl(scanner, &state.parser_state, start)?.file_span()?;
     Ok(Expression::Function(FunctionExpression::new(
         plain.to_string(),

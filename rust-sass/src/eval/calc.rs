@@ -459,7 +459,7 @@ where
     // Catch Script errors here so we can wrap with the function span.
     let warn_buf = BufferedWarnLogger::new(arena);
     let mut evaluated = Vec::new();
-    for arg in &args.positional {
+    for arg in args.positional {
         match expression_to_calc_argument(
             config,
             state,
@@ -564,7 +564,7 @@ where
             // reports incompatible units, re-verify against the original
             // argument spans so the error points at the offending operand(s).
             if e.message().contains("compatible") {
-                verify_compatible_numbers_with_spans(state, &evaluated_verify, &args.positional)?
+                verify_compatible_numbers_with_spans(state, &evaluated_verify, args.positional)?
             }
             let span = expr.span()?;
             Err(Box::new(exception(state, e.full_message(), Some(span))))

@@ -1507,6 +1507,7 @@ pub(crate) fn argument_invocation<'parse>(
     scanner.expect_char(')')?;
     let span = span_from_impl(scanner, &state.parser_state, start)?.file_span()?;
     Ok(ArgumentList::new(
+        state.arena,
         positional,
         named,
         named_spans,
@@ -4426,7 +4427,7 @@ mod tests {
         let a = Bump::new();
         let (mut s, mut st) = make_state(&a, "($x: 1)");
         let args = argument_invocation(&mut s, &mut st, false, false).unwrap();
-        assert!(args.named.contains_key("x"));
+        assert!(args.named.iter().any(|(name, _)| *name == "x"));
     }
 
     #[test]
@@ -4435,7 +4436,7 @@ mod tests {
         let (mut s, mut st) = make_state(&a, "(1, $x: 2)");
         let args = argument_invocation(&mut s, &mut st, false, false).unwrap();
         assert_eq!(args.positional.len(), 1);
-        assert!(args.named.contains_key("x"));
+        assert!(args.named.iter().any(|(name, _)| *name == "x"));
     }
 
     #[test]

@@ -10,6 +10,7 @@
 use std::fmt;
 use std::fmt::Write;
 
+use bumpalo::Bump;
 use indexmap::IndexMap;
 
 use crate::common::ast_node::AstNode;
@@ -27,20 +28,21 @@ use crate::ast::sass::expression::Expression;
 /// keyword-rest argument (expected to hold a keyword map).
 #[derive(Clone, Debug)]
 pub struct ArgumentList<'parse> {
-    /// The arguments passed by position, in source order.
-    pub positional: Vec<Expression<'parse>>,
-    /// The arguments passed by name, keyed by normalized name.
-    pub named: IndexMap<String, Expression<'parse>>,
+    /// The arguments passed by position, in source order. Arena-allocated.
+    pub positional: &'parse [Expression<'parse>],
+    /// The arguments passed by name, keyed by normalized name. Arena-allocated;
+    /// insertion order is preserved.
+    pub named: &'parse [(&'parse str, Expression<'parse>)],
     /// The spans for the arguments passed by name, including their names.
     ///
     /// This always has the same keys as [`named`](Self::named) in the same
     /// order.
-    pub named_spans: IndexMap<String, FileSpan<'parse>>,
+    pub named_spans: &'parse [(&'parse str, FileSpan<'parse>)],
     /// The first rest argument (as in `$args...`).
-    pub rest: Option<Box<Expression<'parse>>>,
+    pub rest: Option<&'parse Expression<'parse>>,
     /// The second rest argument, which is expected to only contain a keyword
     /// map.
-    pub keyword_rest: Option<Box<Expression<'parse>>>,
+    pub keyword_rest: Option<&'parse Expression<'parse>>,
     pub span: FileSpan<'parse>,
 }
 
@@ -50,6 +52,7 @@ impl<'parse> ArgumentList<'parse> {
     ///
     /// `rest` must be present whenever `keyword_rest` is.
     pub fn new(
+        arena: &'parse Bump,
         positional: Vec<Expression<'parse>>,
         named: IndexMap<String, Expression<'parse>>,
         named_spans: IndexMap<String, FileSpan<'parse>>,
@@ -57,22 +60,30 @@ impl<'parse> ArgumentList<'parse> {
         rest: Option<Expression<'parse>>,
         keyword_rest: Option<Expression<'parse>>,
     ) -> Self {
+        let named: Vec<(&'parse str, Expression<'parse>)> = named
+            .into_iter()
+            .map(|(name, value)| (&*arena.alloc_str(&name), value))
+            .collect();
+        let named_spans: Vec<(&'parse str, FileSpan<'parse>)> = named_spans
+            .into_iter()
+            .map(|(name, value)| (&*arena.alloc_str(&name), value))
+            .collect();
         ArgumentList {
-            positional,
-            named,
-            named_spans,
+            positional: arena.alloc_slice_fill_iter(positional),
+            named: arena.alloc_slice_fill_iter(named),
+            named_spans: arena.alloc_slice_fill_iter(named_spans),
             span,
-            rest: rest.map(Box::new),
-            keyword_rest: keyword_rest.map(Box::new),
+            rest: rest.map(|expression| &*arena.alloc(expression)),
+            keyword_rest: keyword_rest.map(|expression| &*arena.alloc(expression)),
         }
     }
 
     /// Creates an invocation that passes no arguments.
     pub fn empty(span: FileSpan<'parse>) -> Self {
         ArgumentList {
-            positional: Vec::new(),
-            named: IndexMap::new(),
-            named_spans: IndexMap::new(),
+            positional: &[],
+            named: &[],
+            named_spans: &[],
             span,
             rest: None,
             keyword_rest: None,
@@ -114,7 +125,7 @@ impl<'parse> ArgumentList<'parse> {
         let mut buf = String::new();
         buf.push('(');
         let mut first = true;
-        for arg in &self.positional {
+        for arg in self.positional {
             if first {
                 first = false;
             } else {
@@ -122,7 +133,7 @@ impl<'parse> ArgumentList<'parse> {
             }
             write!(buf, "{}", parenthesize_argument(arg)?).unwrap();
         }
-        for (name, value) in &self.named {
+        for (name, value) in self.named {
             if first {
                 first = false;
             } else {
@@ -136,7 +147,7 @@ impl<'parse> ArgumentList<'parse> {
             )
             .unwrap();
         }
-        if let Some(ref rest) = self.rest {
+        if let Some(rest) = self.rest {
             if first {
                 first = false;
             } else {
@@ -144,7 +155,7 @@ impl<'parse> ArgumentList<'parse> {
             }
             write!(buf, "{}...", parenthesize_argument(rest)?).unwrap();
         }
-        if let Some(ref kw_rest) = self.keyword_rest {
+        if let Some(kw_rest) = self.keyword_rest {
             if !first {
                 write!(buf, ", ").unwrap();
             }
@@ -201,6 +212,7 @@ mod tests {
         let fs = FileSource::new_in(&arena, "(1, 2)", None);
         let span = FileSpan::new(Some(fs), 0, 6);
         let al = ArgumentList::new(
+            &arena,
             vec![
                 Expression::Boolean(BooleanExpression::new(true, span)),
                 Expression::Boolean(BooleanExpression::new(false, span)),
@@ -228,6 +240,7 @@ mod tests {
         let fs = FileSource::new_in(&arena, "(true)", None);
         let span = FileSpan::new(Some(fs), 0, 6);
         let al = ArgumentList::new(
+            &arena,
             vec![Expression::Boolean(BooleanExpression::new(true, span))],
             IndexMap::new(),
             IndexMap::new(),
@@ -249,7 +262,7 @@ mod tests {
             "a".into(),
             Expression::Boolean(BooleanExpression::new(true, inner_span)),
         );
-        let al = ArgumentList::new(vec![], named, IndexMap::new(), span, None, None);
+        let al = ArgumentList::new(&arena, vec![], named, IndexMap::new(), span, None, None);
         assert_eq!(format!("{al}"), "($a: true)");
     }
 
@@ -259,6 +272,7 @@ mod tests {
         let fs = FileSource::new_in(&arena, "(true)", None);
         let span = FileSpan::new(Some(fs), 0, 6);
         let al = ArgumentList::new(
+            &arena,
             vec![],
             IndexMap::new(),
             IndexMap::new(),
@@ -275,6 +289,7 @@ mod tests {
         let fs = FileSource::new_in(&arena, "(true)", None);
         let span = FileSpan::new(Some(fs), 0, 6);
         let al = ArgumentList::new(
+            &arena,
             vec![],
             IndexMap::new(),
             IndexMap::new(),

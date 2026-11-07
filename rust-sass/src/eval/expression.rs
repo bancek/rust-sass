@@ -640,7 +640,7 @@ where
         let span = expr.span()?;
         let rec_str =
             slash_division_recommendation_expr(&Expression::BinaryOperation(expr.clone()))?;
-        let calc_expr = expression_to_calc(&Expression::BinaryOperation(expr.clone()))?;
+        let calc_expr = expression_to_calc(arena, &Expression::BinaryOperation(expr.clone()))?;
         let calc_str = calc_expr.to_display_string()?;
         let message = format!(
             "Using / for division outside of calc() is deprecated \
@@ -1666,7 +1666,7 @@ where
     result.push_str(name);
     result.push('(');
     let mut first = true;
-    for expr in &arguments.positional {
+    for expr in arguments.positional {
         if !first {
             result.push_str(", ");
         }
@@ -1675,7 +1675,7 @@ where
         let css = serialize_value(config, state, &val, expr.span()?, true).await?;
         result.push_str(&css);
     }
-    if let Some(ref rest) = arguments.rest {
+    if let Some(rest) = arguments.rest {
         let rest_val = evaluate_expression(config, state, arena, rest).await?;
         if !first {
             result.push_str(", ");

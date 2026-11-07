@@ -103,16 +103,16 @@ impl RecursiveAstVisitor {
     }
 
     fn visit_argument_list(&mut self, args: &ArgumentList<'_>) -> SassResult<()> {
-        for expr in &args.positional {
+        for expr in args.positional {
             self.visit_expression(expr)?;
         }
-        for expr in args.named.values() {
+        for (_, expr) in args.named {
             self.visit_expression(expr)?;
         }
-        if let Some(ref rest) = args.rest {
+        if let Some(rest) = args.rest {
             self.visit_expression(rest)?;
         }
-        if let Some(ref keyword_rest) = args.keyword_rest {
+        if let Some(keyword_rest) = args.keyword_rest {
             self.visit_expression(keyword_rest)?;
         }
         Ok(())
@@ -662,6 +662,7 @@ mod tests {
         let span = test_span(&arena, "@content($a);");
         let positional = vec![null_expr(&arena)];
         let args = ArgumentList::new(
+            &arena,
             positional,
             indexmap::IndexMap::new(),
             indexmap::IndexMap::new(),
@@ -684,6 +685,7 @@ mod tests {
             None,
         ))];
         let args = ArgumentList::new(
+            &arena,
             positional,
             indexmap::IndexMap::new(),
             indexmap::IndexMap::new(),

@@ -151,6 +151,7 @@ where
                 .unwrap_or_else(|| Value::new_with_arena(arena, ValueKind::Null));
             let rest_expr = Expression::Value(ValueExpression::new(rest_val, span));
             let arg_list = ArgumentList::new(
+                arena,
                 vec![],
                 IndexMap::new(),
                 IndexMap::new(),
@@ -213,6 +214,7 @@ where
 
             let rest_expr = Expression::Value(ValueExpression::new(rest_val, span));
             let arg_list = ArgumentList::new(
+                arena,
                 vec![],
                 IndexMap::new(),
                 IndexMap::new(),
@@ -1098,6 +1100,7 @@ where
         .unwrap_or_else(|| Value::new_with_arena(arena, ValueKind::Null));
     let rest_expr = Expression::Value(ValueExpression::new(rest_val, span));
     let arg_list = ArgumentList::new(
+        arena,
         vec![],
         IndexMap::new(),
         IndexMap::new(),

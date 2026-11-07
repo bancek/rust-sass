@@ -64,7 +64,7 @@ impl IsPlainCssVisitor {
         if !list.named.is_empty() || list.rest.is_some() {
             return Ok(false);
         }
-        for arg in &list.positional {
+        for arg in list.positional {
             if !arg.accept(self)? {
                 return Ok(false);
             }
