@@ -9,7 +9,6 @@
 
 use crate::embedded_sass::inbound_message::FunctionCallResponse;
 use std::collections::HashMap;
-use std::rc::Rc;
 
 use indexmap::IndexMap;
 
@@ -37,13 +36,13 @@ use crate::function::host_callable;
 ///
 /// Matches Go: Protofier (protofier.go).
 pub struct Protofier<'compile, 'parse> {
-    pub ctx: Rc<CompilationContext<'compile, 'parse>>,
+    pub ctx: &'compile CompilationContext<'compile, 'parse>,
     /// Argument lists protofied so far, in protofy order (1-based IDs).
     argument_lists: Vec<SassValue<'parse>>,
 }
 
 impl<'compile: 'parse, 'parse: 'compile> Protofier<'compile, 'parse> {
-    pub fn new(ctx: Rc<CompilationContext<'compile, 'parse>>) -> Self {
+    pub fn new(ctx: &'compile CompilationContext<'compile, 'parse>) -> Self {
         Protofier {
             ctx,
             argument_lists: Vec::new(),
@@ -219,8 +218,7 @@ impl<'compile: 'parse, 'parse: 'compile> Protofier<'compile, 'parse> {
                 // Host-defined functions have no compilation ownership, so they
                 // use the plain constructor (compile context = None), matching
                 // Dart's `SassFunction(hostCallable(...))`.
-                let callable =
-                    host_callable(self.ctx.clone(), &h.signature, Some(h.id), self.ctx.arena)?;
+                let callable = host_callable(self.ctx, &h.signature, Some(h.id), self.ctx.arena)?;
                 SassValue::new_with_arena(
                     self.ctx.arena,
                     ValueKind::Function(SassFunction::new(callable)),
@@ -579,20 +577,29 @@ fn deprotofy_calculation_operator(op: i32) -> SassResult<CalculationOperator> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::compilation::test_context;
+    use crate::compilation::{test_context, test_host, HostContext};
+    use std::rc::Rc;
 
     use rust_sass::callable::{Callable, CallableKind, PlainCssCallable};
     use rust_sass::Bump;
 
-    fn test_ctx<'compile, 'parse>(arena: &'compile Bump) -> Rc<CompilationContext<'compile, 'parse>>
-    where
-        'compile: 'parse,
-    {
+    fn new_test_host() -> Rc<HostContext> {
         #[cfg(feature = "async")]
         let (_tx, rx) = futures::channel::mpsc::unbounded::<Vec<u8>>();
         #[cfg(not(feature = "async"))]
         let (_tx, rx) = std::sync::mpsc::channel::<Vec<u8>>();
-        test_context(rx, arena)
+        test_host(rx)
+    }
+
+    fn test_ctx<'compile, 'parse>(
+        host: &'compile HostContext,
+        arena: &'compile Bump,
+    ) -> &'compile CompilationContext<'compile, 'parse>
+    where
+        'compile: 'parse,
+        'parse: 'compile,
+    {
+        test_context(host, arena)
     }
 
     fn dummy<'compile, 'parse>(arena: &'compile Bump, name: &str) -> Callable<'compile, 'parse>
@@ -609,7 +616,7 @@ mod tests {
     }
 
     fn roundtrip<'compile, 'parse>(
-        ctx: &Rc<CompilationContext<'compile, 'parse>>,
+        ctx: &'compile CompilationContext<'compile, 'parse>,
         v: SassValue<'parse>,
     ) where
         'compile: 'parse,
@@ -621,14 +628,14 @@ mod tests {
 
     /// Protofies `v` and deprotofies the result, returning the value.
     fn roundtrip_deprotofy<'compile, 'parse>(
-        ctx: &Rc<CompilationContext<'compile, 'parse>>,
+        ctx: &'compile CompilationContext<'compile, 'parse>,
         v: &SassValue<'parse>,
     ) -> SassValue<'parse>
     where
         'compile: 'parse,
         'parse: 'compile,
     {
-        let mut protofier = Protofier::new(ctx.clone());
+        let mut protofier = Protofier::new(ctx);
         let proto = protofier.protofy(v).unwrap();
         let back = protofier.deprotofy(&proto).unwrap();
         assert!(
@@ -667,8 +674,9 @@ mod tests {
 
     #[test]
     fn argument_error_is_stored_on_the_context() {
+        let host = new_test_host();
         let arena = Bump::new();
-        let ctx = test_ctx(&arena);
+        let ctx = test_ctx(&host, &arena);
         let err = SassError::ArgumentError {
             name: Some("x".into()),
             message: "bad value".into(),
@@ -690,38 +698,41 @@ mod tests {
 
     #[test]
     fn roundtrip_boolean() {
+        let host = new_test_host();
         let arena = Bump::new();
-        let ctx = test_ctx(&arena);
+        let ctx = test_ctx(&host, &arena);
         roundtrip(
-            &ctx,
+            ctx,
             SassValue::new_with_arena(&arena, ValueKind::Boolean(SASS_TRUE)),
         );
         roundtrip(
-            &ctx,
+            ctx,
             SassValue::new_with_arena(&arena, ValueKind::Boolean(SASS_FALSE)),
         );
     }
 
     #[test]
     fn roundtrip_null() {
+        let host = new_test_host();
         let arena = Bump::new();
-        let ctx = test_ctx(&arena);
-        roundtrip(&ctx, SassValue::new_with_arena(&arena, ValueKind::Null));
+        let ctx = test_ctx(&host, &arena);
+        roundtrip(ctx, SassValue::new_with_arena(&arena, ValueKind::Null));
     }
 
     #[test]
     fn roundtrip_string() {
+        let host = new_test_host();
         let arena = Bump::new();
-        let ctx = test_ctx(&arena);
+        let ctx = test_ctx(&host, &arena);
         roundtrip(
-            &ctx,
+            ctx,
             SassValue::new_with_arena(
                 &arena,
                 ValueKind::String(SassString::new(arena.alloc_str("hello"), true)),
             ),
         );
         roundtrip(
-            &ctx,
+            ctx,
             SassValue::new_with_arena(
                 &arena,
                 ValueKind::String(SassString::new(arena.alloc_str("foo"), false)),
@@ -731,10 +742,11 @@ mod tests {
 
     #[test]
     fn roundtrip_number() {
+        let host = new_test_host();
         let arena = Bump::new();
-        let ctx = test_ctx(&arena);
+        let ctx = test_ctx(&host, &arena);
         roundtrip(
-            &ctx,
+            ctx,
             SassValue::new_with_arena(
                 &arena,
                 ValueKind::Number(SassNumber::with_units(
@@ -745,22 +757,23 @@ mod tests {
             ),
         );
         roundtrip(
-            &ctx,
+            ctx,
             SassValue::new_with_arena(&arena, ValueKind::Number(SassNumber::new(42.0, None))),
         );
     }
 
     #[test]
     fn roundtrip_color() {
+        let host = new_test_host();
         let arena = Bump::new();
-        let ctx = test_ctx(&arena);
+        let ctx = test_ctx(&host, &arena);
         roundtrip(
-            &ctx,
+            ctx,
             SassValue::new_with_arena(&arena, ValueKind::Color(rgb(1.0, 2.0, 3.0, 0.5))),
         );
         // Missing channels round-trip as missing.
         roundtrip(
-            &ctx,
+            ctx,
             SassValue::new_with_arena(
                 &arena,
                 ValueKind::Color(SassColor::for_space(
@@ -775,10 +788,11 @@ mod tests {
 
     #[test]
     fn roundtrip_list() {
+        let host = new_test_host();
         let arena = Bump::new();
-        let ctx = test_ctx(&arena);
+        let ctx = test_ctx(&host, &arena);
         roundtrip(
-            &ctx,
+            ctx,
             SassValue::new_with_arena(
                 &arena,
                 ValueKind::List(SassList::new(
@@ -798,7 +812,7 @@ mod tests {
             ),
         );
         roundtrip(
-            &ctx,
+            ctx,
             SassValue::new_with_arena(
                 &arena,
                 ValueKind::List(SassList::empty(ListSeparator::Undecided, false)),
@@ -808,10 +822,11 @@ mod tests {
 
     #[test]
     fn roundtrip_map() {
+        let host = new_test_host();
         let arena = Bump::new();
-        let ctx = test_ctx(&arena);
+        let ctx = test_ctx(&host, &arena);
         roundtrip(
-            &ctx,
+            ctx,
             SassValue::new_with_arena(
                 &arena,
                 ValueKind::Map(SassMap::from_entries(vec![
@@ -839,8 +854,9 @@ mod tests {
 
     #[test]
     fn roundtrip_argument_list() {
+        let host = new_test_host();
         let arena = Bump::new();
-        let ctx = test_ctx(&arena);
+        let ctx = test_ctx(&host, &arena);
         let mut keywords = IndexMap::new();
         keywords.insert(
             "kw".to_string(),
@@ -850,7 +866,7 @@ mod tests {
             ),
         );
         roundtrip(
-            &ctx,
+            ctx,
             SassValue::new_with_arena(
                 &arena,
                 ValueKind::ArgumentList(SassArgumentList::new(
@@ -868,10 +884,11 @@ mod tests {
 
     #[test]
     fn roundtrip_calculation() {
+        let host = new_test_host();
         let arena = Bump::new();
-        let ctx = test_ctx(&arena);
+        let ctx = test_ctx(&host, &arena);
         roundtrip(
-            &ctx,
+            ctx,
             SassValue::new_with_arena(
                 &arena,
                 ValueKind::Calculation(Box::new(SassCalculation::new_unsimplified(
@@ -881,7 +898,7 @@ mod tests {
             ),
         );
         roundtrip(
-            &ctx,
+            ctx,
             SassValue::new_with_arena(
                 &arena,
                 ValueKind::Calculation(Box::new(SassCalculation::new_unsimplified(
@@ -897,25 +914,26 @@ mod tests {
 
     #[test]
     fn roundtrip_function_and_mixin() {
+        let host = new_test_host();
         let arena = Bump::new();
-        let ctx = test_ctx(&arena);
+        let ctx = test_ctx(&host, &arena);
         let fn_value = SassFunction::new(dummy(&arena, "f"));
         let mixin_value = SassMixin::new(dummy(&arena, "m"));
         let fn_id = ctx.functions.borrow_mut().get_id(&fn_value);
         let mixin_id = ctx.mixins.borrow_mut().get_id(&mixin_value);
         roundtrip(
-            &ctx,
+            ctx,
             SassValue::new_with_arena(&arena, ValueKind::Function(fn_value.clone())),
         );
         roundtrip(
-            &ctx,
+            ctx,
             SassValue::new_with_arena(&arena, ValueKind::Mixin(mixin_value.clone())),
         );
         assert_eq!(fn_id, 0);
         assert_eq!(mixin_id, 0); // separate registry, also starts at 0
                                  // The round-trip returns the stored value (with its compile context).
         let back = roundtrip_deprotofy(
-            &ctx,
+            ctx,
             &SassValue::new_with_arena(&arena, ValueKind::Function(fn_value.clone())),
         );
         assert!(back.equals(&SassValue::new_with_arena(
@@ -926,8 +944,9 @@ mod tests {
 
     #[test]
     fn roundtrip_module() {
+        let host = new_test_host();
         let arena = Bump::new();
-        let ctx = test_ctx(&arena);
+        let ctx = test_ctx(&host, &arena);
         let module = rust_sass::module::Module::new(
             &arena,
             rust_sass::module::ModuleKind::BuiltIn(rust_sass::module::BuiltInModule::new(
@@ -942,16 +961,17 @@ mod tests {
         let id = ctx.modules.borrow_mut().get_id(&value);
         assert_eq!(id, 0);
         roundtrip(
-            &ctx,
+            ctx,
             SassValue::new_with_arena(&arena, ValueKind::Module(value)),
         );
     }
 
     #[test]
     fn argument_list_referenced_by_id_returns_same_value() {
+        let host = new_test_host();
         let arena = Bump::new();
-        let ctx = test_ctx(&arena);
-        let mut protofier = Protofier::new(ctx.clone());
+        let ctx = test_ctx(&host, &arena);
+        let mut protofier = Protofier::new(ctx);
         let arg_list = SassValue::new_with_arena(
             &arena,
             ValueKind::ArgumentList(SassArgumentList::new(

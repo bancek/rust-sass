@@ -157,13 +157,13 @@ impl HostContext {
 /// thread. Follows the eval convention: `'compile` (arena) outlives `'parse`
 /// (arena-allocated data); callables additionally require `'parse: 'compile`.
 pub struct CompilationContext<'compile, 'parse> {
-    pub host: Rc<HostContext>,
+    pub host: &'compile HostContext,
     /// Compiler-defined values sent to the host (as `CompilerFunction`s).
-    pub functions: Rc<RefCell<OpaqueRegistry<SassFunction<'parse>>>>,
+    pub functions: RefCell<OpaqueRegistry<'parse, SassFunction<'parse>>>,
     /// Compiler-defined values sent to the host (as `CompilerMixin`s).
-    pub mixins: Rc<RefCell<OpaqueRegistry<SassMixin<'parse>>>>,
+    pub mixins: RefCell<OpaqueRegistry<'parse, SassMixin<'parse>>>,
     /// Compiler-defined values sent to the host (as `CompilerModule`s).
-    pub modules: Rc<RefCell<OpaqueRegistry<SassModule<'parse>>>>,
+    pub modules: RefCell<OpaqueRegistry<'parse, SassModule<'parse>>>,
     /// The compilation's arena (source text + host signature parsing).
     pub arena: &'compile Bump,
     /// A fatal protocol error raised while converting a host-provided value.
@@ -232,7 +232,8 @@ impl From<DecodeImporterError> for ProtocolError {
 /// Matches Go: `CompilationDispatcher.compile`.
 #[rust_sass_macros::maybe_async]
 pub async fn handle_compile_request<'compile, 'parse>(
-    ctx: Rc<CompilationContext<'compile, 'parse>>,
+    ctx: &'compile CompilationContext<'compile, 'parse>,
+    host: &Rc<HostContext>,
     req: &inbound_message::CompileRequest,
 ) -> Result<outbound_message::CompileResponse, ProtocolError>
 where
@@ -253,7 +254,7 @@ where
         Rc::new(QuietLogger)
     } else {
         Rc::new(EmbeddedLogger::new(
-            ctx.host.clone(),
+            host.clone(),
             req.alert_color,
             req.alert_ascii,
         ))
@@ -270,14 +271,14 @@ where
 
     let mut importers = Vec::new();
     for imp in &req.importers {
-        let decoded = match decode_importer(ctx.arena, ctx.host.clone(), imp) {
+        let decoded = match decode_importer(ctx.arena, host.clone(), imp) {
             Ok(d) => d,
             Err(DecodeImporterError::Protocol(pe)) => return Err(pe),
             // Dart: an invalid scheme is a `SassException` from the importer
             // constructor, caught by `_compile`'s `on SassException` and sent as
             // a `CompileFailure` (not a protocol error).
             Err(DecodeImporterError::Sass(err)) => {
-                return Ok(build_failure_response(&ctx.host, &err, None, &highlight))
+                return Ok(build_failure_response(ctx.host, &err, None, &highlight))
             }
         };
         match decoded {
@@ -288,9 +289,9 @@ where
 
     let mut global_functions = Vec::new();
     for sig in &req.global_functions {
-        match host_callable(ctx.clone(), sig, None, ctx.arena) {
+        match host_callable(ctx, sig, None, ctx.arena) {
             Ok(c) => global_functions.push(c),
-            Err(e) => return Ok(build_failure_response(&ctx.host, &e, None, &highlight)),
+            Err(e) => return Ok(build_failure_response(ctx.host, &e, None, &highlight)),
         }
     }
 
@@ -298,7 +299,7 @@ where
         Some(compile_request::Input::String(input)) => {
             let syntax = match syntax_from_proto(input.syntax) {
                 Ok(s) => s,
-                Err(e) => return Ok(build_failure_response(&ctx.host, &e, None, &highlight)),
+                Err(e) => return Ok(build_failure_response(ctx.host, &e, None, &highlight)),
             };
             let entrypoint = if input.url.is_empty() {
                 None
@@ -319,7 +320,7 @@ where
             opts.syntax = syntax;
             opts.url = entrypoint.clone();
             let entrypoint_importer = match input.importer.as_ref() {
-                Some(imp) => decode_importer(ctx.arena, ctx.host.clone(), imp)?,
+                Some(imp) => decode_importer(ctx.arena, host.clone(), imp)?,
                 None => None,
             };
             opts.importer = match entrypoint_importer {
@@ -359,7 +360,7 @@ where
     // the protofier raises `paramsError`). The host callback records the
     // protocol error here before aborting the compile; send it instead of a
     // CompileResponse, matching `CompilationDispatcher.sendError`.
-    if let Some(pe) = take_protocol_error(&ctx) {
+    if let Some(pe) = take_protocol_error(ctx) {
         return Err(pe);
     }
 
@@ -385,7 +386,7 @@ where
             })
         }
         Err(e) => Ok(build_failure_response(
-            &ctx.host,
+            ctx.host,
             &e,
             entrypoint.as_ref(),
             &highlight,
@@ -589,17 +590,18 @@ pub(crate) fn test_host(rx: Receiver<Vec<u8>>) -> Rc<HostContext> {
 
 #[cfg(all(test, feature = "async"))]
 pub(crate) fn test_context<'compile, 'parse>(
-    rx: futures::channel::mpsc::UnboundedReceiver<Vec<u8>>,
+    host: &'compile HostContext,
     arena: &'compile Bump,
-) -> Rc<CompilationContext<'compile, 'parse>>
+) -> &'compile CompilationContext<'compile, 'parse>
 where
     'compile: 'parse,
+    'parse: 'compile,
 {
-    Rc::new(CompilationContext {
-        host: test_host(rx),
-        functions: Rc::new(RefCell::new(OpaqueRegistry::<SassFunction<'parse>>::new())),
-        mixins: Rc::new(RefCell::new(OpaqueRegistry::<SassMixin<'parse>>::new())),
-        modules: Rc::new(RefCell::new(OpaqueRegistry::<SassModule<'parse>>::new())),
+    arena.alloc(CompilationContext {
+        host,
+        functions: RefCell::new(OpaqueRegistry::<SassFunction<'parse>>::new(arena)),
+        mixins: RefCell::new(OpaqueRegistry::<SassMixin<'parse>>::new(arena)),
+        modules: RefCell::new(OpaqueRegistry::<SassModule<'parse>>::new(arena)),
         arena,
         protocol_error: RefCell::new(None),
     })
@@ -607,17 +609,18 @@ where
 
 #[cfg(all(test, not(feature = "async")))]
 pub(crate) fn test_context<'compile, 'parse>(
-    rx: Receiver<Vec<u8>>,
+    host: &'compile HostContext,
     arena: &'compile Bump,
-) -> Rc<CompilationContext<'compile, 'parse>>
+) -> &'compile CompilationContext<'compile, 'parse>
 where
     'compile: 'parse,
+    'parse: 'compile,
 {
-    Rc::new(CompilationContext {
-        host: test_host(rx),
-        functions: Rc::new(RefCell::new(OpaqueRegistry::<SassFunction<'parse>>::new())),
-        mixins: Rc::new(RefCell::new(OpaqueRegistry::<SassMixin<'parse>>::new())),
-        modules: Rc::new(RefCell::new(OpaqueRegistry::<SassModule<'parse>>::new())),
+    arena.alloc(CompilationContext {
+        host,
+        functions: RefCell::new(OpaqueRegistry::<SassFunction<'parse>>::new(arena)),
+        mixins: RefCell::new(OpaqueRegistry::<SassMixin<'parse>>::new(arena)),
+        modules: RefCell::new(OpaqueRegistry::<SassModule<'parse>>::new(arena)),
         arena,
         protocol_error: RefCell::new(None),
     })
@@ -706,17 +709,18 @@ mod tests {
         let (_tx, rx) = futures::channel::mpsc::unbounded::<Vec<u8>>();
         #[cfg(not(feature = "async"))]
         let (_tx, rx) = std::sync::mpsc::channel::<Vec<u8>>();
+        let host = test_host(rx);
         let arena = Bump::new();
-        let ctx = test_context(rx, &arena);
+        let ctx = test_context(&host, &arena);
 
-        assert!(take_protocol_error(&ctx).is_none());
+        assert!(take_protocol_error(ctx).is_none());
         *ctx.protocol_error.borrow_mut() = Some(params_error("bad value"));
-        let pe = take_protocol_error(&ctx).expect("expected the recorded protocol error");
+        let pe = take_protocol_error(ctx).expect("expected the recorded protocol error");
         assert_eq!(
             pe.r#type,
             crate::embedded_sass::ProtocolErrorType::Params as i32
         );
         assert_eq!(pe.message, "bad value");
-        assert!(take_protocol_error(&ctx).is_none());
+        assert!(take_protocol_error(ctx).is_none());
     }
 }

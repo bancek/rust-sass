@@ -298,7 +298,6 @@ fn spawn_compilation(
     let writer = writer.clone();
     let stderr = stderr.clone();
     std::thread::spawn(move || {
-        let arena = Bump::new();
         let host = Rc::new(HostContext {
             compilation_id: id,
             io: Rc::new(DefaultIo::new()),
@@ -310,18 +309,19 @@ fn spawn_compilation(
             writer,
             stderr,
         });
-        let ctx = Rc::new(CompilationContext {
-            host,
-            functions: Rc::new(RefCell::new(OpaqueRegistry::new())),
-            mixins: Rc::new(RefCell::new(OpaqueRegistry::new())),
-            modules: Rc::new(RefCell::new(OpaqueRegistry::new())),
+        let arena = Bump::new();
+        let ctx = arena.alloc(CompilationContext {
+            host: &host,
+            functions: RefCell::new(OpaqueRegistry::new(&arena)),
+            mixins: RefCell::new(OpaqueRegistry::new(&arena)),
+            modules: RefCell::new(OpaqueRegistry::new(&arena)),
             arena: &arena,
             protocol_error: RefCell::new(None),
         });
         #[cfg(feature = "async")]
-        let result = futures::executor::block_on(run_compilation(ctx));
+        let result = futures::executor::block_on(run_compilation(ctx, &host));
         #[cfg(not(feature = "async"))]
-        let result = run_compilation(ctx);
+        let result = run_compilation(ctx, &host);
         let _ = tx_done.send((id, result.0, result.1));
     });
 }
@@ -333,7 +333,8 @@ fn spawn_compilation(
 /// the release is atomic with its write.
 #[rust_sass_macros::maybe_async]
 async fn run_compilation<'compile, 'parse>(
-    ctx: Rc<CompilationContext<'compile, 'parse>>,
+    ctx: &'compile CompilationContext<'compile, 'parse>,
+    host: &Rc<HostContext>,
 ) -> (Option<Vec<u8>>, i32)
 where
     'compile: 'parse,
@@ -356,7 +357,7 @@ where
     };
     match inbound.message {
         Some(inbound_message::Message::CompileRequest(req)) => {
-            match handle_compile_request(ctx, &req).await {
+            match handle_compile_request(ctx, host, &req).await {
                 Ok(resp) => {
                     let packet = serialize_packet(
                         compilation_id,

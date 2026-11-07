@@ -766,9 +766,12 @@ dependencies = [
 name = "rust-sass-embedded"
 version = "1.106.1"
 dependencies = [
+ "allocator-api2",
+ "bumpalo",
  "crossbeam-channel",
  "futures",
  "futures-test",
+ "hashbrown 0.17.1",
  "indexmap",
  "prost",
  "rust-sass",
