@@ -57,7 +57,7 @@ where
     let callback = build_callback(ctx, name.clone(), id);
     Ok(Callable::new(
         arena,
-        CallableKind::BuiltIn(BuiltInCallable::new_async(name, params, callback)),
+        CallableKind::BuiltIn(BuiltInCallable::new_async(arena, &name, params, callback)),
     ))
 }
 

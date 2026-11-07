@@ -627,7 +627,7 @@ mod tests {
             Rc::new(|_config, _state, _args, arena: &'compile Bump| {
                 Ok(Value::new_with_arena(arena, ValueKind::Null))
             });
-        let bic = BuiltInCallable::new(name.to_string(), pl, cb);
+        let bic = BuiltInCallable::new(arena, name, pl, cb);
         Callable::new(arena, CallableKind::BuiltIn(bic))
     }
 

@@ -841,7 +841,7 @@ where
                 Callable::new(
                     arena,
                     CallableKind::PlainCss(PlainCssCallable {
-                        name: expr.original_name.clone(),
+                        name: arena.alloc_str(&expr.original_name),
                     }),
                 )
             } else {
@@ -858,7 +858,7 @@ where
                             Callable::new(
                                 arena,
                                 CallableKind::PlainCss(PlainCssCallable {
-                                    name: expr.original_name.clone(),
+                                    name: arena.alloc_str(&expr.original_name),
                                 }),
                             )
                         })
@@ -1411,7 +1411,12 @@ where
     'compile: 'parse,
 {
     let name = perform_interpolation(config, state, arena, &expr.name, false).await?;
-    let fn_callable = Callable::new(arena, CallableKind::PlainCss(PlainCssCallable { name }));
+    let fn_callable = Callable::new(
+        arena,
+        CallableKind::PlainCss(PlainCssCallable {
+            name: arena.alloc_str(&name),
+        }),
+    );
 
     let old_in_function = state.in_function;
     state.in_function = true;
@@ -1600,7 +1605,7 @@ where
                     Some(span),
                 )));
             }
-            let result = serialize_plain_css_call(config, state, arena, &p.name, arguments).await;
+            let result = serialize_plain_css_call(config, state, arena, p.name, arguments).await;
 
             match result {
                 Ok(result) => Ok(Value::new_with_arena(

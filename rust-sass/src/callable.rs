@@ -112,15 +112,16 @@ impl<'compile: 'parse, 'parse> fmt::Debug for BuiltInOverload<'compile, 'parse> 
 /// may declare multiple callbacks with multiple parameter sets, and when the
 /// callable is invoked the first callback with matching parameters runs
 /// (see [`callback_for`](Self::callback_for)).
-#[derive(Clone)]
+#[derive(Clone, Copy)]
 pub struct BuiltInCallable<'compile, 'parse> {
-    name: String,
-    /// The overloads declared for this callable.
-    overloads: Rc<Vec<BuiltInOverload<'compile, 'parse>>>,
+    name: &'parse str,
+    /// The overloads declared for this callable, allocated in the compile arena.
+    overloads: &'parse [BuiltInOverload<'compile, 'parse>],
     /// Whether this callable could potentially accept an `@content` block.
     /// This can only be true for mixins.
     accepts_content: bool,
-    deprecation_warning: Option<(String, String)>, // (module, name) for global built-in deprecation
+    /// `(module, name)` for global built-in deprecation; both arena-allocated.
+    deprecation_warning: Option<(&'parse str, &'parse str)>,
 }
 
 /// A callable defined in the user's Sass stylesheet.
@@ -172,9 +173,9 @@ impl<'compile: 'parse, 'parse> UserDefinedCallable<'compile, 'parse> {
 /// plain-CSS context, serialized as `name(args...)`).
 ///
 /// This can't be used for mixins.
-pub struct PlainCssCallable {
+pub struct PlainCssCallable<'parse> {
     /// The function name, emitted verbatim as `name(args...)`.
-    pub name: String,
+    pub name: &'parse str,
 }
 
 /// The runtime representation of a Sass function or mixin: user-defined
@@ -186,7 +187,7 @@ pub enum CallableKind<'compile, 'parse> {
     /// A callable defined in Rust code, with overloads.
     BuiltIn(BuiltInCallable<'compile, 'parse>),
     /// A plain-CSS function fallback. Never stored persistently.
-    PlainCss(PlainCssCallable),
+    PlainCss(PlainCssCallable<'parse>),
 }
 
 /// A function or mixin that can be invoked from Sass by passing arguments.
@@ -220,7 +221,7 @@ impl<'compile: 'parse, 'parse> Callable<'compile, 'parse> {
         match self.0 {
             CallableKind::UserDefined(u) => u.name(),
             CallableKind::BuiltIn(b) => b.name(),
-            CallableKind::PlainCss(p) => &p.name,
+            CallableKind::PlainCss(p) => p.name,
         }
     }
 
@@ -264,15 +265,16 @@ impl<'compile: 'parse, 'parse> BuiltInCallable<'compile, 'parse> {
     /// parentheses); it may be empty for a function of no arguments.
     /// `url_str` is the URL of the module the function is defined in.
     pub fn new(
-        name: String,
+        arena: &'compile Bump,
+        name: &str,
         params: ParameterList<'parse>,
         callback: SyncBuiltInCallback<'compile, 'parse>,
     ) -> Self {
         #[cfg(feature = "async")]
         let callback = BuiltInCallback::Sync(callback);
         BuiltInCallable {
-            name,
-            overloads: Rc::new(vec![BuiltInOverload { params, callback }]),
+            name: arena.alloc_str(name),
+            overloads: arena.alloc_slice_fill_iter([BuiltInOverload { params, callback }]),
             accepts_content: false,
             deprecation_warning: None,
         }
@@ -280,13 +282,14 @@ impl<'compile: 'parse, 'parse> BuiltInCallable<'compile, 'parse> {
 
     #[rust_sass_macros::async_impl]
     pub fn new_async(
-        name: String,
+        arena: &'compile Bump,
+        name: &str,
         params: ParameterList<'parse>,
         callback: AsyncBuiltInCallback<'compile, 'parse>,
     ) -> Self {
         BuiltInCallable {
-            name,
-            overloads: Rc::new(vec![BuiltInOverload {
+            name: arena.alloc_str(name),
+            overloads: arena.alloc_slice_fill_iter([BuiltInOverload {
                 params,
                 callback: BuiltInCallback::Async(callback),
             }]),
@@ -295,10 +298,14 @@ impl<'compile: 'parse, 'parse> BuiltInCallable<'compile, 'parse> {
         }
     }
 
-    pub fn new_overloaded(name: String, overloads: Vec<BuiltInOverload<'compile, 'parse>>) -> Self {
+    pub fn new_overloaded(
+        arena: &'compile Bump,
+        name: &str,
+        overloads: Vec<BuiltInOverload<'compile, 'parse>>,
+    ) -> Self {
         BuiltInCallable {
-            name,
-            overloads: Rc::new(overloads),
+            name: arena.alloc_str(name),
+            overloads: arena.alloc_slice_fill_iter(overloads),
             accepts_content: false,
             deprecation_warning: None,
         }
@@ -306,7 +313,7 @@ impl<'compile: 'parse, 'parse> BuiltInCallable<'compile, 'parse> {
 
     /// The callable's name.
     pub fn name(&self) -> &str {
-        &self.name
+        self.name
     }
 
     /// Whether this callable could potentially accept an `@content` block.
@@ -323,20 +330,20 @@ impl<'compile: 'parse, 'parse> BuiltInCallable<'compile, 'parse> {
 
     /// Returns a copy of this callable with the given name (the overloads
     /// are shared, not re-registered).
-    pub fn with_name(&self, name: String) -> Self {
+    pub fn with_name(&self, arena: &'compile Bump, name: &str) -> Self {
         BuiltInCallable {
-            name,
-            overloads: Rc::clone(&self.overloads),
+            name: arena.alloc_str(name),
+            overloads: self.overloads,
             accepts_content: self.accepts_content,
-            deprecation_warning: self.deprecation_warning.clone(),
+            deprecation_warning: self.deprecation_warning,
         }
     }
 
     /// The `(module, name)` metadata recorded by
     /// [`with_deprecation_warning`](Self::with_deprecation_warning), used for
     /// introspection of global built-in deprecations.
-    pub fn deprecation_warning(&self) -> Option<&(String, String)> {
-        self.deprecation_warning.as_ref()
+    pub fn deprecation_warning(&self) -> Option<(&'parse str, &'parse str)> {
+        self.deprecation_warning
     }
 
     /// Returns the best-matching overload for the given positional count and named arguments.
@@ -417,7 +424,7 @@ impl<'compile: 'parse, 'parse> BuiltInCallable<'compile, 'parse> {
         let params = parse_parameter_list(&contents, url_str, arena).unwrap_or_else(|e| {
             panic!("BUG: ParseParameterList for {name}({params_str}) in {url_str}: {e}")
         });
-        let mut bic = BuiltInCallable::new(name.to_string(), params, callback);
+        let mut bic = BuiltInCallable::new(arena, name, params, callback);
         bic.deprecation_warning = None;
         bic
     }
@@ -436,7 +443,7 @@ impl<'compile: 'parse, 'parse> BuiltInCallable<'compile, 'parse> {
         let params = parse_parameter_list(&contents, url_str, arena).unwrap_or_else(|e| {
             panic!("BUG: ParseParameterList for {name}({params_str}) in {url_str}: {e}")
         });
-        let mut bic = BuiltInCallable::new_async(name.to_string(), params, callback);
+        let mut bic = BuiltInCallable::new_async(arena, name, params, callback);
         bic.deprecation_warning = None;
         bic
     }
@@ -456,7 +463,7 @@ impl<'compile: 'parse, 'parse> BuiltInCallable<'compile, 'parse> {
         let params = parse_parameter_list(&contents, url_str, arena).unwrap_or_else(|e| {
             panic!("BUG: ParseParameterList for {name}({params_str}) in {url_str}: {e}")
         });
-        let mut bic = BuiltInCallable::new(name.to_string(), params, callback);
+        let mut bic = BuiltInCallable::new(arena, name, params, callback);
         bic.deprecation_warning = None;
         bic
     }
@@ -477,7 +484,7 @@ impl<'compile: 'parse, 'parse> BuiltInCallable<'compile, 'parse> {
         let params = parse_parameter_list(&contents, url_str, arena).unwrap_or_else(|e| {
             panic!("BUG: ParseParameterList for {name}({params_str}) in {url_str}: {e}")
         });
-        let mut bic = BuiltInCallable::new_async(name.to_string(), params, callback);
+        let mut bic = BuiltInCallable::new_async(arena, name, params, callback);
         bic.deprecation_warning = None;
         bic
     }
@@ -506,8 +513,8 @@ impl<'compile: 'parse, 'parse> BuiltInCallable<'compile, 'parse> {
             })
             .collect();
         BuiltInCallable {
-            name: name.to_string(),
-            overloads: Rc::new(overloads),
+            name: arena.alloc_str(name),
+            overloads: arena.alloc_slice_fill_iter(overloads),
             accepts_content: false,
             deprecation_warning: None,
         }
@@ -536,8 +543,8 @@ impl<'compile: 'parse, 'parse> BuiltInCallable<'compile, 'parse> {
             })
             .collect();
         BuiltInCallable {
-            name: name.to_string(),
-            overloads: Rc::new(overloads),
+            name: arena.alloc_str(name),
+            overloads: arena.alloc_slice_fill_iter(overloads),
             accepts_content: false,
             deprecation_warning: None,
         }
@@ -548,11 +555,12 @@ impl<'compile: 'parse, 'parse> BuiltInCallable<'compile, 'parse> {
 
     #[rust_sass_macros::sync_impl]
     pub fn new_async(
-        name: String,
+        arena: &'compile Bump,
+        name: &str,
         params: ParameterList<'parse>,
         callback: SyncBuiltInCallback<'compile, 'parse>,
     ) -> Self {
-        Self::new(name, params, callback)
+        Self::new(arena, name, params, callback)
     }
 
     #[rust_sass_macros::sync_impl]
@@ -578,7 +586,7 @@ impl<'compile: 'parse, 'parse> BuiltInCallable<'compile, 'parse> {
         let params = parse_parameter_list(&contents, url_str, arena).unwrap_or_else(|e| {
             panic!("BUG: ParseParameterList for {name}({params_str}) in {url_str}: {e}")
         });
-        let mut bic = BuiltInCallable::new(name.to_string(), params, callback);
+        let mut bic = BuiltInCallable::new(arena, name, params, callback);
         bic.deprecation_warning = None;
         bic
     }
@@ -605,15 +613,20 @@ impl<'compile: 'parse, 'parse: 'compile> BuiltInCallable<'compile, 'parse> {
     /// wrapped. The (module, name) metadata is also retained for
     /// introspection.
     #[rust_sass_macros::async_impl]
-    pub fn with_deprecation_warning(&self, module: &str, new_name: Option<&str>) -> Self {
-        let n = new_name.unwrap_or(&self.name).to_string();
+    pub fn with_deprecation_warning(
+        &self,
+        arena: &'compile Bump,
+        module: &str,
+        new_name: Option<&str>,
+    ) -> Self {
+        let n = new_name.unwrap_or(self.name);
         let new_overloads: Vec<BuiltInOverload<'compile, 'parse>> = self
             .overloads
             .iter()
             .map(|ov| {
                 let params = ov.params.clone();
                 let module = module.to_string();
-                let name = n.clone();
+                let name = n.to_string();
                 match &ov.callback {
                     BuiltInCallback::Sync(original) => BuiltInOverload {
                         params,
@@ -635,25 +648,32 @@ impl<'compile: 'parse, 'parse: 'compile> BuiltInCallable<'compile, 'parse> {
             })
             .collect();
         BuiltInCallable {
-            name: self.name.clone(),
-            overloads: Rc::new(new_overloads),
+            // `new_name` only changes the warning text; the callable keeps its
+            // own name (renames go through `with_name`).
+            name: self.name,
+            overloads: arena.alloc_slice_fill_iter(new_overloads),
             accepts_content: self.accepts_content,
-            deprecation_warning: Some((module.to_string(), n)),
+            deprecation_warning: Some((arena.alloc_str(module), arena.alloc_str(n))),
         }
     }
 
     /// Sync-build variant: `BuiltInCallback` is the `Sync` alias here, so
     /// every overload is wrapped directly.
     #[rust_sass_macros::sync_impl]
-    pub fn with_deprecation_warning(&self, module: &str, new_name: Option<&str>) -> Self {
-        let n = new_name.unwrap_or(&self.name).to_string();
+    pub fn with_deprecation_warning(
+        &self,
+        arena: &'compile Bump,
+        module: &str,
+        new_name: Option<&str>,
+    ) -> Self {
+        let n = new_name.unwrap_or(self.name);
         let new_overloads: Vec<BuiltInOverload<'compile, 'parse>> = self
             .overloads
             .iter()
             .map(|ov| {
                 let params = ov.params.clone();
                 let module = module.to_string();
-                let name = n.clone();
+                let name = n.to_string();
                 BuiltInOverload {
                     params,
                     callback: with_deprecation_sync_wrapper(Rc::clone(&ov.callback), module, name),
@@ -661,10 +681,12 @@ impl<'compile: 'parse, 'parse: 'compile> BuiltInCallable<'compile, 'parse> {
             })
             .collect();
         BuiltInCallable {
-            name: self.name.clone(),
-            overloads: Rc::new(new_overloads),
+            // `new_name` only changes the warning text; the callable keeps its
+            // own name (renames go through `with_name`).
+            name: self.name,
+            overloads: arena.alloc_slice_fill_iter(new_overloads),
             accepts_content: self.accepts_content,
-            deprecation_warning: Some((module.to_string(), n)),
+            deprecation_warning: Some((arena.alloc_str(module), arena.alloc_str(n))),
         }
     }
 }
@@ -850,7 +872,7 @@ mod tests {
     fn test_built_in_callable_new() {
         let arena = Bump::new();
         let pl = empty_params(&arena);
-        let fn_ = BuiltInCallable::new("test-fn".into(), pl, noop_callback());
+        let fn_ = BuiltInCallable::new(&arena, "test-fn", pl, noop_callback());
         assert_eq!(fn_.name(), "test-fn");
     }
 
@@ -869,7 +891,7 @@ mod tests {
                 callback: noop_callback_cfg(),
             },
         ];
-        let fn_ = BuiltInCallable::new_overloaded("overloaded".into(), overloads);
+        let fn_ = BuiltInCallable::new_overloaded(&arena, "overloaded", overloads);
         assert_eq!(fn_.name(), "overloaded");
     }
 
@@ -877,7 +899,7 @@ mod tests {
     fn test_built_in_callable_accepts_content_default() {
         let arena = Bump::new();
         let pl = empty_params(&arena);
-        let fn_ = BuiltInCallable::new("test".into(), pl, noop_callback());
+        let fn_ = BuiltInCallable::new(&arena, "test", pl, noop_callback());
         assert!(!fn_.accepts_content());
     }
 
@@ -885,7 +907,7 @@ mod tests {
     fn test_built_in_callable_set_accepts_content() {
         let arena = Bump::new();
         let pl = empty_params(&arena);
-        let mut fn_ = BuiltInCallable::new("test".into(), pl, noop_callback());
+        let mut fn_ = BuiltInCallable::new(&arena, "test", pl, noop_callback());
         fn_.set_accepts_content(true);
         assert!(fn_.accepts_content());
     }
@@ -894,8 +916,8 @@ mod tests {
     fn test_built_in_callable_with_name() {
         let arena = Bump::new();
         let pl = empty_params(&arena);
-        let fn_ = BuiltInCallable::new("original".into(), pl, noop_callback());
-        let renamed = fn_.with_name("renamed".into());
+        let fn_ = BuiltInCallable::new(&arena, "original", pl, noop_callback());
+        let renamed = fn_.with_name(&arena, "renamed");
         assert_eq!(fn_.name(), "original");
         assert_eq!(renamed.name(), "renamed");
     }
@@ -906,7 +928,7 @@ mod tests {
     fn test_callback_for_exact_match_single_overload() {
         let arena = Bump::new();
         let pl = empty_params(&arena);
-        let fn_ = BuiltInCallable::new("test".into(), pl.clone(), noop_callback());
+        let fn_ = BuiltInCallable::new(&arena, "test", pl.clone(), noop_callback());
 
         let result = fn_.callback_for(0, &HashSet::new()).unwrap();
         assert_eq!(result.params.span, pl.span);
@@ -927,7 +949,7 @@ mod tests {
                 callback: noop_callback_cfg(),
             },
         ];
-        let fn_ = BuiltInCallable::new_overloaded("test".into(), overloads);
+        let fn_ = BuiltInCallable::new_overloaded(&arena, "test", overloads);
 
         let result = fn_.callback_for(0, &HashSet::new()).unwrap();
         assert_eq!(result.params.span, pl1.span);
@@ -948,7 +970,7 @@ mod tests {
                 callback: noop_callback_cfg(),
             },
         ];
-        let fn_ = BuiltInCallable::new_overloaded("test".into(), overloads);
+        let fn_ = BuiltInCallable::new_overloaded(&arena, "test", overloads);
 
         let result = fn_.callback_for(0, &HashSet::new()).unwrap();
         assert_eq!(result.params.span, pl2.span);
@@ -969,7 +991,7 @@ mod tests {
                 callback: noop_callback_cfg(),
             },
         ];
-        let fn_ = BuiltInCallable::new_overloaded("test".into(), overloads);
+        let fn_ = BuiltInCallable::new_overloaded(&arena, "test", overloads);
 
         let result = fn_.callback_for(1, &HashSet::new()).unwrap();
         assert_eq!(result.params.span, pl2.span);
@@ -990,7 +1012,7 @@ mod tests {
                 callback: noop_callback_cfg(),
             },
         ];
-        let fn_ = BuiltInCallable::new_overloaded("test".into(), overloads);
+        let fn_ = BuiltInCallable::new_overloaded(&arena, "test", overloads);
 
         // positional=2: pl_fewer distance = 1-2 = -1 (abs=1), pl_more distance = 3-2 = 1 (abs=1)
         let result = fn_.callback_for(2, &HashSet::new()).unwrap();
@@ -999,7 +1021,8 @@ mod tests {
 
     #[test]
     fn test_callback_for_no_match_empty_overloads() {
-        let fn_ = BuiltInCallable::new_overloaded("test".into(), vec![]);
+        let arena = Bump::new();
+        let fn_ = BuiltInCallable::new_overloaded(&arena, "test", vec![]);
 
         match *fn_.callback_for(0, &HashSet::new()).unwrap_err() {
             SassError::Script { message, .. } => {
@@ -1013,17 +1036,13 @@ mod tests {
 
     #[test]
     fn test_plain_css_callable_name() {
-        let pc = PlainCssCallable {
-            name: "rotate".into(),
-        };
+        let pc = PlainCssCallable { name: "rotate" };
         assert_eq!(pc.name, "rotate");
     }
 
     #[test]
     fn test_plain_css_callable_new() {
-        let pc = PlainCssCallable {
-            name: "calc".into(),
-        };
+        let pc = PlainCssCallable { name: "calc" };
         assert_eq!(pc.name, "calc");
     }
 
@@ -1092,7 +1111,7 @@ mod tests {
     fn test_callable_identity_same_rc() {
         let arena = Bump::new();
         let pl = empty_params(&arena);
-        let builtin = BuiltInCallable::new("test".into(), pl, noop_callback());
+        let builtin = BuiltInCallable::new(&arena, "test", pl, noop_callback());
         let c1 = Callable::new(&arena, CallableKind::BuiltIn(builtin));
         let c2 = c1;
 
@@ -1104,8 +1123,8 @@ mod tests {
         let arena = Bump::new();
         let pl1 = empty_params(&arena);
         let pl2 = empty_params(&arena);
-        let builtin1 = BuiltInCallable::new("a".into(), pl1, noop_callback());
-        let builtin2 = BuiltInCallable::new("a".into(), pl2, noop_callback());
+        let builtin1 = BuiltInCallable::new(&arena, "a", pl1, noop_callback());
+        let builtin2 = BuiltInCallable::new(&arena, "a", pl2, noop_callback());
         let c1 = Callable::new(&arena, CallableKind::BuiltIn(builtin1));
         let c2 = Callable::new(&arena, CallableKind::BuiltIn(builtin2));
 
@@ -1116,7 +1135,7 @@ mod tests {
     fn test_callable_identity_hash() {
         let arena = Bump::new();
         let pl = empty_params(&arena);
-        let builtin = BuiltInCallable::new("test".into(), pl, noop_callback());
+        let builtin = BuiltInCallable::new(&arena, "test", pl, noop_callback());
         let c1 = Callable::new(&arena, CallableKind::BuiltIn(builtin));
         let c2 = c1;
 
@@ -1128,7 +1147,7 @@ mod tests {
     fn test_callable_builtin_via_kind() {
         let arena = Bump::new();
         let pl = empty_params(&arena);
-        let builtin = BuiltInCallable::new("test".into(), pl, noop_callback());
+        let builtin = BuiltInCallable::new(&arena, "test", pl, noop_callback());
         let c = Callable::new(&arena, CallableKind::BuiltIn(builtin));
 
         match c.kind() {
@@ -1140,9 +1159,7 @@ mod tests {
     #[test]
     fn test_callable_plain_css_via_kind() {
         let arena = Bump::new();
-        let pc = PlainCssCallable {
-            name: "css-fn".into(),
-        };
+        let pc = PlainCssCallable { name: "css-fn" };
         let c = Callable::new(&arena, CallableKind::PlainCss(pc));
 
         match c.kind() {

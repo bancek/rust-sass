@@ -56,35 +56,55 @@ where
     vec![
         c!(
             arena,
-            is_superselector_function(arena).with_deprecation_warning("selector", None)
+            is_superselector_function(arena).with_deprecation_warning(arena, "selector", None)
         ),
         c!(
             arena,
-            simple_selectors_function(arena).with_deprecation_warning("selector", None)
+            simple_selectors_function(arena).with_deprecation_warning(arena, "selector", None)
         ),
         c!(
             arena,
-            selector_parse_function(arena).with_deprecation_warning("selector", Some("parse"))
+            selector_parse_function(arena).with_deprecation_warning(
+                arena,
+                "selector",
+                Some("parse")
+            )
         ),
         c!(
             arena,
-            selector_nest_function(arena).with_deprecation_warning("selector", Some("nest"))
+            selector_nest_function(arena).with_deprecation_warning(arena, "selector", Some("nest"))
         ),
         c!(
             arena,
-            selector_append_function(arena).with_deprecation_warning("selector", Some("append"))
+            selector_append_function(arena).with_deprecation_warning(
+                arena,
+                "selector",
+                Some("append")
+            )
         ),
         c!(
             arena,
-            selector_extend_function(arena).with_deprecation_warning("selector", Some("extend"))
+            selector_extend_function(arena).with_deprecation_warning(
+                arena,
+                "selector",
+                Some("extend")
+            )
         ),
         c!(
             arena,
-            selector_replace_function(arena).with_deprecation_warning("selector", Some("replace"))
+            selector_replace_function(arena).with_deprecation_warning(
+                arena,
+                "selector",
+                Some("replace")
+            )
         ),
         c!(
             arena,
-            selector_unify_function(arena).with_deprecation_warning("selector", Some("unify"))
+            selector_unify_function(arena).with_deprecation_warning(
+                arena,
+                "selector",
+                Some("unify")
+            )
         ),
     ]
 }
@@ -1143,7 +1163,7 @@ mod tests {
     {
         let fns = global_selector_functions(arena);
         match fns[index].kind() {
-            CallableKind::BuiltIn(b) => b.clone(),
+            CallableKind::BuiltIn(b) => *b,
             _ => panic!("expected BuiltIn callable"),
         }
     }

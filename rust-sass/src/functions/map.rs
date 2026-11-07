@@ -45,38 +45,38 @@ where
         c!(
             arena,
             map_get_function(arena)
-                .with_deprecation_warning("map", None)
-                .with_name("map-get".into())
+                .with_deprecation_warning(arena, "map", None)
+                .with_name(arena, "map-get")
         ),
         c!(
             arena,
             map_merge_function(arena)
-                .with_deprecation_warning("map", None)
-                .with_name("map-merge".into())
+                .with_deprecation_warning(arena, "map", None)
+                .with_name(arena, "map-merge")
         ),
         c!(
             arena,
             map_remove_function(arena)
-                .with_deprecation_warning("map", None)
-                .with_name("map-remove".into())
+                .with_deprecation_warning(arena, "map", None)
+                .with_name(arena, "map-remove")
         ),
         c!(
             arena,
             map_keys_function(arena)
-                .with_deprecation_warning("map", None)
-                .with_name("map-keys".into())
+                .with_deprecation_warning(arena, "map", None)
+                .with_name(arena, "map-keys")
         ),
         c!(
             arena,
             map_values_function(arena)
-                .with_deprecation_warning("map", None)
-                .with_name("map-values".into())
+                .with_deprecation_warning(arena, "map", None)
+                .with_name(arena, "map-values")
         ),
         c!(
             arena,
             map_has_key_function(arena)
-                .with_deprecation_warning("map", None)
-                .with_name("map-has-key".into())
+                .with_deprecation_warning(arena, "map", None)
+                .with_name(arena, "map-has-key")
         ),
     ]
 }

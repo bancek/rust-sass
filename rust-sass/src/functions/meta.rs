@@ -65,19 +65,19 @@ where
     vec![
         c!(
             arena,
-            feature_exists_function(arena).with_deprecation_warning("meta", None)
+            feature_exists_function(arena).with_deprecation_warning(arena, "meta", None)
         ),
         c!(
             arena,
-            inspect_function(arena).with_deprecation_warning("meta", None)
+            inspect_function(arena).with_deprecation_warning(arena, "meta", None)
         ),
         c!(
             arena,
-            type_of_function(arena).with_deprecation_warning("meta", None)
+            type_of_function(arena).with_deprecation_warning(arena, "meta", None)
         ),
         c!(
             arena,
-            keywords_function(arena).with_deprecation_warning("meta", None)
+            keywords_function(arena).with_deprecation_warning(arena, "meta", None)
         ),
     ]
 }
@@ -585,7 +585,7 @@ mod tests {
     {
         let fns = shared_meta_functions(arena);
         match fns[index].kind() {
-            CallableKind::BuiltIn(b) => b.clone(),
+            CallableKind::BuiltIn(b) => *b,
             _ => panic!("expected BuiltIn callable"),
         }
     }

@@ -181,9 +181,7 @@ where
                 .unwrap_or_else(|| {
                     Callable::new(
                         arena,
-                        CallableKind::PlainCss(PlainCssCallable {
-                            name: s.text.to_string(),
-                        }),
+                        CallableKind::PlainCss(PlainCssCallable { name: s.text }),
                     )
                 });
             let span = state.callable_span.unwrap_or(BOGUS_SPAN);
@@ -284,7 +282,7 @@ where
     for fn_ in &fns {
         match fn_.kind() {
             CallableKind::BuiltIn(b) => {
-                let wrapped = b.with_deprecation_warning("meta", None);
+                let wrapped = b.with_deprecation_warning(arena, "meta", None);
                 let key = wrapped.name().replace("_", "-");
                 v.config
                     .built_in_functions
@@ -696,9 +694,7 @@ where
                                         argument_name: None,
                                     }));
                                 }
-                                let pc = PlainCssCallable {
-                                    name: name.text.to_string(),
-                                };
+                                let pc = PlainCssCallable { name: name.text };
                                 return Ok(Value::new_with_arena(
                                     arena,
                                     ValueKind::Function(SassFunction::with_compile_context(
@@ -1326,7 +1322,8 @@ mod tests {
         Callable::new(
             arena,
             CallableKind::BuiltIn(BuiltInCallable::new(
-                name.to_string(),
+                arena,
+                name,
                 ParameterList::empty(BOGUS_SPAN),
                 Rc::new(
                     |_config: &EvalConfig<'compile, 'parse>,

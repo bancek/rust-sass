@@ -2504,9 +2504,7 @@ impl<'compile, 'parse> Callable<'compile, 'parse> {
     {
         Callable::new(
             arena,
-            CallableKind::PlainCss(PlainCssCallable {
-                name: "dummy".to_string(),
-            }),
+            CallableKind::PlainCss(PlainCssCallable { name: "dummy" }),
         )
     }
 }

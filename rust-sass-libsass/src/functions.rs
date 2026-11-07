@@ -875,7 +875,7 @@ where
         });
         out.push(Callable::new(
             arena,
-            CallableKind::BuiltIn(BuiltInCallable::new(name, params, cb)),
+            CallableKind::BuiltIn(BuiltInCallable::new(arena, &name, params, cb)),
         ));
     }
     Ok(out)

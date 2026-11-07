@@ -79,7 +79,9 @@ mod tests {
     fn dummy<'p>(arena: &'p Bump, name: &str) -> Callable<'p, 'p> {
         Callable::new(
             arena,
-            CallableKind::PlainCss(PlainCssCallable { name: name.into() }),
+            CallableKind::PlainCss(PlainCssCallable {
+                name: arena.alloc_str(name),
+            }),
         )
     }
 

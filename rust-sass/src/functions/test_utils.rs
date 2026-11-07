@@ -44,7 +44,8 @@ where
     Callable::new(
         arena,
         CallableKind::BuiltIn(BuiltInCallable::new(
-            name.to_string(),
+            arena,
+            name,
             ParameterList::empty(BOGUS_SPAN),
             Rc::new(
                 |_config: &EvalConfig<'compile, 'parse>,
@@ -70,7 +71,8 @@ where
     'parse: 'compile,
 {
     let mut bic = BuiltInCallable::new(
-        "m".to_string(),
+        arena,
+        "m",
         ParameterList::empty(BOGUS_SPAN),
         Rc::new(
             |_config: &EvalConfig<'compile, 'parse>,

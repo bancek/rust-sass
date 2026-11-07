@@ -80,28 +80,28 @@ where
         c!(
             arena,
             channel_function_global("red", ColorSpace::Rgb, SassColor::red, arena,)
-                .with_deprecation_warning("color", None)
+                .with_deprecation_warning(arena, "color", None)
         ),
         c!(
             arena,
             channel_function_global("green", ColorSpace::Rgb, SassColor::green, arena,)
-                .with_deprecation_warning("color", None)
+                .with_deprecation_warning(arena, "color", None)
         ),
         c!(
             arena,
             channel_function_global("blue", ColorSpace::Rgb, SassColor::blue, arena,)
-                .with_deprecation_warning("color", None)
+                .with_deprecation_warning(arena, "color", None)
         ),
         c!(
             arena,
-            mix_callable(arena).with_deprecation_warning("color", None)
+            mix_callable(arena).with_deprecation_warning(arena, "color", None)
         ),
         c!(arena, rgb_callable(arena)),
         c!(arena, rgba_callable(arena)),
         c!(arena, invert_callable(arena)),
         c!(arena,
             channel_function_global_with_unit("hue", ColorSpace::Hsl, SassColor::hue, "deg", arena,)
-                .with_deprecation_warning("color", None)
+                .with_deprecation_warning(arena, "color", None)
         ),
         c!(
             arena,
@@ -112,7 +112,7 @@ where
                 "%",
                 arena,
             )
-            .with_deprecation_warning("color", None)
+            .with_deprecation_warning(arena, "color", None)
         ),
         c!(
             arena,
@@ -123,45 +123,59 @@ where
                 "%",
                 arena,
             )
-            .with_deprecation_warning("color", None)
+            .with_deprecation_warning(arena, "color", None)
         ),
         c!(arena, hsl_callable(arena)),
         c!(arena, hsla_callable(arena)),
         c!(arena, grayscale_callable(arena)),
         c!(
             arena,
-            adjust_hue_callable(arena).with_deprecation_warning("color", Some("adjust"))
+            adjust_hue_callable(arena).with_deprecation_warning(arena, "color", Some("adjust"))
         ),
         c!(
             arena,
-            lighten_callable(arena).with_deprecation_warning("color", Some("adjust"))
+            lighten_callable(arena).with_deprecation_warning(arena, "color", Some("adjust"))
         ),
         c!(
             arena,
-            darken_callable(arena).with_deprecation_warning("color", Some("adjust"))
+            darken_callable(arena).with_deprecation_warning(arena, "color", Some("adjust"))
         ),
         c!(arena, saturate_callable(arena)),
         c!(
             arena,
-            desaturate_callable(arena).with_deprecation_warning("color", Some("adjust"))
+            desaturate_callable(arena).with_deprecation_warning(arena, "color", Some("adjust"))
         ),
         c!(
             arena,
-            opacify_callable("opacify", arena).with_deprecation_warning("color", Some("adjust"))
+            opacify_callable("opacify", arena).with_deprecation_warning(
+                arena,
+                "color",
+                Some("adjust")
+            )
         ),
         c!(
             arena,
-            opacify_callable("fade-in", arena).with_deprecation_warning("color", Some("adjust"))
+            opacify_callable("fade-in", arena).with_deprecation_warning(
+                arena,
+                "color",
+                Some("adjust")
+            )
         ),
         c!(
             arena,
-            transparentize_callable("transparentize", arena)
-                .with_deprecation_warning("color", Some("adjust"))
+            transparentize_callable("transparentize", arena).with_deprecation_warning(
+                arena,
+                "color",
+                Some("adjust")
+            )
         ),
         c!(
             arena,
-            transparentize_callable("fade-out", arena)
-                .with_deprecation_warning("color", Some("adjust"))
+            transparentize_callable("fade-out", arena).with_deprecation_warning(
+                arena,
+                "color",
+                Some("adjust")
+            )
         ),
         c!(arena, alpha_callable(arena)),
         c!(arena, opacity_callable(arena)),
@@ -173,26 +187,26 @@ where
         c!(arena, oklch_callable(arena)),
         c!(
             arena,
-            complement_callable(arena).with_deprecation_warning("color", None)
+            complement_callable(arena).with_deprecation_warning(arena, "color", None)
         ),
         c!(arena, ie_hex_str_callable(arena)),
         c!(
             arena,
             adjust_callable(arena)
-                .with_deprecation_warning("color", None)
-                .with_name("adjust-color".into())
+                .with_deprecation_warning(arena, "color", None)
+                .with_name(arena, "adjust-color")
         ),
         c!(
             arena,
             scale_callable(arena)
-                .with_deprecation_warning("color", None)
-                .with_name("scale-color".into())
+                .with_deprecation_warning(arena, "color", None)
+                .with_name(arena, "scale-color")
         ),
         c!(
             arena,
             change_callable(arena)
-                .with_deprecation_warning("color", None)
-                .with_name("change-color".into())
+                .with_deprecation_warning(arena, "color", None)
+                .with_name(arena, "change-color")
         ),
     ]
 }

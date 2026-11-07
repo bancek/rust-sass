@@ -58,43 +58,51 @@ where
         c!(arena, abs_function_global(arena)),
         c!(
             arena,
-            ceil_function(arena).with_deprecation_warning("math", None)
+            ceil_function(arena).with_deprecation_warning(arena, "math", None)
         ),
         c!(
             arena,
-            floor_function(arena).with_deprecation_warning("math", None)
+            floor_function(arena).with_deprecation_warning(arena, "math", None)
         ),
         c!(
             arena,
-            max_function(arena).with_deprecation_warning("math", None)
+            max_function(arena).with_deprecation_warning(arena, "math", None)
         ),
         c!(
             arena,
-            min_function(arena).with_deprecation_warning("math", None)
+            min_function(arena).with_deprecation_warning(arena, "math", None)
         ),
         c!(
             arena,
-            percentage_function(arena).with_deprecation_warning("math", None)
+            percentage_function(arena).with_deprecation_warning(arena, "math", None)
         ),
         c!(
             arena,
-            random_function(arena).with_deprecation_warning("math", None)
+            random_function(arena).with_deprecation_warning(arena, "math", None)
         ),
         c!(
             arena,
-            round_function(arena).with_deprecation_warning("math", None)
+            round_function(arena).with_deprecation_warning(arena, "math", None)
         ),
         c!(
             arena,
-            unit_function(arena).with_deprecation_warning("math", None)
+            unit_function(arena).with_deprecation_warning(arena, "math", None)
         ),
         c!(
             arena,
-            comparable_function_global(arena).with_deprecation_warning("math", Some("compatible"))
+            comparable_function_global(arena).with_deprecation_warning(
+                arena,
+                "math",
+                Some("compatible")
+            )
         ),
         c!(
             arena,
-            unitless_function_global(arena).with_deprecation_warning("math", Some("is-unitless"))
+            unitless_function_global(arena).with_deprecation_warning(
+                arena,
+                "math",
+                Some("is-unitless")
+            )
         ),
     ]
 }

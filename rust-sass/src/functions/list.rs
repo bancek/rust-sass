@@ -37,41 +37,41 @@ where
     vec![
         c!(
             arena,
-            length_function(arena).with_deprecation_warning("list", None)
+            length_function(arena).with_deprecation_warning(arena, "list", None)
         ),
         c!(
             arena,
-            nth_function(arena).with_deprecation_warning("list", None)
+            nth_function(arena).with_deprecation_warning(arena, "list", None)
         ),
         c!(
             arena,
-            set_nth_function(arena).with_deprecation_warning("list", None)
+            set_nth_function(arena).with_deprecation_warning(arena, "list", None)
         ),
         c!(
             arena,
-            join_function(arena).with_deprecation_warning("list", None)
+            join_function(arena).with_deprecation_warning(arena, "list", None)
         ),
         c!(
             arena,
-            append_function(arena).with_deprecation_warning("list", None)
+            append_function(arena).with_deprecation_warning(arena, "list", None)
         ),
         c!(
             arena,
-            zip_function(arena).with_deprecation_warning("list", None)
+            zip_function(arena).with_deprecation_warning(arena, "list", None)
         ),
         c!(
             arena,
-            index_function(arena).with_deprecation_warning("list", None)
+            index_function(arena).with_deprecation_warning(arena, "list", None)
         ),
         c!(
             arena,
-            is_bracketed_function(arena).with_deprecation_warning("list", None)
+            is_bracketed_function(arena).with_deprecation_warning(arena, "list", None)
         ),
         c!(
             arena,
             separator_function(arena)
-                .with_deprecation_warning("list", None)
-                .with_name("list-separator".into())
+                .with_deprecation_warning(arena, "list", None)
+                .with_name(arena, "list-separator")
         ),
     ]
 }

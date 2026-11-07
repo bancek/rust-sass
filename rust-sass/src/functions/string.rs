@@ -47,39 +47,55 @@ where
     vec![
         c!(
             arena,
-            unquote_function(arena).with_deprecation_warning("string", None)
+            unquote_function(arena).with_deprecation_warning(arena, "string", None)
         ),
         c!(
             arena,
-            quote_function(arena).with_deprecation_warning("string", None)
+            quote_function(arena).with_deprecation_warning(arena, "string", None)
         ),
         c!(
             arena,
-            to_upper_case_function(arena).with_deprecation_warning("string", None)
+            to_upper_case_function(arena).with_deprecation_warning(arena, "string", None)
         ),
         c!(
             arena,
-            to_lower_case_function(arena).with_deprecation_warning("string", None)
+            to_lower_case_function(arena).with_deprecation_warning(arena, "string", None)
         ),
         c!(
             arena,
-            unique_id_function(arena).with_deprecation_warning("string", None)
+            unique_id_function(arena).with_deprecation_warning(arena, "string", None)
         ),
         c!(
             arena,
-            str_length_function_global(arena).with_deprecation_warning("string", Some("length"))
+            str_length_function_global(arena).with_deprecation_warning(
+                arena,
+                "string",
+                Some("length")
+            )
         ),
         c!(
             arena,
-            str_insert_function_global(arena).with_deprecation_warning("string", Some("insert"))
+            str_insert_function_global(arena).with_deprecation_warning(
+                arena,
+                "string",
+                Some("insert")
+            )
         ),
         c!(
             arena,
-            str_index_function_global(arena).with_deprecation_warning("string", Some("index"))
+            str_index_function_global(arena).with_deprecation_warning(
+                arena,
+                "string",
+                Some("index")
+            )
         ),
         c!(
             arena,
-            str_slice_function_global(arena).with_deprecation_warning("string", Some("slice"))
+            str_slice_function_global(arena).with_deprecation_warning(
+                arena,
+                "string",
+                Some("slice")
+            )
         ),
     ]
 }
@@ -948,7 +964,7 @@ mod tests {
     {
         let fns = global_string_functions(arena);
         match fns[index].kind() {
-            CallableKind::BuiltIn(b) => b.clone(),
+            CallableKind::BuiltIn(b) => *b,
             _ => panic!("expected BuiltIn callable"),
         }
     }
