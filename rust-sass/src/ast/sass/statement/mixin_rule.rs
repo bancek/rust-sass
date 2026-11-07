@@ -190,8 +190,8 @@ mod tests {
         let arena = Bump::new();
         let fs = FileSource::new_in(&arena, "@mixin foo($x) { }", None);
         let span = FileSpan::new(Some(fs), 0, 18);
-        let p = Parameter::new("x".into(), FileSpan::new(Some(fs), 12, 14), None);
-        let params = ParameterList::new(vec![p], span, None);
+        let p = Parameter::new(arena.alloc_str("x"), FileSpan::new(Some(fs), 12, 14), None);
+        let params = ParameterList::new(arena.alloc_slice_fill_iter(vec![p]), span, None);
         let mr = MixinRule::new("foo".into(), params, vec![], span, None);
         let s = format!("{mr}");
         assert!(s.contains("($x)"), "got {s:?}");

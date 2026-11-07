@@ -803,7 +803,7 @@ mod tests {
         'parse: 'compile,
     {
         let span = make_span(arena, name);
-        Parameter::new(name.to_string(), span, None)
+        Parameter::new(arena.alloc_str(name), span, None)
     }
 
     fn optional_param<'compile, 'parse>(arena: &'compile Bump, name: &str) -> Parameter<'parse>
@@ -813,7 +813,7 @@ mod tests {
     {
         let span = make_span(arena, name);
         Parameter::new(
-            name.to_string(),
+            arena.alloc_str(name),
             span,
             Some(Expression::Null(NullExpression::new(make_span(
                 arena, "null",
@@ -837,7 +837,11 @@ mod tests {
         for name in optional {
             pars.push(optional_param(arena, name));
         }
-        ParameterList::new(pars, make_span(arena, "(...)"), None)
+        ParameterList::new(
+            arena.alloc_slice_fill_iter(pars),
+            make_span(arena, "(...)"),
+            None,
+        )
     }
 
     // --- BuiltInCallable ---

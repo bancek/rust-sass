@@ -37,7 +37,7 @@ impl<'parse> SassDeclaration<'parse> {
     /// This does not include the `$` for variables.
     pub fn name(&self) -> &str {
         match self {
-            SassDeclaration::Parameter(p) => &p.name,
+            SassDeclaration::Parameter(p) => p.name,
             SassDeclaration::ConfiguredVariable(cv) => &cv.name,
             SassDeclaration::VariableDeclaration(vd) => &vd.name,
             SassDeclaration::FunctionRule(fr) => &fr.name,

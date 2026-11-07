@@ -94,7 +94,7 @@ impl RecursiveAstVisitor {
     }
 
     fn visit_parameter_defaults(&mut self, parameters: &ParameterList<'_>) -> SassResult<()> {
-        for param in &parameters.parameters {
+        for param in parameters.parameters {
             if let Some(ref default) = param.default_value {
                 self.visit_expression(default)?;
             }
@@ -828,8 +828,8 @@ mod tests {
             test_span(&arena, "1"),
             None,
         )));
-        let param = Parameter::new("x".into(), span, default);
-        let pl = ParameterList::new(vec![param], span, None);
+        let param = Parameter::new(arena.alloc_str("x"), span, default);
+        let pl = ParameterList::new(arena.alloc_slice_fill_iter(vec![param]), span, None);
         let fr = FunctionRule::new("f".into(), pl, vec![], span, None);
         Statement::FunctionRule(fr).accept(&mut v).unwrap();
     }

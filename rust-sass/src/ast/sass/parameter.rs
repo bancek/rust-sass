@@ -22,8 +22,8 @@ use crate::ast::sass::expression::Expression;
 #[derive(Clone, Debug)]
 pub struct Parameter<'parse> {
     /// The parameter name, with underscores converted to hyphens and without
-    /// the leading `$`.
-    pub name: String,
+    /// the leading `$`. Allocated in the compile arena.
+    pub name: &'parse str,
     /// The default value of this parameter, or `None` if none was declared.
     pub default_value: Option<Expression<'parse>>,
     pub span: FileSpan<'parse>,
@@ -33,7 +33,7 @@ impl<'parse> Parameter<'parse> {
     /// Creates a parameter with the given normalized `name` and optional
     /// default value.
     pub fn new(
-        name: String,
+        name: &'parse str,
         span: FileSpan<'parse>,
         default_value: Option<Expression<'parse>>,
     ) -> Self {
@@ -93,12 +93,12 @@ impl<'parse> Parameter<'parse> {
             write!(
                 buf,
                 "{}: {}",
-                to_css_identifier(&self.name)?,
+                to_css_identifier(self.name)?,
                 Expression::to_display_string(default)?
             )
             .unwrap();
         } else {
-            write!(buf, "{}", to_css_identifier(&self.name)?).unwrap();
+            write!(buf, "{}", to_css_identifier(self.name)?).unwrap();
         }
         Ok(buf)
     }
@@ -138,7 +138,7 @@ mod tests {
     fn test_new_without_default() {
         let arena = Bump::new();
         let span = make_span(&arena, "$name", 0, 5);
-        let p = Parameter::new("name".into(), span, None);
+        let p = Parameter::new("name", span, None);
         assert_eq!(p.name, "name");
         assert!(p.default_value.is_none());
     }
@@ -150,7 +150,7 @@ mod tests {
         let span = FileSpan::new(Some(fs), 0, 11);
         let bool_expr =
             Expression::Boolean(BooleanExpression::new(true, FileSpan::new(Some(fs), 7, 11)));
-        let p = Parameter::new("name".into(), span, Some(bool_expr));
+        let p = Parameter::new("name", span, Some(bool_expr));
         assert_eq!(p.name, "name");
         assert!(p.default_value.is_some());
     }
@@ -159,7 +159,7 @@ mod tests {
     fn test_name_span_no_default() {
         let arena = Bump::new();
         let span = make_span(&arena, "$name", 0, 5);
-        let p = Parameter::new("name".into(), span, None);
+        let p = Parameter::new("name", span, None);
         let got = p.name_span().unwrap();
         assert_eq!(got.text(), "$name");
     }
@@ -171,7 +171,7 @@ mod tests {
         let span = FileSpan::new(Some(fs), 0, 11);
         let bool_expr =
             Expression::Boolean(BooleanExpression::new(true, FileSpan::new(Some(fs), 7, 11)));
-        let p = Parameter::new("name".into(), span, Some(bool_expr));
+        let p = Parameter::new("name", span, Some(bool_expr));
         let got = p.name_span().unwrap();
         assert_eq!(got.text(), "$name");
     }
@@ -180,7 +180,7 @@ mod tests {
     fn test_original_name_no_default() {
         let arena = Bump::new();
         let span = make_span(&arena, "$name", 0, 5);
-        let p = Parameter::new("name".into(), span, None);
+        let p = Parameter::new("name", span, None);
         assert_eq!(p.original_name(), "$name");
     }
 
@@ -191,7 +191,7 @@ mod tests {
         let span = FileSpan::new(Some(fs), 0, 11);
         let bool_expr =
             Expression::Boolean(BooleanExpression::new(true, FileSpan::new(Some(fs), 7, 11)));
-        let p = Parameter::new("name".into(), span, Some(bool_expr));
+        let p = Parameter::new("name", span, Some(bool_expr));
         assert_eq!(p.original_name(), "$name");
     }
 
@@ -199,7 +199,7 @@ mod tests {
     fn test_display_no_default() {
         let arena = Bump::new();
         let span = make_span(&arena, "$name", 0, 5);
-        let p = Parameter::new("name".into(), span, None);
+        let p = Parameter::new("name", span, None);
         assert_eq!(format!("{p}"), "name");
     }
 
@@ -210,7 +210,7 @@ mod tests {
         let span = FileSpan::new(Some(fs), 0, 11);
         let bool_expr =
             Expression::Boolean(BooleanExpression::new(true, FileSpan::new(Some(fs), 7, 11)));
-        let p = Parameter::new("name".into(), span, Some(bool_expr));
+        let p = Parameter::new("name", span, Some(bool_expr));
         assert_eq!(format!("{p}"), "name: true");
     }
 
@@ -218,7 +218,7 @@ mod tests {
     fn test_span() {
         let arena = Bump::new();
         let span = make_span(&arena, "$name", 0, 5);
-        let p = Parameter::new("name".into(), span, None);
+        let p = Parameter::new("name", span, None);
         assert_eq!(p.span().unwrap(), span);
     }
 }

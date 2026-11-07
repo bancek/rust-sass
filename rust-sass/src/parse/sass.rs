@@ -879,7 +879,7 @@ mod tests {
     fn parse_sass_error(text: &str) -> Box<crate::common::exception::SassError> {
         let arena = Bump::new();
         let fs = FileSource::new_in(&arena, text, None);
-        let mut parser = StylesheetParser::new(fs, sass_syntax(), None);
+        let mut parser = StylesheetParser::new(fs, sass_syntax(), None, &arena);
         parse_impl(&mut parser.scanner, &mut parser.state)
             .unwrap_err()
             .into()
@@ -912,7 +912,7 @@ mod tests {
         // mapping back to the source (dart-sass#2848).
         let arena = Bump::new();
         let fs = FileSource::new_in(&arena, "a,\nb\n  c: d\n", None);
-        let mut parser = StylesheetParser::new(fs, sass_syntax(), None);
+        let mut parser = StylesheetParser::new(fs, sass_syntax(), None, &arena);
         let sheet = parse_impl(&mut parser.scanner, &mut parser.state).unwrap();
         let Statement::StyleRule(rule) = &sheet.children[0] else {
             panic!("expected style rule, got {:?}", sheet.children[0]);
@@ -938,7 +938,7 @@ mod tests {
         // EOF: the next iteration adds an empty interpolation and breaks.
         let arena = Bump::new();
         let fs = FileSource::new_in(&arena, "a,\n", None);
-        let mut parser = StylesheetParser::new(fs, sass_syntax(), None);
+        let mut parser = StylesheetParser::new(fs, sass_syntax(), None, &arena);
         let sheet = parse_impl(&mut parser.scanner, &mut parser.state).unwrap();
         assert_eq!(sheet.children.len(), 1);
     }

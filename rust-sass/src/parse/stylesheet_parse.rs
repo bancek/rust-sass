@@ -10,6 +10,8 @@
 //   at-rule productions live in atrule.rs)
 // go-source: go/value/parse_stylesheet_parse.go
 
+use bumpalo::Bump;
+
 use crate::common::exception::ScanError;
 use crate::common::file_span::SourceLocation;
 use crate::parse::atrule::parameter_list_impl;
@@ -445,7 +447,7 @@ fn last_index_quick(text: &str) -> Option<usize> {
 fn last_index_full(text: &str) -> usize {
     let arena = bumpalo::Bump::new();
     let fs = FileSource::new_in(&arena, text, None);
-    let mut parser = StylesheetParser::new(fs, Syntax::Scss, None);
+    let mut parser = StylesheetParser::new(fs, Syntax::Scss, None, &arena);
     let scanner = &mut parser.scanner;
     let state = &mut parser.state;
     let mut index: Option<usize> = None;
@@ -1117,8 +1119,9 @@ fn adjust_stylesheet_error_span(err: ParseError<'_>) -> Box<ParseError<'_>> {
 
 // Rust-only helper: builds a throwaway stylesheet state over an existing
 // parser state for the single-production entry points below.
-fn make_temp_stylesheet<'b>(state: &ParserState<'b>) -> StylesheetState<'b> {
+fn make_temp_stylesheet<'b>(state: &ParserState<'b>, arena: &'b Bump) -> StylesheetState<'b> {
     StylesheetState {
+        arena,
         parser_state: ParserState {
             syntax: state.syntax.clone(),
             interpolation_map: state.interpolation_map,
@@ -1145,8 +1148,9 @@ fn make_temp_stylesheet<'b>(state: &ParserState<'b>) -> StylesheetState<'b> {
 pub(crate) fn parse_parameter_list_impl<'b>(
     scanner: &mut SpanScanner<'b>,
     state: &mut ParserState<'b>,
+    arena: &'b Bump,
 ) -> ParseResult<'b, ParameterList<'b>> {
-    let mut st = make_temp_stylesheet(state);
+    let mut st = make_temp_stylesheet(state, arena);
     parse_single_production_impl(scanner, state, |scanner, _state| {
         scanner.expect_char('@')?;
         identifier_impl(scanner, _state, true, false)?;
@@ -1165,8 +1169,9 @@ pub(crate) fn parse_parameter_list_impl<'b>(
 pub(crate) fn parse_expression_impl<'b>(
     scanner: &mut SpanScanner<'b>,
     state: &mut ParserState<'b>,
+    arena: &'b Bump,
 ) -> ParseResult<'b, Expression<'b>> {
-    let mut st = make_temp_stylesheet(state);
+    let mut st = make_temp_stylesheet(state, arena);
     parse_single_production_impl(scanner, state, |scanner, _state| {
         _expression_impl(
             scanner,
@@ -1187,8 +1192,9 @@ pub(crate) fn parse_expression_impl<'b>(
 pub(crate) fn parse_number_impl<'b>(
     scanner: &mut SpanScanner<'b>,
     state: &mut ParserState<'b>,
+    arena: &'b Bump,
 ) -> ParseResult<'b, SassNumber> {
-    let mut st = make_temp_stylesheet(state);
+    let mut st = make_temp_stylesheet(state, arena);
     parse_single_production_impl(scanner, state, |scanner, _state| {
         let expr = _expression_impl(
             scanner,
@@ -1216,8 +1222,9 @@ pub(crate) fn parse_number_impl<'b>(
 pub(crate) fn parse_variable_declaration_impl<'b>(
     scanner: &mut SpanScanner<'b>,
     state: &mut ParserState<'b>,
+    arena: &'b Bump,
 ) -> ParseResult<'b, (VariableDeclaration<'b>, Vec<ParseTimeWarning<'b>>)> {
-    let mut st = make_temp_stylesheet(state);
+    let mut st = make_temp_stylesheet(state, arena);
     parse_single_production_impl(scanner, state, |scanner, _state| {
         let decl = if looking_at_identifier(scanner, None) {
             variable_declaration_with_namespace_impl(scanner, &mut st)?
@@ -1234,8 +1241,9 @@ pub(crate) fn parse_variable_declaration_impl<'b>(
 pub(crate) fn parse_use_rule_impl<'b>(
     scanner: &mut SpanScanner<'b>,
     state: &mut ParserState<'b>,
+    arena: &'b Bump,
 ) -> ParseResult<'b, (UseRule<'b>, Vec<ParseTimeWarning<'b>>)> {
-    let mut st = make_temp_stylesheet(state);
+    let mut st = make_temp_stylesheet(state, arena);
     parse_single_production_impl(scanner, state, |scanner, _state| {
         let start = scanner.state();
         scanner.expect_char('@')?;
@@ -1268,6 +1276,7 @@ pub fn parse_signature(
         wrap_span_format_exception_impl(&mut scanner, &mut state, |scanner, parser_state| {
             let name = identifier_impl(scanner, parser_state, false, false)?;
             let mut st = StylesheetState {
+                arena: &arena,
                 parser_state: ParserState {
                     syntax: Syntax::Scss,
                     interpolation_map: parser_state.interpolation_map,
@@ -1322,17 +1331,17 @@ pub fn parse_signature(
         })
         .and_then(|(name, pl)| -> Result<SignatureResult, Box<SassError>> {
             let mut params = Vec::with_capacity(pl.parameters.len());
-            for p in &pl.parameters {
+            for p in pl.parameters {
                 let default = match &p.default_value {
                     Some(e) => Some(Expression::to_display_string(e)?),
                     None => None,
                 };
-                params.push((p.name.clone(), default));
+                params.push((p.name.to_string(), default));
             }
             Ok(SignatureResult {
                 name,
                 params,
-                rest_param: pl.rest_parameter.clone(),
+                rest_param: pl.rest_parameter.map(str::to_string),
             })
         })
 }
@@ -1388,7 +1397,7 @@ where
         interpolation_map: None,
         in_expression: false,
     };
-    let params = parse_parameter_list_impl(&mut scanner, &mut state)?;
+    let params = parse_parameter_list_impl(&mut scanner, &mut state, arena)?;
     scanner.expect_done().map_err(SassError::from)?;
     Ok(params)
 }
@@ -1406,7 +1415,7 @@ mod tests {
         'parse: 'compile,
     {
         let fs = FileSource::new_in(arena, text, None);
-        let mut parser = StylesheetParser::new(fs, Syntax::Scss, None);
+        let mut parser = StylesheetParser::new(fs, Syntax::Scss, None, arena);
         parser.parse()
     }
 

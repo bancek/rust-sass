@@ -124,7 +124,7 @@ impl<'parse> Stylesheet<'parse> {
         arena: &'compile Bump,
     ) -> SassResult<Self> {
         let source = FileSource::new_in(arena, contents, url.cloned());
-        let mut parser = StylesheetParser::new(source, Syntax::Scss, None);
+        let mut parser = StylesheetParser::new(source, Syntax::Scss, None, arena);
         parser.state.parse_selectors = parse_selectors;
         parse_impl(&mut parser.scanner, &mut parser.state).map_err(Into::into)
     }
@@ -150,6 +150,7 @@ impl<'parse> Stylesheet<'parse> {
                 indent_spaces: None,
             }),
             None,
+            arena,
         );
         parser.state.parse_selectors = parse_selectors;
         parse_impl(&mut parser.scanner, &mut parser.state).map_err(Into::into)
@@ -174,6 +175,7 @@ impl<'parse> Stylesheet<'parse> {
                 disallowed_function_names: disallowed_function_names.clone(),
             }),
             None,
+            arena,
         );
         parser.state.parse_selectors = parse_selectors;
         parse_impl(&mut parser.scanner, &mut parser.state).map_err(Into::into)

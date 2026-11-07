@@ -813,11 +813,13 @@ pub(crate) fn parameter_list_impl<'b>(
     scanner.expect_char('(')?;
     whitespace_impl(scanner, &mut state.parser_state, true)?;
     let mut parameters: Vec<Parameter<'b>> = Vec::new();
-    let mut named: HashMap<String, usize> = HashMap::new();
-    let mut rest_parameter: Option<String> = None;
+    let mut named: HashMap<&'b str, usize> = HashMap::new();
+    let mut rest_parameter: Option<&'b str> = None;
     while scanner.peek_char(0) == '$' as i32 {
         let variable_start = scanner.state();
-        let name = variable_name_impl(scanner, &state.parser_state)?;
+        let name = state
+            .arena
+            .alloc_str(&variable_name_impl(scanner, &state.parser_state)?);
         whitespace_impl(scanner, &mut state.parser_state, true)?;
 
         let default_value = if scanner.scan_char(':') {
@@ -832,7 +834,7 @@ pub(crate) fn parameter_list_impl<'b>(
             }
             let rest_span =
                 span_from_impl(scanner, &state.parser_state, variable_start)?.file_span()?;
-            if let Some(&first_index) = named.get(&name) {
+            if let Some(&first_index) = named.get(name) {
                 let first_span = parameters[first_index].span()?;
                 return Err(Box::new(multi_span_error_impl(
                     "Duplicate parameter.",
@@ -848,7 +850,7 @@ pub(crate) fn parameter_list_impl<'b>(
         };
         let param_span =
             span_from_impl(scanner, &state.parser_state, variable_start)?.file_span()?;
-        if let Some(&first_index) = named.get(&name) {
+        if let Some(&first_index) = named.get(name) {
             let first_span = parameters[first_index].span()?;
             return Err(Box::new(multi_span_error_impl(
                 "Duplicate parameter.",
@@ -857,7 +859,7 @@ pub(crate) fn parameter_list_impl<'b>(
                 vec![(param_span, "second".into())],
             )));
         }
-        named.insert(name.clone(), parameters.len());
+        named.insert(name, parameters.len());
         parameters.push(Parameter::new(name, param_span, default_value));
         if !scanner.scan_char(',') {
             break;
@@ -866,6 +868,7 @@ pub(crate) fn parameter_list_impl<'b>(
     }
     scanner.expect_char(')')?;
     let span = span_from_impl(scanner, &state.parser_state, start)?.file_span()?;
+    let parameters = state.arena.alloc_slice_fill_iter(parameters);
     Ok(ParameterList::new(parameters, span, rest_parameter))
 }
 

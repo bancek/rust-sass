@@ -280,7 +280,7 @@ mod tests {
         'parse: 'compile,
     {
         let fs = FileSource::new_in(arena, text, None);
-        StylesheetParser::new(fs, syntax, None)
+        StylesheetParser::new(fs, syntax, None, arena)
     }
 
     fn make_scss<'compile, 'parse>(arena: &'compile Bump, text: &str) -> StylesheetParser<'parse>

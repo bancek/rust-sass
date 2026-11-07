@@ -240,7 +240,7 @@ mod tests {
         'parse: 'compile,
     {
         let fs = FileSource::new_in(arena, text, None);
-        StylesheetParser::new(fs, syntax, None)
+        StylesheetParser::new(fs, syntax, None, arena)
     }
 
     #[test]

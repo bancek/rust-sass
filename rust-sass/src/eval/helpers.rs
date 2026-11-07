@@ -1052,7 +1052,7 @@ where
 
     for (i, param) in params.parameters.iter().enumerate() {
         if i < positional_count {
-            if named.contains(&param.name) {
+            if named.contains(param.name) {
                 return Err(Box::new(SassError::Script {
                     message: format!(
                         "Argument {} was passed both by position and by name.",
@@ -1061,7 +1061,7 @@ where
                     argument_name: None,
                 }));
             }
-        } else if named.contains(&param.name) {
+        } else if named.contains(param.name) {
             named_used += 1;
         } else if param.default_value.is_none() {
             // Dart `ParameterList.verify` reports `_originalParameterName`
@@ -1106,7 +1106,7 @@ where
     if named_used < named.len() {
         let unknown_names: Vec<String> = named
             .iter()
-            .filter(|n| !params.parameters.iter().any(|p| &p.name == *n))
+            .filter(|n| !params.parameters.iter().any(|p| p.name == *n))
             .cloned()
             .collect();
 
@@ -1809,18 +1809,18 @@ where
             .get(i)
             .copied()
             .unwrap_or(parameters[i].span);
-        state.env.set_local_variable(&parameters[i].name, val, span);
+        state.env.set_local_variable(parameters[i].name, val, span);
     }
 
     for param in parameters.iter().skip(positional.len()) {
-        if let Some(val) = named.get(&param.name) {
-            let span = named_nodes.get(&param.name).copied().unwrap_or(param.span);
-            state.env.set_local_variable(&param.name, *val, span);
+        if let Some(val) = named.get(param.name) {
+            let span = named_nodes.get(param.name).copied().unwrap_or(param.span);
+            state.env.set_local_variable(param.name, *val, span);
         } else if let Some(ref default_val) = param.default_value {
             let val = evaluate_expression(config, state, arena, default_val).await?;
             let span = expression_node(config, state, default_val)?;
             let cleaned = without_slash(config, state, arena, val, span)?;
-            state.env.set_local_variable(&param.name, cleaned, span);
+            state.env.set_local_variable(param.name, cleaned, span);
         } else {
             let params_span = params.span()?;
             return Err(Box::new(SassError::MultiSpan {
@@ -1836,7 +1836,7 @@ where
         }
     }
 
-    if let Some(ref rest_name) = params.rest_parameter {
+    if let Some(rest_name) = params.rest_parameter {
         let rest_values: Vec<Value<'parse>> = if positional.len() > parameters.len() {
             positional[parameters.len()..].to_vec()
         } else {
@@ -1844,7 +1844,7 @@ where
         };
         let unused_named: IndexMap<String, Value<'parse>> = named
             .iter()
-            .filter(|(k, _)| !parameters.iter().any(|p| &p.name == *k))
+            .filter(|(k, _)| !parameters.iter().any(|p| p.name == *k))
             .map(|(k, v)| (k.clone(), *v))
             .collect();
         let sep = if separator == ListSeparator::Undecided {
@@ -2819,16 +2819,30 @@ mod tests {
         assert!(val.is_none());
     }
 
+    fn params_list<'compile: 'parse, 'parse>(
+        arena: &'compile Bump,
+        parameters: Vec<Parameter<'parse>>,
+        span: crate::common::file_span::FileSpan<'parse>,
+        rest_parameter: Option<&'parse str>,
+    ) -> ParameterList<'parse> {
+        ParameterList::new(
+            arena.alloc_slice_fill_iter(parameters),
+            span,
+            rest_parameter,
+        )
+    }
+
     // ── verifyParameterList ──
 
     #[rust_sass_macros::maybe_test]
     async fn test_verify_parameter_list_exact_match() {
         let arena = Bump::new();
         let span = make_span(&arena, "$x, $y");
-        let p = ParameterList::new(
+        let p = params_list(
+            &arena,
             vec![
-                Parameter::new("x".into(), span, None),
-                Parameter::new("y".into(), span, None),
+                Parameter::new(arena.alloc_str("x"), span, None),
+                Parameter::new(arena.alloc_str("y"), span, None),
             ],
             span,
             None,
@@ -2841,7 +2855,12 @@ mod tests {
     async fn test_verify_parameter_list_too_many_positional() {
         let arena = Bump::new();
         let span = make_span(&arena, "$x");
-        let p = ParameterList::new(vec![Parameter::new("x".into(), span, None)], span, None);
+        let p = params_list(
+            &arena,
+            vec![Parameter::new(arena.alloc_str("x"), span, None)],
+            span,
+            None,
+        );
         let err = verify_parameter_list(3, &HashSet::new(), Some(&p), span).unwrap_err();
         assert!(err.message().contains("Only 1 argument allowed"));
     }
@@ -2852,10 +2871,11 @@ mod tests {
         let span = make_span(&arena, "$x, $y");
         let span_x = make_span(&arena, "$x");
         let span_y = make_span(&arena, "$y");
-        let p = ParameterList::new(
+        let p = params_list(
+            &arena,
             vec![
-                Parameter::new("x".into(), span_x, None),
-                Parameter::new("y".into(), span_y, None),
+                Parameter::new(arena.alloc_str("x"), span_x, None),
+                Parameter::new(arena.alloc_str("y"), span_y, None),
             ],
             span,
             None,
@@ -2868,7 +2888,12 @@ mod tests {
     async fn test_verify_parameter_list_both_positional_and_named() {
         let arena = Bump::new();
         let span = make_span(&arena, "$x");
-        let p = ParameterList::new(vec![Parameter::new("x".into(), span, None)], span, None);
+        let p = params_list(
+            &arena,
+            vec![Parameter::new(arena.alloc_str("x"), span, None)],
+            span,
+            None,
+        );
         let mut names = HashSet::new();
         names.insert("x".into());
         let err = verify_parameter_list(1, &names, Some(&p), span).unwrap_err();
@@ -2881,7 +2906,12 @@ mod tests {
     async fn test_verify_parameter_list_unknown_named() {
         let arena = Bump::new();
         let span = make_span(&arena, "$x");
-        let p = ParameterList::new(vec![Parameter::new("x".into(), span, None)], span, None);
+        let p = params_list(
+            &arena,
+            vec![Parameter::new(arena.alloc_str("x"), span, None)],
+            span,
+            None,
+        );
         let mut names = HashSet::new();
         names.insert("z".into());
         let err = verify_parameter_list(1, &names, Some(&p), span).unwrap_err();
@@ -2896,10 +2926,11 @@ mod tests {
     async fn test_verify_parameter_list_rest_accepts_all() {
         let arena = Bump::new();
         let span = make_span(&arena, "$x...");
-        let p = ParameterList::new(
-            vec![Parameter::new("x".into(), span, None)],
+        let p = params_list(
+            &arena,
+            vec![Parameter::new(arena.alloc_str("x"), span, None)],
             span,
-            Some("rest".into()),
+            Some(arena.alloc_str("rest")),
         );
         let result = verify_parameter_list(10, &HashSet::new(), Some(&p), span);
         assert!(result.is_ok());
@@ -3009,7 +3040,12 @@ mod tests {
         let arena = Bump::new();
         let span = make_span(&arena, "$x");
         let (config, mut state) = test_visitor(&arena);
-        let params = ParameterList::new(vec![Parameter::new("x".into(), span, None)], span, None);
+        let params = params_list(
+            &arena,
+            vec![Parameter::new(arena.alloc_str("x"), span, None)],
+            span,
+            None,
+        );
         let positional = vec![Value::new_with_arena(&arena, ValueKind::Null)];
         let named = IndexMap::new();
         let pos_nodes = vec![span];
@@ -3038,7 +3074,12 @@ mod tests {
         let arena = Bump::new();
         let span = make_span(&arena, "$x");
         let (config, mut state) = test_visitor(&arena);
-        let params = ParameterList::new(vec![Parameter::new("x".into(), span, None)], span, None);
+        let params = params_list(
+            &arena,
+            vec![Parameter::new(arena.alloc_str("x"), span, None)],
+            span,
+            None,
+        );
         let positional: Vec<Value> = vec![];
         let named = IndexMap::new();
         let pos_nodes: Vec<FileSpan> = vec![];

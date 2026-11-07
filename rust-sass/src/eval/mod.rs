@@ -946,7 +946,7 @@ mod evaluate_tests {
     {
         let fs = FileSource::new_in(arena, source, None);
         let stylesheet = arena.alloc(
-            match StylesheetParser::new(fs, Syntax::Scss, None).parse() {
+            match StylesheetParser::new(fs, Syntax::Scss, None, arena).parse() {
                 Ok(s) => s,
                 Err(e) => match *e {
                     ParseError::Sass(inner) => return Err(inner),

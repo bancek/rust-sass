@@ -3327,6 +3327,7 @@ mod tests {
         let fs = FileSource::new_in(arena, text, None);
         let scanner = SpanScanner::new(fs);
         let state = StylesheetState {
+            arena,
             parser_state: ParserState {
                 syntax: Syntax::Scss,
                 interpolation_map: None,

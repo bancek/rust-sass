@@ -1500,7 +1500,7 @@ where
             // Go: evaluate_statement.go:1554-1577 — fill in named/default params
             for i in positional.len()..overload.params.parameters.len() {
                 let param = &overload.params.parameters[i];
-                if let Some(val) = named.swap_remove(param.name.as_str()) {
+                if let Some(val) = named.swap_remove(param.name) {
                     positional.push(val);
                 } else if let Some(ref default_expr) = param.default_value {
                     let val = evaluate_expression(config, state, arena, default_expr).await?;
