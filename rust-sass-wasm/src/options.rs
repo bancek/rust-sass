@@ -24,7 +24,7 @@ use rust_sass::parse::stylesheet::{CssState, SassIndentState, Syntax};
 use rust_sass::url::SassUrl;
 use rust_sass::Bump;
 
-use crate::js_host::{make_host_callable, JsFileImporter, JsImporter, JsLogger};
+use crate::js_host::{make_host_callable, JsFileImporter, JsImporter, JsLogger, JsRegistry};
 use crate::marshaller::{script, MarshallingContext};
 
 pub fn parse_options<'compile: 'parse, 'parse>(
@@ -32,6 +32,7 @@ pub fn parse_options<'compile: 'parse, 'parse>(
     options: &JsValue,
     io: Rc<dyn Io>,
     ctx: &'parse MarshallingContext<'parse>,
+    js_fns: &'parse JsRegistry,
 ) -> SassResult<CompileOptions<'compile, 'parse>> {
     let mut opts = CompileOptions::new(arena);
     if options.is_undefined() || options.is_null() {
@@ -166,7 +167,7 @@ pub fn parse_options<'compile: 'parse, 'parse>(
             let js_fn = f
                 .dyn_into::<js_sys::Function>()
                 .map_err(|_| script(format!("options.functions: {sig} is not a function")))?;
-            let callable = make_host_callable(&sig, js_fn, ctx, arena)?;
+            let callable = make_host_callable(&sig, js_fn, ctx, js_fns, arena)?;
             opts.functions
                 .push(Callable::new(arena, CallableKind::BuiltIn(callable)));
         }
@@ -448,11 +449,15 @@ mod tests {
         a.into()
     }
 
-    fn parse<'a>(arena: &'a Bump, opts: &Object) -> SassResult<CompileOptions<'a, 'a>> {
+    fn parse<'a>(
+        arena: &'a Bump,
+        js_fns: &'a JsRegistry,
+        opts: &Object,
+    ) -> SassResult<CompileOptions<'a, 'a>> {
         let io: Rc<dyn Io> = Rc::new(VirtualIo::new());
         let options: JsValue = opts.clone().into();
         let ctx = arena.alloc(MarshallingContext::new_in(arena));
-        parse_options(arena, &options, io, ctx)
+        parse_options(arena, &options, io, ctx, js_fns)
     }
 
     fn script_err(r: SassResult<CompileOptions<'_, '_>>) -> String {
@@ -483,8 +488,9 @@ mod tests {
             "url",
             &JsValue::from_str("https://example.com/input.scss"),
         );
+        let js_fns = JsRegistry::new();
         let arena = Bump::new();
-        let o = parse(&arena, &opts).unwrap();
+        let o = parse(&arena, &js_fns, &opts).unwrap();
         assert!(matches!(o.style, OutputStyle::Compressed));
         assert!(o.source_map);
         assert!(o.include_source_map_sources);
@@ -507,27 +513,32 @@ mod tests {
         // `unicode`); `alertAscii` alone must NOT (decoupled, render-time only).
         let ascii = Object::new();
         set(&ascii, "ascii", &JsValue::from_bool(true));
+        let js_fns = JsRegistry::new();
         let arena = Bump::new();
-        assert!(!parse(&arena, &ascii).unwrap().unicode);
+        assert!(!parse(&arena, &js_fns, &ascii).unwrap().unicode);
 
         let alert_only = Object::new();
         set(&alert_only, "alertAscii", &JsValue::from_bool(true));
-        assert!(parse(&arena, &alert_only).unwrap().unicode);
+        assert!(parse(&arena, &js_fns, &alert_only).unwrap().unicode);
     }
 
     #[wasm_bindgen_test]
     fn rejects_unknown_style_and_syntax() {
         let opts = Object::new();
         set(&opts, "style", &JsValue::from_str("nope"));
+        let js_fns = JsRegistry::new();
         let arena = Bump::new();
         assert_eq!(
-            script_err(parse(&arena, &opts)),
+            script_err(parse(&arena, &js_fns, &opts)),
             "Unknown output style \"nope\"."
         );
 
         let opts = Object::new();
         set(&opts, "syntax", &JsValue::from_str("nope"));
-        assert_eq!(script_err(parse(&arena, &opts)), "Unknown syntax \"nope\".");
+        assert_eq!(
+            script_err(parse(&arena, &js_fns, &opts)),
+            "Unknown syntax \"nope\"."
+        );
     }
 
     #[wasm_bindgen_test]
@@ -535,8 +546,9 @@ mod tests {
         let opts = Object::new();
         set(&opts, "silenceDeprecations", &arr(&["new-global"]));
         set(&opts, "futureDeprecations", &arr(&["slash-div"]));
+        let js_fns = JsRegistry::new();
         let arena = Bump::new();
-        let o = parse(&arena, &opts).unwrap();
+        let o = parse(&arena, &js_fns, &opts).unwrap();
         assert_eq!(o.silence_deprecations.len(), 1);
         assert_eq!(o.silence_deprecations[0].id, "new-global");
         assert_eq!(o.future_deprecations.len(), 1);
@@ -549,7 +561,7 @@ mod tests {
         fatal.push(&version.into());
         let opts = Object::new();
         set(&opts, "fatalDeprecations", &fatal.into());
-        let o = parse(&arena, &opts).unwrap();
+        let o = parse(&arena, &js_fns, &opts).unwrap();
         assert!(o.fatal_deprecations.iter().any(|d| d.id == "new-global"));
     }
 
@@ -567,8 +579,9 @@ mod tests {
         let opts = Object::new();
         set(&opts, "logger", &logger.into());
         set(&opts, "fatalDeprecations", &arr(&["bogus"]));
+        let js_fns = JsRegistry::new();
         let arena = Bump::new();
-        let o = parse(&arena, &opts).unwrap();
+        let o = parse(&arena, &js_fns, &opts).unwrap();
         assert!(o.fatal_deprecations.is_empty());
         assert_eq!(
             captured.borrow().as_deref(),
@@ -582,8 +595,9 @@ mod tests {
         set(&silent, "__sassSilent", &JsValue::from_bool(true));
         let opts = Object::new();
         set(&opts, "logger", &silent.into());
+        let js_fns = JsRegistry::new();
         let arena = Bump::new();
-        let o = parse(&arena, &opts).unwrap();
+        let o = parse(&arena, &js_fns, &opts).unwrap();
         assert!(o.logger.is_some());
     }
 
@@ -591,6 +605,7 @@ mod tests {
     fn parses_importers() {
         let canonicalize = js_sys::Function::new_no_args("return null;");
         let load = js_sys::Function::new_no_args("return null;");
+        let js_fns = JsRegistry::new();
         let arena = Bump::new();
 
         let url_importer = Object::new();
@@ -609,7 +624,7 @@ mod tests {
         importers.push(&url_importer.into());
         let opts = Object::new();
         set(&opts, "importers", &importers.into());
-        let o = parse(&arena, &opts).unwrap();
+        let o = parse(&arena, &js_fns, &opts).unwrap();
         assert_eq!(o.importers.len(), 1);
         assert!(matches!(o.importers[0].kind(), ImporterKind::User(_)));
 
@@ -621,7 +636,7 @@ mod tests {
         importers.push(&file_importer.into());
         let opts = Object::new();
         set(&opts, "importers", &importers.into());
-        let o = parse(&arena, &opts).unwrap();
+        let o = parse(&arena, &js_fns, &opts).unwrap();
         assert!(matches!(o.importers[0].kind(), ImporterKind::User(_)));
 
         // NodePackageImporter tag
@@ -635,7 +650,7 @@ mod tests {
         importers.push(&npi.into());
         let opts = Object::new();
         set(&opts, "importers", &importers.into());
-        let o = parse(&arena, &opts).unwrap();
+        let o = parse(&arena, &js_fns, &opts).unwrap();
         assert!(matches!(
             o.importers[0].kind(),
             ImporterKind::NodePackage(_)
@@ -651,19 +666,20 @@ mod tests {
         let _ = Reflect::set(&url_importer, &JsValue::from_str("load"), &load);
         let opts = Object::new();
         set(&opts, "importer", &url_importer.into());
-        let o = parse(&arena, &opts).unwrap();
+        let o = parse(&arena, &js_fns, &opts).unwrap();
         assert!(matches!(o.importer.kind(), ImporterKind::User(_)));
     }
 
     #[wasm_bindgen_test]
     fn rejects_invalid_importers() {
+        let js_fns = JsRegistry::new();
         let arena = Bump::new();
         let importers = Array::new();
         importers.push(&JsValue::NULL);
         let opts = Object::new();
         set(&opts, "importers", &importers.into());
         assert_eq!(
-            script_err(parse(&arena, &opts)),
+            script_err(parse(&arena, &js_fns, &opts)),
             "Importers may not be null."
         );
 
@@ -679,7 +695,7 @@ mod tests {
         let opts = Object::new();
         set(&opts, "importers", &importers.into());
         assert_eq!(
-            script_err(parse(&arena, &opts)),
+            script_err(parse(&arena, &js_fns, &opts)),
             "An importer may not have a findFileUrl method as well as canonicalize and load methods."
         );
 
@@ -689,13 +705,14 @@ mod tests {
         let opts = Object::new();
         set(&opts, "importers", &importers.into());
         assert_eq!(
-            script_err(parse(&arena, &opts)),
+            script_err(parse(&arena, &js_fns, &opts)),
             "An importer must have either canonicalize and load methods, or a findFileUrl method."
         );
     }
 
     #[wasm_bindgen_test]
     fn validates_non_canonical_schemes() {
+        let js_fns = JsRegistry::new();
         let arena = Bump::new();
         let canonicalize = js_sys::Function::new_no_args("return null;");
         let load = js_sys::Function::new_no_args("return null;");
@@ -708,7 +725,7 @@ mod tests {
             importers.push(&importer.into());
             let opts = Object::new();
             set(&opts, "importers", &importers.into());
-            parse(&arena, &opts)
+            parse(&arena, &js_fns, &opts)
         };
 
         // String scheme is fine.

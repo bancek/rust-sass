@@ -30,11 +30,12 @@ use wasm_bindgen::prelude::*;
 #[rust_sass_macros::maybe_async]
 #[wasm_bindgen(js_name = compileString)]
 pub async fn compile_string_js(source: &str, options: &JsValue) -> Result<JsValue, JsValue> {
+    let js_fns = js_host::JsRegistry::new();
     let arena = Bump::new();
     let io = make_io(options);
     let hl = error::highlight_from_options(options);
     let ctx = arena.alloc(marshaller::MarshallingContext::new_in(&arena));
-    let opts = match options::parse_options(&arena, options, io.clone(), ctx) {
+    let opts = match options::parse_options(&arena, options, io.clone(), ctx, &js_fns) {
         Ok(o) => o,
         Err(e) => return Err(error::sass_error_to_js(&e, &*io, hl)),
     };
@@ -52,11 +53,12 @@ pub async fn compile_string_js(source: &str, options: &JsValue) -> Result<JsValu
 #[rust_sass_macros::maybe_async]
 #[wasm_bindgen(js_name = compile)]
 pub async fn compile_js(path: &str, options: &JsValue) -> Result<JsValue, JsValue> {
+    let js_fns = js_host::JsRegistry::new();
     let arena = Bump::new();
     let io = make_io(options);
     let hl = error::highlight_from_options(options);
     let ctx = arena.alloc(marshaller::MarshallingContext::new_in(&arena));
-    let opts = match options::parse_options(&arena, options, io.clone(), ctx) {
+    let opts = match options::parse_options(&arena, options, io.clone(), ctx, &js_fns) {
         Ok(o) => o,
         Err(e) => return Err(error::sass_error_to_js(&e, &*io, hl)),
     };
@@ -78,11 +80,12 @@ pub async fn compile_js(path: &str, options: &JsValue) -> Result<JsValue, JsValu
 #[rust_sass_macros::maybe_async]
 #[wasm_bindgen(js_name = compile_bytes)]
 pub async fn compile_bytes_js(source: &[u8], options: &JsValue) -> Result<JsValue, JsValue> {
+    let js_fns = js_host::JsRegistry::new();
     let arena = Bump::new();
     let io = make_io(options);
     let hl = error::highlight_from_options(options);
     let ctx = arena.alloc(marshaller::MarshallingContext::new_in(&arena));
-    let opts = match options::parse_options(&arena, options, io.clone(), ctx) {
+    let opts = match options::parse_options(&arena, options, io.clone(), ctx, &js_fns) {
         Ok(o) => o,
         Err(e) => return Err(error::sass_error_to_js(&e, &*io, hl)),
     };

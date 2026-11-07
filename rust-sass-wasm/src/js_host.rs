@@ -12,6 +12,7 @@
 // go-source: go/embedded/importer_host.go + go/embedded/function.go (via rust-sass-embedded)
 
 use crate::error::span_to_js;
+use std::cell::RefCell;
 use std::collections::HashSet;
 use std::fmt;
 use std::rc::Rc;
@@ -791,17 +792,45 @@ fn read_accessed_argument_lists(envelope: &JsValue) -> SassResult<Vec<u32>> {
     Ok(out)
 }
 
+/// Host-owned handles for JS functions captured by arena-allocated callbacks.
+///
+/// The arena never runs destructors, so a callback must not hold a `JsValue`
+/// (its `Drop` releases a JS table entry). Callbacks hold an index instead;
+/// the registry owns the handles and drops them after the compile.
+#[derive(Default)]
+pub struct JsRegistry {
+    functions: RefCell<Vec<js_sys::Function>>,
+}
+
+impl JsRegistry {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    fn register(&self, function: js_sys::Function) -> u32 {
+        let mut functions = self.functions.borrow_mut();
+        let id = functions.len() as u32;
+        functions.push(function);
+        id
+    }
+
+    fn function(&self, id: u32) -> Option<js_sys::Function> {
+        self.functions.borrow().get(id as usize).cloned()
+    }
+}
+
 /// Reads the `{value, accessedArgumentLists}` envelope returned by the shim's
 /// wrapped JS function and converts it to a Sass value.
 fn parse_function_result<'compile: 'parse, 'parse: 'compile>(
     ctx: &'parse MarshallingContext<'parse>,
+    js_fns: &'parse JsRegistry,
     arena: &'compile Bump,
     envelope: &JsValue,
 ) -> SassResult<Value<'parse>> {
     let accessed = read_accessed_argument_lists(envelope)?;
     let value = Reflect::get(envelope, &JsValue::from_str("value"))
         .map_err(|e| script(format!("function result is missing a value: {e:?}")))?;
-    let host_builder = host_function_builder(ctx);
+    let host_builder = host_function_builder(ctx, js_fns);
     value_from_js_with_accessed(ctx, arena, &value, &accessed, &*host_builder)
 }
 
@@ -813,11 +842,16 @@ pub fn make_host_callable<'compile: 'parse, 'parse>(
     signature: &str,
     js_fn: js_sys::Function,
     ctx: &'parse MarshallingContext<'parse>,
+    js_fns: &'parse JsRegistry,
     arena: &'compile Bump,
 ) -> SassResult<BuiltInCallable<'compile, 'parse>> {
     let (name, params) = split_signature(signature)?;
+    let js_fn_id = js_fns.register(js_fn);
     let cb: SyncBuiltInCallback<'compile, 'parse> =
         rust_sass::callable::built_in_callback(arena, move |_config, _state, args, arena| {
+            let js_fn = js_fns
+                .function(js_fn_id)
+                .ok_or_else(|| script("JS function handle is missing"))?;
             let js_args = args_to_js(ctx, &args)?;
             let result = call_js(&js_fn, &js_args)?;
             if is_promise(&result) {
@@ -825,7 +859,7 @@ pub fn make_host_callable<'compile: 'parse, 'parse>(
                     "can't return a Promise for synchronous compile functions",
                 ));
             }
-            parse_function_result(ctx, arena, &result)
+            parse_function_result(ctx, js_fns, arena, &result)
         });
     Ok(BuiltInCallable::function(&name, &params, "", arena, cb))
 }
@@ -838,10 +872,12 @@ pub fn make_host_callable<'compile: 'parse, 'parse>(
     signature: &str,
     js_fn: js_sys::Function,
     ctx: &'parse MarshallingContext<'parse>,
+    js_fns: &'parse JsRegistry,
     arena: &'compile Bump,
 ) -> SassResult<BuiltInCallable<'compile, 'parse>> {
     let (name, params) = split_signature(signature)?;
     let arena = arena; // captured &'compile Bump; the per-call &'a Bump is the wrong lifetime
+    let js_fn_id = js_fns.register(js_fn);
     let cb: AsyncBuiltInCallback<'compile, 'parse> = rust_sass::callable::built_in_callback_async(
         arena,
         move |_config,
@@ -849,12 +885,14 @@ pub fn make_host_callable<'compile: 'parse, 'parse>(
               args,
               _call_arena|
               -> LocalBoxFuture<'_, SassResult<Value<'parse>>> {
-            let js_fn = js_fn.clone();
             let js_args = match args_to_js(ctx, &args) {
                 Ok(a) => a,
                 Err(e) => return Box::pin(async move { Err(e) }),
             };
             Box::pin(async move {
+                let js_fn = js_fns
+                    .function(js_fn_id)
+                    .ok_or_else(|| script("JS function handle is missing"))?;
                 let result = call_js(&js_fn, &js_args)?;
                 let result = if is_promise(&result) {
                     let p = result
@@ -864,7 +902,7 @@ pub fn make_host_callable<'compile: 'parse, 'parse>(
                 } else {
                     result
                 };
-                parse_function_result(ctx, arena, &result)
+                parse_function_result(ctx, js_fns, arena, &result)
             })
         },
     );
@@ -877,6 +915,7 @@ pub fn make_host_callable<'compile: 'parse, 'parse>(
 /// callback)` value (the wire format's `hostFunction`).
 pub fn host_function_builder<'compile: 'parse, 'parse>(
     ctx: &'parse MarshallingContext<'parse>,
+    js_fns: &'parse JsRegistry,
 ) -> Box<HostFunctionBuilder<'compile, 'parse>> {
     Box::new(
         move |signature: &str, callback: &JsValue, arena: &'compile Bump| {
@@ -884,7 +923,7 @@ pub fn host_function_builder<'compile: 'parse, 'parse>(
                 .clone()
                 .dyn_into::<js_sys::Function>()
                 .map_err(|_| script("host function callback is not a function"))?;
-            let callable = make_host_callable(signature, js_fn, ctx, arena)?;
+            let callable = make_host_callable(signature, js_fn, ctx, js_fns, arena)?;
             Ok(Callable::new(arena, CallableKind::BuiltIn(callable)))
         },
     )
