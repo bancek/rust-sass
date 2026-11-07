@@ -320,48 +320,89 @@ fn parse_deprecation_list(
     support_versions: bool,
     logger: &Option<Rc<dyn Logger>>,
 ) -> SassResult<Vec<&'static Deprecation>> {
-    let mut out = Vec::new();
-    let arr = match get_array_opt(options, key)? {
-        Some(a) => a,
-        None => return Ok(out),
-    };
-    for i in 0..arr.length() {
-        let item = arr.get(i);
-        let id = if let Some(s) = item.as_string() {
-            Some(s)
-        } else if let Ok(obj) = item.clone().dyn_into::<Object>() {
-            let obj: JsValue = obj.into();
-            let id = get(&obj, "id").as_string();
-            if id.is_some() {
-                id
-            } else if support_versions {
-                match get(&obj, "__sassVersion").as_string() {
-                    Some(version) => {
-                        out.extend(deprecation::for_version(&version));
-                        None
-                    }
-                    None => None,
-                }
-            } else {
-                None
-            }
-        } else {
-            None
-        };
-        if let Some(id) = id {
-            match deprecation::from_id(&id) {
-                Some(d) => out.push(d),
-                None => {
-                    let message = format!("Invalid deprecation \"{id}\".");
-                    match logger {
-                        Some(l) => l.warn(&message, None, None),
-                        None => web_sys::console::warn_1(&JsValue::from_str(&message)),
-                    }
-                }
+    match get_opt(options, key)? {
+        None => Ok(Vec::new()),
+        Some(value) => parse_deprecation_selector(&value, support_versions, logger),
+    }
+}
+
+/// Parses one `DeprecationSelector` (id, `Deprecation`, `Version`, list, or
+/// `{include, exclude}` difference) into deprecations.
+///
+/// Matches Dart: `parseDeprecationSelector` (`lib/src/js/deprecations.dart`).
+fn parse_deprecation_selector(
+    value: &JsValue,
+    support_versions: bool,
+    logger: &Option<Rc<dyn Logger>>,
+) -> SassResult<Vec<&'static Deprecation>> {
+    if value.is_array() {
+        let arr = Array::from(value);
+        let mut out = Vec::new();
+        for i in 0..arr.length() {
+            out.extend(parse_deprecation_selector(
+                &arr.get(i),
+                support_versions,
+                logger,
+            )?);
+        }
+        return Ok(out);
+    }
+
+    if let Some(id) = value.as_string() {
+        return Ok(parse_deprecation_id(&id, logger));
+    }
+
+    if let Ok(obj) = value.clone().dyn_into::<Object>() {
+        let obj: JsValue = obj.into();
+        if let Some(id) = get(&obj, "id").as_string() {
+            return Ok(parse_deprecation_id(&id, logger));
+        }
+        if support_versions {
+            if let Some(version) = get(&obj, "__sassVersion").as_string() {
+                return match logger {
+                    Some(l) => deprecation::for_version_with_logger(&version, &**l),
+                    None => Ok(deprecation::for_version(&version)),
+                };
             }
         }
+
+        let include = get(&obj, "include");
+        let exclude = get(&obj, "exclude");
+        if !include.is_undefined() || !exclude.is_undefined() {
+            let mut included: HashSet<&'static Deprecation> =
+                parse_deprecation_selector(&include, support_versions, logger)?
+                    .into_iter()
+                    .collect();
+            for d in parse_deprecation_selector(&exclude, false, logger)? {
+                if !included.remove(d) {
+                    return Err(script(format!(
+                        "The deprecation \"{d}\" was excluded from a DeprecationSelectorDifference that didn't include it."
+                    )));
+                }
+            }
+            return Ok(included.into_iter().collect());
+        }
     }
-    Ok(out)
+
+    warn_deprecation_parse(logger, &format!("Unknown deprecation value \"{value:?}\"."));
+    Ok(Vec::new())
+}
+
+fn parse_deprecation_id(id: &str, logger: &Option<Rc<dyn Logger>>) -> Vec<&'static Deprecation> {
+    match deprecation::from_id(id) {
+        Some(d) => vec![d],
+        None => {
+            warn_deprecation_parse(logger, &format!("Invalid deprecation \"{id}\"."));
+            Vec::new()
+        }
+    }
+}
+
+fn warn_deprecation_parse(logger: &Option<Rc<dyn Logger>>, message: &str) {
+    match logger {
+        Some(l) => l.warn(message, None, None),
+        None => web_sys::console::warn_1(&JsValue::from_str(message)),
+    }
 }
 
 // ==== js_sys helpers =========================================================

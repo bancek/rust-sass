@@ -10,7 +10,7 @@ import * as fs from 'node:fs';
 import * as p from 'node:path';
 
 import { deprecations } from '../deprecations';
-import { SASS_VERSION, Version } from '../version';
+import { SASS_VERSION } from '../version';
 
 /** The Sass version reported by `--version` and used as the cap for
  * `--fatal-deprecation` version arguments. Matches the `info` version.
@@ -478,13 +478,17 @@ function parseVersion(v: string): [number, number, number] | null {
 }
 
 function versionIsValidId(id: string): boolean {
-  return id in deprecations;
+  // `dartSass2` is a non-enumerable property on the deprecations object, not
+  // a deprecation ID.
+  return id !== 'dartSass2' && id in deprecations;
 }
 
 /** Port of `resolve_deprecations` (options.rs:627): ids only; unknown → usage error. */
 function resolveDeprecations(flags: ParsedFlags, name: string): string[] {
   const out: string[] = [];
-  for (const id of flags.appends.get(name) ?? []) {
+  for (const id of (flags.appends.get(name) ?? []).flatMap((v) =>
+    v.split(','),
+  )) {
     if (!versionIsValidId(id)) {
       throw new UsageError(`Invalid deprecation "${id}".`);
     }
@@ -503,12 +507,52 @@ function versionGt(
   return false;
 }
 
-/** Port of `resolve_fatal_deprecations` (options.rs:643): ids or a Sass version. */
-function resolveFatalDeprecations(flags: ParsedFlags): (string | Version)[] {
-  const out = new Map<string, string | Version>();
-  for (const id of flags.appends.get('fatal-deprecation') ?? []) {
+/** The deprecation IDs selected by `version`. */
+function deprecationIdsForVersion(version: [number, number, number]): string[] {
+  const limit = version[0] * 1000000 + version[1] * 1000 + version[2];
+  return Object.values(deprecations)
+    .filter(
+      (d) =>
+        d.deprecatedIn !== null &&
+        d.obsoleteIn === null &&
+        d.deprecatedIn.major * 1000000 +
+          d.deprecatedIn.minor * 1000 +
+          d.deprecatedIn.patch <=
+          limit,
+    )
+    .map((d) => d.id);
+}
+
+/** Port of `resolve_fatal_deprecations` (options.rs): ids, versions,
+ * `-id` exclusions, and `dart-sass-2`. */
+function resolveFatalDeprecations(flags: ParsedFlags): string[] {
+  const out = new Set<string>();
+  const excluded = new Set<string>();
+  const dartSass2Excluded = new Set([
+    'color-module-compat',
+    'import',
+    'global-builtin',
+    'if-function',
+  ]);
+  for (const id of (flags.appends.get('fatal-deprecation') ?? []).flatMap(
+    (v) => v.split(','),
+  )) {
+    if (id.startsWith('-')) {
+      const name = id.substring(1);
+      if (!versionIsValidId(name)) {
+        throw new UsageError(`Invalid deprecation "${id}".`);
+      }
+      excluded.add(name);
+      continue;
+    }
+    if (id === 'dart-sass-2') {
+      for (const dep of deprecationIdsForVersion([1, 105, 0])) {
+        if (!dartSass2Excluded.has(dep)) out.add(dep);
+      }
+      continue;
+    }
     if (versionIsValidId(id)) {
-      out.set(id, id);
+      out.add(id);
       continue;
     }
     const version = parseVersion(id);
@@ -521,9 +565,16 @@ function resolveFatalDeprecations(flags: ParsedFlags): (string | Version)[] {
         `Invalid version ${id}. --fatal-deprecation requires a version less than or equal to the current Dart Sass version.`,
       );
     }
-    out.set(id, new Version(version[0], version[1], version[2]));
+    for (const dep of deprecationIdsForVersion(version)) out.add(dep);
   }
-  return [...out.values()];
+  for (const id of excluded) {
+    if (!out.delete(id)) {
+      throw new UsageError(
+        `The fatal deprecation "${id}" was excluded without first being included.`,
+      );
+    }
+  }
+  return [...out];
 }
 
 // ==== source maps ============================================================
@@ -604,7 +655,7 @@ export class CliOptions {
   readonly loadPaths: string[];
   readonly nodePackageImporter: boolean;
   readonly silenceDeprecations: string[];
-  readonly fatalDeprecations: (string | Version)[];
+  readonly fatalDeprecations: string[];
   readonly futureDeprecations: string[];
   private readonly sourceMapUrls: string;
 
@@ -733,7 +784,11 @@ export const HELP_TEXT = `Usage: sass <input.scss> [output.css]
                                Stylesheets imported through load paths count as dependencies.
     --[no-]verbose             Print all deprecation warnings even when they're repetitive.
     --fatal-deprecation        Deprecations to treat as errors. You may also pass a Sass
-                               version to include any behavior deprecated in or before it.
+                               version to include any behavior deprecated in or before it,
+                               or -{deprecation} to exclude a deprecation that would be
+                               included by version. See
+                               https://sass-lang.com/documentation/breaking-changes
+                               for a complete list.
     --silence-deprecation      Deprecations to ignore.
     --future-deprecation       Opt in to a deprecation early.
 

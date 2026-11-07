@@ -14,7 +14,7 @@ import type { NodeFsAsync } from './io/node-fs-async';
 import { NodePackageImporter } from './node-package-importer';
 import { Logger } from './logger';
 import { Version } from './version';
-import type { Deprecation } from './deprecations';
+import type { DeprecationSelector } from './deprecations';
 import type { WasmOptions } from './types';
 
 export interface CompileOptions {
@@ -32,9 +32,9 @@ export interface CompileOptions {
   functions?: Record<string, CustomFunction>;
   importers?: (JsImporter | NodePackageImporter)[];
   logger?: { warn?: Function; debug?: Function };
-  fatalDeprecations?: (string | Deprecation | Version)[];
-  silenceDeprecations?: (string | Deprecation)[];
-  futureDeprecations?: (string | Deprecation)[];
+  fatalDeprecations?: DeprecationSelector;
+  silenceDeprecations?: DeprecationSelector;
+  futureDeprecations?: DeprecationSelector;
   /** rust-sass extensions (docs/ref/wasm.md, "Extension options"); not part of the
    * public `sass` surface — do not add them to export-surface/js-api-doc. */
   /** Explicit filesystem delegate (default: Node `node:fs`, or the browser
@@ -76,14 +76,24 @@ const deprecationKeys = [
   'futureDeprecations',
 ] as const;
 
-/** Converts `Version` entries (fatal only) to the `{__sassVersion}` wire
- * marker; strings and `Deprecation` objects pass through unchanged. */
-function normalizeDeprecationList(
-  list: (string | Deprecation | Version)[],
-): unknown[] {
-  return list.map((entry) =>
-    entry instanceof Version ? { __sassVersion: entry.toString() } : entry,
-  );
+/** Normalizes a `DeprecationSelector` for the wire: `Version`s become the
+ * `{__sassVersion}` marker; lists and `{include, exclude}` differences are
+ * normalized recursively; strings and `Deprecation` objects pass through. */
+function normalizeDeprecationSelector(selector: DeprecationSelector): unknown {
+  if (selector instanceof Version) return { __sassVersion: selector.toString() };
+  if (Array.isArray(selector)) {
+    return selector.map(normalizeDeprecationSelector);
+  }
+  if (typeof selector === 'string') return selector;
+  if ('include' in selector && 'exclude' in selector) {
+    return {
+      include: normalizeDeprecationSelector(selector.include),
+      exclude: normalizeDeprecationSelector(
+        selector.exclude as DeprecationSelector,
+      ),
+    };
+  }
+  return selector;
 }
 
 export function normalizeOptions(
@@ -100,7 +110,7 @@ export function normalizeOptions(
   }
   for (const key of deprecationKeys) {
     const value = options[key];
-    if (value !== undefined) out[key] = normalizeDeprecationList(value);
+    if (value !== undefined) out[key] = normalizeDeprecationSelector(value);
   }
   if (options.url !== undefined) {
     out.url = options.url instanceof URL ? options.url.toString() : options.url;

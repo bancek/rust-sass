@@ -488,6 +488,51 @@ mod tests {
     }
 
     #[test]
+    fn compile_request_rejects_unincluded_fatal_deprecation_except() {
+        let mut input = Vec::new();
+        write_packet(&mut input, &version_request()).unwrap();
+        let msg = InboundMessage {
+            message: Some(im::Message::CompileRequest(im::CompileRequest {
+                input: Some(compile_request::Input::String(
+                    compile_request::StringInput {
+                        source: "a { b: c }".into(),
+                        url: String::new(),
+                        syntax: 0,
+                        importer: None,
+                    },
+                )),
+                fatal_deprecation: vec!["new-global".into()],
+                fatal_deprecation_except: vec!["import".into()],
+                ..Default::default()
+            })),
+        };
+        write_packet(&mut input, &serialize_packet(1, &msg)).unwrap();
+
+        let (out, code) = run_dispatcher(&input);
+        assert_eq!(code, 76);
+
+        let mut cursor = Cursor::new(out);
+        let _version = read_packet(&mut cursor).unwrap();
+        let error = read_packet(&mut cursor).unwrap();
+        let (id, buf) = parse_packet(&error).unwrap();
+        assert_eq!(id, 1);
+        let msg = OutboundMessage::decode(buf).unwrap();
+        match msg.message {
+            Some(outbound_message::Message::Error(pe)) => {
+                assert_eq!(
+                    pe.r#type,
+                    crate::embedded_sass::ProtocolErrorType::Params as i32
+                );
+                assert_eq!(
+                    pe.message,
+                    "The deprecation \"import\" was excluded from a DeprecationSelectorDifference that didn't include it."
+                );
+            }
+            other => panic!("expected an Error packet, got {other:?}"),
+        }
+    }
+
+    #[test]
     fn version_and_compile() {
         let mut input = Vec::new();
         write_packet(&mut input, &version_request()).unwrap();

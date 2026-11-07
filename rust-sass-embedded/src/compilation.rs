@@ -11,6 +11,7 @@ use crate::syntax_from_proto;
 #[cfg(test)]
 use crate::COMPILER_VERSION;
 use std::cell::RefCell;
+use std::collections::HashSet;
 #[cfg(test)]
 use std::io::Write;
 use std::rc::Rc;
@@ -25,7 +26,7 @@ use std::sync::Mutex;
 use futures::StreamExt;
 use prost::Message;
 
-use rust_sass::common::exception::SassError;
+use rust_sass::common::exception::{SassError, SassResult};
 use rust_sass::compile::{compile, compile_string, CompileOptions, OutputStyle};
 use rust_sass::compile_context::CompileContext;
 use rust_sass::deprecation::{self, Deprecation};
@@ -260,14 +261,30 @@ where
         ))
     };
 
-    let fatal_deprecations =
-        parse_deprecations_or_warn(&req.fatal_deprecation, true, logger.clone());
-    let silence_deprecations =
-        parse_deprecations_or_warn(&req.silence_deprecation, false, logger.clone());
-    let future_deprecations =
-        parse_deprecations_or_warn(&req.future_deprecation, false, logger.clone());
-
     let highlight = highlight_options(req.alert_color, req.alert_ascii);
+
+    let fatal_deprecations =
+        match parse_deprecations_or_warn(&req.fatal_deprecation, true, logger.clone()) {
+            Ok(d) => d,
+            Err(e) => return Ok(build_failure_response(ctx.host, &e, None, &highlight)),
+        };
+    let fatal_deprecation_except =
+        match parse_deprecations_or_warn(&req.fatal_deprecation_except, false, logger.clone()) {
+            Ok(d) => d,
+            Err(e) => return Ok(build_failure_response(ctx.host, &e, None, &highlight)),
+        };
+    let fatal_deprecations =
+        apply_fatal_deprecation_except(fatal_deprecations, fatal_deprecation_except)?;
+    let silence_deprecations =
+        match parse_deprecations_or_warn(&req.silence_deprecation, false, logger.clone()) {
+            Ok(d) => d,
+            Err(e) => return Ok(build_failure_response(ctx.host, &e, None, &highlight)),
+        };
+    let future_deprecations =
+        match parse_deprecations_or_warn(&req.future_deprecation, false, logger.clone()) {
+            Ok(d) => d,
+            Err(e) => return Ok(build_failure_response(ctx.host, &e, None, &highlight)),
+        };
 
     let mut importers = Vec::new();
     for imp in &req.importers {
@@ -499,17 +516,32 @@ fn check_no_non_canonical_scheme(
 /// and expanding version strings when `support_versions` is true.
 ///
 /// Matches Go: `CompilationDispatcher.parseDeprecationsOrWarn`.
+fn apply_fatal_deprecation_except(
+    fatal: Vec<&'static Deprecation>,
+    except: Vec<&'static Deprecation>,
+) -> Result<Vec<&'static Deprecation>, ProtocolError> {
+    let mut fatal: HashSet<&'static Deprecation> = fatal.into_iter().collect();
+    for d in except {
+        if !fatal.remove(d) {
+            return Err(params_error(&format!(
+                "The deprecation \"{d}\" was excluded from a DeprecationSelectorDifference that didn't include it."
+            )));
+        }
+    }
+    Ok(fatal.into_iter().collect())
+}
+
 fn parse_deprecations_or_warn(
     deprecations: &[String],
     support_versions: bool,
     logger: Rc<dyn Logger>,
-) -> Vec<&'static Deprecation> {
+) -> SassResult<Vec<&'static Deprecation>> {
     let mut result = Vec::new();
     for item in deprecations {
         if let Some(d) = deprecation::from_id(item) {
             result.push(d);
         } else if support_versions {
-            let expanded = deprecation::for_version(item);
+            let expanded = deprecation::for_version_with_logger(item, &*logger)?;
             if expanded.is_empty() {
                 logger.warn(
                     &format!("Invalid deprecation id or version \"{item}\"."),
@@ -523,7 +555,7 @@ fn parse_deprecations_or_warn(
             logger.warn(&format!("Invalid deprecation id \"{item}\"."), None, None);
         }
     }
-    result
+    Ok(result)
 }
 
 /// Builds a `CompileResponse` carrying a `CompileFailure` for `err`, prepending
@@ -694,6 +726,30 @@ mod tests {
         let ctx = test_host(rx);
         let err = ctx.send_and_wait(&outbound_canonicalize_request()).await;
         assert!(matches!(err, Err(HostError::MailboxClosed)));
+    }
+
+    #[test]
+    fn fatal_deprecation_except_removes_only_included_deprecations() {
+        use rust_sass::deprecation;
+
+        let fatal = deprecation::for_version("1.106.0");
+        let removed =
+            apply_fatal_deprecation_except(fatal, vec![deprecation::from_id("import").unwrap()])
+                .unwrap();
+        assert!(!removed.iter().any(|d| d.id == "import"));
+        assert!(removed.iter().any(|d| d.id == "new-global"));
+
+        let err =
+            apply_fatal_deprecation_except(vec![], vec![deprecation::from_id("import").unwrap()])
+                .unwrap_err();
+        assert_eq!(
+            err.r#type,
+            crate::embedded_sass::ProtocolErrorType::Params as i32
+        );
+        assert_eq!(
+            err.message,
+            "The deprecation \"import\" was excluded from a DeprecationSelectorDifference that didn't include it."
+        );
     }
 
     #[rust_sass_macros::maybe_test]

@@ -131,6 +131,7 @@ fn build_compile_request(case: &Case) -> Vec<u8> {
                 fatal_deprecation: Vec::new(),
                 silence_deprecation: Vec::new(),
                 future_deprecation: Vec::new(),
+                fatal_deprecation_except: Vec::new(),
                 input: Some(compile_request::Input::String(
                     compile_request::StringInput {
                         source: case.source.to_string(),

@@ -18,6 +18,12 @@
 
 use std::fmt;
 
+use crate::common::exception::SassResult;
+use crate::logger::Logger;
+
+/// The current Dart Sass version, used to validate version selectors.
+pub const DART_SASS_VERSION: &str = env!("CARGO_PKG_VERSION");
+
 /// A deprecated feature in the language.
 ///
 /// The `id` is the unique kebab-case identifier used on the command line;
@@ -92,6 +98,7 @@ const WITH_PRIVATE_ID: &str = "with-private";
 const IF_FUNCTION_ID: &str = "if-function";
 const FUNCTION_NAME_ID: &str = "function-name";
 const ADJACENT_COMPOUNDS_ID: &str = "adjacent-compounds";
+const DEPRECATION_VERSION_ID: &str = "deprecation-version";
 const USER_AUTHORED_ID: &str = "user-authored";
 const CALC_INTERP_ID: &str = "calc-interp";
 
@@ -327,6 +334,14 @@ pub const ADJACENT_COMPOUNDS: Deprecation = Deprecation {
     is_future: false,
 };
 
+pub const DEPRECATION_VERSION: Deprecation = Deprecation {
+    id: DEPRECATION_VERSION_ID,
+    deprecated_in: Some("1.107.0"),
+    description: Some("Selecting versions beyond the current one for `fatalDeprecations`."),
+    obsolete_in: None,
+    is_future: false,
+};
+
 /// Used for deprecations coming from user-authored code. Never tied to a
 /// release, so both version fields are `None`.
 pub const USER_AUTHORED: Deprecation = Deprecation {
@@ -377,6 +392,7 @@ const ALL: &[&Deprecation] = &[
     &IF_FUNCTION,
     &FUNCTION_NAME,
     &ADJACENT_COMPOUNDS,
+    &DEPRECATION_VERSION,
     &USER_AUTHORED,
     &CALC_INTERP,
 ];
@@ -414,10 +430,52 @@ pub fn from_id(id: &str) -> Option<&'static Deprecation> {
         IF_FUNCTION_ID => Some(&IF_FUNCTION),
         FUNCTION_NAME_ID => Some(&FUNCTION_NAME),
         ADJACENT_COMPOUNDS_ID => Some(&ADJACENT_COMPOUNDS),
+        DEPRECATION_VERSION_ID => Some(&DEPRECATION_VERSION),
         USER_AUTHORED_ID => Some(&USER_AUTHORED),
         CALC_INTERP_ID => Some(&CALC_INTERP),
         _ => None,
     }
+}
+
+/// Returns the deprecations that will become fatal errors in Dart Sass 2.0.0.
+///
+/// Matches Dart: `Deprecation.dartSass2` — every deprecation from 1.105.0
+/// except the four whose removal is deferred past 2.0.0.
+pub fn dart_sass_2() -> Vec<&'static Deprecation> {
+    for_version("1.105.0")
+        .into_iter()
+        .filter(|d| {
+            d.id != COLOR_MODULE_COMPAT_ID
+                && d.id != IMPORT_ID
+                && d.id != GLOBAL_BUILTIN_ID
+                && d.id != IF_FUNCTION_ID
+        })
+        .collect()
+}
+
+/// Like [`for_version`], but emits Dart's `deprecation-version` warning when
+/// `version` is newer than the running compiler.
+///
+/// Matches Dart: `Deprecation.forVersionInternal` (the public `forVersion`
+/// picks the current evaluation logger or the default logger).
+pub fn for_version_with_logger(
+    version: &str,
+    logger: &dyn Logger,
+) -> SassResult<Vec<&'static Deprecation>> {
+    if version_greater_than(version, DART_SASS_VERSION) {
+        logger.warn_deprecation(
+            &format!(
+                "Version \"{version}\" is beyond the current version of Dart Sass. \
+                 Selecting deprecations from later versions is deprecated and will be \
+                 an error in Dart Sass 3.0.\n\n\
+                 More info: http://sass-lang.com/d/deprecation-version"
+            ),
+            None,
+            &DEPRECATION_VERSION,
+            None,
+        )?;
+    }
+    Ok(for_version(version))
 }
 
 /// Returns the set of all non-obsolete deprecations first deprecated in or
@@ -458,6 +516,12 @@ fn version_less_than(m1: u32, n1: u32, p1: u32, m2: u32, n2: u32, p2: u32) -> bo
     p1 < p2
 }
 
+fn version_greater_than(a: &str, b: &str) -> bool {
+    let (am, an, ap) = parse_version(a);
+    let (bm, bn, bp) = parse_version(b);
+    version_less_than(bm, bn, bp, am, an, ap)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -467,7 +531,7 @@ mod tests {
         for d in ALL {
             assert!(!d.id.is_empty(), "deprecation has empty ID");
         }
-        assert_eq!(ALL.len(), 31);
+        assert_eq!(ALL.len(), 32);
     }
 
     #[test]
@@ -529,5 +593,55 @@ mod tests {
         assert!(version_less_than(1, 5, 0, 1, 10, 0));
         assert!(!version_less_than(1, 0, 0, 1, 0, 0));
         assert!(version_less_than(1, 0, 0, 1, 0, 1));
+    }
+
+    #[test]
+    fn test_dart_sass_2_set() {
+        let set = dart_sass_2();
+        assert!(set.iter().any(|d| d.id == "new-global"));
+        for excluded in [
+            "color-module-compat",
+            "import",
+            "global-builtin",
+            "if-function",
+        ] {
+            assert!(
+                !set.iter().any(|d| d.id == excluded),
+                "{excluded} must not be in dartSass2"
+            );
+        }
+        // Added after 1.105.0, so it is not part of the 2.0 set.
+        assert!(!set.iter().any(|d| d.id == "deprecation-version"));
+    }
+
+    #[test]
+    fn test_for_version_with_logger_warns_only_for_future_versions() {
+        use crate::logger::test_utils::{LogCall, RecordLogger};
+
+        let logger = RecordLogger::new();
+        for_version_with_logger("1.105.0", &logger).unwrap();
+        assert!(logger.calls().is_empty());
+
+        let logger = RecordLogger::new();
+        for_version_with_logger("99.0.0", &logger).unwrap();
+        match &logger.calls()[0] {
+            LogCall::WarnDeprecation {
+                msg,
+                has_span,
+                dep_id,
+                ..
+            } => {
+                assert_eq!(dep_id, "deprecation-version");
+                assert!(!has_span);
+                assert_eq!(
+                    msg,
+                    "Version \"99.0.0\" is beyond the current version of Dart Sass. \
+                     Selecting deprecations from later versions is deprecated and will be \
+                     an error in Dart Sass 3.0.\n\n\
+                     More info: http://sass-lang.com/d/deprecation-version"
+                );
+            }
+            other => panic!("expected a deprecation warning, got {other:?}"),
+        }
     }
 }

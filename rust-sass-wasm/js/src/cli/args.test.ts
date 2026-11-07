@@ -165,7 +165,35 @@ describe('parseArgs', () => {
     const o = parse(['--fatal-deprecation', 'new-global', 'a.scss']);
     expect(o.fatalDeprecations).toEqual(['new-global']);
     const v = parse(['--fatal-deprecation', '1.17.2', 'a.scss']);
-    expect(v.fatalDeprecations[0].toString()).toBe('1.17.2');
+    expect(v.fatalDeprecations).toContain('new-global');
+    expect(v.fatalDeprecations).not.toContain('global-builtin');
+  });
+
+  it('fatal deprecation exclusions and dart-sass-2', () => {
+    const o = parse([
+      '--fatal-deprecation=1.106.0,-import',
+      'a.scss',
+    ]);
+    expect(o.fatalDeprecations).toContain('new-global');
+    expect(o.fatalDeprecations).not.toContain('import');
+
+    const d2 = parse(['--fatal-deprecation=dart-sass-2', 'a.scss']);
+    expect(d2.fatalDeprecations).toContain('new-global');
+    for (const excluded of [
+      'color-module-compat',
+      'import',
+      'global-builtin',
+      'if-function',
+    ]) {
+      expect(d2.fatalDeprecations).not.toContain(excluded);
+    }
+
+    expect(parseErr(['--fatal-deprecation=-import', 'a.scss'])).toBe(
+      'The fatal deprecation "import" was excluded without first being included.',
+    );
+    expect(parseErr(['--fatal-deprecation=-nope', 'a.scss'])).toBe(
+      'Invalid deprecation "-nope".',
+    );
   });
 
   it('fatal deprecation version above current is rejected', () => {

@@ -145,6 +145,17 @@ describe('deprecations map', () => {
     expect(deprecations['color-4-api'].status).toBe('active');
     expect(deprecations['null-alpha'].status).toBe('active');
   });
+
+  it('exposes a non-enumerable dartSass2 selector', () => {
+    expect(Object.keys(deprecations)).not.toContain('dartSass2');
+    expect(deprecations.dartSass2.include).toEqual(new Version(1, 105, 0));
+    expect(deprecations.dartSass2.exclude).toEqual([
+      deprecations['color-module-compat'],
+      deprecations['import'],
+      deprecations['global-builtin'],
+      deprecations['if-function'],
+    ]);
+  });
 });
 
 describe('warnForHostSideDeprecation', () => {
@@ -208,6 +219,37 @@ describe('warnForHostSideDeprecation', () => {
     } finally {
       activeDeprecationOptions.delete(key);
     }
+  });
+
+  it('handles a fatal selector difference', () => {
+    const spy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    warnForHostSideDeprecation('oh no', deprecations['new-global'], {
+      fatalDeprecations: {
+        include: new Version(1, 105, 0),
+        exclude: 'new-global',
+      },
+    });
+    expect(spy).toHaveBeenCalledWith('Deprecation [new-global]: oh no');
+
+    expect(() =>
+      warnForHostSideDeprecation('oh no', deprecations['new-global'], {
+        fatalDeprecations: new Version(1, 105, 0),
+      }),
+    ).toThrow('Deprecation [new-global]: oh no');
+  });
+
+  it('treats dartSass2 as fatal only for 2.0 deprecations', () => {
+    const spy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    warnForHostSideDeprecation('oh no', deprecations['if-function'], {
+      fatalDeprecations: deprecations.dartSass2,
+    });
+    expect(spy).toHaveBeenCalledWith('Deprecation [if-function]: oh no');
+
+    expect(() =>
+      warnForHostSideDeprecation('oh no', deprecations['new-global'], {
+        fatalDeprecations: deprecations.dartSass2,
+      }),
+    ).toThrow('Deprecation [new-global]: oh no');
   });
 });
 

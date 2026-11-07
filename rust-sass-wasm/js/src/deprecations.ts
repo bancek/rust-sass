@@ -217,13 +217,41 @@ const entries: Array<{
     deprecatedIn: '1.100.0',
   },
   {
+    id: 'deprecation-version',
+    status: 'active',
+    description:
+      'Selecting versions beyond the current one for `fatalDeprecations`.',
+    deprecatedIn: '1.107.0',
+  },
+  {
     id: 'user-authored',
     status: 'user',
     description: null,
   },
 ];
 
-export const deprecations: Record<string, Deprecation> = Object.fromEntries(
+export type DeprecationOrId = Deprecation | string;
+
+/** A value that selects a set of deprecations. Matches `DeprecationSelector`. */
+export type DeprecationSelector =
+  | DeprecationOrId
+  | Version
+  | DeprecationSelectorDifference
+  | DeprecationSelector[];
+
+/** A selector combined with a list of deprecations to remove from it. */
+export interface DeprecationSelectorDifference {
+  include: DeprecationSelector;
+  exclude: DeprecationOrId | DeprecationOrId[];
+}
+
+/** Additional, non-enumerable properties on the `deprecations` object. */
+export interface DeprecationsUtil {
+  /** All deprecations that will become errors in Dart Sass 2.0.0. */
+  dartSass2: DeprecationSelectorDifference;
+}
+
+const deprecationMap: Record<string, Deprecation> = Object.fromEntries(
   entries.map((entry) => [
     entry.id,
     {
@@ -238,9 +266,24 @@ export const deprecations: Record<string, Deprecation> = Object.fromEntries(
   ]),
 );
 
-// ==== host-side deprecation handling ==========================================
+// Matches Dart's non-enumerable `deprecations.dartSass2` getter.
+Object.defineProperty(deprecationMap, 'dartSass2', {
+  value: {
+    include: Version.parse('1.105.0'),
+    exclude: [
+      deprecationMap['color-module-compat'],
+      deprecationMap['import'],
+      deprecationMap['global-builtin'],
+      deprecationMap['if-function'],
+    ],
+  } satisfies DeprecationSelectorDifference,
+  enumerable: false,
+});
 
-export type DeprecationOrId = Deprecation | string;
+export const deprecations = deprecationMap as Record<string, Deprecation> &
+  DeprecationsUtil;
+
+// ==== host-side deprecation handling ==========================================
 
 /** The subset of compile options relevant to deprecation handling. */
 export type DeprecationOptions = Pick<
@@ -257,13 +300,32 @@ export type DeprecationOptions = Pick<
 export const activeDeprecationOptions: Map<symbol, DeprecationOptions> =
   new Map();
 
-/** Converts a mixed array of deprecations/ids/versions to ids. */
-function getDeprecationIds(arr: (DeprecationOrId | Version)[]): string[] {
-  return arr.map((item) => {
-    if (item instanceof Version) return item.toString();
-    if (typeof item === 'string') return item;
-    return item.id;
-  });
+function versionNumber(version: Version): number {
+  return version.major * 1000000 + version.minor * 1000 + version.patch;
+}
+
+/** Whether `selector` selects `deprecation` (Dart's `parseDeprecationSelector`). */
+function selectorIncludes(
+  selector: DeprecationSelector | undefined | null,
+  deprecation: Deprecation,
+): boolean {
+  if (selector === undefined || selector === null) return false;
+  if (Array.isArray(selector)) {
+    return selector.some((entry) => selectorIncludes(entry, deprecation));
+  }
+  if (selector instanceof Version) {
+    if (deprecation.deprecatedIn === null || deprecation.obsoleteIn !== null) {
+      return false;
+    }
+    return versionNumber(deprecation.deprecatedIn) <= versionNumber(selector);
+  }
+  if (typeof selector === 'string') return selector === deprecation.id;
+  if ('id' in selector) return selector.id === deprecation.id;
+  if (!selectorIncludes(selector.include, deprecation)) return false;
+  const exclude = Array.isArray(selector.exclude)
+    ? selector.exclude
+    : [selector.exclude];
+  return !exclude.some((entry) => selectorIncludes(entry, deprecation));
 }
 
 /**
@@ -307,9 +369,7 @@ function isSilent(
     }
     return false;
   }
-  return getDeprecationIds(options.silenceDeprecations ?? []).includes(
-    deprecation.id,
-  );
+  return selectorIncludes(options.silenceDeprecations, deprecation);
 }
 
 /**
@@ -326,9 +386,7 @@ function isEnabledFuture(
     }
     return activeDeprecationOptions.size > 0;
   }
-  return getDeprecationIds(options.futureDeprecations ?? []).includes(
-    deprecation.id,
-  );
+  return selectorIncludes(options.futureDeprecations, deprecation);
 }
 
 /**
@@ -345,27 +403,5 @@ function isFatal(
     }
     return activeDeprecationOptions.size > 0;
   }
-  const versionNumber =
-    deprecation.deprecatedIn === null
-      ? null
-      : deprecation.deprecatedIn.major * 1000000 +
-        deprecation.deprecatedIn.minor * 1000 +
-        deprecation.deprecatedIn.patch;
-  for (const fatal of options.fatalDeprecations ?? []) {
-    if (fatal instanceof Version) {
-      if (versionNumber === null) continue;
-      if (deprecation.obsoleteIn !== null) continue;
-      if (
-        versionNumber <=
-        fatal.major * 1000000 + fatal.minor * 1000 + fatal.patch
-      ) {
-        return true;
-      }
-    } else if (typeof fatal === 'string') {
-      if (fatal === deprecation.id) return true;
-    } else {
-      if (fatal.id === deprecation.id) return true;
-    }
-  }
-  return false;
+  return selectorIncludes(options.fatalDeprecations, deprecation);
 }

@@ -25,9 +25,9 @@ export interface WasmOptions {
   importers?: unknown[];
   importer?: unknown;
   logger?: unknown;
-  fatalDeprecations?: unknown[];
-  silenceDeprecations?: unknown[];
-  futureDeprecations?: unknown[];
+  fatalDeprecations?: unknown;
+  silenceDeprecations?: unknown;
+  futureDeprecations?: unknown;
   /** rust-sass extension: an explicit filesystem delegate (docs/ref/wasm.md, "Io bridge"). The
    * shim injects the Node `node:fs` delegate (or the browser throwing
    * delegate) when absent; a user may pass a custom one (e.g. http fs). */

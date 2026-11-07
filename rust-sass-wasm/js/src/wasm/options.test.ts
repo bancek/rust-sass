@@ -135,6 +135,57 @@ describe.skipIf(!artifactsPresent)('deprecation lists parity with sass', () => {
     ).not.toThrow();
   });
 
+  it('accepts a single deprecation selector', () => {
+    expect(() =>
+      compileString(source, { fatalDeprecations: 'new-global' }),
+    ).toThrow(Exception);
+  });
+
+  it('supports include/exclude selector differences', () => {
+    const warnings: string[] = [];
+    expect(() =>
+      compileString(source, {
+        fatalDeprecations: { include: 'new-global', exclude: 'new-global' },
+        logger: { warn: (message: string) => warnings.push(message) },
+      }),
+    ).not.toThrow();
+    expect(warnings.length).toBeGreaterThan(0);
+
+    expect(() =>
+      compileString(source, {
+        fatalDeprecations: { include: 'new-global', exclude: 'import' },
+      }),
+    ).toThrow(
+      'The deprecation "import" was excluded from a DeprecationSelectorDifference that didn\'t include it.',
+    );
+  });
+
+  it('supports dartSass2', () => {
+    expect(() =>
+      compileString(source, { fatalDeprecations: deprecations.dartSass2 }),
+    ).toThrow(Exception);
+
+    // `if-function` is excluded from dartSass2, so this warning is not fatal.
+    const warnings: string[] = [];
+    expect(() =>
+      compileString('a {b: if(true, c, d)}', {
+        fatalDeprecations: deprecations.dartSass2,
+        logger: { warn: (message: string) => warnings.push(message) },
+      }),
+    ).not.toThrow();
+    expect(warnings.length).toBeGreaterThan(0);
+  });
+
+  it('warns for a version newer than the compiler', () => {
+    const warnings: string[] = [];
+    compileString('a {b: c}', {
+      fatalDeprecations: new Version(99, 0, 0),
+      logger: { warn: (message: string) => warnings.push(message) },
+    });
+    expect(warnings.length).toBe(1);
+    expect(warnings[0]).toContain('Version "99.0.0" is beyond the current');
+  });
+
   it('warns about unknown deprecation ids via the logger', () => {
     const oursWarnings: unknown[][] = [];
     const theirsWarnings: unknown[][] = [];

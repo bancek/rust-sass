@@ -82,6 +82,14 @@ pub mod inbound_message {
         /// Deprecation IDs to opt into early.
         #[prost(string, repeated, tag = "17")]
         pub future_deprecation: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+        /// Deprecation IDs to treat as normal deprecations, even if they appear in
+        /// `fatal_deprecation`.
+        ///
+        /// The compiler must throw an error if a deprecation appears here and not in
+        /// `fatal_deprecation` (including deprecations marked fatal via version
+        /// number).
+        #[prost(string, repeated, tag = "18")]
+        pub fatal_deprecation_except: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
         /// The input stylesheet to parse. Mandatory.
         #[prost(oneof = "compile_request::Input", tags = "2, 3")]
         pub input: ::core::option::Option<compile_request::Input>,

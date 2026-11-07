@@ -157,9 +157,9 @@ pub fn build_command() -> Command {
         "Print all deprecation warnings even when they're repetitive.",
     );
     cmd = cmd
-        .arg(Arg::new("fatal-deprecation").long("fatal-deprecation").action(ArgAction::Append).value_name("DEPRECATION").help("Deprecations to treat as errors. You may also pass a Sass version to include any behavior deprecated in or before it."))
-        .arg(Arg::new("silence-deprecation").long("silence-deprecation").action(ArgAction::Append).value_name("DEPRECATION").help("Deprecations to ignore."))
-        .arg(Arg::new("future-deprecation").long("future-deprecation").action(ArgAction::Append).value_name("DEPRECATION").help("Opt in to a deprecation early."));
+        .arg(Arg::new("fatal-deprecation").long("fatal-deprecation").action(ArgAction::Append).value_delimiter(',').value_name("DEPRECATION").help("Deprecations to treat as errors. You may also pass a Sass\nversion to include any behavior deprecated in or before it,\nor -{deprecation} to exclude a deprecation that would be included\nby version. See https://sass-lang.com/documentation/breaking-changes\nfor a complete list."))
+        .arg(Arg::new("silence-deprecation").long("silence-deprecation").action(ArgAction::Append).value_delimiter(',').value_name("DEPRECATION").help("Deprecations to ignore."))
+        .arg(Arg::new("future-deprecation").long("future-deprecation").action(ArgAction::Append).value_delimiter(',').value_name("DEPRECATION").help("Opt in to a deprecation early."));
 
     cmd = neg_flag(
         cmd,
@@ -646,7 +646,21 @@ fn resolve_fatal_deprecations(
     matches: &ArgMatches,
 ) -> Result<Vec<&'static Deprecation>, UsageError> {
     let mut out: HashSet<&'static Deprecation> = HashSet::new();
+    let mut excluded: HashSet<&'static Deprecation> = HashSet::new();
     for id in get_strings(matches, "fatal-deprecation") {
+        if let Some(name) = id.strip_prefix('-') {
+            match deprecation::from_id(name) {
+                Some(d) => {
+                    excluded.insert(d);
+                }
+                None => return Err(UsageError(format!("Invalid deprecation \"{id}\"."))),
+            }
+            continue;
+        }
+        if id == "dart-sass-2" {
+            out.extend(deprecation::dart_sass_2());
+            continue;
+        }
         if let Some(d) = deprecation::from_id(&id) {
             out.insert(d);
             continue;
@@ -662,6 +676,13 @@ fn resolve_fatal_deprecations(
             )));
         }
         out.extend(deprecation::for_version(&id));
+    }
+    for d in excluded {
+        if !out.remove(d) {
+            return Err(UsageError(format!(
+                "The fatal deprecation \"{d}\" was excluded without first being included."
+            )));
+        }
     }
     Ok(out.into_iter().collect())
 }
@@ -1071,6 +1092,36 @@ mod tests {
             parse_err(&["--silence-deprecation=nope", "a.scss"]),
             "Invalid deprecation \"nope\"."
         );
+        assert_eq!(
+            parse_err(&["--fatal-deprecation=-nope", "a.scss"]),
+            "Invalid deprecation \"-nope\"."
+        );
+    }
+
+    #[test]
+    fn fatal_deprecation_exclusions() {
+        let o = parse(&["--fatal-deprecation=1.106.0,-import", "a.scss"]).unwrap();
+        assert!(o.fatal_deprecations().iter().any(|d| d.id == "new-global"));
+        assert!(!o.fatal_deprecations().iter().any(|d| d.id == "import"));
+
+        assert_eq!(
+            parse_err(&["--fatal-deprecation=-import", "a.scss"]),
+            "The fatal deprecation \"import\" was excluded without first being included."
+        );
+    }
+
+    #[test]
+    fn fatal_deprecation_dart_sass_2() {
+        let o = parse(&["--fatal-deprecation=dart-sass-2", "a.scss"]).unwrap();
+        assert!(o.fatal_deprecations().iter().any(|d| d.id == "new-global"));
+        for excluded in [
+            "color-module-compat",
+            "import",
+            "global-builtin",
+            "if-function",
+        ] {
+            assert!(!o.fatal_deprecations().iter().any(|d| d.id == excluded));
+        }
     }
 
     #[test]

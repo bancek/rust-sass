@@ -546,6 +546,7 @@ fn build_stdin_initial(case: &Case) -> Vec<u8> {
                 fatal_deprecation: case.fatal.iter().map(|s| s.to_string()).collect(),
                 silence_deprecation: case.silence.iter().map(|s| s.to_string()).collect(),
                 future_deprecation: case.future.iter().map(|s| s.to_string()).collect(),
+                fatal_deprecation_except: Vec::new(),
                 input: Some(input),
             },
         )),
