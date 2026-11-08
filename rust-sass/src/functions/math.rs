@@ -1479,7 +1479,7 @@ mod tests {
         ];
         assert_eq!(m.functions.len(), want.len());
         for (i, (name, _)) in m.functions.iter().enumerate() {
-            assert_eq!(name, want[i], "functions[{i}]");
+            assert_eq!(*name, want[i], "functions[{i}]");
         }
     }
 
@@ -1505,7 +1505,7 @@ mod tests {
         ];
         assert_eq!(m.variables.len(), want_order.len());
         for (i, (name, _)) in m.variables.iter().enumerate() {
-            assert_eq!(name, want_order[i], "variables[{i}]");
+            assert_eq!(*name, want_order[i], "variables[{i}]");
         }
         let want_values: [(&str, f64); 7] = [
             ("e", E),

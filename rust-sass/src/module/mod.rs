@@ -21,6 +21,7 @@ use bumpalo::Bump;
 use crate::url::SassUrl;
 use indexmap::IndexMap;
 
+use crate::arena_map::ArenaMap;
 use crate::ast::css::comment::CssComment;
 use crate::ast::css::modifiable_node::{ModifiableCssNode, ModifiableCssNodeKind};
 use crate::ast::css::stylesheet::ModifiableCssStylesheet;
@@ -38,12 +39,15 @@ use crate::value::Value;
 /// stored keyed by their own names; variables are immutable once constructed.
 #[derive(Clone)]
 pub struct BuiltInModule<'compile, 'parse> {
-    pub url: String,
-    pub variables: IndexMap<String, Value<'parse>>,
-    pub functions: IndexMap<String, Callable<'compile, 'parse>>,
-    pub mixins: IndexMap<String, Callable<'compile, 'parse>>,
+    pub url: &'parse str,
+    pub variables: ArenaMap<'parse, &'parse str, Value<'parse>>,
+    pub functions: ArenaMap<'parse, &'parse str, Callable<'compile, 'parse>>,
+    pub mixins: ArenaMap<'parse, &'parse str, Callable<'compile, 'parse>>,
     pub css: ModifiableCssNode<'parse>,
-    variable_nodes: IndexMap<String, FileSpan<'parse>>,
+    variable_nodes: ArenaMap<'parse, &'parse str, FileSpan<'parse>>,
+    // Always empty for built-in modules. Kept as a std map because the shared
+    // `Module::pre_module_comments` accessor still returns an IndexMap; an
+    // empty map allocates nothing.
     pre_module_comments: IndexMap<Module<'compile, 'parse>, Vec<CssComment<'parse>>>,
 }
 
@@ -57,29 +61,38 @@ impl<'compile: 'parse, 'parse> BuiltInModule<'compile, 'parse> {
         mixins: &[Callable<'compile, 'parse>],
         variables: IndexMap<String, Value<'parse>>,
     ) -> Self {
-        let fn_map: IndexMap<String, Callable<'compile, 'parse>> = functions
-            .iter()
-            .map(|f| (f.name().to_string(), *f))
-            .collect();
-        let mx_map: IndexMap<String, Callable<'compile, 'parse>> =
-            mixins.iter().map(|m| (m.name().to_string(), *m)).collect();
+        let mut fn_map: ArenaMap<'parse, &'parse str, Callable<'compile, 'parse>> =
+            ArenaMap::new_in(arena);
+        for f in functions {
+            fn_map.insert(arena.alloc_str(f.name()), *f);
+        }
+        let mut mx_map: ArenaMap<'parse, &'parse str, Callable<'compile, 'parse>> =
+            ArenaMap::new_in(arena);
+        for m in mixins {
+            mx_map.insert(arena.alloc_str(m.name()), *m);
+        }
+        let mut var_map: ArenaMap<'parse, &'parse str, Value<'parse>> = ArenaMap::new_in(arena);
+        for (key, value) in variables {
+            var_map.insert(arena.alloc_str(&key), value);
+        }
+        let url: &'parse str = arena.alloc_str(&format!("sass:{name}"));
         BuiltInModule {
-            url: format!("sass:{name}"),
-            variables,
+            url,
+            variables: var_map,
             functions: fn_map,
             mixins: mx_map,
             css: ModifiableCssNode::new(
                 arena,
                 ModifiableCssNodeKind::Stylesheet(ModifiableCssStylesheet::new(BOGUS_SPAN)),
             ),
-            variable_nodes: IndexMap::new(),
+            variable_nodes: ArenaMap::new_in(arena),
             pre_module_comments: IndexMap::new(),
         }
     }
 
     /// The canonical URL for this module's source file (`sass:<name>`).
     pub fn url(&self) -> SassResult<Option<SassUrl>> {
-        Ok(Some(SassUrl::parse(&self.url).map_err(|_| {
+        Ok(Some(SassUrl::parse(self.url).map_err(|_| {
             SassError::Script {
                 message: format!("Invalid module URL: {}", self.url),
                 argument_name: None,
@@ -88,13 +101,13 @@ impl<'compile: 'parse, 'parse> BuiltInModule<'compile, 'parse> {
     }
 
     /// Matches Go: BuiltInModule.AddFunction.
-    pub fn add_function(&mut self, fn_: Callable<'compile, 'parse>) {
-        self.functions.insert(fn_.name().to_string(), fn_);
+    pub fn add_function(&mut self, arena: &'parse Bump, fn_: Callable<'compile, 'parse>) {
+        self.functions.insert(arena.alloc_str(fn_.name()), fn_);
     }
 
     /// Matches Go: BuiltInModule.AddMixin.
-    pub fn add_mixin(&mut self, mx: Callable<'compile, 'parse>) {
-        self.mixins.insert(mx.name().to_string(), mx);
+    pub fn add_mixin(&mut self, arena: &'parse Bump, mx: Callable<'compile, 'parse>) {
+        self.mixins.insert(arena.alloc_str(mx.name()), mx);
     }
 
     /// Modules that this module uses. Built-in modules use no others.
@@ -104,7 +117,7 @@ impl<'compile: 'parse, 'parse> BuiltInModule<'compile, 'parse> {
 
     /// The nodes where each variable was defined. Built-in modules carry no
     /// spans, so this is always empty.
-    pub fn variable_nodes(&self) -> &IndexMap<String, FileSpan<'parse>> {
+    pub fn variable_nodes(&self) -> &ArenaMap<'parse, &'parse str, FileSpan<'parse>> {
         &self.variable_nodes
     }
 
@@ -293,9 +306,7 @@ impl<'compile: 'parse, 'parse> Module<'compile, 'parse> {
 
     pub fn variables_view(&self, arena: &'compile Bump) -> &'parse dyn MemberMap<Value<'parse>> {
         match self.0 {
-            ModuleKind::BuiltIn(b) => arena.alloc(member_map::IndexMapView {
-                map: b.variables.clone(),
-            }),
+            ModuleKind::BuiltIn(b) => arena.alloc(member_map::ArenaMapView { map: &b.variables }),
             ModuleKind::Forwarded(f) => f.variables,
             ModuleKind::Shadowed(s) => s.variables,
             ModuleKind::Environment(e) => e.variables,
@@ -319,8 +330,8 @@ impl<'compile: 'parse, 'parse> Module<'compile, 'parse> {
         arena: &'compile Bump,
     ) -> &'parse dyn MemberMap<FileSpan<'parse>> {
         match self.0 {
-            ModuleKind::BuiltIn(b) => arena.alloc(member_map::IndexMapView {
-                map: b.variable_nodes().clone(),
+            ModuleKind::BuiltIn(b) => arena.alloc(member_map::ArenaMapView {
+                map: b.variable_nodes(),
             }),
             ModuleKind::Forwarded(f) => f.variable_nodes,
             ModuleKind::Shadowed(s) => s.variable_nodes,
@@ -343,9 +354,7 @@ impl<'compile: 'parse, 'parse> Module<'compile, 'parse> {
         arena: &'compile Bump,
     ) -> &'parse dyn MemberMap<Callable<'compile, 'parse>> {
         match self.0 {
-            ModuleKind::BuiltIn(b) => arena.alloc(member_map::IndexMapView {
-                map: b.functions.clone(),
-            }),
+            ModuleKind::BuiltIn(b) => arena.alloc(member_map::ArenaMapView { map: &b.functions }),
             ModuleKind::Forwarded(f) => f.functions,
             ModuleKind::Shadowed(s) => s.functions,
             ModuleKind::Environment(e) => e.functions,
@@ -367,9 +376,7 @@ impl<'compile: 'parse, 'parse> Module<'compile, 'parse> {
         arena: &'compile Bump,
     ) -> &'parse dyn MemberMap<Callable<'compile, 'parse>> {
         match self.0 {
-            ModuleKind::BuiltIn(b) => arena.alloc(member_map::IndexMapView {
-                map: b.mixins.clone(),
-            }),
+            ModuleKind::BuiltIn(b) => arena.alloc(member_map::ArenaMapView { map: &b.mixins }),
             ModuleKind::Forwarded(f) => f.mixins,
             ModuleKind::Shadowed(s) => s.mixins,
             ModuleKind::Environment(e) => e.mixins,
@@ -546,7 +553,7 @@ use std::fmt::Debug;
 
 #[derive(Clone, Copy)]
 pub enum ModuleVariables<'a, V: Clone + Debug> {
-    Owned(&'a IndexMap<String, V>),
+    Owned(&'a ArenaMap<'a, &'a str, V>),
     View(&'a dyn MemberMap<V>),
 }
 
@@ -578,14 +585,16 @@ impl<'a, V: Clone + Debug> ModuleVariables<'a, V> {
 
     pub fn keys(&self) -> Vec<String> {
         match self {
-            ModuleVariables::Owned(m) => m.keys().cloned().collect(),
+            ModuleVariables::Owned(m) => m.keys().map(|k| k.to_string()).collect(),
             ModuleVariables::View(v) => v.keys(),
         }
     }
 
     pub fn entries(&self) -> Vec<(String, V)> {
         match self {
-            ModuleVariables::Owned(m) => m.iter().map(|(k, v)| (k.clone(), v.clone())).collect(),
+            ModuleVariables::Owned(m) => {
+                m.iter().map(|(k, v)| (k.to_string(), v.clone())).collect()
+            }
             ModuleVariables::View(v) => v.entries(),
         }
     }

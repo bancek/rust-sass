@@ -97,6 +97,43 @@ impl<V: Clone + Debug> MemberMap<V> for IndexMapView<V> {
 }
 
 // ===========================================================================
+// ArenaMapView — borrows an arena map (for BuiltInModule, immutable).
+//
+// Rust-only: Dart's built-ins hold plain maps; the view bridges them to the
+// `MemberMap` composition chain without copying.
+// ===========================================================================
+
+#[derive(Debug)]
+pub struct ArenaMapView<'a, 'p, V: Clone + Debug> {
+    pub map: &'a ArenaMap<'p, &'p str, V>,
+}
+
+impl<'a, 'p, V: Clone + Debug> MemberMap<V> for ArenaMapView<'a, 'p, V> {
+    fn get(&self, key: &str) -> Option<V> {
+        self.map.get(key).cloned()
+    }
+
+    fn has(&self, key: &str) -> bool {
+        self.map.contains_key(key)
+    }
+
+    fn len(&self) -> usize {
+        self.map.len()
+    }
+
+    fn keys(&self) -> Vec<String> {
+        self.map.keys().map(|k| k.to_string()).collect()
+    }
+
+    fn entries(&self) -> Vec<(String, V)> {
+        self.map
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.clone()))
+            .collect()
+    }
+}
+
+// ===========================================================================
 // RefCellMap — wraps &RefCell<ArenaMap> for live environment views.
 // Reads through RefCell on each access to see mutations.
 //

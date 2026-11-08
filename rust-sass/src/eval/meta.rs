@@ -177,7 +177,13 @@ where
             let fn_callable = state
                 .env
                 .get_function(&normalized, None)?
-                .or_else(|| config.built_in_functions.borrow().get(&normalized).cloned())
+                .or_else(|| {
+                    config
+                        .built_in_functions
+                        .borrow()
+                        .get(normalized.as_str())
+                        .cloned()
+                })
                 .unwrap_or_else(|| {
                     Callable::new(
                         arena,
@@ -267,10 +273,10 @@ where
     let mixins = create_meta_mixins(v, arena);
 
     for f in &fns {
-        meta_mod.add_function(*f);
+        meta_mod.add_function(arena, *f);
     }
     for m in &mixins {
-        meta_mod.add_mixin(*m);
+        meta_mod.add_mixin(arena, *m);
     }
 
     let module = Module::new(arena, ModuleKind::BuiltIn(meta_mod));
@@ -284,7 +290,7 @@ where
         match fn_.kind() {
             CallableKind::BuiltIn(b) => {
                 let wrapped = b.with_deprecation_warning(arena, "meta", None);
-                let key = wrapped.name().replace("_", "-");
+                let key = arena.alloc_str(&wrapped.name().replace("_", "-"));
                 v.config
                     .built_in_functions
                     .borrow_mut()
@@ -721,7 +727,10 @@ where
                             let callable = match module {
                                 Some(module) => module.functions().get(&normalized),
                                 None => env.get_function(&normalized, None)?.or_else(|| {
-                                    built_in_functions.borrow().get(&normalized).cloned()
+                                    built_in_functions
+                                        .borrow()
+                                        .get(normalized.as_str())
+                                        .cloned()
                                 }),
                             };
                             match callable {
@@ -1681,10 +1690,10 @@ mod tests {
         let mut v = new_visitor(&arena);
         // Host globals live in `_builtInFunctions` in Dart, so register here
         // (normalized key) rather than in the `global_functions` side list.
-        v.config
-            .built_in_functions
-            .borrow_mut()
-            .insert("global-fn".to_string(), noop_callable(&arena, "global-fn"));
+        v.config.built_in_functions.borrow_mut().insert(
+            arena.alloc_str("global-fn"),
+            noop_callable(&arena, "global-fn"),
+        );
         assert_bool(
             &eval_ok(
                 &mut v,
@@ -1717,7 +1726,7 @@ mod tests {
         v.config
             .built_in_functions
             .borrow_mut()
-            .insert("my-fn".to_string(), noop_callable(&arena, "my_fn"));
+            .insert(arena.alloc_str("my-fn"), noop_callable(&arena, "my_fn"));
         for (name, want) in [
             ("apply", false),
             ("load-css", false),
@@ -2117,7 +2126,7 @@ mod tests {
         v.config
             .built_in_functions
             .borrow_mut()
-            .insert("builtin-fn".into(), fn_);
+            .insert("builtin-fn", fn_);
         let got = eval_ok(
             &mut v,
             "get-function",
@@ -2138,7 +2147,7 @@ mod tests {
         v.config
             .built_in_functions
             .borrow_mut()
-            .insert("builtin-fn".into(), noop_callable(&arena, "builtin-fn"));
+            .insert("builtin-fn", noop_callable(&arena, "builtin-fn"));
         module_with(&mut v, &arena, "m", vec![], vec![], &[]);
         assert_script_err(
             eval_fn(

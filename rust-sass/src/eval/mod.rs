@@ -22,8 +22,13 @@ use std::collections::HashSet;
 use std::fmt;
 use std::rc::Rc;
 
+use allocator_api2::vec::Vec as AllocVec;
 use bumpalo::Bump;
 use indexmap::IndexMap;
+
+use crate::arena_map::ArenaMap;
+
+type ArenaVec<'p, T> = AllocVec<T, &'p Bump>;
 
 use crate::ast::sass::expression::Expression;
 use crate::ast::sass::statement::{Statement, Stylesheet};
@@ -193,11 +198,12 @@ pub struct EvalConfig<'compile, 'parse> {
     /// RefCell` — meta callbacks capture the reference (Copy).
     ///
     /// Matches Dart: `_EvaluateVisitor._builtInFunctions`.
-    pub built_in_functions: &'parse RefCell<IndexMap<String, Callable<'compile, 'parse>>>,
+    pub built_in_functions:
+        &'parse RefCell<ArenaMap<'parse, &'parse str, Callable<'compile, 'parse>>>,
     /// User-supplied callables available as global functions. Shared mutable
     /// via arena `&'parse RefCell` — meta callbacks capture the reference
     /// (Copy).
-    pub global_functions: &'parse RefCell<Vec<Callable<'compile, 'parse>>>,
+    pub global_functions: &'parse RefCell<ArenaVec<'parse, Callable<'compile, 'parse>>>,
     /// Logger used to print warnings.
     ///
     /// Matches Dart: `_EvaluateVisitor._logger`.
@@ -254,8 +260,8 @@ impl<'compile: 'parse, 'parse> EvalConfig<'compile, 'parse> {
     ) -> Self {
         EvalConfig {
             built_in_modules: IndexMap::new(),
-            built_in_functions: &*arena.alloc(RefCell::new(IndexMap::new())),
-            global_functions: &*arena.alloc(RefCell::new(Vec::new())),
+            built_in_functions: &*arena.alloc(RefCell::new(ArenaMap::new_in(arena))),
+            global_functions: &*arena.alloc(RefCell::new(ArenaVec::new_in(arena))),
             logger,
             quiet_deps: false,
             source_map: false,
@@ -638,7 +644,7 @@ where
 
     // Register user functions (matching Go's RegisterUserFunctions)
     for f in functions.iter() {
-        let normalized = f.name().replace('_', "-");
+        let normalized = arena.alloc_str(&f.name().replace('_', "-"));
         v.config
             .built_in_functions
             .borrow_mut()
@@ -874,7 +880,7 @@ impl<'compile: 'parse, 'parse> Evaluator<'compile, 'parse> {
         visitor.config.node_importer = node_importer;
 
         for f in functions {
-            let normalized = f.name().replace('_', "-");
+            let normalized = arena.alloc_str(&f.name().replace('_', "-"));
             visitor
                 .config
                 .built_in_functions

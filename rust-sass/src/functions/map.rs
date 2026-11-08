@@ -3454,7 +3454,7 @@ mod tests {
         ];
         assert_eq!(m.functions.len(), want.len());
         for (i, name) in m.functions.keys().enumerate() {
-            assert_eq!(name.as_str(), want[i], "functions[{i}]");
+            assert_eq!(*name, want[i], "functions[{i}]");
         }
     }
 

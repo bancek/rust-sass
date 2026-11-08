@@ -846,7 +846,7 @@ where
                 )
             } else {
                 let bf = config.built_in_functions.borrow();
-                if let Some(c) = bf.get(&expr.name) {
+                if let Some(c) = bf.get(expr.name.as_str()) {
                     *c
                 } else {
                     // Check global functions
