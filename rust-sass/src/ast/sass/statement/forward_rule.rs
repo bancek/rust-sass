@@ -11,6 +11,8 @@ use std::collections::HashSet;
 use std::fmt;
 use std::fmt::Write;
 
+use bumpalo::Bump;
+
 use crate::url::OwnedUrl;
 
 use crate::common::ast_node::AstNode;
@@ -61,7 +63,7 @@ pub struct ForwardRule<'parse> {
     pub hidden_variables: Option<HashSet<String>>,
     /// The prefix added to the front of member names from the forwarded
     /// module, or `None` when member names are used as-is.
-    pub prefix: Option<String>,
+    pub prefix: Option<&'parse str>,
     /// The variable assignments used to configure the forwarded module.
     pub configuration: Vec<ConfiguredVariable<'parse>>,
     pub span: FileSpan<'parse>,
@@ -70,9 +72,10 @@ pub struct ForwardRule<'parse> {
 impl<'parse> ForwardRule<'parse> {
     /// Creates a `@forward` rule that allows all members to be accessed.
     pub fn new(
+        arena: &'parse Bump,
         url: OwnedUrl,
         span: FileSpan<'parse>,
-        prefix: Option<String>,
+        prefix: Option<&str>,
         configuration: Vec<ConfiguredVariable<'parse>>,
     ) -> Self {
         ForwardRule {
@@ -83,7 +86,7 @@ impl<'parse> ForwardRule<'parse> {
             shown_order_vars: None,
             hidden_mixins_and_functions: None,
             hidden_variables: None,
-            prefix,
+            prefix: prefix.map(|p| &*arena.alloc_str(p)),
             configuration,
             span,
         }
@@ -92,14 +95,16 @@ impl<'parse> ForwardRule<'parse> {
     /// Creates a `@forward` rule that allows only the listed members to be
     /// accessed.
     pub fn show(
+        arena: &'parse Bump,
         url: OwnedUrl,
         shown_mixins_and_functions: HashSet<String>,
         shown_variables: HashSet<String>,
         span: FileSpan<'parse>,
-        prefix: Option<String>,
+        prefix: Option<&str>,
         configuration: Vec<ConfiguredVariable<'parse>>,
     ) -> Self {
         Self::show_ordered(
+            arena,
             url,
             shown_mixins_and_functions,
             shown_variables,
@@ -117,13 +122,14 @@ impl<'parse> ForwardRule<'parse> {
     // diverge from the sibling `show` constructor shape.
     #[allow(clippy::too_many_arguments)]
     pub fn show_ordered(
+        arena: &'parse Bump,
         url: OwnedUrl,
         shown_mixins_and_functions: HashSet<String>,
         shown_variables: HashSet<String>,
         shown_order_mf: Vec<String>,
         shown_order_vars: Vec<String>,
         span: FileSpan<'parse>,
-        prefix: Option<String>,
+        prefix: Option<&str>,
         configuration: Vec<ConfiguredVariable<'parse>>,
     ) -> Self {
         ForwardRule {
@@ -134,7 +140,7 @@ impl<'parse> ForwardRule<'parse> {
             shown_order_vars: Some(shown_order_vars),
             hidden_mixins_and_functions: None,
             hidden_variables: None,
-            prefix,
+            prefix: prefix.map(|p| &*arena.alloc_str(p)),
             configuration,
             span,
         }
@@ -143,11 +149,12 @@ impl<'parse> ForwardRule<'parse> {
     /// Creates a `@forward` rule that allows only members *not* in the
     /// given lists to be accessed.
     pub fn hide(
+        arena: &'parse Bump,
         url: OwnedUrl,
         hidden_mixins_and_functions: HashSet<String>,
         hidden_variables: HashSet<String>,
         span: FileSpan<'parse>,
-        prefix: Option<String>,
+        prefix: Option<&str>,
         configuration: Vec<ConfiguredVariable<'parse>>,
     ) -> Self {
         ForwardRule {
@@ -158,7 +165,7 @@ impl<'parse> ForwardRule<'parse> {
             shown_order_vars: None,
             hidden_mixins_and_functions: Some(hidden_mixins_and_functions),
             hidden_variables: Some(hidden_variables),
-            prefix,
+            prefix: prefix.map(|p| &*arena.alloc_str(p)),
             configuration,
             span,
         }
@@ -259,7 +266,7 @@ mod tests {
         let arena = Bump::new();
         let span = make_span(&arena, "@forward 'mod';");
         let url = OwnedUrl::parse("https://example.com/module").unwrap();
-        let fr = ForwardRule::new(url.clone(), span, None, vec![]);
+        let fr = ForwardRule::new(&arena, url.clone(), span, None, vec![]);
         assert_eq!(fr.url, url);
     }
 
@@ -268,7 +275,7 @@ mod tests {
         let arena = Bump::new();
         let span = make_span(&arena, "@forward 'mod';");
         let url = OwnedUrl::parse("https://example.com/module").unwrap();
-        let fr = ForwardRule::new(url, span, None, vec![]);
+        let fr = ForwardRule::new(&arena, url, span, None, vec![]);
         let s = format!("{fr}");
         assert!(s.starts_with("@forward "), "got {s:?}");
     }

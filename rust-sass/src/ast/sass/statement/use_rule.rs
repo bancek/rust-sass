@@ -10,6 +10,8 @@
 use std::fmt;
 use std::fmt::Write;
 
+use bumpalo::Bump;
+
 use crate::url::OwnedUrl;
 
 use crate::common::ast_node::AstNode;
@@ -27,7 +29,7 @@ pub struct UseRule<'parse> {
     pub url: OwnedUrl,
     /// The namespace for the loaded module's members, or `None` for
     /// namespace-less access.
-    pub namespace: Option<String>,
+    pub namespace: Option<&'parse str>,
     /// Variable assignments configuring the loaded module.
     pub configuration: Vec<ConfiguredVariable<'parse>>,
     pub span: FileSpan<'parse>,
@@ -35,8 +37,9 @@ pub struct UseRule<'parse> {
 
 impl<'parse> UseRule<'parse> {
     pub fn new(
+        arena: &'parse Bump,
         url: OwnedUrl,
-        namespace: Option<String>,
+        namespace: Option<&str>,
         span: FileSpan<'parse>,
         configuration: Vec<ConfiguredVariable<'parse>>,
     ) -> SassResult<Self> {
@@ -53,7 +56,7 @@ impl<'parse> UseRule<'parse> {
         }
         Ok(UseRule {
             url,
-            namespace,
+            namespace: namespace.map(|ns| &*arena.alloc_str(ns)),
             configuration,
             span,
         })
@@ -78,7 +81,7 @@ impl<'parse> UseRule<'parse> {
         let mut buf = String::new();
         write!(buf, "@use \"{}\"", self.url).unwrap();
         let basename = url_basename(&self.url);
-        let effective_ns = self.namespace.as_deref();
+        let effective_ns = self.namespace;
         if effective_ns.is_none() || effective_ns != Some(basename) {
             write!(buf, " as ").unwrap();
             if effective_ns.is_none() {
@@ -139,7 +142,7 @@ mod tests {
         let arena = Bump::new();
         let span = make_span(&arena, "@use 'mod';");
         let url = OwnedUrl::parse("https://example.com/module").unwrap();
-        let ur = UseRule::new(url.clone(), None, span, vec![]).unwrap();
+        let ur = UseRule::new(&arena, url.clone(), None, span, vec![]).unwrap();
         assert_eq!(ur.url, url);
     }
 
@@ -148,7 +151,7 @@ mod tests {
         let arena = Bump::new();
         let span = make_span(&arena, "@use 'mod';");
         let url = OwnedUrl::parse("https://example.com/module").unwrap();
-        let ur = UseRule::new(url, None, span, vec![]).unwrap();
+        let ur = UseRule::new(&arena, url, None, span, vec![]).unwrap();
         let s = format!("{ur}");
         assert!(s.starts_with("@use "), "got {s:?}");
     }

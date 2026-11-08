@@ -7,6 +7,8 @@
 // dart-source: lib/src/ast/sass/statement/variable_declaration.dart
 // go-source: go/value/sass_statement_variable_declaration.go
 
+use bumpalo::Bump;
+
 use crate::common::span_error::SpanError;
 use crate::util::trim_ascii::trim_ascii_right;
 use std::fmt;
@@ -27,13 +29,13 @@ use crate::ast::sass::statement::silent_comment::SilentComment;
 /// This defines or assigns a variable.
 pub struct VariableDeclaration<'parse> {
     /// The variable name, with underscores converted to hyphens.
-    pub name: String,
+    pub name: &'parse str,
     /// The value being assigned.
     pub expression: Expression<'parse>,
     pub span: FileSpan<'parse>,
     /// The namespace of the variable being set, if it belongs to another
     /// module.
-    pub namespace: Option<String>,
+    pub namespace: Option<&'parse str>,
     /// Whether this is a guarded assignment, which only applies when the
     /// variable is undefined or null.
     pub guarded: bool,
@@ -44,11 +46,15 @@ pub struct VariableDeclaration<'parse> {
 }
 
 impl<'parse> VariableDeclaration<'parse> {
+    // Arity mirrors Dart's constructor (name, value, span, namespace, guarded,
+    // global, comment) plus the arena the name is allocated in.
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
-        name: String,
+        arena: &'parse Bump,
+        name: &str,
         expression: Expression<'parse>,
         span: FileSpan<'parse>,
-        namespace: Option<String>,
+        namespace: Option<&str>,
         guarded: bool,
         global: bool,
         comment: Option<SilentComment<'parse>>,
@@ -60,10 +66,10 @@ impl<'parse> VariableDeclaration<'parse> {
             })));
         }
         Ok(VariableDeclaration {
-            name,
+            name: arena.alloc_str(name),
             expression,
             span,
-            namespace,
+            namespace: namespace.map(|ns| &*arena.alloc_str(ns)),
             guarded,
             is_global: global,
             comment: comment.map(Box::new),
@@ -116,13 +122,13 @@ impl<'parse> AstNode<'parse> for VariableDeclaration<'parse> {
 impl<'parse> VariableDeclaration<'parse> {
     pub fn to_display_string(&self) -> SassResult<String> {
         let mut buf = String::new();
-        if let Some(ref ns) = self.namespace {
+        if let Some(ns) = self.namespace {
             write!(buf, "{}.", to_css_identifier(ns)?).unwrap();
         }
         write!(
             buf,
             "${}: {};",
-            to_css_identifier(&self.name)?,
+            to_css_identifier(self.name)?,
             Expression::to_display_string(&self.expression)?
         )
         .unwrap();
@@ -154,7 +160,7 @@ mod tests {
         let expr =
             Expression::Boolean(BooleanExpression::new(true, FileSpan::new(Some(fs), 7, 11)));
         let vd =
-            VariableDeclaration::new("name".into(), expr, span, None, false, false, None).unwrap();
+            VariableDeclaration::new(&arena, "name", expr, span, None, false, false, None).unwrap();
         assert_eq!(vd.name, "name");
     }
 
@@ -166,7 +172,7 @@ mod tests {
         let expr =
             Expression::Boolean(BooleanExpression::new(true, FileSpan::new(Some(fs), 7, 11)));
         let vd =
-            VariableDeclaration::new("name".into(), expr, span, None, false, false, None).unwrap();
+            VariableDeclaration::new(&arena, "name", expr, span, None, false, false, None).unwrap();
         let got = vd.name_span().unwrap();
         assert_eq!(got.text(), "$name");
     }
@@ -179,23 +185,17 @@ mod tests {
         let expr =
             Expression::Boolean(BooleanExpression::new(true, FileSpan::new(Some(fs), 7, 11)));
         let vd =
-            VariableDeclaration::new("name".into(), expr, span, None, false, false, None).unwrap();
+            VariableDeclaration::new(&arena, "name", expr, span, None, false, false, None).unwrap();
         assert_eq!(format!("{vd}"), "$name: true;");
     }
 
     #[test]
     fn test_global_namespace_error() {
+        let arena = Bump::new();
         let span = FileSpan::new(None, 0, 0);
         let expr = Expression::Boolean(BooleanExpression::new(true, span));
-        let result = VariableDeclaration::new(
-            "name".into(),
-            expr,
-            span,
-            Some("mod".into()),
-            false,
-            true,
-            None,
-        );
+        let result =
+            VariableDeclaration::new(&arena, "name", expr, span, Some("mod"), false, true, None);
         assert!(result.is_err());
     }
 }

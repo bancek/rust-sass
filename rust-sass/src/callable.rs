@@ -1115,9 +1115,10 @@ mod tests {
 
     // --- UserDefinedCallable ---
 
-    fn mixin_declaration<'parse>(name: &str) -> CallableDeclaration<'parse> {
+    fn mixin_declaration<'parse>(arena: &'parse Bump, name: &str) -> CallableDeclaration<'parse> {
         CallableDeclaration::Mixin(MixinRule::new(
-            name.to_string(),
+            arena,
+            name,
             ParameterList::empty(BOGUS_SPAN),
             &[],
             BOGUS_SPAN,
@@ -1125,9 +1126,13 @@ mod tests {
         ))
     }
 
-    fn function_declaration<'parse>(name: &str) -> CallableDeclaration<'parse> {
+    fn function_declaration<'parse>(
+        arena: &'parse Bump,
+        name: &str,
+    ) -> CallableDeclaration<'parse> {
         CallableDeclaration::Function(FunctionRule::new(
-            name.to_string(),
+            arena,
+            name,
             ParameterList::empty(BOGUS_SPAN),
             &[],
             BOGUS_SPAN,
@@ -1139,7 +1144,7 @@ mod tests {
     fn test_user_defined_callable_new() {
         let arena = Bump::new();
         let ud = UserDefinedCallable::new(
-            function_declaration("my_fn"),
+            function_declaration(&arena, "my_fn"),
             Environment::new(&arena),
             false,
         );
@@ -1153,7 +1158,7 @@ mod tests {
     fn test_user_defined_callable_mixin_declaration() {
         let arena = Bump::new();
         let ud = UserDefinedCallable::new(
-            mixin_declaration("my-mixin"),
+            mixin_declaration(&arena, "my-mixin"),
             Environment::new(&arena),
             false,
         );
@@ -1165,7 +1170,7 @@ mod tests {
     fn test_user_defined_callable_in_dependency() {
         let arena = Bump::new();
         let ud = UserDefinedCallable::new(
-            function_declaration("dep-fn"),
+            function_declaration(&arena, "dep-fn"),
             Environment::new(&arena),
             true,
         );
@@ -1238,7 +1243,11 @@ mod tests {
     #[test]
     fn test_callable_user_defined_via_kind() {
         let arena = Bump::new();
-        let ud = UserDefinedCallable::new(mixin_declaration("ud"), Environment::new(&arena), false);
+        let ud = UserDefinedCallable::new(
+            mixin_declaration(&arena, "ud"),
+            Environment::new(&arena),
+            false,
+        );
         let c = Callable::new(&arena, CallableKind::UserDefined(ud));
 
         assert_eq!(c.name(), "ud");

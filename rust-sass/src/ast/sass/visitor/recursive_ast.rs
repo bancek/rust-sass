@@ -627,7 +627,8 @@ mod tests {
             left,
             right,
         ));
-        let vd = VariableDeclaration::new("x".into(), bin, span, None, false, false, None).unwrap();
+        let vd =
+            VariableDeclaration::new(&arena, "x", bin, span, None, false, false, None).unwrap();
         Statement::VariableDeclaration(vd).accept(&mut v).unwrap();
     }
 
@@ -821,7 +822,7 @@ mod tests {
         let u = OwnedUrl::parse("sass:foo").unwrap();
         let expr = Expression::Number(NumberExpression::new(1.0, test_span(&arena, "1"), None));
         let cv = ConfiguredVariable::new("x".into(), expr, span, false);
-        let fr = ForwardRule::new(u, span, None, vec![cv]);
+        let fr = ForwardRule::new(&arena, u, span, None, vec![cv]);
         Statement::ForwardRule(fr).accept(&mut v).unwrap();
     }
 
@@ -833,7 +834,7 @@ mod tests {
         let u = OwnedUrl::parse("sass:foo").unwrap();
         let expr = Expression::Number(NumberExpression::new(1.0, test_span(&arena, "1"), None));
         let cv = ConfiguredVariable::new("x".into(), expr, span, false);
-        let ur = UseRule::new(u, None, span, vec![cv]).unwrap();
+        let ur = UseRule::new(&arena, u, None, span, vec![cv]).unwrap();
         Statement::UseRule(ur).accept(&mut v).unwrap();
     }
 
@@ -860,7 +861,7 @@ mod tests {
         )));
         let param = Parameter::new(arena.alloc_str("x"), span, default);
         let pl = ParameterList::new(arena.alloc_slice_fill_iter(vec![param]), span, None);
-        let fr = FunctionRule::new("f".into(), pl, &[], span, None);
+        let fr = FunctionRule::new(&arena, "f", pl, &[], span, None);
         Statement::FunctionRule(fr).accept(&mut v).unwrap();
     }
 

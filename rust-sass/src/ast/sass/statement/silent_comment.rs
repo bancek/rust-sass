@@ -9,6 +9,8 @@
 
 use std::fmt;
 
+use bumpalo::Bump;
+
 use crate::common::ast_node::AstNode;
 use crate::common::exception::SassResult;
 use crate::common::file_span::FileSpan;
@@ -19,13 +21,16 @@ use crate::common::file_span::FileSpan;
 /// This never appears in the compiled CSS.
 pub struct SilentComment<'parse> {
     /// The comment text, including the `//` markers.
-    pub text: String,
+    pub text: &'parse str,
     pub span: FileSpan<'parse>,
 }
 
 impl<'parse> SilentComment<'parse> {
-    pub fn new(text: String, span: FileSpan<'parse>) -> Self {
-        SilentComment { text, span }
+    pub fn new(arena: &'parse Bump, text: &str, span: FileSpan<'parse>) -> Self {
+        SilentComment {
+            text: arena.alloc_str(text),
+            span,
+        }
     }
 
     /// Returns the subset of lines that are marked as documentation comments
@@ -54,7 +59,7 @@ impl<'parse> SilentComment<'parse> {
 impl<'parse> SilentComment<'parse> {
     pub fn to_display_string(&self) -> SassResult<String> {
         let mut buf = String::new();
-        buf.push_str(&self.text);
+        buf.push_str(self.text);
         Ok(buf)
     }
 }
@@ -93,7 +98,7 @@ mod tests {
     fn test_new() {
         let arena = Bump::new();
         let span = make_span(&arena, "// comment");
-        let sc = SilentComment::new("// comment".into(), span);
+        let sc = SilentComment::new(&arena, "// comment", span);
         assert_eq!(sc.text, "// comment");
     }
 
@@ -101,7 +106,7 @@ mod tests {
     fn test_span() {
         let arena = Bump::new();
         let span = make_span(&arena, "// comment");
-        let sc = SilentComment::new("// comment".into(), span);
+        let sc = SilentComment::new(&arena, "// comment", span);
         assert_eq!(sc.span().unwrap(), span);
     }
 
@@ -109,7 +114,7 @@ mod tests {
     fn test_display() {
         let arena = Bump::new();
         let span = make_span(&arena, "// comment");
-        let sc = SilentComment::new("// comment".into(), span);
+        let sc = SilentComment::new(&arena, "// comment", span);
         assert_eq!(format!("{sc}"), "// comment");
     }
 
@@ -117,7 +122,7 @@ mod tests {
     fn test_doc_comment() {
         let arena = Bump::new();
         let span = make_span(&arena, "/// doc");
-        let sc = SilentComment::new("/// doc".into(), span);
+        let sc = SilentComment::new(&arena, "/// doc", span);
         assert_eq!(sc.doc_comment().as_deref(), Some("doc"));
     }
 
@@ -125,7 +130,7 @@ mod tests {
     fn test_doc_comment_multi_line() {
         let arena = Bump::new();
         let span = make_span(&arena, "/// line 1\n/// line 2");
-        let sc = SilentComment::new("/// line 1\n/// line 2\nnon-doc line".into(), span);
+        let sc = SilentComment::new(&arena, "/// line 1\n/// line 2\nnon-doc line", span);
         let got = sc.doc_comment().unwrap();
         assert_eq!(got, "line 1\nline 2");
     }
@@ -134,7 +139,7 @@ mod tests {
     fn test_doc_comment_empty() {
         let arena = Bump::new();
         let span = make_span(&arena, "// regular");
-        let sc = SilentComment::new("// regular".into(), span);
+        let sc = SilentComment::new(&arena, "// regular", span);
         assert_eq!(sc.doc_comment(), None);
     }
 }

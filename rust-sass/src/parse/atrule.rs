@@ -608,7 +608,8 @@ pub(crate) fn use_rule_impl<'b>(
         )));
     }
     expect_statement_separator_impl(scanner, state, "@use rule")?;
-    UseRule::new(url, namespace, span, configuration).map_err(|e| Box::new(ParseError::Sass(e)))
+    UseRule::new(state.arena, url, namespace.as_deref(), span, configuration)
+        .map_err(|e| Box::new(ParseError::Sass(e)))
 }
 
 // ======================================================================
@@ -664,27 +665,35 @@ fn forward_rule_impl<'b>(
     }
     if let Some(sm) = shown_mf {
         return Ok(ForwardRule::show_ordered(
+            state.arena,
             url,
             sm,
             shown_vars.unwrap_or_default(),
             shown_order_mf.unwrap_or_default(),
             shown_order_vars.unwrap_or_default(),
             span,
-            prefix,
+            prefix.as_deref(),
             configuration,
         ));
     }
     if let Some(hm) = hidden_mf {
         return Ok(ForwardRule::hide(
+            state.arena,
             url,
             hm,
             hidden_vars.unwrap_or_default(),
             span,
-            prefix,
+            prefix.as_deref(),
             configuration,
         ));
     }
-    Ok(ForwardRule::new(url, span, prefix, configuration))
+    Ok(ForwardRule::new(
+        state.arena,
+        url,
+        span,
+        prefix.as_deref(),
+        configuration,
+    ))
 }
 
 // Matches Dart: `_memberList` (stylesheet.dart:1131). Consumes the `show`
@@ -1142,7 +1151,8 @@ pub(crate) fn mixin_rule_impl<'b>(
         start,
         |_, children, span| {
             Ok(MixinRule::new(
-                n,
+                arena,
+                &n,
                 p,
                 arena_statements(arena, children),
                 span,
@@ -1240,7 +1250,8 @@ fn function_rule_impl<'b>(
         start,
         |_, children, span| {
             Ok(Statement::FunctionRule(FunctionRule::new(
-                n,
+                arena,
+                &n,
                 p,
                 arena_statements(arena, children),
                 span,

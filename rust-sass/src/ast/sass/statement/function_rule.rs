@@ -10,6 +10,8 @@
 use std::fmt;
 use std::fmt::Write;
 
+use bumpalo::Bump;
+
 use crate::common::ast_node::AstNode;
 use crate::common::exception::SassResult;
 use crate::common::file_span::FileSpan;
@@ -25,9 +27,9 @@ use crate::ast::sass::statement::Statement;
 #[derive(Clone, Debug)]
 pub struct FunctionRule<'parse> {
     /// The function name, with underscores converted to hyphens.
-    pub name: String,
+    pub name: &'parse str,
     /// The function name as written, without underscore-to-hyphen conversion.
-    pub original_name: String,
+    pub original_name: &'parse str,
     /// The parameters the function accepts.
     pub parameters: ParameterList<'parse>,
     pub children: &'parse [Statement<'parse>],
@@ -35,21 +37,22 @@ pub struct FunctionRule<'parse> {
     /// The comment immediately preceding this declaration, if any.
     pub comment: Option<Box<SilentComment<'parse>>>,
     pub is_plain_css_function: bool,
-    pub namespace: Option<String>,
+    pub namespace: Option<&'parse str>,
 }
 
 impl<'parse> FunctionRule<'parse> {
     pub fn new(
-        original_name: String,
+        arena: &'parse Bump,
+        original_name: &str,
         parameters: ParameterList<'parse>,
         children: &'parse [Statement<'parse>],
         span: FileSpan<'parse>,
         comment: Option<SilentComment<'parse>>,
     ) -> Self {
-        let name = original_name.replace('_', "-");
+        let name = arena.alloc_str(&original_name.replace('_', "-"));
         FunctionRule {
             name,
-            original_name,
+            original_name: arena.alloc_str(original_name),
             parameters,
             children,
             span,
@@ -77,7 +80,7 @@ impl<'parse> AstNode<'parse> for FunctionRule<'parse> {
 impl<'parse> FunctionRule<'parse> {
     pub fn to_display_string(&self) -> SassResult<String> {
         let mut buf = String::new();
-        write!(buf, "@function {}(", to_css_identifier(&self.name)?).unwrap();
+        write!(buf, "@function {}(", to_css_identifier(self.name)?).unwrap();
         write!(buf, "{}", self.parameters).unwrap();
         write!(buf, ") {{").unwrap();
         for child in self.children {
@@ -117,7 +120,7 @@ mod tests {
         let arena = Bump::new();
         let span = make_span(&arena, "@function foo() { }");
         let params = ParameterList::empty(span);
-        let fr = FunctionRule::new("foo".into(), params, &[], span, None);
+        let fr = FunctionRule::new(&arena, "foo", params, &[], span, None);
         assert_eq!(fr.name, "foo");
     }
 
@@ -126,7 +129,7 @@ mod tests {
         let arena = Bump::new();
         let span = make_span(&arena, "@function foo() { }");
         let params = ParameterList::empty(span);
-        let fr = FunctionRule::new("foo".into(), params, &[], span, None);
+        let fr = FunctionRule::new(&arena, "foo", params, &[], span, None);
         let s = format!("{fr}");
         assert!(s.contains("@function"), "got {s:?}");
     }

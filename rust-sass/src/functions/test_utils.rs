@@ -114,7 +114,8 @@ where
         arena,
         CallableKind::UserDefined(UserDefinedCallable::new(
             CallableDeclaration::Mixin(MixinRule::new(
-                "m".to_string(),
+                arena,
+                "m",
                 ParameterList::empty(BOGUS_SPAN),
                 arena_statements(arena, children),
                 BOGUS_SPAN,
@@ -140,7 +141,8 @@ where
         arena,
         CallableKind::UserDefined(UserDefinedCallable::new(
             CallableDeclaration::Function(FunctionRule::new(
-                "f".to_string(),
+                arena,
+                "f",
                 ParameterList::empty(BOGUS_SPAN),
                 &[],
                 BOGUS_SPAN,

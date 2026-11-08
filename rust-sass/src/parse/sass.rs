@@ -293,7 +293,7 @@ pub(crate) fn sass_silent_comment_impl<'b>(
         }
     }
     let span = span_from_impl(scanner, &state.parser_state, start)?.file_span()?;
-    let comment = SilentComment::new(text, span);
+    let comment = SilentComment::new(state.arena, &text, span);
     state.last_silent_comment = Some(Box::new(comment.clone()));
     Ok(comment)
 }

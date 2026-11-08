@@ -350,7 +350,7 @@ impl<'parse> Configuration<'parse> {
         let mut new_filters = self.filters_slice().to_vec();
 
         if let Some(ref prefix) = rule.prefix {
-            new_filters.insert(0, Filter::Prefix(prefix.clone()));
+            new_filters.insert(0, Filter::Prefix(prefix.to_string()));
         }
 
         if let Some(ref shown) = rule.shown_variables {
@@ -452,8 +452,9 @@ mod tests {
         ConfiguredValue::implicit(value, bogus_span())
     }
 
-    fn empty_forward_rule() -> ForwardRule<'static> {
+    fn empty_forward_rule<'p>(arena: &'p Bump) -> ForwardRule<'p> {
         ForwardRule::new(
+            arena,
             OwnedUrl::parse("file:///test").unwrap(),
             bogus_span(),
             None,
@@ -461,20 +462,20 @@ mod tests {
         )
     }
 
-    fn forward_with_prefix(prefix: &str) -> ForwardRule<'static> {
-        let mut rule = empty_forward_rule();
-        rule.prefix = Some(prefix.to_string());
+    fn forward_with_prefix<'p>(arena: &'p Bump, prefix: &'p str) -> ForwardRule<'p> {
+        let mut rule = empty_forward_rule(arena);
+        rule.prefix = Some(prefix);
         rule
     }
 
-    fn forward_with_shown(names: &[&str]) -> ForwardRule<'static> {
-        let mut rule = empty_forward_rule();
+    fn forward_with_shown<'p>(arena: &'p Bump, names: &[&str]) -> ForwardRule<'p> {
+        let mut rule = empty_forward_rule(arena);
         rule.shown_variables = Some(names.iter().map(|s| s.to_string()).collect());
         rule
     }
 
-    fn forward_with_hidden(names: &[&str]) -> ForwardRule<'static> {
-        let mut rule = empty_forward_rule();
+    fn forward_with_hidden<'p>(arena: &'p Bump, names: &[&str]) -> ForwardRule<'p> {
+        let mut rule = empty_forward_rule(arena);
         rule.hidden_variables = Some(names.iter().map(|s| s.to_string()).collect());
         rule
     }
@@ -677,7 +678,7 @@ mod tests {
         let mut values = IndexMap::new();
         values.insert("a".into(), make_cv(&arena, make_bool(&arena, true)));
         let cfg = Configuration::new_implicit(&arena, values);
-        let derived = cfg.through_forward(&empty_forward_rule());
+        let derived = cfg.through_forward(&empty_forward_rule(&arena));
 
         assert!(cfg.same_original(&derived));
     }
@@ -702,7 +703,7 @@ mod tests {
     fn test_configuration_through_forward_empty() {
         let arena = bumpalo::Bump::new();
         let cfg = Configuration::empty(&arena);
-        let derived = cfg.through_forward(&empty_forward_rule());
+        let derived = cfg.through_forward(&empty_forward_rule(&arena));
         let same = std::ptr::eq(cfg.inner(), derived.inner());
         assert!(same);
     }
@@ -714,7 +715,7 @@ mod tests {
         values.insert("ns-a".into(), make_cv(&arena, make_num(&arena, 1.0)));
         let cfg = Configuration::new_implicit(&arena, values);
 
-        let derived = cfg.through_forward(&forward_with_prefix("ns-"));
+        let derived = cfg.through_forward(&forward_with_prefix(&arena, "ns-"));
 
         assert!(derived.get("a").is_some());
         assert!(derived.get("ns-a").is_none());
@@ -728,7 +729,7 @@ mod tests {
         values.insert("b".into(), make_cv(&arena, make_num(&arena, 2.0)));
         let cfg = Configuration::new_implicit(&arena, values);
 
-        let derived = cfg.through_forward(&forward_with_shown(&["a"]));
+        let derived = cfg.through_forward(&forward_with_shown(&arena, &["a"]));
 
         assert!(derived.get("a").is_some());
         assert!(derived.get("b").is_none());
@@ -742,7 +743,7 @@ mod tests {
         values.insert("b".into(), make_cv(&arena, make_num(&arena, 2.0)));
         let cfg = Configuration::new_implicit(&arena, values);
 
-        let derived = cfg.through_forward(&forward_with_hidden(&["b"]));
+        let derived = cfg.through_forward(&forward_with_hidden(&arena, &["b"]));
 
         assert!(derived.get("a").is_some());
         assert!(derived.get("b").is_none());
@@ -756,8 +757,8 @@ mod tests {
         values.insert("ns-b".into(), make_cv(&arena, make_num(&arena, 2.0)));
         let cfg = Configuration::new_implicit(&arena, values);
 
-        let mut rule = empty_forward_rule();
-        rule.prefix = Some("ns-".into());
+        let mut rule = empty_forward_rule(&arena);
+        rule.prefix = Some("ns-");
         rule.shown_variables = Some(HashSet::from_iter(["a".into()]));
         let derived = cfg.through_forward(&rule);
 
@@ -773,7 +774,7 @@ mod tests {
         values.insert("a".into(), make_cv(&arena, make_num(&arena, 1.0)));
         let cfg = Configuration::new_explicit(&arena, values, span);
 
-        let derived = cfg.through_forward(&forward_with_prefix("ns-"));
+        let derived = cfg.through_forward(&forward_with_prefix(&arena, "ns-"));
 
         assert!(derived.is_explicit());
         assert_eq!(derived.node_span(), Some(span));
@@ -786,7 +787,7 @@ mod tests {
         values.insert("a".into(), make_cv(&arena, make_num(&arena, 1.0)));
         let cfg = Configuration::new_implicit(&arena, values);
 
-        let derived = cfg.through_forward(&forward_with_prefix("ns-"));
+        let derived = cfg.through_forward(&forward_with_prefix(&arena, "ns-"));
 
         assert!(!derived.is_explicit());
     }
@@ -818,7 +819,7 @@ mod tests {
         values.insert("ns-a".into(), make_cv(&arena, make_num(&arena, 1.0)));
         let cfg = Configuration::new_implicit(&arena, values);
 
-        let derived = cfg.through_forward(&forward_with_prefix("ns-"));
+        let derived = cfg.through_forward(&forward_with_prefix(&arena, "ns-"));
         let removed = derived.remove("a");
         assert!(removed.is_some());
         assert!(derived.is_empty());

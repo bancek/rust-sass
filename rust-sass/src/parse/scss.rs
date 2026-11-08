@@ -71,7 +71,7 @@ pub(crate) fn scss_silent_comment_impl<'b>(
         )));
     }
     let text = scanner.substring(start.position, None).to_string();
-    let comment = SilentComment::new(text, span);
+    let comment = SilentComment::new(state.arena, &text, span);
     state.last_silent_comment = Some(Box::new(comment.clone()));
     Ok(comment)
 }

@@ -776,9 +776,10 @@ mod tests {
         let inner_mod = Module::new(&arena, ModuleKind::BuiltIn(inner));
 
         let rule = ForwardRule::new(
+            &arena,
             OwnedUrl::parse("file:///test").unwrap(),
             test_span(),
-            Some("ns-".into()),
+            Some("ns-"),
             vec![],
         );
         let fv = ForwardedModuleView::new(&arena, inner_mod, &rule);
@@ -793,6 +794,7 @@ mod tests {
         let inner = BuiltInModule::new(&arena, "test".into(), &[], &[], IndexMap::new());
         let inner_mod = Module::new(&arena, ModuleKind::BuiltIn(inner));
         let rule = ForwardRule::new(
+            &arena,
             OwnedUrl::parse("file:///test").unwrap(),
             test_span(),
             None,
@@ -808,9 +810,10 @@ mod tests {
         let inner = BuiltInModule::new(&arena, "test".into(), &[], &[], IndexMap::new());
         let inner_mod = Module::new(&arena, ModuleKind::BuiltIn(inner));
         let rule = ForwardRule::new(
+            &arena,
             OwnedUrl::parse("file:///test").unwrap(),
             test_span(),
-            Some("ns-".into()),
+            Some("ns-"),
             vec![],
         );
         let result = ForwardedModuleView::if_necessary(&arena, inner_mod, &rule);
@@ -823,6 +826,7 @@ mod tests {
         let inner = BuiltInModule::new(&arena, "math".into(), &[], &[], IndexMap::new());
         let inner_mod = Module::new(&arena, ModuleKind::BuiltIn(inner));
         let rule = ForwardRule::new(
+            &arena,
             OwnedUrl::parse("file:///test").unwrap(),
             test_span(),
             None,
@@ -981,9 +985,10 @@ mod tests {
         let inner_mod = Module::new(&arena, ModuleKind::BuiltIn(inner));
         let span = FileSpan::new(None, 4, 20);
         let rule = ForwardRule::new(
+            &arena,
             OwnedUrl::parse("file:///test").unwrap(),
             span,
-            Some("ns-".into()),
+            Some("ns-"),
             vec![],
         );
         let first = ForwardedModuleView::if_necessary(&arena, inner_mod, &rule);
@@ -992,9 +997,10 @@ mod tests {
         assert_eq!(hash_of(&first), hash_of(&second));
 
         let other_rule = ForwardRule::new(
+            &arena,
             OwnedUrl::parse("file:///test").unwrap(),
             FileSpan::new(None, 21, 40),
-            Some("ns-".into()),
+            Some("ns-"),
             vec![],
         );
         let different = ForwardedModuleView::if_necessary(&arena, inner_mod, &other_rule);

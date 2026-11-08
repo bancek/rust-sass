@@ -309,7 +309,8 @@ where
     for (name, span) in &node.global_variables {
         let null_expr = Expression::Null(NullExpression::new(*span));
         let decl = VariableDeclaration::new(
-            name.clone(),
+            arena,
+            name.as_str(),
             null_expr,
             *span,
             None,  // no namespace
@@ -351,12 +352,12 @@ where
 {
     if node.guarded {
         if node.namespace.is_none() && state.env.at_root() {
-            state.env.mark_variable_configurable(&node.name);
-            if let Some(override_val) = state.configuration.remove(&node.name) {
+            state.env.mark_variable_configurable(node.name);
+            if let Some(override_val) = state.configuration.remove(node.name) {
                 if override_val.value != Value::new_with_arena(arena, ValueKind::Null) {
                     add_exception_span(config, state, node.span, None, async |_config, _state| {
                         _state.env.set_variable(
-                            &node.name,
+                            node.name,
                             override_val.value,
                             override_val.assignment_span,
                             None,
@@ -371,9 +372,7 @@ where
 
         let existing =
             add_exception_span(config, state, node.span, None, async |_config, _state| {
-                _state
-                    .env
-                    .get_variable(&node.name, node.namespace.as_deref())
+                _state.env.get_variable(node.name, node.namespace)
             })
             .await?;
         if let Some(ref existing) = existing {
@@ -384,7 +383,7 @@ where
     }
 
     if node.is_global {
-        let exists = state.env.global_variable_exists(&node.name, None)?;
+        let exists = state.env.global_variable_exists(node.name, None)?;
         if !exists {
             let message = if state.env.at_root() {
                 "As of Dart Sass 2.0.0, !global assignments won't be able to declare new variables.\n\nSince this assignment is at the root of the stylesheet, the !global flag is\nunnecessary and can safely be removed.".to_string()
@@ -406,13 +405,9 @@ where
     let val = without_slash(config, state, arena, val, node.expression.span()?)?;
     let expr_node = expression_node(config, state, &node.expression)?;
     add_exception_span(config, state, node.span, None, async |_config, _state| {
-        _state.env.set_variable(
-            &node.name,
-            val,
-            expr_node,
-            node.namespace.as_deref(),
-            node.is_global,
-        )
+        _state
+            .env
+            .set_variable(node.name, val, expr_node, node.namespace, node.is_global)
     })
     .await?;
     Ok(None)
@@ -3553,8 +3548,7 @@ where
             )));
         }
         add_exception_span(config, state, node.span, None, async |_, s| {
-            s.env
-                .add_module(*built_in, node.span, node.namespace.as_deref())
+            s.env.add_module(*built_in, node.span, node.namespace)
         })
         .await?;
         assert_configuration_is_empty(state, &configuration)?;
@@ -3646,8 +3640,7 @@ where
                     register_comments_for_module(s, &module)?;
                 }
                 add_exception_span(c, s, node.span, Some(false), async |_, s2| {
-                    s2.env
-                        .add_module(module, node.span, node.namespace.as_deref())
+                    s2.env.add_module(module, node.span, node.namespace)
                 })
                 .await?;
                 Ok(None)
@@ -4438,7 +4431,7 @@ mod tests {
         let span = make_span(&arena, "$x: 1");
         let (config, mut state) = test_visitor(&arena);
         let var = Statement::VariableDeclaration(VariableDeclaration {
-            name: "x".into(),
+            name: "x",
             expression: Expression::Number(NumberExpression {
                 value: 1.0,
                 unit: None,
@@ -4770,7 +4763,7 @@ mod tests {
         // Add a child that sets a variable — this proves the with_media_queries
         // callback ran successfully (which only happens if parsing succeeded).
         let child = Statement::VariableDeclaration(VariableDeclaration {
-            name: "x".into(),
+            name: "x",
             expression: Expression::Number(NumberExpression {
                 value: 1.0,
                 unit: None,

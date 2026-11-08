@@ -263,8 +263,8 @@ impl<'parse> StatementVisitor<'parse> for FindDependenciesVisitor<'parse> {
         if node.url.scheme() != "sass" {
             self.uses.insert(node.url.clone());
         } else if node.url.as_str() == "sass:meta" {
-            let ns = node.namespace.clone().unwrap_or_default();
-            self.meta_namespaces.insert(ns);
+            let ns = node.namespace.unwrap_or_default();
+            self.meta_namespaces.insert(ns.to_string());
         }
         Ok(())
     }
@@ -315,7 +315,7 @@ mod tests {
         let arena = Bump::new();
         let span = test_span(&arena, "@use 'foo';");
         let u = OwnedUrl::parse("file:///foo").unwrap();
-        let ur = UseRule::new(u.clone(), None, span, vec![]).unwrap();
+        let ur = UseRule::new(&arena, u.clone(), None, span, vec![]).unwrap();
         let ss = Stylesheet::new(
             &arena,
             arena_statements(&arena, vec![Statement::UseRule(ur)]),
@@ -331,7 +331,7 @@ mod tests {
         let arena = Bump::new();
         let span = test_span(&arena, "@forward 'bar';");
         let u = OwnedUrl::parse("file:///bar").unwrap();
-        let fr = ForwardRule::new(u.clone(), span, None, vec![]);
+        let fr = ForwardRule::new(&arena, u.clone(), span, None, vec![]);
         let ss = Stylesheet::new(
             &arena,
             arena_statements(&arena, vec![Statement::ForwardRule(fr)]),
@@ -347,7 +347,7 @@ mod tests {
         let arena = Bump::new();
         let span = test_span(&arena, "@use 'sass:color';");
         let u = OwnedUrl::parse("sass:color").unwrap();
-        let ur = UseRule::new(u, None, span, vec![]).unwrap();
+        let ur = UseRule::new(&arena, u, None, span, vec![]).unwrap();
         let ss = Stylesheet::new(
             &arena,
             arena_statements(&arena, vec![Statement::UseRule(ur)]),
@@ -363,7 +363,7 @@ mod tests {
         let arena = Bump::new();
         let span = test_span(&arena, "@use 'sass:meta';");
         let meta_url = OwnedUrl::parse("sass:meta").unwrap();
-        let meta_use = UseRule::new(meta_url, Some("meta".into()), span, vec![]).unwrap();
+        let meta_use = UseRule::new(&arena, meta_url, Some("meta"), span, vec![]).unwrap();
 
         let include_span = test_span(&arena, "@include meta.load-css('baz');");
         let arg_text = Interpolation::plain(
@@ -429,7 +429,7 @@ mod tests {
         let arena = Bump::new();
         let span = test_span(&arena, "@use 'mod';");
         let u = OwnedUrl::parse("file:///mod").unwrap();
-        let ur = UseRule::new(u.clone(), None, span, vec![]).unwrap();
+        let ur = UseRule::new(&arena, u.clone(), None, span, vec![]).unwrap();
         let ss = Stylesheet::new(
             &arena,
             arena_statements(&arena, vec![Statement::UseRule(ur)]),
@@ -446,7 +446,7 @@ mod tests {
         let arena = Bump::new();
         let span = test_span(&arena, "@use 'mod'; @import 'imp';");
         let u = OwnedUrl::parse("file:///mod").unwrap();
-        let ur = UseRule::new(u.clone(), None, span, vec![]).unwrap();
+        let ur = UseRule::new(&arena, u.clone(), None, span, vec![]).unwrap();
         let di = Import::Dynamic(DynamicImport::new(
             "file:///imp".into(),
             OwnedUrl::parse("file:///imp").unwrap(),
@@ -473,7 +473,7 @@ mod tests {
         let arena = Bump::new();
         let span = test_span(&arena, "@function f() { @use 'inner'; @return 1; }");
         let params = ParameterList::empty(test_span(&arena, ""));
-        let fr = FunctionRule::new("f".into(), params, &[], span, None);
+        let fr = FunctionRule::new(&arena, "f", params, &[], span, None);
         let ss = Stylesheet::new(
             &arena,
             arena_statements(&arena, vec![Statement::FunctionRule(fr)]),

@@ -286,10 +286,11 @@ pub(crate) fn variable_declaration_without_namespace_impl<'b>(
     expect_statement_separator_impl(scanner, state, "variable declaration")?;
     let decl_span = span_from_impl(scanner, &state.parser_state, start)?.file_span()?;
     let decl = VariableDeclaration::new(
-        name.clone(),
+        state.arena,
+        name.as_str(),
         value,
         decl_span,
-        namespace.clone(),
+        namespace.as_deref(),
         guarded,
         global,
         preceding_comment.map(|b| *b),
@@ -1525,7 +1526,7 @@ mod tests {
             let sheet = parse_scss(&arena, src).unwrap();
             match &sheet.children[0] {
                 Statement::UseRule(rule) => {
-                    assert_eq!(rule.namespace.as_deref(), want_ns, "src {src}");
+                    assert_eq!(rule.namespace, want_ns, "src {src}");
                 }
                 other => panic!("src {src}: expected UseRule, got {other:?}"),
             }

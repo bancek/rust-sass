@@ -230,7 +230,8 @@ mod tests {
     {
         Statement::VariableDeclaration(
             VariableDeclaration::new(
-                name.to_string(),
+                arena,
+                name,
                 null_expr(arena),
                 test_span(arena, name),
                 None,
@@ -392,7 +393,8 @@ mod tests {
         let params = ParameterList::empty(test_span(&arena, ""));
         let child = var_decl(&arena, "x");
         let fr = FunctionRule::new(
-            "f".into(),
+            &arena,
+            "f",
             params,
             arena_statements(&arena, vec![child]),
             test_span(&arena, "@function f() { }"),
@@ -408,7 +410,8 @@ mod tests {
         let params = ParameterList::empty(test_span(&arena, ""));
         let child = var_decl(&arena, "x");
         let mr = MixinRule::new(
-            "m".into(),
+            &arena,
+            "m",
             params,
             arena_statements(&arena, vec![child]),
             test_span(&arena, "@mixin m() { }"),
@@ -439,9 +442,9 @@ mod tests {
                 "/* */".into(),
                 base_span,
             ))),
-            Statement::SilentComment(SilentComment::new("//".into(), base_span)),
+            Statement::SilentComment(SilentComment::new(&arena, "//", base_span)),
             Statement::VariableDeclaration(
-                VariableDeclaration::new("x".into(), null, base_span, None, false, false, None)
+                VariableDeclaration::new(&arena, "x", null, base_span, None, false, false, None)
                     .unwrap(),
             ),
         ];

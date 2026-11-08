@@ -75,7 +75,7 @@ impl<'compile: 'parse, 'parse> ForwardedModuleView<'compile, 'parse> {
             variables: member_map::forwarded_map_ordered(
                 arena,
                 inner.variables_view(arena),
-                rule.prefix.as_deref(),
+                rule.prefix,
                 rule.shown_order_vars.as_deref(),
                 rule.shown_variables.as_ref(),
                 rule.hidden_variables.as_ref(),
@@ -83,7 +83,7 @@ impl<'compile: 'parse, 'parse> ForwardedModuleView<'compile, 'parse> {
             variable_nodes: member_map::forwarded_map_ordered(
                 arena,
                 inner.variable_nodes_view(arena),
-                rule.prefix.as_deref(),
+                rule.prefix,
                 rule.shown_order_vars.as_deref(),
                 rule.shown_variables.as_ref(),
                 rule.hidden_variables.as_ref(),
@@ -91,7 +91,7 @@ impl<'compile: 'parse, 'parse> ForwardedModuleView<'compile, 'parse> {
             functions: member_map::forwarded_map_ordered(
                 arena,
                 inner.functions_view(arena),
-                rule.prefix.as_deref(),
+                rule.prefix,
                 rule.shown_order_mf.as_deref(),
                 rule.shown_mixins_and_functions.as_ref(),
                 rule.hidden_mixins_and_functions.as_ref(),
@@ -99,7 +99,7 @@ impl<'compile: 'parse, 'parse> ForwardedModuleView<'compile, 'parse> {
             mixins: member_map::forwarded_map_ordered(
                 arena,
                 inner.mixins_view(arena),
-                rule.prefix.as_deref(),
+                rule.prefix,
                 rule.shown_order_mf.as_deref(),
                 rule.shown_mixins_and_functions.as_ref(),
                 rule.hidden_mixins_and_functions.as_ref(),
@@ -136,7 +136,7 @@ impl<'compile: 'parse, 'parse> ForwardedModuleView<'compile, 'parse> {
         }
 
         let inner_name = if let Some(ref prefix) = self.rule.prefix {
-            if let Some(stripped) = name.strip_prefix(prefix.as_str()) {
+            if let Some(stripped) = name.strip_prefix(prefix) {
                 stripped
             } else {
                 return Err(Box::new(SassError::Script {
@@ -159,7 +159,7 @@ impl<'compile: 'parse, 'parse> ForwardedModuleView<'compile, 'parse> {
         }
 
         let inner_name = if let Some(ref prefix) = self.rule.prefix {
-            if !name.starts_with(prefix.as_str()) {
+            if !name.starts_with(prefix) {
                 panic!("assertion failed: variable name does not have prefix");
             }
             &name[prefix.len()..]
@@ -192,7 +192,7 @@ impl<'compile: 'parse, 'parse> ForwardedModuleView<'compile, 'parse> {
         if let Some(ref prefix) = self.rule.prefix {
             filtered = filtered
                 .iter()
-                .filter(|name| name.starts_with(prefix.as_str()))
+                .filter(|name| name.starts_with(prefix))
                 .map(|name| name[prefix.len()..].to_string())
                 .collect();
         }
