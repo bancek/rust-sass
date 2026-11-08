@@ -341,7 +341,7 @@ fn resolve_one<'parse>(
                     .unwrap_or(right_file);
                 state.warnings.push(ParseTimeWarning {
                     deprecation: Some(&deprecation::STRICT_UNARY),
-                    message: format!(
+                    message: state.arena.alloc_str(&format!(
                         "This operation is parsed as:\n\n    {} {} {}\n\n\
                          but you may have intended it to mean:\n\n    {} ({}{})\n\n\
                          Add a space after {} to clarify that it's meant to be a \
@@ -351,10 +351,10 @@ fn resolve_one<'parse>(
                          More info and automated migrator: \
                          https://sass-lang.com/d/strict-unary",
                         left_str, syn, right_str, left_str, syn, right_str, syn,
-                    ),
+                    )),
                     span: warn_span,
                     primary_label: None,
-                    secondary: vec![],
+                    secondary: &[],
                 });
             }
         }
@@ -617,10 +617,10 @@ fn selector_expr_impl<'parse>(
         let sel_span = span_from_impl(scanner, &state.parser_state, start)?.file_span()?;
         state.warnings.push(ParseTimeWarning {
             deprecation: None,
-            message: "In Sass, \"&&\" means two copies of the parent selector. You probably want to use \"and\" instead.".to_string(),
+            message: "In Sass, \"&&\" means two copies of the parent selector. You probably want to use \"and\" instead.",
             span: sel_span,
             primary_label: None,
-            secondary: vec![],
+            secondary: &[],
         });
         scanner.set_position(scanner.pos().saturating_sub(1))?;
     }
@@ -1126,10 +1126,10 @@ fn ident_like<'parse>(
                     let expr_span = expr.span()?;
                     state.warnings.push(ParseTimeWarning {
                         deprecation: Some(&deprecation::IF_FUNCTION),
-                        message: msg,
+                        message: state.arena.alloc_str(&msg),
                         span: expr_span,
                         primary_label: None,
-                        secondary: vec![],
+                        secondary: &[],
                     });
                     return Ok(Expression::LegacyIf(expr));
                 }
@@ -1440,14 +1440,14 @@ pub(crate) fn argument_invocation<'parse>(
                     emitted_rest_deprecation = true;
                     let rest_span = rest.as_ref().and_then(|r| r.span().ok());
                     let secondary = rest_span
-                        .map(|rs| vec![(rs, "rest argument".to_string())])
+                        .map(|rs| vec![(rs, "rest argument")])
                         .unwrap_or_default();
                     state.warnings.push(ParseTimeWarning {
                         deprecation: Some(&MISPLACED_REST),
-                        message: "Named arguments must come before rest arguments.\nThis will be an error in Dart Sass 2.0.0.".to_string(),
+                        message: "Named arguments must come before rest arguments.\nThis will be an error in Dart Sass 2.0.0.",
                         span: exp_span,
-                        primary_label: Some("named argument".to_string()),
-                        secondary,
+                        primary_label: Some("named argument"),
+                        secondary: arena_slice(state.arena, secondary),
                     });
                 }
                 named_spans.insert(name.clone(), exp_span);
@@ -1466,14 +1466,14 @@ pub(crate) fn argument_invocation<'parse>(
                     let expr_span = expression.span()?;
                     let rest_span = rest.as_ref().and_then(|r| r.span().ok());
                     let secondary = rest_span
-                        .map(|rs| vec![(rs, "rest argument".to_string())])
+                        .map(|rs| vec![(rs, "rest argument")])
                         .unwrap_or_default();
                     state.warnings.push(ParseTimeWarning {
                         deprecation: Some(&MISPLACED_REST),
-                        message: "Positional arguments must come before rest arguments.\nThis will be an error in Dart Sass 2.0.0.".to_string(),
+                        message: "Positional arguments must come before rest arguments.\nThis will be an error in Dart Sass 2.0.0.",
                         span: expr_span,
-                        primary_label: Some("positional argument".to_string()),
-                        secondary,
+                        primary_label: Some("positional argument"),
+                        secondary: arena_slice(state.arena, secondary),
                     });
                 }
                 positional.push(expression);
@@ -1491,14 +1491,14 @@ pub(crate) fn argument_invocation<'parse>(
                 let expr_span = expression.span()?;
                 let rest_span = rest.as_ref().and_then(|r| r.span().ok());
                 let secondary = rest_span
-                    .map(|rs| vec![(rs, "rest argument".to_string())])
+                    .map(|rs| vec![(rs, "rest argument")])
                     .unwrap_or_default();
                 state.warnings.push(ParseTimeWarning {
                     deprecation: Some(&MISPLACED_REST),
-                    message: "Positional arguments must come before rest arguments.\nThis will be an error in Dart Sass 2.0.0.".to_string(),
+                    message: "Positional arguments must come before rest arguments.\nThis will be an error in Dart Sass 2.0.0.",
                     span: expr_span,
-                    primary_label: Some("positional argument".to_string()),
-                    secondary,
+                    primary_label: Some("positional argument"),
+                    secondary: arena_slice(state.arena, secondary),
                 });
             }
             positional.push(expression);
@@ -2190,10 +2190,10 @@ pub(crate) fn try_special_function_impl<'parse>(
                         span_from_impl(scanner, &state.parser_state, start)?.file_span()?;
                     state.warnings.push(ParseTimeWarning {
                         deprecation: Some(&deprecation::FUNCTION_NAME),
-                        message,
+                        message: state.arena.alloc_str(&message),
                         span: warn_span,
                         primary_label: None,
-                        secondary: vec![],
+                        secondary: &[],
                     });
                 }
                 let expr_span = span_from_impl(scanner, &state.parser_state, start)?.file_span()?;
@@ -2266,13 +2266,13 @@ pub(crate) fn try_special_function_impl<'parse>(
                     let suggestion = suggest_interp.to_display_string().unwrap_or_default();
                     state.warnings.push(ParseTimeWarning {
                         deprecation: Some(&deprecation::FUNCTION_NAME),
-                        message: format!(
+                        message: state.arena.alloc_str(&format!(
                             "Vendor-prefixed progid:...() functions will no longer be supported in a future release of Dart Sass. To preserve current behavior:\n\n#{{{}}}\n\nMore info: https://sass-lang.com/d/function-name",
                             suggestion
-                        ),
+                        )),
                         span: vendor_span,
                         primary_label: None,
-                        secondary: vec![],
+                        secondary: &[],
                     });
                 }
                 let progid_span =
@@ -3200,13 +3200,13 @@ pub(crate) fn try_url_contents<'parse>(
                     .unwrap_or_default();
                 state.warnings.push(ParseTimeWarning {
                     deprecation: Some(&FUNCTION_NAME),
-                    message: format!(
+                    message: state.arena.alloc_str(&format!(
                         "Vendor-prefixed url() functions will no longer have special parsing in a future release of Dart Sass. Once that happens, this argument will be parsed as SassScript. To preserve current behavior:\n\nnull(#{{{}}})\n\nMore info: https://sass-lang.com/d/function-name",
                         suggestion
-                    ),
+                    )),
                     span: url_span,
                     primary_label: None,
-                    secondary: vec![],
+                    secondary: &[],
                 });
             }
 

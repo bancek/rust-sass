@@ -189,10 +189,10 @@ pub(crate) fn scss_scan_else_impl<'b>(
             let span = span_from_impl(scanner, &state.parser_state, before_at)?.file_span()?;
             state.warnings.push(ParseTimeWarning {
                 deprecation: Some(&deprecation::ELSEIF),
-                message: "@elseif is deprecated and will not be supported in future Sass versions.\n\nRecommendation: @else if".into(),
+                message: "@elseif is deprecated and will not be supported in future Sass versions.\n\nRecommendation: @else if",
                 span,
                 primary_label: None,
-                secondary: vec![],
+                secondary: &[],
             });
             scanner.set_position(scanner.pos() - 2)?;
             return Ok(true);

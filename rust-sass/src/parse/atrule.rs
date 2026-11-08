@@ -775,10 +775,10 @@ fn configuration_impl<'b>(
             let span = span_from_impl(scanner, &state.parser_state, variable_start)?.file_span()?;
             state.warnings.push(ParseTimeWarning {
                 deprecation: Some(&deprecation::WITH_PRIVATE),
-                message: "Configuring private variables is deprecated.\nThis will be an error in Dart Sass 2.0.0.".into(),
+                message: "Configuring private variables is deprecated.\nThis will be an error in Dart Sass 2.0.0.",
                 span,
                 primary_label: None,
-                secondary: vec![],
+                secondary: &[],
             });
         }
         whitespace_impl(scanner, &mut state.parser_state, true)?;
@@ -918,10 +918,10 @@ fn import_rule_impl<'b>(
             let dynamic_span = di.span()?;
             state.warnings.push(ParseTimeWarning {
                 deprecation: Some(&deprecation::IMPORT),
-                message: "Sass @import rules are deprecated and will be removed in Dart Sass 3.0.0.\n\nMore info and automated migrator: https://sass-lang.com/d/import".into(),
+                message: "Sass @import rules are deprecated and will be removed in Dart Sass 3.0.0.\n\nMore info and automated migrator: https://sass-lang.com/d/import",
                 span: dynamic_span,
                 primary_label: None,
-                secondary: vec![],
+                secondary: &[],
             });
             if state.in_control_directive || state.in_mixin {
                 let span = span_from_impl(scanner, &state.parser_state, start)?.file_span()?;
@@ -1218,10 +1218,10 @@ fn function_rule_impl<'b>(
         let span = span_from_impl(scanner, &state.parser_state, before_name)?.file_span()?;
         state.warnings.push(ParseTimeWarning {
             deprecation: Some(&deprecation::FUNCTION_NAME),
-            message: "Custom functions with this name are deprecated and will be removed in a future\nrelease. Please choose a different name.\nMore info: https://sass-lang.com/d/function-name".into(),
+            message: "Custom functions with this name are deprecated and will be removed in a future\nrelease. Please choose a different name.\nMore info: https://sass-lang.com/d/function-name",
             span,
             primary_label: None,
-            secondary: vec![],
+            secondary: &[],
         });
     }
     whitespace_impl(scanner, &mut state.parser_state, true)?;
@@ -1777,10 +1777,10 @@ pub(crate) fn moz_document_rule_impl<'b>(
             if needs_deprecation_warning {
                 st.warnings.push(ParseTimeWarning {
                 deprecation: Some(&deprecation::MOZ_DOCUMENT),
-                message: "@-moz-document is deprecated and support will be removed in Dart Sass 2.0.0.\n\nFor details, see https://sass-lang.com/d/moz-document.".into(),
+                message: "@-moz-document is deprecated and support will be removed in Dart Sass 2.0.0.\n\nFor details, see https://sass-lang.com/d/moz-document.",
                 span,
                 primary_label: None,
-                secondary: vec![],
+                secondary: &[],
             });
             }
             Ok(AtRule::new(

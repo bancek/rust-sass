@@ -251,10 +251,10 @@ pub(crate) fn variable_declaration_without_namespace_impl<'b>(
                 if guarded {
                     state.warnings.push(ParseTimeWarning {
                         deprecation: Some(&deprecation::DUPLICATE_VAR_FLAGS),
-                        message: "!default should only be written once for each variable.\nThis will be an error in Dart Sass 2.0.0.".into(),
+                        message: "!default should only be written once for each variable.\nThis will be an error in Dart Sass 2.0.0.",
                         span: flag_span,
                         primary_label: None,
-                        secondary: vec![],
+                        secondary: &[],
                     });
                 }
                 guarded = true;
@@ -268,10 +268,10 @@ pub(crate) fn variable_declaration_without_namespace_impl<'b>(
                 } else if global {
                     state.warnings.push(ParseTimeWarning {
                         deprecation: Some(&deprecation::DUPLICATE_VAR_FLAGS),
-                        message: "!global should only be written once for each variable.\nThis will be an error in Dart Sass 2.0.0.".into(),
+                        message: "!global should only be written once for each variable.\nThis will be an error in Dart Sass 2.0.0.",
                         span: flag_span,
                         primary_label: None,
-                        secondary: vec![],
+                        secondary: &[],
                     });
                 }
                 global = true;
@@ -778,11 +778,10 @@ pub(crate) fn style_rule_impl<'b>(
                 if indented && children.is_empty() {
                     st.warnings.push(ParseTimeWarning {
                         deprecation: None,
-                        message: "This selector doesn't have any properties and won't be rendered."
-                            .into(),
+                        message: "This selector doesn't have any properties and won't be rendered.",
                         span: node_span,
                         primary_label: None,
-                        secondary: vec![],
+                        secondary: &[],
                     });
                 }
                 Ok(StyleRule::with_parsed_selector(
@@ -891,11 +890,10 @@ fn with_style_rule_children_impl<'b>(
                 let node_span = selector.span()?;
                 st.warnings.push(ParseTimeWarning {
                     deprecation: None,
-                    message: "This selector doesn't have any properties and won't be rendered."
-                        .into(),
+                    message: "This selector doesn't have any properties and won't be rendered.",
                     span: node_span,
                     primary_label: None,
-                    secondary: vec![],
+                    secondary: &[],
                 });
             }
             Ok(StyleRule::new(

@@ -280,23 +280,27 @@ where
     'compile: 'parse,
 {
     // Emit parse-time warnings (matching Go VisitStylesheet line 376-380).
-    for warning in &node.parse_time_warnings {
+    for warning in node.parse_time_warnings {
         if let Some(dep) = warning.deprecation {
             if !warning.secondary.is_empty() {
                 warn_deprecation_multi_span(
                     config,
                     state,
-                    &warning.message,
+                    warning.message,
                     warning.span,
-                    warning.primary_label.as_deref().unwrap_or(""),
-                    warning.secondary.clone(),
+                    warning.primary_label.unwrap_or(""),
+                    warning
+                        .secondary
+                        .iter()
+                        .map(|(span, label)| (*span, label.to_string()))
+                        .collect(),
                     dep,
                 )?;
             } else {
-                warn_deprecation_span(config, state, &warning.message, dep, warning.span)?;
+                warn_deprecation_span(config, state, warning.message, dep, warning.span)?;
             }
         } else {
-            warn(config, state, &warning.message, warning.span)?;
+            warn(config, state, warning.message, warning.span)?;
         }
     }
     for child in node.children {
@@ -306,14 +310,10 @@ where
     // Go: VisitStylesheet lines 388-404 — pre-declare !global variable slots
     // from dead code as guarded null declarations so they appear in the module's
     // exported variables even though the !global assignment never executed.
-    for (name, span) in &node.global_variables {
+    for (name, span) in node.global_variables.iter() {
         let null_expr = Expression::Null(NullExpression::new(*span));
         let decl = VariableDeclaration::new(
-            arena,
-            name.as_str(),
-            null_expr,
-            *span,
-            None,  // no namespace
+            arena, name, null_expr, *span, None,  // no namespace
             true,  // guarded — won't overwrite existing non-null value
             false, // not global — just creating the slot
             None,  // no comment

@@ -26,6 +26,7 @@ use crate::common::source_span_file_source::FileSource;
 use crate::deprecation::Deprecation;
 use crate::url::OwnedUrl;
 
+use crate::arena_map::ArenaMap;
 use crate::ast::sass::arena_slice;
 use crate::ast::sass::statement::forward_rule::ForwardRule;
 use crate::ast::sass::statement::use_rule::UseRule;
@@ -36,12 +37,12 @@ use crate::ast::sass::statement::Statement;
 /// can emit it through a logger.
 pub struct ParseTimeWarning<'parse> {
     pub deprecation: Option<&'static Deprecation>,
-    pub message: String,
+    pub message: &'parse str,
     pub span: FileSpan<'parse>,
     /// Extra primary label carried beyond Dart's record, if any.
-    pub primary_label: Option<String>,
+    pub primary_label: Option<&'parse str>,
     /// Extra secondary labels carried beyond Dart's record, if any.
-    pub secondary: Vec<(FileSpan<'parse>, String)>,
+    pub secondary: &'parse [(FileSpan<'parse>, &'parse str)],
 }
 
 #[derive(Clone, Debug)]
@@ -59,10 +60,10 @@ pub struct Stylesheet<'parse> {
     pub forwards: &'parse [ForwardRule<'parse>],
     // Warnings discovered while parsing, emitted during evaluation once a
     // logger is available.
-    pub parse_time_warnings: Vec<ParseTimeWarning<'parse>>,
+    pub parse_time_warnings: &'parse [ParseTimeWarning<'parse>],
     // Normalized global variable names defined by this stylesheet, mapped to
     // the spans where they're defined.
-    pub global_variables: IndexMap<String, FileSpan<'parse>>,
+    pub global_variables: ArenaMap<'parse, &'parse str, FileSpan<'parse>>,
 }
 
 impl<'parse> Stylesheet<'parse> {
@@ -97,14 +98,18 @@ impl<'parse> Stylesheet<'parse> {
                 _ => break,
             }
         }
+        let mut gv = ArenaMap::with_capacity_in(global_variables.len(), arena);
+        for (name, span) in global_variables {
+            gv.insert(&*arena.alloc_str(&name), span);
+        }
         Stylesheet {
             children,
             span,
             plain_css,
             uses: arena_slice(arena, uses),
             forwards: arena_slice(arena, forwards),
-            parse_time_warnings: warnings,
-            global_variables,
+            parse_time_warnings: arena_slice(arena, warnings),
+            global_variables: gv,
         }
     }
 
@@ -257,10 +262,10 @@ mod tests {
         let span = make_span(&arena, "test");
         let warnings = vec![ParseTimeWarning {
             deprecation: None,
-            message: "test warning".into(),
+            message: "test warning",
             span,
             primary_label: None,
-            secondary: vec![],
+            secondary: &[],
         }];
         let gv: IndexMap<String, FileSpan> = IndexMap::new();
         let ss = Stylesheet::detailed(&arena, &[], span, warnings, false, gv);
