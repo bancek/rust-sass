@@ -27,7 +27,6 @@ use crate::ast::css::supports_rule::ModifiableCssSupportsRule;
 use crate::extend::StoreBox;
 use crate::unvendor::unvendor;
 use std::cell::RefCell;
-use std::rc::Rc;
 
 use bumpalo::Bump;
 
@@ -587,14 +586,13 @@ where
         Some(ref mut store) => {
             store.add_selector(arena, &original_selector, state.media_queries.clone())?
         }
-        None => {
-            let sel = Rc::new(RefCell::new(original_selector));
-            StoreBox { inner: sel }
-        }
+        None => StoreBox {
+            inner: arena.alloc(RefCell::new(original_selector)),
+        },
     };
 
     let msr = ModifiableCssStyleRule::new(
-        Rc::clone(&selector_box.inner),
+        selector_box.inner,
         node.span,
         Some(original_selector),
         node.from_plain_css,

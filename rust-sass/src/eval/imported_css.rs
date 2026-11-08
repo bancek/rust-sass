@@ -45,7 +45,6 @@ use crate::eval::helpers;
 use crate::eval::{EvalConfig, EvalState};
 use bumpalo::Bump;
 use std::cell::RefCell;
-use std::rc::Rc;
 
 // ===========================================================================
 // evaluate_imported_css_at_rule
@@ -317,7 +316,7 @@ where
     let mod_node = ModifiableCssNode::new(
         arena,
         ModifiableCssNodeKind::StyleRule(ModifiableCssStyleRule::new(
-            Rc::new(RefCell::new(node.selector)),
+            arena.alloc(RefCell::new(node.selector)),
             node.span,
             Some(node.original_selector),
             node.from_plain_css,

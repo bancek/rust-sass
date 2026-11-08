@@ -9,7 +9,6 @@
 
 use std::cell::RefCell;
 use std::fmt;
-use std::rc::Rc;
 
 use crate::common::ast_node::AstNode;
 use crate::common::exception::SassResult;
@@ -94,7 +93,7 @@ impl<'parse> fmt::Display for CssStyleRule<'parse> {
 pub struct ModifiableCssStyleRule<'parse> {
     /// A reference to the selector provided by the extension store, which may
     /// update it over time as new extensions are applied.
-    pub selector: Rc<RefCell<SelectorList<'parse>>>,
+    pub selector: &'parse RefCell<SelectorList<'parse>>,
     /// The selector for this rule, before any extensions were applied.
     pub original_selector: SelectorList<'parse>,
     /// Whether this style rule was originally defined in a plain CSS stylesheet.
@@ -113,7 +112,7 @@ impl<'parse> ModifiableCssStyleRule<'parse> {
     /// When `original_selector` is `None`, it defaults to the current value
     /// of `selector`.
     pub fn new(
-        selector: Rc<RefCell<SelectorList<'parse>>>,
+        selector: &'parse RefCell<SelectorList<'parse>>,
         span: FileSpan<'parse>,
         original_selector: Option<SelectorList<'parse>>,
         from_plain_css: bool,
@@ -203,7 +202,7 @@ mod tests {
         let arena = Bump::new();
         let span = make_span(&arena, "test");
         let sel = make_selector_list(&arena, "foo");
-        let rc = Rc::new(RefCell::new(sel));
+        let rc = arena.alloc(RefCell::new(sel));
         let r = ModifiableCssStyleRule::new(rc, span, Some(sel), false);
         assert!(!r.from_plain_css);
     }
@@ -213,7 +212,7 @@ mod tests {
         let arena = Bump::new();
         let span = make_span(&arena, "test");
         let sel = make_selector_list(&arena, "foo");
-        let rc = Rc::new(RefCell::new(sel));
+        let rc = arena.alloc(RefCell::new(sel));
         let r = ModifiableCssStyleRule::new(rc, span, Some(sel), true);
         assert!(r.from_plain_css);
     }

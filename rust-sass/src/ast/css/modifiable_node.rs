@@ -628,7 +628,7 @@ impl<'parse> ModifiableCssNode<'parse> {
                 // `fromPlainCss` (defaults to false) — copies merge as
                 // non-plain rules on re-evaluation.
                 ModifiableCssNodeKind::StyleRule(ModifiableCssStyleRule::new(
-                    Rc::clone(&sr.selector),
+                    sr.selector,
                     sr.span,
                     Some(sr.original_selector),
                     false,
@@ -754,7 +754,7 @@ mod tests {
         )
         .unwrap();
         let list = SelectorList::new(arena, vec![complex], BOGUS_SPAN).unwrap();
-        let rc = Rc::new(RefCell::new(list));
+        let rc = arena.alloc(RefCell::new(list));
         ModifiableCssNode::new(
             arena,
             ModifiableCssNodeKind::StyleRule(ModifiableCssStyleRule::new(
@@ -1207,7 +1207,7 @@ mod tests {
             ModifiableCssNode::new(
                 arena,
                 ModifiableCssNodeKind::StyleRule(ModifiableCssStyleRule::new(
-                    Rc::new(RefCell::new(sel)),
+                    arena.alloc(RefCell::new(sel)),
                     span,
                     None,
                     false,

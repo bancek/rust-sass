@@ -3759,7 +3759,8 @@ mod tests {
         let comp = ComplexSelectorComponent::new(Box::new(compound), vec![], span);
         let complex = ComplexSelector::new(vec![], vec![comp], span, false).unwrap();
         let selector = SelectorList::new(arena, vec![complex], span).unwrap();
-        let rule = ModifiableCssStyleRule::new(Rc::new(RefCell::new(selector)), span, None, false);
+        let rule =
+            ModifiableCssStyleRule::new(arena.alloc(RefCell::new(selector)), span, None, false);
         ModifiableCssNode::new(arena, ModifiableCssNodeKind::StyleRule(rule))
     }
 

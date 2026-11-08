@@ -22,7 +22,6 @@ use std::collections::{HashMap, HashSet};
 use std::fmt::Debug;
 use std::fmt::Formatter;
 use std::hash::{Hash, Hasher};
-use std::rc::Rc;
 
 use allocator_api2::vec::Vec as AllocVec;
 use bumpalo::Bump;
@@ -61,92 +60,88 @@ use crate::extend::mode::ExtendMode;
 /// A mutable reference to a (presumably immutable) value.
 ///
 /// Always uses reference identity, even when the underlying type uses value
-/// equality.
-pub(crate) struct MutableBox<T> {
-    pub(crate) inner: Rc<RefCell<T>>,
+/// equality. Stored in the compile arena (Dart's `Box` is a GC object).
+pub(crate) struct MutableBox<'p, T> {
+    pub(crate) inner: &'p RefCell<T>,
 }
 
 /// An unmodifiable reference to a value that may be mutated elsewhere.
 ///
 /// Uses reference equality based on the underlying [`MutableBox`], even when
 /// the underlying type uses value equality.
-pub struct StoreBox<T> {
-    pub(crate) inner: Rc<RefCell<T>>,
+pub struct StoreBox<'p, T> {
+    pub(crate) inner: &'p RefCell<T>,
 }
 
-impl<T> MutableBox<T> {
-    pub fn new(value: T) -> Self {
+impl<'p, T> MutableBox<'p, T> {
+    pub fn new(arena: &'p Bump, value: T) -> Self {
         MutableBox {
-            inner: Rc::new(RefCell::new(value)),
+            inner: arena.alloc(RefCell::new(value)),
         }
     }
 
     /// Returns an unmodifiable reference to this box.
     ///
     /// The underlying modifiable box may still be modified.
-    pub fn seal(&self) -> StoreBox<T> {
-        StoreBox {
-            inner: Rc::clone(&self.inner),
-        }
+    pub fn seal(&self) -> StoreBox<'p, T> {
+        StoreBox { inner: self.inner }
     }
 }
 
-impl<T> Clone for MutableBox<T> {
+impl<T> Clone for MutableBox<'_, T> {
     fn clone(&self) -> Self {
-        MutableBox {
-            inner: Rc::clone(&self.inner),
-        }
+        *self
     }
 }
+impl<T> Copy for MutableBox<'_, T> {}
 
-impl<T> Clone for StoreBox<T> {
+impl<T> Clone for StoreBox<'_, T> {
     fn clone(&self) -> Self {
-        StoreBox {
-            inner: Rc::clone(&self.inner),
-        }
+        *self
     }
 }
+impl<T> Copy for StoreBox<'_, T> {}
 
-impl<T> StoreBox<T> {
+impl<T> StoreBox<'_, T> {
     pub fn value(&self) -> Ref<'_, T> {
         self.inner.borrow()
     }
 }
 
-impl<T> PartialEq for MutableBox<T> {
+impl<T> PartialEq for MutableBox<'_, T> {
     fn eq(&self, o: &Self) -> bool {
-        Rc::ptr_eq(&self.inner, &o.inner)
+        std::ptr::eq(self.inner, o.inner)
     }
 }
-impl<T> Eq for MutableBox<T> {}
-impl<T> Hash for MutableBox<T> {
+impl<T> Eq for MutableBox<'_, T> {}
+impl<T> Hash for MutableBox<'_, T> {
     fn hash<H: Hasher>(&self, s: &mut H) {
-        Rc::as_ptr(&self.inner).hash(s);
+        std::ptr::from_ref(self.inner).hash(s);
     }
 }
-impl<T> PartialEq for StoreBox<T> {
+impl<T> PartialEq for StoreBox<'_, T> {
     fn eq(&self, o: &Self) -> bool {
-        Rc::ptr_eq(&self.inner, &o.inner)
+        std::ptr::eq(self.inner, o.inner)
     }
 }
-impl<T> Eq for StoreBox<T> {}
-impl<T> Hash for StoreBox<T> {
+impl<T> Eq for StoreBox<'_, T> {}
+impl<T> Hash for StoreBox<'_, T> {
     fn hash<H: Hasher>(&self, s: &mut H) {
-        Rc::as_ptr(&self.inner).hash(s);
+        std::ptr::from_ref(self.inner).hash(s);
     }
 }
 
-impl<T> Debug for MutableBox<T> {
+impl<T> Debug for MutableBox<'_, T> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("MutableBox")
-            .field("ptr", &Rc::as_ptr(&self.inner))
+            .field("ptr", &std::ptr::from_ref(self.inner))
             .finish()
     }
 }
-impl<T> Debug for StoreBox<T> {
+impl<T> Debug for StoreBox<'_, T> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("StoreBox")
-            .field("ptr", &Rc::as_ptr(&self.inner))
+            .field("ptr", &std::ptr::from_ref(self.inner))
             .finish()
     }
 }
@@ -227,7 +222,7 @@ impl<'parse> ExtensionStore<'parse> {
         arena: &'compile Bump,
         sel: &SelectorList<'parse>,
         media_ctx: Option<Vec<CssMediaQuery<'parse>>>,
-    ) -> SassResult<StoreBox<SelectorList<'parse>>> {
+    ) -> SassResult<StoreBox<'parse, SelectorList<'parse>>> {
         match self {
             ExtensionStore::Default(s) => s.borrow_mut().add_selector(arena, sel, media_ctx),
             ExtensionStore::Empty => Err(Box::new(SassError::Script {
@@ -299,7 +294,7 @@ impl<'parse> ExtensionStore<'parse> {
         arena: &'parse Bump,
     ) -> SassResult<(
         ExtensionStore<'parse>,
-        HashMap<SelectorListIdentity<'parse>, StoreBox<SelectorList<'parse>>>,
+        HashMap<SelectorListIdentity<'parse>, StoreBox<'parse, SelectorList<'parse>>>,
     )> {
         match self {
             ExtensionStore::Default(s) => {
@@ -326,7 +321,7 @@ pub struct DefaultExtensionStore<'parse> {
     pub(crate) selectors: ArenaMap<
         'parse,
         SimpleSelector<'parse>,
-        ArenaSet<'parse, MutableBox<SelectorList<'parse>>>,
+        ArenaSet<'parse, MutableBox<'parse, SelectorList<'parse>>>,
     >,
     /// A map from all extended simple selectors to the sources of those
     /// extensions.
@@ -346,7 +341,7 @@ pub struct DefaultExtensionStore<'parse> {
     // key types don't even trigger it.)
     #[allow(clippy::mutable_key_type)]
     pub(crate) media_contexts: ArenaHashMap<
-        MutableBox<SelectorList<'parse>>,
+        MutableBox<'parse, SelectorList<'parse>>,
         ArenaVec<'parse, CssMediaQuery<'parse>>,
         hashbrown::DefaultHashBuilder,
         &'parse Bump,
@@ -398,7 +393,7 @@ impl<'parse> DefaultExtensionStore<'parse> {
         selectors: ArenaMap<
             'parse,
             SimpleSelector<'parse>,
-            ArenaSet<'parse, MutableBox<SelectorList<'parse>>>,
+            ArenaSet<'parse, MutableBox<'parse, SelectorList<'parse>>>,
         >,
         extensions: ArenaMap<
             'parse,
@@ -411,7 +406,7 @@ impl<'parse> DefaultExtensionStore<'parse> {
             ArenaVec<'parse, Extension<'parse>>,
         >,
         media_contexts: ArenaHashMap<
-            MutableBox<SelectorList<'parse>>,
+            MutableBox<'parse, SelectorList<'parse>>,
             ArenaVec<'parse, CssMediaQuery<'parse>>,
             hashbrown::DefaultHashBuilder,
             &'parse Bump,
@@ -481,7 +476,7 @@ impl<'parse> DefaultExtensionStore<'parse> {
         arena: &'compile Bump,
         sel: &SelectorList<'parse>,
         media_ctx: Option<Vec<CssMediaQuery<'parse>>>,
-    ) -> SassResult<StoreBox<SelectorList<'parse>>> {
+    ) -> SassResult<StoreBox<'parse, SelectorList<'parse>>> {
         let mut sel = *sel;
         if !sel.is_invisible() {
             for c in &sel.0.components {
@@ -499,11 +494,11 @@ impl<'parse> DefaultExtensionStore<'parse> {
                 self.mode,
             )?;
         }
-        let mb = MutableBox::new(sel);
+        let mb = MutableBox::new(arena, sel);
         if let Some(ref mc) = media_ctx {
             let mut stored = ArenaVec::new_in(arena);
             stored.extend(mc.iter().cloned());
-            self.media_contexts.insert(mb.clone(), stored);
+            self.media_contexts.insert(mb, stored);
         }
         register_selector(arena, &mut self.selectors, &sel, &mb);
         Ok(mb.seal())
@@ -756,7 +751,7 @@ impl<'parse> DefaultExtensionStore<'parse> {
                     exts_to_extend.extend(ets.iter().cloned());
                 }
                 if let Some(sts) = self.selectors.get(target) {
-                    sels_to_extend.extend(sts.iter().cloned());
+                    sels_to_extend.extend(sts.iter().copied());
                 }
                 if let Some(existing) = self.extensions.get_mut(target) {
                     for (ek, ext) in new_srcs.iter() {
@@ -844,23 +839,27 @@ impl<'parse> DefaultExtensionStore<'parse> {
         arena: &'parse Bump,
     ) -> SassResult<(
         ExtensionStore<'parse>,
-        HashMap<SelectorListIdentity<'parse>, StoreBox<SelectorList<'parse>>>,
+        HashMap<SelectorListIdentity<'parse>, StoreBox<'parse, SelectorList<'parse>>>,
     )> {
         let mut new_selectors: ArenaMap<
             'parse,
             SimpleSelector<'parse>,
-            ArenaSet<'parse, MutableBox<SelectorList<'parse>>>,
+            ArenaSet<'parse, MutableBox<'parse, SelectorList<'parse>>>,
         > = ArenaMap::new_in(arena);
         let mut new_mcs: ArenaHashMap<
-            MutableBox<SelectorList<'parse>>,
+            MutableBox<'parse, SelectorList<'parse>>,
             ArenaVec<'parse, CssMediaQuery<'parse>>,
             hashbrown::DefaultHashBuilder,
             &'parse Bump,
         > = ArenaHashMap::with_hasher_in(hashbrown::DefaultHashBuilder::default(), arena);
-        let mut old_to_new: HashMap<SelectorListIdentity<'parse>, StoreBox<SelectorList<'parse>>> =
-            HashMap::new();
-        let mut new_boxes: HashMap<SelectorListIdentity<'parse>, MutableBox<SelectorList<'parse>>> =
-            HashMap::new();
+        let mut old_to_new: HashMap<
+            SelectorListIdentity<'parse>,
+            StoreBox<'parse, SelectorList<'parse>>,
+        > = HashMap::new();
+        let mut new_boxes: HashMap<
+            SelectorListIdentity<'parse>,
+            MutableBox<'parse, SelectorList<'parse>>,
+        > = HashMap::new();
 
         for (simple, ss) in self.selectors.iter() {
             let mut new_set =
@@ -868,19 +867,19 @@ impl<'parse> DefaultExtensionStore<'parse> {
             for s in ss {
                 let sel_identity = SelectorListIdentity::from(*s.inner.borrow());
                 let new_mb = match new_boxes.get(&sel_identity) {
-                    Some(mb) => mb.clone(),
+                    Some(mb) => *mb,
                     None => {
-                        let mb = MutableBox::new(*s.inner.borrow());
-                        new_boxes.insert(sel_identity, mb.clone());
+                        let mb = MutableBox::new(arena, *s.inner.borrow());
+                        new_boxes.insert(sel_identity, mb);
                         mb
                     }
                 };
-                new_set.insert(new_mb.clone());
+                new_set.insert(new_mb);
                 old_to_new.insert(sel_identity, new_mb.seal());
                 if let Some(mc) = self.media_contexts.get(s) {
                     let mut stored = ArenaVec::new_in(arena);
                     stored.extend(mc.iter().cloned());
-                    new_mcs.insert(new_mb.clone(), stored);
+                    new_mcs.insert(new_mb, stored);
                 }
             }
             new_selectors.insert(simple.clone(), new_set);
@@ -939,10 +938,10 @@ fn register_selector<'parse>(
     selectors: &mut ArenaMap<
         'parse,
         SimpleSelector<'parse>,
-        ArenaSet<'parse, MutableBox<SelectorList<'parse>>>,
+        ArenaSet<'parse, MutableBox<'parse, SelectorList<'parse>>>,
     >,
     list: &SelectorList<'parse>,
-    mb: &MutableBox<SelectorList<'parse>>,
+    mb: &MutableBox<'parse, SelectorList<'parse>>,
 ) {
     for complex in &list.0.components {
         for component in &complex.components {
@@ -952,7 +951,7 @@ fn register_selector<'parse>(
                     .or_insert_with(|| {
                         ArenaSet::with_hasher_in(hashbrown::DefaultHashBuilder::default(), arena)
                     })
-                    .insert(mb.clone());
+                    .insert(*mb);
                 if let SimpleSelector::Pseudo(ref ps) = simple {
                     if let Some(ref inner) = ps.selector {
                         if let Selector::List(ref il) = inner.as_ref() {
@@ -1734,7 +1733,7 @@ fn extend_existing_extensions<'compile: 'parse, 'parse>(
 #[allow(clippy::mutable_key_type)]
 fn extend_existing_selectors<'compile: 'parse, 'parse>(
     arena: &'compile Bump,
-    sels: &ArenaSet<'parse, MutableBox<SelectorList<'parse>>>,
+    sels: &ArenaSet<'parse, MutableBox<'parse, SelectorList<'parse>>>,
     new_exts: &ArenaMap<
         'parse,
         SimpleSelector<'parse>,
@@ -1743,10 +1742,10 @@ fn extend_existing_selectors<'compile: 'parse, 'parse>(
     selectors: &mut ArenaMap<
         'parse,
         SimpleSelector<'parse>,
-        ArenaSet<'parse, MutableBox<SelectorList<'parse>>>,
+        ArenaSet<'parse, MutableBox<'parse, SelectorList<'parse>>>,
     >,
     media_contexts: &ArenaHashMap<
-        MutableBox<SelectorList<'parse>>,
+        MutableBox<'parse, SelectorList<'parse>>,
         ArenaVec<'parse, CssMediaQuery<'parse>>,
         hashbrown::DefaultHashBuilder,
         &'parse Bump,

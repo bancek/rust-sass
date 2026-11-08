@@ -27,7 +27,6 @@ use crate::eval::helpers::tabs_opaque_push;
 use crate::serialize::serialize_value_inspect;
 use std::cell::RefCell;
 use std::collections::VecDeque;
-use std::rc::Rc;
 
 use crate::ast::css::at_rule::ModifiableCssAtRule;
 use crate::ast::css::declaration::ModifiableCssDeclaration;
@@ -626,15 +625,14 @@ where
         Some(ref mut store) => {
             store.add_selector(arena, &parsed_selector, state.media_queries.clone())?
         }
-        None => {
-            let inner = Rc::new(RefCell::new(parsed_selector));
-            StoreBox { inner }
-        }
+        None => StoreBox {
+            inner: arena.alloc(RefCell::new(parsed_selector)),
+        },
     };
 
     let from_plain_css = state.stylesheet.as_ref().is_some_and(|s| s.plain_css);
     let msr = ModifiableCssStyleRule::new(
-        Rc::clone(&selector_box.inner),
+        selector_box.inner,
         node.span,
         Some(parsed_selector),
         from_plain_css,
@@ -4250,6 +4248,7 @@ mod tests {
     use crate::value::SassList;
     use crate::value::SassString;
     use bumpalo::Bump;
+    use std::rc::Rc;
 
     use super::*;
 

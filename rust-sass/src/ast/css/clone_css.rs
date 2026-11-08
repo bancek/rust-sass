@@ -9,7 +9,6 @@
 
 use std::cell::RefCell;
 use std::collections::HashMap;
-use std::rc::Rc;
 
 use bumpalo::Bump;
 
@@ -65,7 +64,7 @@ fn visit_children<'compile: 'parse, 'parse>(
 /// Style-rule selectors are remapped through the cloned extension store, so
 /// the copy stays associated with the new store rather than the original.
 struct CloneCssVisitorWithExt<'parse> {
-    old_to_new: HashMap<SelectorListIdentity<'parse>, StoreBox<SelectorList<'parse>>>,
+    old_to_new: HashMap<SelectorListIdentity<'parse>, StoreBox<'parse, SelectorList<'parse>>>,
 }
 
 impl<'parse> CloneCssVisitor<'parse> for CloneCssVisitorWithExt<'parse> {
@@ -174,7 +173,7 @@ impl<'parse> CloneCssVisitor<'parse> for CloneCssVisitorWithExt<'parse> {
         // Dart `clone_css.dart visitCssStyleRule` omits `fromPlainCss`
         // (defaults to false).
         let rule = ModifiableCssStyleRule::new(
-            Rc::clone(&new_box.inner),
+            new_box.inner,
             node.span,
             Some(node.original_selector),
             false,
@@ -302,7 +301,7 @@ impl<'parse> CloneCssVisitor<'parse> for CloneCssVisitorNoExt {
         arena: &'compile Bump,
         node: &ModifiableCssStyleRule<'parse>,
     ) -> SassResult<ModifiableCssNode<'parse>> {
-        let sel = Rc::new(RefCell::new(*node.selector.borrow()));
+        let sel = arena.alloc(RefCell::new(*node.selector.borrow()));
         // Dart `clone_css.dart visitCssStyleRule` omits `fromPlainCss`
         // (defaults to false).
         let rule = ModifiableCssStyleRule::new(sel, node.span, Some(node.original_selector), false);
@@ -600,7 +599,7 @@ mod tests {
         let rule = ModifiableCssNode::new(
             &arena,
             ModifiableCssNodeKind::StyleRule(ModifiableCssStyleRule::new(
-                Rc::clone(&store_box.inner),
+                store_box.inner,
                 span,
                 Some(sel),
                 false,
@@ -716,7 +715,7 @@ mod tests {
         let outer = ModifiableCssNode::new(
             &arena,
             ModifiableCssNodeKind::StyleRule(ModifiableCssStyleRule::new(
-                Rc::clone(&store_box_outer.inner),
+                store_box_outer.inner,
                 span,
                 Some(sel_outer),
                 false,
@@ -733,7 +732,7 @@ mod tests {
         let inner = ModifiableCssNode::new(
             &arena,
             ModifiableCssNodeKind::StyleRule(ModifiableCssStyleRule::new(
-                Rc::clone(&store_box_inner.inner),
+                store_box_inner.inner,
                 span,
                 Some(sel_inner),
                 false,
@@ -807,7 +806,7 @@ mod tests {
         let arena = Bump::new();
         let span = make_span(&arena, "test");
         let sel = make_selector_list(&arena, ".bar");
-        let rc = Rc::new(RefCell::new(sel));
+        let rc = arena.alloc(RefCell::new(sel));
         let rule = ModifiableCssNode::new(
             &arena,
             ModifiableCssNodeKind::StyleRule(ModifiableCssStyleRule::new(rc, span, None, false)),
@@ -855,7 +854,7 @@ mod tests {
         let arena = Bump::new();
         let span = make_span(&arena, "test");
         let sel = make_selector_list(&arena, ".outer");
-        let rc_outer = Rc::new(RefCell::new(sel));
+        let rc_outer = arena.alloc(RefCell::new(sel));
         let outer = ModifiableCssNode::new(
             &arena,
             ModifiableCssNodeKind::StyleRule(ModifiableCssStyleRule::new(
@@ -863,7 +862,7 @@ mod tests {
             )),
         );
         let sel_inner = make_selector_list(&arena, ".inner");
-        let rc_inner = Rc::new(RefCell::new(sel_inner));
+        let rc_inner = arena.alloc(RefCell::new(sel_inner));
         let inner = ModifiableCssNode::new(
             &arena,
             ModifiableCssNodeKind::StyleRule(ModifiableCssStyleRule::new(
@@ -892,7 +891,7 @@ mod tests {
         let arena = Bump::new();
         let span = make_span(&arena, "test");
         let sel = make_selector_list(&arena, ".test");
-        let rc = Rc::new(RefCell::new(sel));
+        let rc = arena.alloc(RefCell::new(sel));
         let rule = ModifiableCssNode::new(
             &arena,
             ModifiableCssNodeKind::StyleRule(ModifiableCssStyleRule::new(rc, span, None, false)),
