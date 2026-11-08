@@ -1000,7 +1000,7 @@ where
                     downstream_stores
                         .entry(Some(up_url))
                         .or_default()
-                        .push(store.clone());
+                        .push(store);
                 }
             }
         }
@@ -3417,6 +3417,7 @@ where
     state.end_of_imports = 0;
     state.out_of_order_imports.clear();
     state.extension_store = Some(DefaultExtensionStore::new(
+        arena,
         ExtendMode::Normal,
         config.unicode,
     ));
@@ -3455,8 +3456,8 @@ where
     // Build module
     let ext_store = state
         .extension_store
-        .as_ref()
-        .map(|es| ExtensionStore::Default(Rc::new(RefCell::new(es.clone()))))
+        .take()
+        .map(|es| ExtensionStore::Default(arena.alloc(RefCell::new(es))))
         .unwrap_or(ExtensionStore::Empty);
     let pre_mod_comments = state.pre_module_comments.take().unwrap_or_default();
     let module = state
@@ -4312,6 +4313,7 @@ mod tests {
         state.root = Some(root.clone());
         state.parent = Some(root);
         state.extension_store = Some(DefaultExtensionStore::new(
+            arena,
             ExtendMode::Normal,
             config.unicode,
         ));

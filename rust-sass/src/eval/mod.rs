@@ -686,6 +686,7 @@ where
         state.importer = importer;
         state.stylesheet = Some(stylesheet);
         state.extension_store = Some(DefaultExtensionStore::new(
+            arena,
             ExtendMode::Normal,
             config.unicode,
         ));
@@ -731,7 +732,7 @@ where
         .state
         .extension_store
         .take()
-        .map(|es| ExtensionStore::Default(Rc::new(RefCell::new(es))))
+        .map(|es| ExtensionStore::Default(arena.alloc(RefCell::new(es))))
         .unwrap_or(ExtensionStore::Empty);
     let pre_mod = v.state.pre_module_comments.take().unwrap_or_default();
     let root_module = v.state.env.to_module(arena, &css, &pre_mod, ext_store);

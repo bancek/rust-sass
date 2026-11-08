@@ -383,7 +383,7 @@ impl<'compile: 'parse, 'parse> Module<'compile, 'parse> {
             ModuleKind::BuiltIn(_) => ExtensionStore::Empty,
             ModuleKind::Forwarded(_) => ExtensionStore::Empty,
             ModuleKind::Shadowed(_) => ExtensionStore::Empty,
-            ModuleKind::Environment(e) => e.extension_store.clone(),
+            ModuleKind::Environment(e) => e.extension_store,
         }
     }
 
