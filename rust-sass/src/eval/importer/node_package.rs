@@ -9,7 +9,7 @@
 
 use crate::common::time::SassTime;
 use crate::io::clean_path;
-use crate::url::SassUrl;
+use crate::url::OwnedUrl;
 #[cfg(feature = "async")]
 use futures::future::LocalBoxFuture;
 use percent_encoding::percent_decode_str;
@@ -98,10 +98,10 @@ impl NodePackageImporter {
     pub async fn canonicalize<'parse>(
         &self,
         io: &dyn Io,
-        url: &SassUrl,
+        url: &OwnedUrl,
         ctx: &mut CanonicalizeContext,
         warn_logger: &dyn WarnLogger<'parse>,
-    ) -> SassResult<Option<SassUrl>> {
+    ) -> SassResult<Option<OwnedUrl>> {
         if url.is_file_like() {
             return self.cwd.canonicalize(io, url, ctx, warn_logger).await;
         }
@@ -215,7 +215,7 @@ impl NodePackageImporter {
                     // `p.canonicalize` (pure LEXICAL, no realpath, no
                     // case-correction) — node_package.dart:83,95. Match that.
                     let canonical = canonicalize_lexical(io, &resolved);
-                    let file_url = SassUrl::file_url_from_abs_path(&canonical).map_err(|_| {
+                    let file_url = OwnedUrl::file_url_from_abs_path(&canonical).map_err(|_| {
                         SassError::Script {
                             message: format!("Invalid path for URL: {canonical}"),
                             argument_name: None,
@@ -242,11 +242,12 @@ impl NodePackageImporter {
                 .await?
             {
                 let canonical = canonicalize_lexical(io, &root_path);
-                let file_url =
-                    SassUrl::file_url_from_abs_path(&canonical).map_err(|_| SassError::Script {
+                let file_url = OwnedUrl::file_url_from_abs_path(&canonical).map_err(|_| {
+                    SassError::Script {
                         message: format!("Invalid path for URL: {canonical}"),
                         argument_name: None,
-                    })?;
+                    }
+                })?;
                 return Ok(Some(file_url));
             }
             return Ok(None);
@@ -254,7 +255,7 @@ impl NodePackageImporter {
 
         let subpath = subpath.unwrap();
         let subpath_in_root = Path::new(&package_root).join(&subpath);
-        let subpath_url = SassUrl::file_url_from_abs_path(&subpath_in_root.to_string_lossy())
+        let subpath_url = OwnedUrl::file_url_from_abs_path(&subpath_in_root.to_string_lossy())
             .map_err(|_| SassError::Script {
                 message: format!("Invalid subpath URL: {}", subpath_in_root.display()),
                 argument_name: None,
@@ -268,12 +269,12 @@ impl NodePackageImporter {
     ///
     /// Matches Dart: `NodePackageImporter.load`.
     #[rust_sass_macros::maybe_async]
-    pub async fn load(&self, io: &dyn Io, url: &SassUrl) -> SassResult<Option<ImporterResult>> {
+    pub async fn load(&self, io: &dyn Io, url: &OwnedUrl) -> SassResult<Option<ImporterResult>> {
         self.cwd.load(io, url).await
     }
 
     /// Always `true`: any URL could in principle resolve through `node_modules`.
-    pub fn could_canonicalize(&self, _url: &SassUrl, _canonical_url: &SassUrl) -> bool {
+    pub fn could_canonicalize(&self, _url: &OwnedUrl, _canonical_url: &OwnedUrl) -> bool {
         true
     }
 
@@ -285,7 +286,7 @@ impl NodePackageImporter {
         scheme == "pkg"
     }
 
-    pub fn modification_time(&self, _url: &SassUrl) -> SassResult<SassTime> {
+    pub fn modification_time(&self, _url: &OwnedUrl) -> SassResult<SassTime> {
         Ok(SassTime::now())
     }
 }
@@ -852,7 +853,7 @@ mod tests {
         );
         let io = make_io(files);
         let imp = NodePackageImporter::new("/app", Rc::clone(&io));
-        let url = SassUrl::parse("pkg:p/a").unwrap();
+        let url = OwnedUrl::parse("pkg:p/a").unwrap();
         let mut ctx = make_ctx();
         let err = imp
             .canonicalize(&*io, &url, &mut ctx, &NoOpWarnLogger)
@@ -889,7 +890,7 @@ mod tests {
         );
         let io = make_io(files);
         let imp = NodePackageImporter::new("/app", Rc::clone(&io));
-        let url = SassUrl::parse("pkg:p/a").unwrap();
+        let url = OwnedUrl::parse("pkg:p/a").unwrap();
         let mut ctx = make_ctx();
         let result = imp
             .canonicalize(&*io, &url, &mut ctx, &NoOpWarnLogger)
@@ -911,7 +912,7 @@ mod tests {
         );
         let io = make_io(files);
         let imp = NodePackageImporter::new("/app", Rc::clone(&io));
-        let url = SassUrl::parse("pkg:p/a").unwrap();
+        let url = OwnedUrl::parse("pkg:p/a").unwrap();
         let mut ctx = make_ctx();
         let err = imp
             .canonicalize(&*io, &url, &mut ctx, &NoOpWarnLogger)
@@ -950,7 +951,7 @@ mod tests {
         );
         let io = make_io(files);
         let imp = NodePackageImporter::new("/app", Rc::clone(&io));
-        let url = SassUrl::parse("pkg:p").unwrap();
+        let url = OwnedUrl::parse("pkg:p").unwrap();
 
         let mut import_ctx = make_import_ctx();
         let result = imp
@@ -988,7 +989,7 @@ mod tests {
         );
         let io = make_io(files);
         let imp = NodePackageImporter::new("/app", Rc::clone(&io));
-        let url = SassUrl::parse("pkg:p").unwrap();
+        let url = OwnedUrl::parse("pkg:p").unwrap();
         let mut ctx = make_import_ctx();
         let result = imp
             .canonicalize(&*io, &url, &mut ctx, &NoOpWarnLogger)
@@ -1024,7 +1025,7 @@ mod tests {
             );
             let io = make_io(files);
             let imp = NodePackageImporter::new("/app", Rc::clone(&io));
-            let url = SassUrl::parse("pkg:p").unwrap();
+            let url = OwnedUrl::parse("pkg:p").unwrap();
 
             let mut import_ctx = make_import_ctx();
             let result = imp
@@ -1072,7 +1073,7 @@ mod tests {
         );
         let io = make_io(files);
         let imp = NodePackageImporter::new("/app", Rc::clone(&io));
-        let url = SassUrl::parse("pkg:p").unwrap();
+        let url = OwnedUrl::parse("pkg:p").unwrap();
 
         let mut import_ctx = make_import_ctx();
         let result = imp

@@ -8,7 +8,7 @@
 // go-source: go/eval/import_cache.go (FilesystemImporter section)
 
 use crate::deprecation::FS_IMPORTER_CWD;
-use crate::url::SassUrl;
+use crate::url::OwnedUrl;
 use std::fmt;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
@@ -93,7 +93,7 @@ impl FilesystemImporter {
         }
     }
 
-    pub(crate) fn could_canonicalize_path(&self, url_path: &str, canonical_url: &SassUrl) -> bool {
+    pub(crate) fn could_canonicalize_path(&self, url_path: &str, canonical_url: &OwnedUrl) -> bool {
         if !canonical_url.is_file() {
             return false;
         }
@@ -120,10 +120,10 @@ impl FilesystemImporter {
     pub async fn canonicalize<'parse>(
         &self,
         io: &dyn Io,
-        url: &SassUrl,
+        url: &OwnedUrl,
         ctx: &mut CanonicalizeContext,
         warn_logger: &dyn WarnLogger<'parse>,
-    ) -> SassResult<Option<SassUrl>> {
+    ) -> SassResult<Option<OwnedUrl>> {
         let resolved = if url.is_file() {
             // `file:` URLs resolve directly only; the import cache separately
             // retries the original relative URL against the importer chain,
@@ -184,11 +184,12 @@ impl FilesystemImporter {
                         message: e.to_string(),
                         argument_name: None,
                     })?;
-                let file_url =
-                    SassUrl::file_url_from_abs_path(&canonical).map_err(|_| SassError::Script {
+                let file_url = OwnedUrl::file_url_from_abs_path(&canonical).map_err(|_| {
+                    SassError::Script {
                         message: format!("Invalid canonical path for URL: {canonical}"),
                         argument_name: None,
-                    })?;
+                    }
+                })?;
                 Ok(Some(file_url))
             }
         }
@@ -198,7 +199,7 @@ impl FilesystemImporter {
     ///
     /// Matches Dart: `FilesystemImporter.load`.
     #[rust_sass_macros::maybe_async]
-    pub async fn load(&self, io: &dyn Io, url: &SassUrl) -> SassResult<Option<ImporterResult>> {
+    pub async fn load(&self, io: &dyn Io, url: &OwnedUrl) -> SassResult<Option<ImporterResult>> {
         let path_str = if url.is_file_like() {
             url.fs_path()
         } else {
@@ -226,7 +227,7 @@ impl FilesystemImporter {
     /// the `_` partial prefix and the file extension.
     ///
     /// Matches Dart: `FilesystemImporter.couldCanonicalize`.
-    pub fn could_canonicalize(&self, url: &SassUrl, canonical_url: &SassUrl) -> bool {
+    pub fn could_canonicalize(&self, url: &OwnedUrl, canonical_url: &OwnedUrl) -> bool {
         if !url.is_file_like() && url.scheme() != "" {
             return false;
         }
@@ -295,8 +296,8 @@ mod tests {
     fn could_canonicalize_rejects_non_file_urls() {
         let io = make_io();
         let imp = FilesystemImporter::new_no_load_path(Rc::clone(&io));
-        let url = SassUrl::parse("http://example.com/style.scss").unwrap();
-        let canonical = SassUrl::parse("file:///style.scss").unwrap();
+        let url = OwnedUrl::parse("http://example.com/style.scss").unwrap();
+        let canonical = OwnedUrl::parse("file:///style.scss").unwrap();
         assert!(!imp.could_canonicalize(&url, &canonical));
     }
 
@@ -304,8 +305,8 @@ mod tests {
     fn could_canonicalize_matches_basename() {
         let io = make_io();
         let imp = FilesystemImporter::new_no_load_path(Rc::clone(&io));
-        let url = SassUrl::parse("file:///foo/bar/style.scss").unwrap();
-        let canonical = SassUrl::parse("file:///baz/style.scss").unwrap();
+        let url = OwnedUrl::parse("file:///foo/bar/style.scss").unwrap();
+        let canonical = OwnedUrl::parse("file:///baz/style.scss").unwrap();
         assert!(imp.could_canonicalize(&url, &canonical));
     }
 
@@ -313,8 +314,8 @@ mod tests {
     fn could_canonicalize_allows_partial_prefix() {
         let io = make_io();
         let imp = FilesystemImporter::new_no_load_path(Rc::clone(&io));
-        let url = SassUrl::parse("file:///foo/style.scss").unwrap();
-        let canonical = SassUrl::parse("file:///foo/_style.scss").unwrap();
+        let url = OwnedUrl::parse("file:///foo/style.scss").unwrap();
+        let canonical = OwnedUrl::parse("file:///foo/_style.scss").unwrap();
         assert!(imp.could_canonicalize(&url, &canonical));
     }
 
@@ -322,8 +323,8 @@ mod tests {
     fn could_canonicalize_ignores_extension() {
         let io = make_io();
         let imp = FilesystemImporter::new_no_load_path(Rc::clone(&io));
-        let url = SassUrl::parse("file:///foo/style").unwrap();
-        let canonical = SassUrl::parse("file:///foo/style.scss").unwrap();
+        let url = OwnedUrl::parse("file:///foo/style").unwrap();
+        let canonical = OwnedUrl::parse("file:///foo/style.scss").unwrap();
         assert!(imp.could_canonicalize(&url, &canonical));
     }
 
@@ -342,10 +343,10 @@ mod tests {
         // `FilesystemImporter::new` joins the load path onto the CWD
         // (`VirtualIo` CWD is `/`), so pass the absolute path through.
         let imp = FilesystemImporter::new("lp", Rc::clone(&io));
-        let ctx_url = SassUrl::parse("file:///ctx/main.scss").unwrap();
+        let ctx_url = OwnedUrl::parse("file:///ctx/main.scss").unwrap();
 
         // Scheme-less relative URL: resolves under the load path.
-        let relative = SassUrl::parse("real").unwrap();
+        let relative = OwnedUrl::parse("real").unwrap();
         let mut ctx = CanonicalizeContext::new(Some(ctx_url.clone()), false);
         let result = imp
             .canonicalize(&*io, &relative, &mut ctx, &NoOpWarnLogger)
@@ -358,7 +359,7 @@ mod tests {
 
         // An absolute `file:` URL that misses directly does not fall back to
         // the load path.
-        let missing = SassUrl::parse("file:///ctx/real").unwrap();
+        let missing = OwnedUrl::parse("file:///ctx/real").unwrap();
         let mut ctx = CanonicalizeContext::new(Some(ctx_url.clone()), false);
         let missing_result = imp
             .canonicalize(&*io, &missing, &mut ctx, &NoOpWarnLogger)
@@ -368,7 +369,7 @@ mod tests {
 
         // Genuine absolute `file:` URL pointing at an existing file resolves
         // directly and never consults the load path.
-        let abs_url = SassUrl::parse("file:///abs/real.scss").unwrap();
+        let abs_url = OwnedUrl::parse("file:///abs/real.scss").unwrap();
         let mut ctx = CanonicalizeContext::new(Some(ctx_url), false);
         let result = imp
             .canonicalize(&*io, &abs_url, &mut ctx, &NoOpWarnLogger)

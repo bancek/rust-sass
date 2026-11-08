@@ -7,7 +7,7 @@
 // dart-source: lib/src/util/lazy_file_span.dart + lib/src/util/multi_span.dart
 // go-source: go/sasscommon/util_lazy_file_span.go + go/sasscommon/util_multi_span.go
 
-use crate::url::SassUrl;
+use crate::url::OwnedUrl;
 use std::cell::Cell;
 use std::fmt::Debug;
 use std::fmt::Display;
@@ -212,7 +212,7 @@ impl<'parse> Span<'parse> {
         }
     }
 
-    pub fn source_url(&self) -> Result<Option<SassUrl>, SpanError> {
+    pub fn source_url(&self) -> Result<Option<OwnedUrl>, SpanError> {
         match self {
             Span::File(fs) => Ok(fs.source_url().cloned()),
             Span::Lazy(l) => Ok(l.get()?.source_url().cloned()),
@@ -516,7 +516,7 @@ mod tests {
     use super::*;
     use crate::common::file_span::{FileSpan, SourceLocation};
     use crate::common::source_span_file_source::FileSource;
-    use crate::url::SassUrl;
+    use crate::url::OwnedUrl;
     use bumpalo::Bump;
     use std::cell::Cell;
 
@@ -531,8 +531,8 @@ mod tests {
         FileSource::new_in(arena, text, None)
     }
 
-    fn test_url(url_str: &str) -> SassUrl {
-        SassUrl::parse(url_str).unwrap()
+    fn test_url(url_str: &str) -> OwnedUrl {
+        OwnedUrl::parse(url_str).unwrap()
     }
 
     #[test]

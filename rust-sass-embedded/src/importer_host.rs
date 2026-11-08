@@ -20,7 +20,7 @@ use rust_sass_macros;
 use rust_sass::common::exception::{SassError, SassResult};
 use rust_sass::eval::importer::result::ImporterResult;
 use rust_sass::eval::importer::{CanonicalizeContext, UserImporter};
-use rust_sass::url::SassUrl;
+use rust_sass::url::OwnedUrl;
 
 use crate::compilation::HostContext;
 use crate::embedded_sass::inbound_message::canonicalize_response;
@@ -74,9 +74,9 @@ impl fmt::Debug for HostImporter {
 impl UserImporter for HostImporter {
     fn canonicalize<'a>(
         &'a self,
-        url: &'a SassUrl,
+        url: &'a OwnedUrl,
         context: &'a mut CanonicalizeContext,
-    ) -> LocalBoxFuture<'a, SassResult<Option<SassUrl>>> {
+    ) -> LocalBoxFuture<'a, SassResult<Option<OwnedUrl>>> {
         let request = OutboundMessage {
             message: Some(outbound_message::Message::CanonicalizeRequest(
                 outbound_message::CanonicalizeRequest {
@@ -113,7 +113,7 @@ impl UserImporter for HostImporter {
 
     fn load<'a>(
         &'a self,
-        url: &'a SassUrl,
+        url: &'a OwnedUrl,
     ) -> LocalBoxFuture<'a, SassResult<Option<ImporterResult>>> {
         let request = OutboundMessage {
             message: Some(outbound_message::Message::ImportRequest(
@@ -154,7 +154,7 @@ impl UserImporter for HostImporter {
         })
     }
 
-    fn could_canonicalize(&self, _url: &SassUrl, _base_url: &SassUrl) -> bool {
+    fn could_canonicalize(&self, _url: &OwnedUrl, _base_url: &OwnedUrl) -> bool {
         false
     }
 
@@ -166,8 +166,8 @@ impl UserImporter for HostImporter {
 /// Parses `url_str` as a URL, erroring if it's invalid or relative.
 ///
 /// Matches Go: `ImporterBase.ParseAbsoluteURL` / Dart: `parseAbsoluteUrl`.
-pub(crate) fn parse_absolute_url(source: &str, url_str: &str) -> SassResult<SassUrl> {
-    let parsed = SassUrl::parse(url_str)
+pub(crate) fn parse_absolute_url(source: &str, url_str: &str) -> SassResult<OwnedUrl> {
+    let parsed = OwnedUrl::parse(url_str)
         .map_err(|_| script(&format!("{source} must return a URL, was \"{url_str}\"")))?;
     if parsed.is_relative() {
         return Err(script(&format!(
@@ -252,7 +252,7 @@ mod tests {
                 )),
             },
         );
-        let url = SassUrl::parse("foo").unwrap();
+        let url = OwnedUrl::parse("foo").unwrap();
         let mut cc = CanonicalizeContext::new(None, false);
         let result = importer.canonicalize(&url, &mut cc).await;
         assert!(matches!(result, Ok(Some(u)) if u.as_str() == "file:///a.scss"));
@@ -276,7 +276,7 @@ mod tests {
                 )),
             },
         );
-        let url = SassUrl::parse("foo").unwrap();
+        let url = OwnedUrl::parse("foo").unwrap();
         let mut cc = CanonicalizeContext::new(None, false);
         let result = importer.canonicalize(&url, &mut cc).await;
         assert!(result.is_err());
@@ -298,7 +298,7 @@ mod tests {
                 )),
             },
         );
-        let url = SassUrl::parse("foo").unwrap();
+        let url = OwnedUrl::parse("foo").unwrap();
         let mut cc = CanonicalizeContext::new(None, false);
         let result = importer.canonicalize(&url, &mut cc).await;
         assert!(matches!(result, Err(e) if e.message() == "boom"));
@@ -323,7 +323,7 @@ mod tests {
                 })),
             },
         );
-        let url = SassUrl::parse("file:///a.scss").unwrap();
+        let url = OwnedUrl::parse("file:///a.scss").unwrap();
         let result = importer.load(&url).await;
         let result = result.unwrap().unwrap();
         assert_eq!(result.contents, "a { b: c }");
@@ -350,7 +350,7 @@ mod tests {
                 })),
             },
         );
-        let url = SassUrl::parse("file:///a.scss").unwrap();
+        let url = OwnedUrl::parse("file:///a.scss").unwrap();
         let result = importer.load(&url).await;
         let result = result.unwrap().unwrap();
         assert_eq!(result.contents, "a { b: c }");

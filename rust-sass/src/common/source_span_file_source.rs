@@ -7,7 +7,7 @@
 // dart-source: (external) package:source_span/lib/src/file.dart
 // go-source: go/sasscommon/source_span_file_source.go
 
-use crate::url::SassUrl;
+use crate::url::OwnedUrl;
 use bumpalo::Bump;
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
@@ -25,7 +25,7 @@ use crate::common::file_span::{FileSpan, SourceLocation};
 #[derive(Debug)]
 pub struct FileSource<'parse> {
     /// The URL where the source is located, if known.
-    url: Option<SassUrl>,
+    url: Option<OwnedUrl>,
     /// The full source text (arena copy).
     text: &'parse str,
     /// Byte offset of the first character *after* each newline; entry 0 is
@@ -57,7 +57,7 @@ impl<'parse> FileSource<'parse> {
     pub fn new_in<'compile: 'parse>(
         arena: &'compile Bump,
         text: &str,
-        url: Option<SassUrl>,
+        url: Option<OwnedUrl>,
     ) -> &'parse Self {
         let arena_text = arena.alloc_str(text);
         let line_starts = compute_line_starts(arena, text);
@@ -73,7 +73,7 @@ impl<'parse> FileSource<'parse> {
     /// The URL as a shared string, formatted once per source.
     ///
     /// Warning-dedup keys and stack-trace frames need this repeatedly;
-    /// cloning an `Rc<str>` beats re-stringifying a `SassUrl` every time.
+    /// cloning an `Rc<str>` beats re-stringifying a `OwnedUrl` every time.
     pub fn url_str_cached(&self) -> Option<Rc<str>> {
         if let Some(s) = self.url_str_cache.borrow().as_ref() {
             return Some(Rc::clone(s));
@@ -105,7 +105,7 @@ impl<'parse> FileSource<'parse> {
     }
 
     /// The URL where the source is located, if known.
-    pub fn url(&self) -> Option<&SassUrl> {
+    pub fn url(&self) -> Option<&OwnedUrl> {
         self.url.as_ref()
     }
 

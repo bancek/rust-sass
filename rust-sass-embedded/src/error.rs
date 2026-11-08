@@ -323,7 +323,7 @@ mod golden_tests {
     use rust_sass::compile::{compile_string, CompileOptions};
     use rust_sass::io::{DefaultIo, Io};
     use rust_sass::logger::QuietLogger;
-    use rust_sass::url::SassUrl;
+    use rust_sass::url::OwnedUrl;
     use rust_sass::Bump;
     use std::rc::Rc;
 
@@ -605,7 +605,7 @@ mod golden_tests {
             url: if url.is_empty() {
                 None
             } else {
-                Some(SassUrl::parse(url).unwrap())
+                Some(OwnedUrl::parse(url).unwrap())
             },
             logger: Some(Rc::new(QuietLogger)),
             ..CompileOptions::new(&arena)

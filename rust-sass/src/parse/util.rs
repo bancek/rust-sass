@@ -12,7 +12,7 @@ use crate::ast::sass::interpolation_buffer::InterpolationBuffer;
 use crate::common::ast_node::AstNode;
 use crate::common::file_span::FileSpan;
 use crate::common::span_scanner::SpanScanner;
-use crate::url::SassUrl;
+use crate::url::OwnedUrl;
 use crate::util::character;
 
 use crate::parse::parser::{
@@ -131,10 +131,10 @@ pub(crate) fn looking_at_expression_impl(scanner: &SpanScanner<'_>) -> bool {
 pub(crate) fn url_string_impl<'parse>(
     scanner: &mut SpanScanner<'parse>,
     parser_state: &ParserState<'parse>,
-) -> ParseResult<'parse, SassUrl> {
+) -> ParseResult<'parse, OwnedUrl> {
     let start = scanner.state();
     let url_str = string_impl(scanner)?;
-    let parsed = SassUrl::parse(&url_str);
+    let parsed = OwnedUrl::parse(&url_str);
     match parsed {
         Ok(url) => Ok(url),
         Err(e) => {
@@ -235,7 +235,7 @@ impl<'parse> StylesheetParser<'parse> {
         looking_at_expression_impl(&self.scanner)
     }
 
-    pub fn url_string(&mut self) -> ParseResult<'parse, SassUrl> {
+    pub fn url_string(&mut self) -> ParseResult<'parse, OwnedUrl> {
         url_string_impl(&mut self.scanner, &self.state.parser_state)
     }
 

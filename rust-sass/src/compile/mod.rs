@@ -42,7 +42,7 @@ use std::path::Path;
 use std::path::PathBuf;
 use std::rc::Rc;
 
-use crate::url::SassUrl;
+use crate::url::OwnedUrl;
 use bumpalo::Bump;
 
 use crate::ast::sass::statement::Stylesheet;
@@ -287,7 +287,7 @@ where
                         if let Some(file) = sspan.file() {
                             *url_str = data_url_from_string(file.text());
                         }
-                    } else if let Ok(parsed) = SassUrl::parse(url_str) {
+                    } else if let Ok(parsed) = OwnedUrl::parse(url_str) {
                         if let Some(import_cache) = &eval_result.import_cache {
                             *url_str = import_cache.source_map_url(&parsed).to_string();
                         }
@@ -326,7 +326,7 @@ where
 /// `compile_bytes` entry (which receives raw bytes from JS).
 pub fn decode_source_utf8<'a>(
     source_bytes: &'a [u8],
-    url: Option<SassUrl>,
+    url: Option<OwnedUrl>,
     arena: &'a Bump,
 ) -> Result<&'a str, Box<SassError>> {
     match std::str::from_utf8(source_bytes) {
@@ -401,7 +401,7 @@ where
                 })?,
         );
 
-    let file_url = SassUrl::file_url_from_abs_path(&abs_path.to_string_lossy()).map_err(|_| {
+    let file_url = OwnedUrl::file_url_from_abs_path(&abs_path.to_string_lossy()).map_err(|_| {
         SassError::Script {
             message: format!("Could not create URL from path: {path}"),
             argument_name: None,
@@ -439,7 +439,7 @@ pub async fn compile_string_to_result<'compile, 'parse>(
     source: &str,
     io: Rc<dyn Io>,
     syntax: Syntax,
-    url: Option<SassUrl>,
+    url: Option<OwnedUrl>,
     importers: Vec<Importer<'parse>>,
     importer: Importer<'parse>,
     functions: Vec<Callable<'compile, 'parse>>,
@@ -632,7 +632,7 @@ mod tests {
     #[test]
     fn decode_source_utf8_invalid_uses_provided_url() {
         let arena = Bump::new();
-        let url = SassUrl::parse("file:///input.scss").unwrap();
+        let url = OwnedUrl::parse("file:///input.scss").unwrap();
         let err = decode_source_utf8(b"\xff", Some(url), &arena).unwrap_err();
         let span = err.span().unwrap();
         assert_eq!(

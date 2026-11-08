@@ -18,7 +18,7 @@ use std::fmt::Write;
 use std::mem;
 use std::ops::Deref;
 
-use crate::url::SassUrl;
+use crate::url::OwnedUrl;
 use thiserror::Error;
 
 use crate::common::file_span::{FileSpan, SourceLocation};
@@ -76,7 +76,7 @@ pub enum SassError {
         span: SourceSpanWithContext,
         trace: Trace,
         cause: Option<Box<SassError>>,
-        loaded_urls: Vec<SassUrl>,
+        loaded_urls: Vec<OwnedUrl>,
     },
 
     /// An error thrown when parsing has failed.
@@ -89,7 +89,7 @@ pub enum SassError {
         span: SourceSpanWithContext,
         original_source: Option<String>,
         cause: Option<Box<SassError>>,
-        loaded_urls: Vec<SassUrl>,
+        loaded_urls: Vec<OwnedUrl>,
     },
 
     /// An error thrown by Sass.
@@ -100,7 +100,7 @@ pub enum SassError {
         message: String,
         span: SourceSpanWithContext,
         cause: Option<Box<SassError>>,
-        loaded_urls: Vec<SassUrl>,
+        loaded_urls: Vec<OwnedUrl>,
     },
 
     /// An error with secondary spans attached as points of reference.
@@ -116,7 +116,7 @@ pub enum SassError {
         secondary: Vec<(SourceSpanWithContext, String)>,
         original_source: Option<String>,
         cause: Option<Box<SassError>>,
-        loaded_urls: Vec<SassUrl>,
+        loaded_urls: Vec<OwnedUrl>,
         trace: Trace,
     },
 
@@ -129,7 +129,7 @@ pub enum SassError {
         primary_label: Option<String>,
         secondary: Vec<(SourceSpanWithContext, String)>,
         cause: Option<Box<SassError>>,
-        loaded_urls: Vec<SassUrl>,
+        loaded_urls: Vec<OwnedUrl>,
     },
 }
 
@@ -241,7 +241,7 @@ impl SassError {
     /// Mirrors Dart's `SassException.loadedUrls`: the canonical stylesheet
     /// URLs loaded in the course of the compilation before it failed. The
     /// unspanned [`SassError::Script`] family carries none.
-    pub fn loaded_urls(&self) -> &[SassUrl] {
+    pub fn loaded_urls(&self) -> &[OwnedUrl] {
         match self {
             SassError::Script { .. } | SassError::ArgumentError { .. } => &[],
             SassError::Runtime { loaded_urls, .. }
@@ -257,7 +257,7 @@ impl SassError {
     /// Mirrors Dart's `SassException.withLoadedUrls` (evaluate.dart stamps
     /// all `SassException`s at the evaluate boundary; the unspanned
     /// `SassScriptException` family has no URLs to stamp).
-    pub fn with_loaded_urls(mut self, loaded_urls: Vec<SassUrl>) -> Self {
+    pub fn with_loaded_urls(mut self, loaded_urls: Vec<OwnedUrl>) -> Self {
         match &mut self {
             SassError::Script { .. } | SassError::ArgumentError { .. } => {}
             SassError::Runtime {
@@ -702,7 +702,7 @@ impl From<SpanError> for SpanScannerError<'_> {
 /// `"root stylesheet"`).
 #[derive(Debug, Clone)]
 pub struct Frame {
-    pub uri: Option<SassUrl>,
+    pub uri: Option<OwnedUrl>,
     pub line: usize,
     pub column: usize,
     pub member: String,
@@ -1179,7 +1179,7 @@ mod tests {
     #[test]
     fn test_frame_location_with_uri() {
         let frame = Frame {
-            uri: Some(SassUrl::parse("file:///a.scss").unwrap()),
+            uri: Some(OwnedUrl::parse("file:///a.scss").unwrap()),
             line: 1,
             column: 1,
             member: "root stylesheet".to_string(),

@@ -89,7 +89,7 @@ impl Display for DartUriError {
 impl std::error::Error for DartUriError {}
 
 // ---------------------------------------------------------------------------
-// SassUrl
+// OwnedUrl
 // ---------------------------------------------------------------------------
 
 /// Which Dart `Uri` implementation a value came from.
@@ -97,7 +97,7 @@ impl std::error::Error for DartUriError {}
 /// Dart parses `".."` as a full `_Uri` and `"../"` as a `_SimpleUri`; both
 /// have the same public components and compare equal, but resolve differently.
 /// The kind is not part of equality, hashing, or display; it only selects
-/// `_simpleMerge` in [`SassUrl::resolve_uri`].
+/// `_simpleMerge` in [`OwnedUrl::resolve_uri`].
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum UriKind {
     Simple,
@@ -106,7 +106,7 @@ enum UriKind {
 
 /// A Dart-compatible URI.
 #[derive(Clone, Debug)]
-pub struct SassUrl {
+pub struct OwnedUrl {
     scheme: String,
     user_info: String,
     host: Option<String>,
@@ -119,7 +119,7 @@ pub struct SassUrl {
     kind: UriKind,
 }
 
-impl SassUrl {
+impl OwnedUrl {
     fn make(
         scheme: String,
         user_info: String,
@@ -129,7 +129,7 @@ impl SassUrl {
         query: Option<String>,
         fragment: Option<String>,
     ) -> Self {
-        let mut url = SassUrl {
+        let mut url = OwnedUrl {
             scheme,
             user_info,
             host,
@@ -252,12 +252,12 @@ impl SassUrl {
     // --- Resolution -------------------------------------------------------
 
     /// Resolves `reference` against this URI using Dart's `Uri.resolve`.
-    pub fn resolve(&self, reference: &str) -> Result<SassUrl, DartUriError> {
-        Ok(self.resolve_uri(&SassUrl::parse(reference)?))
+    pub fn resolve(&self, reference: &str) -> Result<OwnedUrl, DartUriError> {
+        Ok(self.resolve_uri(&OwnedUrl::parse(reference)?))
     }
 
     /// Resolves an already-parsed reference.
-    pub fn resolve_uri(&self, reference: &SassUrl) -> SassUrl {
+    pub fn resolve_uri(&self, reference: &OwnedUrl) -> OwnedUrl {
         let target_scheme;
         let mut target_user_info = String::new();
         let mut target_host: Option<String> = None;
@@ -345,7 +345,7 @@ impl SassUrl {
         }
 
         let fragment = reference.fragment.clone();
-        let mut url = SassUrl::make(
+        let mut url = OwnedUrl::make(
             target_scheme,
             target_user_info,
             target_host,
@@ -395,13 +395,13 @@ impl SassUrl {
     }
 }
 
-impl Display for SassUrl {
+impl Display for OwnedUrl {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         f.write_str(&self.text)
     }
 }
 
-impl PartialEq for SassUrl {
+impl PartialEq for OwnedUrl {
     fn eq(&self, other: &Self) -> bool {
         self.scheme == other.scheme
             && self.has_authority() == other.has_authority()
@@ -416,9 +416,9 @@ impl PartialEq for SassUrl {
     }
 }
 
-impl Eq for SassUrl {}
+impl Eq for OwnedUrl {}
 
-impl Hash for SassUrl {
+impl Hash for OwnedUrl {
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.scheme.hash(state);
         self.has_authority().hash(state);
@@ -437,7 +437,7 @@ impl Hash for SassUrl {
 // Parsing
 // ---------------------------------------------------------------------------
 
-fn parse_reference(units: &[u16]) -> Result<SassUrl, DartUriError> {
+fn parse_reference(units: &[u16]) -> Result<OwnedUrl, DartUriError> {
     let start = 0usize;
     let end = units.len();
 
@@ -569,7 +569,7 @@ fn parse_reference(units: &[u16]) -> Result<SassUrl, DartUriError> {
         None
     };
 
-    let mut url = SassUrl::make(scheme, user_info, host, port, path, query, fragment);
+    let mut url = OwnedUrl::make(scheme, user_info, host, port, path, query, fragment);
     url.kind = if is_simple {
         UriKind::Simple
     } else {
@@ -1379,7 +1379,7 @@ fn strip_data_scheme(units: &[u16]) -> Option<usize> {
     Some(5)
 }
 
-fn parse_data_uri(units: &[u16], start: usize) -> Result<SassUrl, DartUriError> {
+fn parse_data_uri(units: &[u16], start: usize) -> Result<OwnedUrl, DartUriError> {
     // Validate the media type/parameters/base64 marker and normalize the data
     // part, mirroring `UriData._parse`.
     let comma = 0x2cu16;
@@ -1412,7 +1412,7 @@ fn parse_data_uri(units: &[u16], start: usize) -> Result<SassUrl, DartUriError> 
         false,
         false,
     )?;
-    Ok(SassUrl::make(
+    Ok(OwnedUrl::make(
         "data".to_string(),
         String::new(),
         None,
@@ -1427,7 +1427,7 @@ fn parse_data_uri(units: &[u16], start: usize) -> Result<SassUrl, DartUriError> 
 // File paths (package:path's toUri/fromUri)
 // ---------------------------------------------------------------------------
 
-impl SassUrl {
+impl OwnedUrl {
     /// Converts an absolute filesystem path to a `file:` URL, matching
     /// `package:path`'s `toUri` for the current platform.
     #[allow(clippy::result_unit_err)]
@@ -1456,9 +1456,9 @@ mod tables;
 
 /// Resolves a file-like URL against a `file:` base.
 ///
-/// Relative URLs stay relative until [resolve](SassUrl::resolve); this helper
+/// Relative URLs stay relative until [resolve](OwnedUrl::resolve); this helper
 /// is the one place the importer layer combines them with a base URL.
-pub fn resolve_file_path(url: &SassUrl, base: &SassUrl) -> Option<SassUrl> {
+pub fn resolve_file_path(url: &OwnedUrl, base: &OwnedUrl) -> Option<OwnedUrl> {
     if !url.is_file_like() || !base.is_file() {
         return None;
     }
@@ -1538,7 +1538,7 @@ mod tests {
         for case in cases {
             let input = str_field(case, "input").expect("input");
             let expected_ok = case["ok"].as_bool().expect("ok");
-            let result = SassUrl::parse(input);
+            let result = OwnedUrl::parse(input);
             let mismatch = match (result, expected_ok) {
                 (Err(error), false) => {
                     let expected = str_field(case, "error").unwrap_or("");
@@ -1650,7 +1650,7 @@ mod tests {
         );
     }
 
-    fn assert_same_url(input: &str, url: &SassUrl, case: &serde_json::Value) -> Option<String> {
+    fn assert_same_url(input: &str, url: &OwnedUrl, case: &serde_json::Value) -> Option<String> {
         let expected_scheme = str_field(case, "scheme").unwrap_or("");
         let expected_user_info = str_field(case, "userInfo").unwrap_or("");
         let expected_host = str_field(case, "host").unwrap_or("");
@@ -1737,7 +1737,7 @@ mod tests {
             let base_input = str_field(case, "base").expect("base");
             let ref_input = str_field(case, "ref").expect("ref");
             let expected_ok = case["ok"].as_bool().expect("ok");
-            let base = match SassUrl::parse(base_input) {
+            let base = match OwnedUrl::parse(base_input) {
                 Ok(base) => base,
                 Err(error) => {
                     if expected_ok {
@@ -1748,7 +1748,7 @@ mod tests {
                     continue;
                 }
             };
-            match SassUrl::parse(ref_input) {
+            match OwnedUrl::parse(ref_input) {
                 Err(error) => {
                     if expected_ok {
                         failures.push(format!(
@@ -1793,9 +1793,9 @@ mod tests {
     fn resolve_distinguishes_simple_and_full_references() {
         // Dart parses ".." as a full `_Uri` and "../" as a `_SimpleUri`.
         // They compare equal but resolve differently; the kind preserves it.
-        let base = SassUrl::parse("foo/bar").unwrap();
-        let full = SassUrl::parse("..").unwrap();
-        let simple = SassUrl::parse("../").unwrap();
+        let base = OwnedUrl::parse("foo/bar").unwrap();
+        let full = OwnedUrl::parse("..").unwrap();
+        let simple = OwnedUrl::parse("../").unwrap();
         assert_eq!(full, simple);
         assert_eq!(full.kind, UriKind::Full);
         assert_eq!(simple.kind, UriKind::Simple);

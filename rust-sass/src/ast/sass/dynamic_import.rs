@@ -10,7 +10,7 @@
 use std::fmt;
 use std::fmt::Write;
 
-use crate::url::SassUrl;
+use crate::url::OwnedUrl;
 
 use crate::common::ast_node::AstNode;
 use crate::common::exception::SassResult;
@@ -29,13 +29,13 @@ pub struct DynamicImport<'parse> {
     pub url_string: String,
     /// The parsed URL, fixed at construction (Dart re-parses lazily, but the
     /// parser has already validated it and Rust avoids fallible getters).
-    pub url: SassUrl,
+    pub url: OwnedUrl,
     pub span: FileSpan<'parse>,
 }
 
 impl<'parse> DynamicImport<'parse> {
     /// Creates a dynamic import of the file at `url_string`.
-    pub fn new(url_string: String, url: SassUrl, span: FileSpan<'parse>) -> Self {
+    pub fn new(url_string: String, url: OwnedUrl, span: FileSpan<'parse>) -> Self {
         DynamicImport {
             url_string,
             url,
@@ -46,8 +46,8 @@ impl<'parse> DynamicImport<'parse> {
     /// Returns the parsed URL.
     ///
     /// Matches Dart: `DynamicImport.url`. The URL is parsed once by the
-    /// parser (`parseImportUrl` validates it via `SassUrl::parse`).
-    pub fn url(&self) -> SassUrl {
+    /// parser (`parseImportUrl` validates it via `OwnedUrl::parse`).
+    pub fn url(&self) -> OwnedUrl {
         self.url.clone()
     }
 
@@ -100,7 +100,11 @@ mod tests {
     fn test_new() {
         let arena = Bump::new();
         let span = make_span(&arena, "'foo.scss'");
-        let di = DynamicImport::new("foo.scss".into(), SassUrl::parse("foo.scss").unwrap(), span);
+        let di = DynamicImport::new(
+            "foo.scss".into(),
+            OwnedUrl::parse("foo.scss").unwrap(),
+            span,
+        );
         assert_eq!(di.url_string, "foo.scss");
     }
 
@@ -110,7 +114,7 @@ mod tests {
         let span = make_span(&arena, "'foo.scss'");
         let di = DynamicImport::new(
             "http://example.com/foo.scss".into(),
-            SassUrl::parse("http://example.com/foo.scss").unwrap(),
+            OwnedUrl::parse("http://example.com/foo.scss").unwrap(),
             span,
         );
         let url = di.url();
@@ -121,7 +125,11 @@ mod tests {
     fn test_url_span() {
         let arena = Bump::new();
         let span = make_span(&arena, "'foo.scss'");
-        let di = DynamicImport::new("foo.scss".into(), SassUrl::parse("foo.scss").unwrap(), span);
+        let di = DynamicImport::new(
+            "foo.scss".into(),
+            OwnedUrl::parse("foo.scss").unwrap(),
+            span,
+        );
         assert!(di.url_span().is_ok());
     }
 
@@ -129,7 +137,11 @@ mod tests {
     fn test_display() {
         let arena = Bump::new();
         let span = make_span(&arena, "'foo.scss'");
-        let di = DynamicImport::new("foo.scss".into(), SassUrl::parse("foo.scss").unwrap(), span);
+        let di = DynamicImport::new(
+            "foo.scss".into(),
+            OwnedUrl::parse("foo.scss").unwrap(),
+            span,
+        );
         let s = format!("{di}");
         assert!(s.starts_with('"'), "got {s:?}");
         assert!(s.ends_with('"'), "got {s:?}");
@@ -139,7 +151,11 @@ mod tests {
     fn test_span() {
         let arena = Bump::new();
         let span = make_span(&arena, "'foo.scss'");
-        let di = DynamicImport::new("foo.scss".into(), SassUrl::parse("foo.scss").unwrap(), span);
+        let di = DynamicImport::new(
+            "foo.scss".into(),
+            OwnedUrl::parse("foo.scss").unwrap(),
+            span,
+        );
         assert_eq!(di.span().unwrap(), span);
     }
 
@@ -147,7 +163,7 @@ mod tests {
     fn test_url_round_trip() {
         let arena = Bump::new();
         let span = make_span(&arena, "'foo.scss'");
-        let url = SassUrl::parse("foo.scss").unwrap();
+        let url = OwnedUrl::parse("foo.scss").unwrap();
         let di = DynamicImport::new("foo.scss".into(), url, span);
         assert_eq!(di.url().to_string(), "foo.scss");
         assert_eq!(di.url_string, "foo.scss");

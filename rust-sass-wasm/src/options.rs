@@ -21,7 +21,7 @@ use rust_sass::eval::importer::{Importer, ImporterKind};
 use rust_sass::io::Io;
 use rust_sass::logger::{Logger, QuietLogger};
 use rust_sass::parse::stylesheet::{CssState, SassIndentState, Syntax};
-use rust_sass::url::SassUrl;
+use rust_sass::url::OwnedUrl;
 use rust_sass::Bump;
 
 use crate::js_host::{make_host_callable, JsFileImporter, JsImporter, JsLogger, JsRegistry};
@@ -101,7 +101,7 @@ pub fn parse_options<'compile: 'parse, 'parse>(
 
     if let Some(url) = get_str_opt(options, "url")? {
         opts.url =
-            Some(SassUrl::parse(&url).map_err(|_| script(format!("Invalid url: \"{url}\"")))?);
+            Some(OwnedUrl::parse(&url).map_err(|_| script(format!("Invalid url: \"{url}\"")))?);
     }
 
     // Parse the logger FIRST so deprecation-list validation warnings route

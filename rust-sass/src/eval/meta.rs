@@ -50,7 +50,7 @@ use crate::deprecation::{CALL_STRING, WITH_PRIVATE};
 use crate::environment::Environment;
 use crate::eval::{EvalConfig, EvalState, EvaluateVisitor};
 use crate::module::{Module, ModuleKind};
-use crate::url::SassUrl;
+use crate::url::OwnedUrl;
 use crate::value::{
     assert_mixin, assert_string, SassFunction, SassMap, SassMixin, SassModule, SassString, Value,
     ValueKind, SASS_FALSE, SASS_TRUE,
@@ -978,7 +978,7 @@ where
     'compile: 'parse,
 {
     let url_val = assert_string(url_arg, Some("url"))?;
-    let url = SassUrl::parse(url_val.text).map_err(|error| {
+    let url = OwnedUrl::parse(url_val.text).map_err(|error| {
         Box::new(SassError::Script {
             message: error.message,
             argument_name: None,

@@ -61,7 +61,7 @@ use crate::environment::Environment;
 use crate::eval::expression::evaluate_expression;
 use crate::eval::importer::Importer;
 use crate::eval::{EvalConfig, EvalState, StackFrame};
-use crate::url::SassUrl;
+use crate::url::OwnedUrl;
 use crate::value::ValueKind;
 use crate::value::{SassNumber, Value};
 use bumpalo::Bump;
@@ -162,7 +162,7 @@ pub(crate) fn humanize_frame<'compile: 'parse, 'parse>(
     if let Some(cache) = import_cache {
         if let Some(uri) = frame.uri.as_ref() {
             let humanized = cache.humanize(uri);
-            if let Ok(h) = SassUrl::parse(&humanized) {
+            if let Ok(h) = OwnedUrl::parse(&humanized) {
                 frame.uri = Some(h);
             }
         }
@@ -817,11 +817,11 @@ where
 // state; this parses each back to a URL, silently dropping unparseable ones,
 // for error `loaded_urls` payloads.
 
-pub(crate) fn loaded_urls_list(state: &EvalState<'_, '_>) -> Vec<SassUrl> {
+pub(crate) fn loaded_urls_list(state: &EvalState<'_, '_>) -> Vec<OwnedUrl> {
     state
         .loaded_urls
         .iter()
-        .filter_map(|u| SassUrl::parse(u).ok())
+        .filter_map(|u| OwnedUrl::parse(u).ok())
         .collect()
 }
 

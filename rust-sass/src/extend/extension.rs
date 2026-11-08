@@ -386,7 +386,7 @@ mod tests {
     use crate::selector::class::ClassSelector;
     use crate::selector::complex_component::ComplexSelectorComponent;
     use crate::selector::compound::CompoundSelector;
-    use crate::url::SassUrl;
+    use crate::url::OwnedUrl;
     use bumpalo::Bump;
     use std::collections::hash_map::DefaultHasher;
 
@@ -600,7 +600,7 @@ mod tests {
     #[test]
     fn test_assert_compatible_media_context_conflicting() {
         let arena = Bump::new();
-        let url = SassUrl::parse("file:///test.scss").unwrap();
+        let url = OwnedUrl::parse("file:///test.scss").unwrap();
         let src = FileSource::new_in(
             &arena,
             "@media screen {} @media print {}",

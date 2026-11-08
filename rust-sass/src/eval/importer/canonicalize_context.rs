@@ -7,7 +7,7 @@
 // dart-source: lib/src/importer/canonicalize_context.dart
 // go-source: go/eval/importer_canonicalize_context.go
 
-use crate::url::SassUrl;
+use crate::url::OwnedUrl;
 
 // Contextual information used by importers' `canonicalize`.
 ///
@@ -20,7 +20,7 @@ use crate::url::SassUrl;
 #[derive(Clone, Debug)]
 pub struct CanonicalizeContext {
     pub from_import: bool,
-    containing_url: Option<SassUrl>,
+    containing_url: Option<OwnedUrl>,
     was_containing_url_accessed: bool,
 }
 
@@ -28,7 +28,7 @@ impl CanonicalizeContext {
     /// Creates a context for a load from `containing_url`.
     ///
     /// Matches Dart: `CanonicalizeContext(containingUrl, fromImport)`.
-    pub fn new(containing_url: Option<SassUrl>, from_import: bool) -> Self {
+    pub fn new(containing_url: Option<OwnedUrl>, from_import: bool) -> Self {
         CanonicalizeContext {
             from_import,
             containing_url,
@@ -44,7 +44,7 @@ impl CanonicalizeContext {
     /// [`CanonicalizeContext::was_containing_url_accessed`]).
     ///
     /// Matches Dart: `CanonicalizeContext.containingUrl`.
-    pub fn containing_url(&mut self) -> Option<&SassUrl> {
+    pub fn containing_url(&mut self) -> Option<&OwnedUrl> {
         self.was_containing_url_accessed = true;
         self.containing_url.as_ref()
     }
@@ -53,7 +53,7 @@ impl CanonicalizeContext {
     /// accessed (for internal checks that must not affect cacheability).
     ///
     /// Matches Dart: `CanonicalizeContext.containingUrlWithoutMarking`.
-    pub fn containing_url_without_marking(&self) -> Option<&SassUrl> {
+    pub fn containing_url_without_marking(&self) -> Option<&OwnedUrl> {
         self.containing_url.as_ref()
     }
 
@@ -82,7 +82,7 @@ impl CanonicalizeContext {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::url::SassUrl;
+    use crate::url::OwnedUrl;
 
     #[test]
     fn new_with_from_import() {
@@ -93,7 +93,7 @@ mod tests {
 
     #[test]
     fn new_with_containing_url() {
-        let url = SassUrl::parse("file:///test.scss").unwrap();
+        let url = OwnedUrl::parse("file:///test.scss").unwrap();
         let ctx = CanonicalizeContext::new(Some(url.clone()), false);
         assert!(!ctx.from_import);
         assert_eq!(
@@ -104,7 +104,7 @@ mod tests {
 
     #[test]
     fn containing_url_marks_accessed() {
-        let url = SassUrl::parse("file:///test.scss").unwrap();
+        let url = OwnedUrl::parse("file:///test.scss").unwrap();
         let mut ctx = CanonicalizeContext::new(Some(url), false);
         assert!(!ctx.was_containing_url_accessed());
         let _ = ctx.containing_url();
@@ -113,7 +113,7 @@ mod tests {
 
     #[test]
     fn containing_url_without_marking_does_not_mark() {
-        let url = SassUrl::parse("file:///test.scss").unwrap();
+        let url = OwnedUrl::parse("file:///test.scss").unwrap();
         let ctx = CanonicalizeContext::new(Some(url), false);
         let _ = ctx.containing_url_without_marking();
         assert!(!ctx.was_containing_url_accessed());

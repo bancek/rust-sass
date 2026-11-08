@@ -24,7 +24,7 @@ use crate::common::exception::SassResult;
 use crate::common::file_span::FileSpan;
 use crate::common::source_span_file_source::FileSource;
 use crate::deprecation::Deprecation;
-use crate::url::SassUrl;
+use crate::url::OwnedUrl;
 
 use crate::ast::sass::statement::forward_rule::ForwardRule;
 use crate::ast::sass::statement::use_rule::UseRule;
@@ -119,7 +119,7 @@ impl<'parse> Stylesheet<'parse> {
     /// than raw interpolations. Returns an error if parsing fails.
     pub fn parse_scss<'compile: 'parse>(
         contents: &str,
-        url: Option<&SassUrl>,
+        url: Option<&OwnedUrl>,
         parse_selectors: bool,
         arena: &'compile Bump,
     ) -> SassResult<Self> {
@@ -136,7 +136,7 @@ impl<'parse> Stylesheet<'parse> {
     /// than raw interpolations. Returns an error if parsing fails.
     pub fn parse_sass<'compile: 'parse>(
         contents: &str,
-        url: Option<&SassUrl>,
+        url: Option<&OwnedUrl>,
         parse_selectors: bool,
         arena: &'compile Bump,
     ) -> SassResult<Self> {
@@ -163,7 +163,7 @@ impl<'parse> Stylesheet<'parse> {
     /// than raw interpolations. Returns an error if parsing fails.
     pub fn parse_css<'compile: 'parse>(
         contents: &str,
-        url: Option<&SassUrl>,
+        url: Option<&OwnedUrl>,
         parse_selectors: bool,
         disallowed_function_names: &HashSet<String>,
         arena: &'compile Bump,

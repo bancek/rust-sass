@@ -45,7 +45,7 @@ use crate::extend::{ExtendMode, Extension, StoreBox};
 use crate::parse::keyframe_selector::KeyframeSelectorParser;
 use crate::parse::selector_parse::SelectorParser;
 use crate::unvendor::unvendor;
-use crate::url::SassUrl;
+use crate::url::OwnedUrl;
 use crate::util::trim_ascii::trim_ascii;
 use crate::util::utils::{pluralize, to_sentence};
 use bumpalo::Bump;
@@ -964,7 +964,7 @@ fn extend_modules<'compile, 'parse>(
 where
     'compile: 'parse,
 {
-    let mut downstream_stores: HashMap<Option<SassUrl>, Vec<ExtensionStore<'parse>>> =
+    let mut downstream_stores: HashMap<Option<OwnedUrl>, Vec<ExtensionStore<'parse>>> =
         HashMap::new();
 
     // Dart:1089-1094 / Go:580-581 — global unsatisfied tracking, not per-module immediate error.
@@ -1217,9 +1217,9 @@ pub(crate) async fn load_stylesheet<'compile, 'parse>(
     config: &EvalConfig<'compile, 'parse>,
     state: &mut EvalState<'compile, 'parse>,
     arena: &'compile Bump,
-    parsed_url: &SassUrl,
+    parsed_url: &OwnedUrl,
     span: FileSpan<'parse>,
-    base_url: Option<&SassUrl>,
+    base_url: Option<&OwnedUrl>,
     for_import: bool,
 ) -> SassResult<LoadedStylesheet<'parse>>
 where
@@ -1227,7 +1227,7 @@ where
 {
     state.import_span = Some(span);
 
-    let resolved_base_url: Option<SassUrl> = base_url.cloned().or({
+    let resolved_base_url: Option<OwnedUrl> = base_url.cloned().or({
         state
             .stylesheet
             .as_ref()
@@ -3161,12 +3161,12 @@ pub(crate) async fn load_module<'compile, 'parse>(
     config: &EvalConfig<'compile, 'parse>,
     state: &mut EvalState<'compile, 'parse>,
     arena: &'compile Bump,
-    url: &SassUrl,
+    url: &OwnedUrl,
     stack_frame: &str,
     node_with_span: FileSpan<'parse>,
     module_configuration: Option<&Configuration<'parse>>,
     names_in_errors: bool,
-    base_url: Option<&SassUrl>,
+    base_url: Option<&OwnedUrl>,
 ) -> SassResult<(Module<'compile, 'parse>, bool)>
 where
     'compile: 'parse,
@@ -3216,7 +3216,7 @@ where
                 if !key.is_empty() {
                     if let Some(prev) = state.active_modules.get(key).copied().flatten() {
                         let message = if names_in_errors {
-                            let pretty = SassUrl::parse(key)
+                            let pretty = OwnedUrl::parse(key)
                                 .map(|u| pretty_uri(&u, config.io.as_ref()))
                                 .unwrap_or_else(|_| key.clone());
                             format!("Module loop: {pretty} is already being loaded.")
@@ -3239,7 +3239,7 @@ where
                     }
                     if state.active_modules.contains_key(key) {
                         let message = if names_in_errors {
-                            let pretty = SassUrl::parse(key)
+                            let pretty = OwnedUrl::parse(key)
                                 .map(|u| pretty_uri(&u, config.io.as_ref()))
                                 .unwrap_or_else(|_| key.clone());
                             format!("Module loop: {pretty} is already being loaded.")
@@ -3344,7 +3344,7 @@ where
                     && already_loaded.could_have_been_configured(&config_keys(&current_config))
                 {
                     let message = if names_in_errors {
-                        let pretty = SassUrl::parse(url)
+                        let pretty = OwnedUrl::parse(url)
                             .map(|u| pretty_uri(&u, config.io.as_ref()))
                             .unwrap_or_else(|_| url.clone());
                         format!(
@@ -3437,7 +3437,7 @@ where
     state.at_root_excluding_style_rule = false;
     state.in_keyframes = false;
     if let Some(ref url) = sheet_url {
-        state.source_url = Some(SassUrl::parse(url).map_err(|e| SassError::Script {
+        state.source_url = Some(OwnedUrl::parse(url).map_err(|e| SassError::Script {
             message: e.to_string(),
             argument_name: None,
         })?);
@@ -5188,7 +5188,7 @@ mod tests {
         files.insert("/other.scss".to_string(), "a {b: c}".to_string());
         let io: Rc<dyn Io> = Rc::new(VirtualIo::with_files(files));
         let mut opts = CompileOptions::new(&arena);
-        opts.url = Some(SassUrl::parse("file:///input.scss").unwrap());
+        opts.url = Some(OwnedUrl::parse("file:///input.scss").unwrap());
         let css = compile_string(
             "@use \"other\" as *;\n/* between */\n@use \"other\" as *;\n",
             io,
@@ -5213,7 +5213,7 @@ mod tests {
         files.insert("/other.scss".to_string(), "a {b: c}".to_string());
         let io: Rc<dyn Io> = Rc::new(VirtualIo::with_files(files));
         let mut opts = CompileOptions::new(&arena);
-        opts.url = Some(SassUrl::parse("file:///input.scss").unwrap());
+        opts.url = Some(OwnedUrl::parse("file:///input.scss").unwrap());
         let result = compile_string(
             "/* before */\n@use \"other\" as *;\n/* between */\n@use \"other\" as *;\n/* after */\n",
             io,
@@ -5652,7 +5652,7 @@ mod tests {
         let (config, mut state) = test_visitor_with_root_stylesheet_and_cache(&arena);
         let dynamic_import = DynamicImport::new(
             "nonexistent-file.scss".into(),
-            SassUrl::parse("nonexistent-file.scss").unwrap(),
+            OwnedUrl::parse("nonexistent-file.scss").unwrap(),
             span,
         );
         let imports = vec![Import::Dynamic(dynamic_import)];

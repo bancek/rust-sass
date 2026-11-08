@@ -223,7 +223,7 @@ impl<'parse> InterpolationMap<'parse> {
         // No URL-identity early return here: Dart `mapException` has none
         // (its idempotency is `_isMapped` on the empty-contents branch plus
         // `identical(source, target)` after `mapSpan`). The error carries an
-        // owned `SourceSpanWithContext` snapshot (strings + `Option<SassUrl>`,
+        // owned `SourceSpanWithContext` snapshot (strings + `Option<OwnedUrl>`,
         // no `FileSource` ref), so file identity is unrecoverable when URLs
         // are absent — `None == None` would wrongly skip mapping for every
         // URL-less error. The post-mapping no-op check below (same file +
@@ -524,7 +524,7 @@ mod tests {
     use crate::ast::sass::expression::Expression;
     use crate::ast::sass::expression_variable::VariableExpression;
     use crate::common::source_span_file_source::FileSource;
-    use crate::url::SassUrl;
+    use crate::url::OwnedUrl;
     use bumpalo::Bump;
 
     #[test]
@@ -558,7 +558,7 @@ mod tests {
         let interp = Interpolation::new(vec![], vec![], span).unwrap();
         let m = InterpolationMap::new(interp, vec![]).unwrap();
 
-        let gen_url = SassUrl::parse("generated:///output").unwrap();
+        let gen_url = OwnedUrl::parse("generated:///output").unwrap();
         let gen_fs = FileSource::new_in(&arena, "output", Some(gen_url));
         let gen_span = Span::File(FileSpan::new(Some(gen_fs), 2, 4));
 
@@ -595,7 +595,7 @@ mod tests {
 
         let m = InterpolationMap::new(interp, vec![2, 7]).unwrap();
 
-        let gen_url = SassUrl::parse("generated:///output").unwrap();
+        let gen_url = OwnedUrl::parse("generated:///output").unwrap();
         let gen_fs = FileSource::new_in(&arena, "a.VALUE.b", Some(gen_url));
         let gen_span = Span::File(FileSpan::new(Some(gen_fs), 2, 7));
 

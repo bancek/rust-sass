@@ -40,7 +40,7 @@ use crate::common::source_span_span_with_context::SourceSpanWithContext;
 use crate::common::span::Span;
 use crate::common::span_scanner::{LineScannerState, SpanScanner};
 use crate::deprecation;
-use crate::url::SassUrl;
+use crate::url::OwnedUrl;
 use crate::util::character;
 
 use crate::parse::anyvalue::{
@@ -1385,7 +1385,7 @@ where
     let parsed_url = if url.is_empty() {
         None
     } else {
-        Some(SassUrl::parse(url).map_err(|_| SassError::Script {
+        Some(OwnedUrl::parse(url).map_err(|_| SassError::Script {
             message: format!("Invalid URL: {url}"),
             argument_name: None,
         })?)

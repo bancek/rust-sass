@@ -24,7 +24,7 @@ use crate::selector::combinator::Combinator;
 use crate::selector::complex_component::ComplexSelectorComponent;
 use crate::selector::compound::CompoundSelector;
 use crate::selector::visitor::SelectorVisitor;
-use crate::url::SassUrl;
+use crate::url::OwnedUrl;
 use crate::value::hash::hash_combine;
 
 /// A complex selector.
@@ -269,7 +269,7 @@ impl<'parse> ComplexSelector<'parse> {
     pub fn parse<'compile: 'parse>(
         arena: &'compile Bump,
         contents: &str,
-        url: Option<&SassUrl>,
+        url: Option<&OwnedUrl>,
         allow_parent: bool,
     ) -> SassResult<ComplexSelector<'parse>> {
         let file = FileSource::new_in(arena, contents, url.cloned());

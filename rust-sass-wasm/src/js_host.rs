@@ -27,7 +27,7 @@ use rust_sass::eval::importer::result::ImporterResult;
 use rust_sass::eval::importer::{CanonicalizeContext, UserImporter};
 use rust_sass::logger::{Logger, NoOpWarnLogger};
 use rust_sass::parse::stylesheet::{CssState, SassIndentState, Syntax};
-use rust_sass::url::SassUrl;
+use rust_sass::url::OwnedUrl;
 use rust_sass::value::Value;
 use rust_sass::Bump;
 
@@ -208,7 +208,7 @@ impl JsImporter {
     }
 }
 
-fn canonicalize_args(url: &SassUrl, context: &mut CanonicalizeContext) -> Array {
+fn canonicalize_args(url: &OwnedUrl, context: &mut CanonicalizeContext) -> Array {
     let args = Array::new();
     // Use the Display form (strips the internal `sass-relative:` wrapper for
     // relative URLs) so the JS importer sees the URL as written, matching Dart.
@@ -241,13 +241,13 @@ fn canonicalize_args(url: &SassUrl, context: &mut CanonicalizeContext) -> Array 
 /// (`lib/src/importer/js_to_dart/sync.dart:39-56`): null → fallback; a JS
 /// `URL` → its string form; anything else (after the Promise check in the
 /// caller) → error.
-fn parse_canonicalize_result(result: &JsValue) -> SassResult<Option<SassUrl>> {
+fn parse_canonicalize_result(result: &JsValue) -> SassResult<Option<OwnedUrl>> {
     if result.is_null() || result.is_undefined() {
         return Ok(None);
     }
     if is_js_url(result) {
         let s = js_url_to_string(result).unwrap_or_default();
-        return SassUrl::parse(&s)
+        return OwnedUrl::parse(&s)
             .map(Some)
             .map_err(|_| script(format!("The importer returned an invalid URL \"{s}\".")));
     }
@@ -289,7 +289,7 @@ fn parse_load_result(result: &JsValue) -> SassResult<Option<ImporterResult>> {
     let source_map_url = match Reflect::get(result, &JsValue::from_str("sourceMapUrl")) {
         Ok(v) if !(v.is_undefined() || v.is_null()) => {
             let s = js_str_repr(&v);
-            match SassUrl::parse(&s) {
+            match OwnedUrl::parse(&s) {
                 Ok(u) if !u.scheme().is_empty() => Some(u),
                 _ => {
                     return Err(script(format!(
@@ -307,9 +307,9 @@ impl UserImporter for JsImporter {
     #[cfg(feature = "async")]
     fn canonicalize<'a>(
         &'a self,
-        url: &'a SassUrl,
+        url: &'a OwnedUrl,
         context: &'a mut CanonicalizeContext,
-    ) -> LocalBoxFuture<'a, SassResult<Option<SassUrl>>> {
+    ) -> LocalBoxFuture<'a, SassResult<Option<OwnedUrl>>> {
         let f = self.canonicalize.clone();
         let args = canonicalize_args(url, context);
         Box::pin(async move {
@@ -329,9 +329,9 @@ impl UserImporter for JsImporter {
     #[cfg(not(feature = "async"))]
     fn canonicalize<'a>(
         &'a self,
-        url: &'a SassUrl,
+        url: &'a OwnedUrl,
         context: &'a mut CanonicalizeContext,
-    ) -> LocalBoxFuture<'a, SassResult<Option<SassUrl>>> {
+    ) -> LocalBoxFuture<'a, SassResult<Option<OwnedUrl>>> {
         let f = self.canonicalize.clone();
         let args = canonicalize_args(url, context);
         Box::pin(async move {
@@ -346,7 +346,7 @@ impl UserImporter for JsImporter {
     #[cfg(feature = "async")]
     fn load<'a>(
         &'a self,
-        url: &'a SassUrl,
+        url: &'a OwnedUrl,
     ) -> LocalBoxFuture<'a, SassResult<Option<ImporterResult>>> {
         let f = self.load.clone();
         let arg = JsValue::from_str(&url.to_string());
@@ -367,7 +367,7 @@ impl UserImporter for JsImporter {
     #[cfg(not(feature = "async"))]
     fn load<'a>(
         &'a self,
-        url: &'a SassUrl,
+        url: &'a OwnedUrl,
     ) -> LocalBoxFuture<'a, SassResult<Option<ImporterResult>>> {
         let f = self.load.clone();
         let arg = JsValue::from_str(&url.to_string());
@@ -422,9 +422,9 @@ impl UserImporter for JsFileImporter {
     #[cfg(feature = "async")]
     fn canonicalize<'a>(
         &'a self,
-        url: &'a SassUrl,
+        url: &'a OwnedUrl,
         context: &'a mut CanonicalizeContext,
-    ) -> LocalBoxFuture<'a, SassResult<Option<SassUrl>>> {
+    ) -> LocalBoxFuture<'a, SassResult<Option<OwnedUrl>>> {
         if url.is_file() {
             let fs = &self.fs;
             let io = &*self.io;
@@ -453,9 +453,9 @@ impl UserImporter for JsFileImporter {
     #[cfg(not(feature = "async"))]
     fn canonicalize<'a>(
         &'a self,
-        url: &'a SassUrl,
+        url: &'a OwnedUrl,
         context: &'a mut CanonicalizeContext,
-    ) -> LocalBoxFuture<'a, SassResult<Option<SassUrl>>> {
+    ) -> LocalBoxFuture<'a, SassResult<Option<OwnedUrl>>> {
         if url.is_file() {
             let fs = &self.fs;
             let io = &*self.io;
@@ -479,7 +479,7 @@ impl UserImporter for JsFileImporter {
     #[rust_sass_macros::maybe_async]
     fn load<'a>(
         &'a self,
-        url: &'a SassUrl,
+        url: &'a OwnedUrl,
     ) -> LocalBoxFuture<'a, SassResult<Option<ImporterResult>>> {
         let fs = &self.fs;
         let io = Rc::clone(&self.io);
@@ -497,11 +497,11 @@ impl UserImporter for JsFileImporter {
 #[rust_sass_macros::maybe_async]
 async fn parse_file_url_result(
     result: &JsValue,
-    original_url: &SassUrl,
+    original_url: &OwnedUrl,
     fs: &FilesystemImporter,
     io: &dyn rust_sass::io::Io,
     context: &mut CanonicalizeContext,
-) -> SassResult<Option<SassUrl>> {
+) -> SassResult<Option<OwnedUrl>> {
     if result.is_null() || result.is_undefined() {
         return Ok(None);
     }
@@ -510,7 +510,7 @@ async fn parse_file_url_result(
     }
     let s = js_url_to_string(result).unwrap_or_default();
     let file_url =
-        SassUrl::parse(&s).map_err(|_| script("The findFileUrl() method must return a URL."))?;
+        OwnedUrl::parse(&s).map_err(|_| script("The findFileUrl() method must return a URL."))?;
     if file_url.scheme() != "file" {
         return Err(script(format!(
             "The findFileUrl() must return a URL with scheme file://, was \"{original_url}\"."

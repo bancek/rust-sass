@@ -7,7 +7,7 @@
 // dart-source: (external) package:source_span/lib/src/file.dart + lib/src/util/span.dart
 // go-source: go/sasscommon/source_span_file.go + go/sasscommon/source_span_span.go + go/sasscommon/util_span.go
 
-use crate::url::SassUrl;
+use crate::url::OwnedUrl;
 use std::rc::Rc;
 
 use std::fmt;
@@ -110,7 +110,7 @@ impl<'parse> FileSpan<'parse> {
     ///
     /// Mirrors `SourceSpan.sourceUrl`: may be `None` when the source URL is
     /// unknown or unavailable.
-    pub fn source_url(&self) -> Option<&SassUrl> {
+    pub fn source_url(&self) -> Option<&OwnedUrl> {
         self.file.and_then(|f| f.url())
     }
 
@@ -493,7 +493,7 @@ impl<'parse> fmt::Display for FileSpan<'parse> {
     }
 }
 
-pub(crate) fn same_url(a: Option<&SassUrl>, b: Option<&SassUrl>) -> bool {
+pub(crate) fn same_url(a: Option<&OwnedUrl>, b: Option<&OwnedUrl>) -> bool {
     match (a, b) {
         (None, None) => true,
         (None, Some(_)) | (Some(_), None) => false,
@@ -613,8 +613,8 @@ mod tests {
         FileSource::new_in(arena, text, None)
     }
 
-    fn test_url(url_str: &str) -> SassUrl {
-        SassUrl::parse(url_str).unwrap()
+    fn test_url(url_str: &str) -> OwnedUrl {
+        OwnedUrl::parse(url_str).unwrap()
     }
 
     #[test]

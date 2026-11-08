@@ -18,7 +18,7 @@ use std::hash::{Hash, Hasher};
 
 use bumpalo::Bump;
 
-use crate::url::SassUrl;
+use crate::url::OwnedUrl;
 use indexmap::IndexMap;
 
 use crate::arena_map::ArenaMap;
@@ -94,8 +94,8 @@ impl<'compile: 'parse, 'parse> BuiltInModule<'compile, 'parse> {
     }
 
     /// The canonical URL for this module's source file (`sass:<name>`).
-    pub fn url(&self) -> SassResult<Option<SassUrl>> {
-        Ok(Some(SassUrl::parse(self.url).map_err(|_| {
+    pub fn url(&self) -> SassResult<Option<OwnedUrl>> {
+        Ok(Some(OwnedUrl::parse(self.url).map_err(|_| {
             SassError::Script {
                 message: format!("Invalid module URL: {}", self.url),
                 argument_name: None,
@@ -278,7 +278,7 @@ impl<'compile: 'parse, 'parse> Module<'compile, 'parse> {
 
     /// The canonical URL for this module's source file, or `None` when loaded
     /// from a string without a URL.
-    pub fn url(&self) -> SassResult<Option<SassUrl>> {
+    pub fn url(&self) -> SassResult<Option<OwnedUrl>> {
         match self.0 {
             ModuleKind::BuiltIn(b) => b.url(),
             ModuleKind::Forwarded(f) => f.inner.url(),
@@ -616,7 +616,7 @@ mod tests {
     use crate::ast::css::comment::ModifiableCssComment;
     use crate::ast::css::modifiable_node::{ModifiableCssNode, ModifiableCssNodeKind};
     use crate::ast::css::stylesheet::ModifiableCssStylesheet;
-    use crate::url::SassUrl;
+    use crate::url::OwnedUrl;
     use crate::value::{Value, ValueKind};
 
     use super::*;
@@ -774,7 +774,7 @@ mod tests {
         let inner_mod = Module::new(&arena, ModuleKind::BuiltIn(inner));
 
         let rule = ForwardRule::new(
-            SassUrl::parse("file:///test").unwrap(),
+            OwnedUrl::parse("file:///test").unwrap(),
             test_span(),
             Some("ns-".into()),
             vec![],
@@ -791,7 +791,7 @@ mod tests {
         let inner = BuiltInModule::new(&arena, "test".into(), &[], &[], IndexMap::new());
         let inner_mod = Module::new(&arena, ModuleKind::BuiltIn(inner));
         let rule = ForwardRule::new(
-            SassUrl::parse("file:///test").unwrap(),
+            OwnedUrl::parse("file:///test").unwrap(),
             test_span(),
             None,
             vec![],
@@ -806,7 +806,7 @@ mod tests {
         let inner = BuiltInModule::new(&arena, "test".into(), &[], &[], IndexMap::new());
         let inner_mod = Module::new(&arena, ModuleKind::BuiltIn(inner));
         let rule = ForwardRule::new(
-            SassUrl::parse("file:///test").unwrap(),
+            OwnedUrl::parse("file:///test").unwrap(),
             test_span(),
             Some("ns-".into()),
             vec![],
@@ -821,7 +821,7 @@ mod tests {
         let inner = BuiltInModule::new(&arena, "math".into(), &[], &[], IndexMap::new());
         let inner_mod = Module::new(&arena, ModuleKind::BuiltIn(inner));
         let rule = ForwardRule::new(
-            SassUrl::parse("file:///test").unwrap(),
+            OwnedUrl::parse("file:///test").unwrap(),
             test_span(),
             None,
             vec![],
@@ -979,7 +979,7 @@ mod tests {
         let inner_mod = Module::new(&arena, ModuleKind::BuiltIn(inner));
         let span = FileSpan::new(None, 4, 20);
         let rule = ForwardRule::new(
-            SassUrl::parse("file:///test").unwrap(),
+            OwnedUrl::parse("file:///test").unwrap(),
             span,
             Some("ns-".into()),
             vec![],
@@ -990,7 +990,7 @@ mod tests {
         assert_eq!(hash_of(&first), hash_of(&second));
 
         let other_rule = ForwardRule::new(
-            SassUrl::parse("file:///test").unwrap(),
+            OwnedUrl::parse("file:///test").unwrap(),
             FileSpan::new(None, 21, 40),
             Some("ns-".into()),
             vec![],

@@ -7,7 +7,7 @@
 // dart-source: lib/src/importer/package.dart
 // go-source: go/eval/importer_package.go
 
-use crate::url::SassUrl;
+use crate::url::OwnedUrl;
 use std::fmt;
 use std::rc::Rc;
 
@@ -22,7 +22,7 @@ use crate::logger::WarnLogger;
 /// Dart's `PackageImporter`.
 pub trait PackageConfig: fmt::Debug {
     /// Resolves a `package:` URL, or `None` when the package is unknown.
-    fn resolve(&self, url: &SassUrl) -> Option<SassUrl>;
+    fn resolve(&self, url: &OwnedUrl) -> Option<OwnedUrl>;
 }
 
 /// An importer that loads stylesheets from `package:` imports.
@@ -65,10 +65,10 @@ impl PackageImporter {
     pub async fn canonicalize<'parse>(
         &self,
         io: &dyn Io,
-        url: &SassUrl,
+        url: &OwnedUrl,
         ctx: &mut CanonicalizeContext,
         warn_logger: &dyn WarnLogger<'parse>,
-    ) -> SassResult<Option<SassUrl>> {
+    ) -> SassResult<Option<OwnedUrl>> {
         if url.is_file_like() {
             return self.cwd.canonicalize(io, url, ctx, warn_logger).await;
         }
@@ -97,7 +97,7 @@ impl PackageImporter {
     ///
     /// Matches Dart: `PackageImporter.load`.
     #[rust_sass_macros::maybe_async]
-    pub async fn load(&self, io: &dyn Io, url: &SassUrl) -> SassResult<Option<ImporterResult>> {
+    pub async fn load(&self, io: &dyn Io, url: &OwnedUrl) -> SassResult<Option<ImporterResult>> {
         self.cwd.load(io, url).await
     }
 
@@ -105,7 +105,7 @@ impl PackageImporter {
     /// filesystem basename check.
     ///
     /// Matches Dart: `PackageImporter.couldCanonicalize`.
-    pub fn could_canonicalize(&self, url: &SassUrl, canonical_url: &SassUrl) -> bool {
+    pub fn could_canonicalize(&self, url: &OwnedUrl, canonical_url: &OwnedUrl) -> bool {
         let scheme = url.scheme();
         if !url.is_file_like() && scheme != "package" && !scheme.is_empty() {
             return false;
@@ -142,11 +142,11 @@ mod tests {
     }
 
     impl PackageConfig for TestConfig {
-        fn resolve(&self, url: &SassUrl) -> Option<SassUrl> {
+        fn resolve(&self, url: &OwnedUrl) -> Option<OwnedUrl> {
             let package_name = url.path().to_string();
             self.mapping
                 .get(&package_name)
-                .map(|path| SassUrl::file_url_from_abs_path(path).unwrap())
+                .map(|path| OwnedUrl::file_url_from_abs_path(path).unwrap())
         }
     }
 
@@ -158,7 +158,7 @@ mod tests {
             mapping: Default::default(),
         };
         let imp = PackageImporter::new(Rc::new(config), Rc::clone(&io));
-        let url = SassUrl::parse("http://example.com/style.scss").unwrap();
+        let url = OwnedUrl::parse("http://example.com/style.scss").unwrap();
         let mut ctx = CanonicalizeContext::new(None, false);
         let result = imp
             .canonicalize(&*io, &url, &mut ctx, &BufferedWarnLogger::new(&arena))
@@ -177,7 +177,7 @@ mod tests {
         let mut mapping = HashMap::new();
         mapping.insert("foo".to_string(), "/resolved/foo.scss".to_string());
         let imp = PackageImporter::new(Rc::new(TestConfig { mapping }), Rc::clone(&io));
-        let url = SassUrl::parse("foo").unwrap();
+        let url = OwnedUrl::parse("foo").unwrap();
         assert!(url.is_relative());
         let mut ctx = CanonicalizeContext::new(None, false);
         let result = imp
@@ -195,7 +195,7 @@ mod tests {
             mapping: Default::default(),
         };
         let imp = PackageImporter::new(Rc::new(config), Rc::clone(&io));
-        let url = SassUrl::parse("package:unknown").unwrap();
+        let url = OwnedUrl::parse("package:unknown").unwrap();
         let mut ctx = CanonicalizeContext::new(None, false);
         let err = imp
             .canonicalize(&*io, &url, &mut ctx, &BufferedWarnLogger::new(&arena))
@@ -226,8 +226,8 @@ mod tests {
             mapping: Default::default(),
         };
         let imp = PackageImporter::new(Rc::new(config), Rc::clone(&io));
-        let url = SassUrl::parse("http://example.com/style").unwrap();
-        let canonical = SassUrl::parse("file:///style.scss").unwrap();
+        let url = OwnedUrl::parse("http://example.com/style").unwrap();
+        let canonical = OwnedUrl::parse("file:///style.scss").unwrap();
         assert!(!imp.could_canonicalize(&url, &canonical));
     }
 }

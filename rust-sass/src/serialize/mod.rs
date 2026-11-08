@@ -753,7 +753,7 @@ mod tests {
     use crate::common::source_span_file_source::FileSource;
     use crate::compile::{compile_string, CompileOptions};
     use crate::io::{DefaultIo, Io};
-    use crate::url::SassUrl;
+    use crate::url::OwnedUrl;
     use bumpalo::Bump;
     use std::rc::Rc;
 
@@ -826,7 +826,7 @@ mod tests {
         let fs = FileSource::new_in(
             &arena,
             text,
-            Some(SassUrl::parse("file:///input.scss").unwrap()),
+            Some(OwnedUrl::parse("file:///input.scss").unwrap()),
         );
         let span = FileSpan::new(Some(fs), 0, text.len());
         let comment = CssNode::Comment(CssComment::new(text.to_string(), span));

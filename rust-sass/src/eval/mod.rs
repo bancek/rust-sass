@@ -42,7 +42,7 @@ use crate::environment::Environment;
 use crate::io::Io;
 use crate::logger::Logger;
 use crate::module::Module;
-use crate::url::SassUrl;
+use crate::url::OwnedUrl;
 use crate::value::Value;
 
 // ===========================================================================
@@ -468,7 +468,7 @@ pub struct EvalState<'compile, 'parse> {
     /// Matches Dart: `_EvaluateVisitor._importer`.
     pub importer: Importer<'parse>,
     /// Canonical URL of the stylesheet being evaluated, if it has one.
-    pub source_url: Option<SassUrl>,
+    pub source_url: Option<OwnedUrl>,
     /// Canonical URLs of all stylesheets loaded during compilation.
     ///
     /// Matches Dart: `_EvaluateVisitor._loadedUrls`.
@@ -745,11 +745,11 @@ where
     let combined = statement::combine_css(arena, &root_module, false)?;
 
     // Build result
-    let loaded_urls: Vec<SassUrl> = v
+    let loaded_urls: Vec<OwnedUrl> = v
         .state
         .loaded_urls
         .iter()
-        .filter_map(|s| SassUrl::parse(s).ok())
+        .filter_map(|s| OwnedUrl::parse(s).ok())
         .collect();
 
     Ok(EvaluateResult {
@@ -1081,7 +1081,7 @@ mod evaluate_tests {
         );
         let io: Rc<dyn Io> = Rc::new(VirtualIo::with_files(files));
         let mut opts = CompileOptions::new(&arena);
-        opts.url = Some(SassUrl::parse("file:///entry.scss").unwrap());
+        opts.url = Some(OwnedUrl::parse("file:///entry.scss").unwrap());
         let err = compile("/entry.scss", io, opts, &arena).await.unwrap_err();
         // `Sass` at the throw site, `Runtime` with trace at the boundary —
         // either way the entrypoint URL must be stamped (pre-fix: `vec![]`).
@@ -1119,7 +1119,7 @@ mod evaluate_tests {
             message: "m".into(),
             span: span.clone(),
             cause: None,
-            loaded_urls: vec![SassUrl::parse("file:///entry.scss").unwrap()],
+            loaded_urls: vec![OwnedUrl::parse("file:///entry.scss").unwrap()],
         }
         .with_additional_span(span, "extra".into());
         assert!(

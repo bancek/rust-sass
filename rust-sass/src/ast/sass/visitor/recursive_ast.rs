@@ -582,7 +582,7 @@ mod tests {
     use crate::ast::sass::unary_operator::UnaryOperator;
     use crate::common::file_span::FileSpan;
     use crate::common::source_span_file_source::FileSource;
-    use crate::url::SassUrl;
+    use crate::url::OwnedUrl;
     use crate::value::ListSeparator;
     use bumpalo::Bump;
 
@@ -790,7 +790,7 @@ mod tests {
         let arena = Bump::new();
         let mut v = RecursiveAstVisitor::new();
         let span = test_span(&arena, "@forward 'foo' with ($x: 1)");
-        let u = SassUrl::parse("sass:foo").unwrap();
+        let u = OwnedUrl::parse("sass:foo").unwrap();
         let expr = Expression::Number(NumberExpression::new(1.0, test_span(&arena, "1"), None));
         let cv = ConfiguredVariable::new("x".into(), expr, span, false);
         let fr = ForwardRule::new(u, span, None, vec![cv]);
@@ -802,7 +802,7 @@ mod tests {
         let arena = Bump::new();
         let mut v = RecursiveAstVisitor::new();
         let span = test_span(&arena, "@use 'foo' with ($x: 1)");
-        let u = SassUrl::parse("sass:foo").unwrap();
+        let u = OwnedUrl::parse("sass:foo").unwrap();
         let expr = Expression::Number(NumberExpression::new(1.0, test_span(&arena, "1"), None));
         let cv = ConfiguredVariable::new("x".into(), expr, span, false);
         let ur = UseRule::new(u, None, span, vec![cv]).unwrap();

@@ -23,7 +23,7 @@ use crate::parse::sass::sass_import_argument_impl;
 use crate::parse::stylesheet::StylesheetParser;
 use std::collections::{HashMap, HashSet};
 
-use crate::url::SassUrl;
+use crate::url::OwnedUrl;
 use crate::util::utils::{default_namespace, DefaultNamespaceResult};
 
 use crate::ast::sass::argument_list::ArgumentList;
@@ -543,7 +543,7 @@ fn return_rule_impl<'b>(
 fn use_namespace_impl<'b>(
     scanner: &mut SpanScanner<'b>,
     state: &mut StylesheetState<'b>,
-    url: &SassUrl,
+    url: &OwnedUrl,
     start: LineScannerState,
 ) -> ParseResult<'b, Option<String>> {
     let ok = scan_identifier_impl(scanner, "as", false)?;
@@ -965,7 +965,7 @@ pub(crate) fn import_argument_impl<'b>(
     let parsed_str = parse_import_url(&url_str);
     // Matches Dart: DynamicImport(parseImportUrl(url), urlSpan) — the URL is
     // passed through unchanged; Uri.parse(url) only validates.
-    let url = SassUrl::parse(&parsed_str)
+    let url = OwnedUrl::parse(&parsed_str)
         .map_err(|e| error_impl(&format!("Invalid URL: {e}"), &url_span))?;
     Ok(Import::Dynamic(DynamicImport::new(
         parsed_str, url, url_span,

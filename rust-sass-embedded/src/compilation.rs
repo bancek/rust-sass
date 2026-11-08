@@ -34,7 +34,7 @@ use rust_sass::eval::importer::node_package::NodePackageImporter;
 use rust_sass::eval::importer::{Importer, ImporterKind};
 use rust_sass::io::Io;
 use rust_sass::logger::{Logger, QuietLogger};
-use rust_sass::url::SassUrl;
+use rust_sass::url::OwnedUrl;
 use rust_sass::value::{SassFunction, SassMixin, SassModule};
 use rust_sass::Bump;
 
@@ -304,7 +304,7 @@ where
             let entrypoint = if input.url.is_empty() {
                 None
             } else {
-                SassUrl::parse(&input.url).ok()
+                OwnedUrl::parse(&input.url).ok()
             };
             let mut opts = base_options(
                 ctx.arena,
@@ -347,7 +347,7 @@ where
                 silence_deprecations,
                 future_deprecations,
             );
-            let entrypoint = SassUrl::parse(path).ok();
+            let entrypoint = OwnedUrl::parse(path).ok();
             (
                 compile(path, ctx.host.io.clone(), opts, ctx.arena).await,
                 entrypoint,
@@ -539,7 +539,7 @@ fn parse_deprecations_or_warn(
 fn build_failure_response(
     ctx: &HostContext,
     err: &SassError,
-    entrypoint: Option<&SassUrl>,
+    entrypoint: Option<&OwnedUrl>,
     highlight: &rust_sass::common::source_span_highlighter::HighlightOptions,
 ) -> outbound_message::CompileResponse {
     let failure = build_failure(err, ctx.io.as_ref(), highlight);

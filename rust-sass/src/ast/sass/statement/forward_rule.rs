@@ -11,7 +11,7 @@ use std::collections::HashSet;
 use std::fmt;
 use std::fmt::Write;
 
-use crate::url::SassUrl;
+use crate::url::OwnedUrl;
 
 use crate::common::ast_node::AstNode;
 use crate::common::exception::SassResult;
@@ -26,7 +26,7 @@ pub struct ForwardRule<'parse> {
     /// The URL of the module to forward.
     ///
     /// Relative URLs resolve against the containing file.
-    pub url: SassUrl,
+    pub url: OwnedUrl,
     /// The mixin and function names accessible from the forwarded module.
     ///
     /// Empty means no mixins or functions may be accessed; `None` imposes
@@ -70,7 +70,7 @@ pub struct ForwardRule<'parse> {
 impl<'parse> ForwardRule<'parse> {
     /// Creates a `@forward` rule that allows all members to be accessed.
     pub fn new(
-        url: SassUrl,
+        url: OwnedUrl,
         span: FileSpan<'parse>,
         prefix: Option<String>,
         configuration: Vec<ConfiguredVariable<'parse>>,
@@ -92,7 +92,7 @@ impl<'parse> ForwardRule<'parse> {
     /// Creates a `@forward` rule that allows only the listed members to be
     /// accessed.
     pub fn show(
-        url: SassUrl,
+        url: OwnedUrl,
         shown_mixins_and_functions: HashSet<String>,
         shown_variables: HashSet<String>,
         span: FileSpan<'parse>,
@@ -117,7 +117,7 @@ impl<'parse> ForwardRule<'parse> {
     // diverge from the sibling `show` constructor shape.
     #[allow(clippy::too_many_arguments)]
     pub fn show_ordered(
-        url: SassUrl,
+        url: OwnedUrl,
         shown_mixins_and_functions: HashSet<String>,
         shown_variables: HashSet<String>,
         shown_order_mf: Vec<String>,
@@ -143,7 +143,7 @@ impl<'parse> ForwardRule<'parse> {
     /// Creates a `@forward` rule that allows only members *not* in the
     /// given lists to be accessed.
     pub fn hide(
-        url: SassUrl,
+        url: OwnedUrl,
         hidden_mixins_and_functions: HashSet<String>,
         hidden_variables: HashSet<String>,
         span: FileSpan<'parse>,
@@ -258,7 +258,7 @@ mod tests {
     fn test_new() {
         let arena = Bump::new();
         let span = make_span(&arena, "@forward 'mod';");
-        let url = SassUrl::parse("https://example.com/module").unwrap();
+        let url = OwnedUrl::parse("https://example.com/module").unwrap();
         let fr = ForwardRule::new(url.clone(), span, None, vec![]);
         assert_eq!(fr.url, url);
     }
@@ -267,7 +267,7 @@ mod tests {
     fn test_display() {
         let arena = Bump::new();
         let span = make_span(&arena, "@forward 'mod';");
-        let url = SassUrl::parse("https://example.com/module").unwrap();
+        let url = OwnedUrl::parse("https://example.com/module").unwrap();
         let fr = ForwardRule::new(url, span, None, vec![]);
         let s = format!("{fr}");
         assert!(s.starts_with("@forward "), "got {s:?}");

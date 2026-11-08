@@ -29,7 +29,7 @@ pub use package::{PackageConfig, PackageImporter};
 pub use result::ImporterResult;
 pub use utils::{is_valid_url_scheme, syntax_for_path};
 
-use crate::url::SassUrl;
+use crate::url::OwnedUrl;
 #[cfg(feature = "async")]
 use futures::future::LocalBoxFuture;
 use std::fmt;
@@ -61,9 +61,9 @@ pub trait UserImporter: fmt::Debug {
     /// importer means "can't find stylesheet".
     fn canonicalize<'a>(
         &'a self,
-        url: &'a SassUrl,
+        url: &'a OwnedUrl,
         context: &'a mut CanonicalizeContext,
-    ) -> LocalBoxFuture<'a, SassResult<Option<SassUrl>>>;
+    ) -> LocalBoxFuture<'a, SassResult<Option<OwnedUrl>>>;
 
     /// Loads the Sass text for `url` (which came from [`UserImporter::canonicalize`]).
     ///
@@ -72,7 +72,7 @@ pub trait UserImporter: fmt::Debug {
     /// is wrapped by Sass (a plain message string suffices).
     fn load<'a>(
         &'a self,
-        url: &'a SassUrl,
+        url: &'a OwnedUrl,
     ) -> LocalBoxFuture<'a, SassResult<Option<ImporterResult>>>;
 
     /// Without touching the filesystem, returns whether `canonicalize(url)`
@@ -80,7 +80,7 @@ pub trait UserImporter: fmt::Debug {
     ///
     /// Must be cheap; false positives are allowed, false negatives are not.
     /// Matches Dart: `AsyncImporter.couldCanonicalize`.
-    fn could_canonicalize(&self, _url: &SassUrl, _base_url: &SassUrl) -> bool {
+    fn could_canonicalize(&self, _url: &OwnedUrl, _base_url: &OwnedUrl) -> bool {
         true
     }
 
@@ -150,9 +150,9 @@ impl<'parse> Importer<'parse> {
     pub async fn canonicalize(
         &self,
         io: &dyn Io,
-        url: &SassUrl,
+        url: &OwnedUrl,
         ctx: &mut CanonicalizeContext,
-    ) -> SassResult<Option<SassUrl>> {
+    ) -> SassResult<Option<OwnedUrl>> {
         // Convenience entry point for non-eval callers (tests, REPL paths):
         // the eval pipeline always threads the caller's logger via
         // `ImportCache::canonicalize_with`. A fresh `NoOpWarnLogger` here
@@ -168,7 +168,7 @@ impl<'parse> Importer<'parse> {
     }
 
     #[rust_sass_macros::maybe_async]
-    pub async fn load(&self, io: &dyn Io, url: &SassUrl) -> SassResult<Option<ImporterResult>> {
+    pub async fn load(&self, io: &dyn Io, url: &OwnedUrl) -> SassResult<Option<ImporterResult>> {
         match self.0 {
             ImporterKind::Filesystem(f) => f.load(io, url).await,
             ImporterKind::NoOp => NoOpImporter.load(url),
@@ -178,7 +178,7 @@ impl<'parse> Importer<'parse> {
         }
     }
 
-    pub fn could_canonicalize(&self, url: &SassUrl, canonical_url: &SassUrl) -> bool {
+    pub fn could_canonicalize(&self, url: &OwnedUrl, canonical_url: &OwnedUrl) -> bool {
         match self.0 {
             ImporterKind::Filesystem(f) => f.could_canonicalize(url, canonical_url),
             ImporterKind::NoOp => false,

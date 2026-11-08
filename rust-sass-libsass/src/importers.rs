@@ -25,7 +25,7 @@ use rust_sass::eval::importer::{
 };
 use rust_sass::eval::syntax::syntax_for_path;
 use rust_sass::parse::stylesheet::Syntax;
-use rust_sass::url::SassUrl;
+use rust_sass::url::OwnedUrl;
 
 use crate::base::{copy_bytes_nul, guard, malloc_or_abort};
 use crate::functions::CompilerBox;
@@ -680,20 +680,20 @@ impl fmt::Debug for CImporter {
 /// becomes a `file:` URL (on-disk identity, like upstream's `path_key`),
 /// otherwise a synthetic `sass-c-importer://` URL (absolute and stable per
 /// importer, satisfying the canonical-URL contract).
-fn canonical_for(index: usize, nonce: usize, abs_path: Option<&str>) -> Option<SassUrl> {
+fn canonical_for(index: usize, nonce: usize, abs_path: Option<&str>) -> Option<OwnedUrl> {
     if let Some(abs) = abs_path {
         if !abs.is_empty() {
-            if let Ok(url) = SassUrl::file_url_from_abs_path(abs) {
+            if let Ok(url) = OwnedUrl::file_url_from_abs_path(abs) {
                 return Some(url);
             }
-            if let Ok(url) = SassUrl::parse(abs) {
+            if let Ok(url) = OwnedUrl::parse(abs) {
                 if !url.is_relative() {
                     return Some(url);
                 }
             }
         }
     }
-    SassUrl::parse(&format!("sass-c-importer://importer-{index}/{nonce}")).ok()
+    OwnedUrl::parse(&format!("sass-c-importer://importer-{index}/{nonce}")).ok()
 }
 
 /// Reports a containing URL in the shape upstream's import stack uses:
@@ -704,7 +704,7 @@ fn canonical_for(index: usize, nonce: usize, abs_path: Option<&str>) -> Option<S
 /// Load-bearing for `prev`: node-sass forwards `get_last_import →
 /// `abs_path`` to JS, where consumers compare it against the plain path
 /// they returned.
-fn prev_form(url: &SassUrl) -> String {
+fn prev_form(url: &OwnedUrl) -> String {
     if url.is_file() {
         if let Some(path) = url.to_file_path_string() {
             return path;
@@ -731,9 +731,9 @@ impl UserImporter for CImporter {
 
     fn canonicalize<'a>(
         &'a self,
-        url: &'a SassUrl,
+        url: &'a OwnedUrl,
         context: &'a mut CanonicalizeContext,
-    ) -> SassResult<Option<SassUrl>> {
+    ) -> SassResult<Option<OwnedUrl>> {
         let url_text = url.to_string();
         // `prev` for the C callback comes from the containing URL (what
         // node-sass reads via `get_last_import` → `abs_path`). Read without
@@ -871,9 +871,9 @@ impl UserImporter for CImporter {
                 // Path-only return: resolve via the normal filesystem flow
                 // (mirrors `import_url(abs)`, context.cpp:461-470). The
                 // canonical URL is the file URL itself; `load` reads it.
-                let parsed = SassUrl::file_url_from_abs_path(abs)
+                let parsed = OwnedUrl::file_url_from_abs_path(abs)
                     .ok()
-                    .or_else(|| SassUrl::parse(abs).ok().filter(|u| !u.is_relative()));
+                    .or_else(|| OwnedUrl::parse(abs).ok().filter(|u| !u.is_relative()));
                 if let Some(canonical) = parsed {
                     self.stash.borrow_mut().insert(
                         canonical.to_string(),
@@ -892,7 +892,7 @@ impl UserImporter for CImporter {
         Ok(None)
     }
 
-    fn load<'a>(&'a self, url: &'a SassUrl) -> SassResult<Option<ImporterResult>> {
+    fn load<'a>(&'a self, url: &'a OwnedUrl) -> SassResult<Option<ImporterResult>> {
         let key = url.to_string();
         let stash = self.stash.borrow();
         let Some(stored) = stash.get(&key) else {
@@ -923,7 +923,7 @@ impl UserImporter for CImporter {
                         percent_encoding::NON_ALPHANUMERIC,
                     )
                     .to_string();
-                    SassUrl::parse(&format!("data:;charset=utf-8,{encoded}")).ok()
+                    OwnedUrl::parse(&format!("data:;charset=utf-8,{encoded}")).ok()
                 }
             });
             Ok(Some(ImporterResult::new(

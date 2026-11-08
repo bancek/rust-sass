@@ -19,7 +19,7 @@ use rust_sass::eval::importer::filesystem::FilesystemImporter;
 use rust_sass::eval::importer::result::ImporterResult;
 use rust_sass::eval::importer::{CanonicalizeContext, UserImporter};
 use rust_sass::logger::NoOpWarnLogger;
-use rust_sass::url::SassUrl;
+use rust_sass::url::OwnedUrl;
 
 use crate::compilation::HostContext;
 use crate::embedded_sass::inbound_message::file_import_response;
@@ -62,9 +62,9 @@ impl fmt::Debug for FileImporter {
 impl UserImporter for FileImporter {
     fn canonicalize<'a>(
         &'a self,
-        url: &'a SassUrl,
+        url: &'a OwnedUrl,
         context: &'a mut CanonicalizeContext,
-    ) -> LocalBoxFuture<'a, SassResult<Option<SassUrl>>> {
+    ) -> LocalBoxFuture<'a, SassResult<Option<OwnedUrl>>> {
         if url.scheme() == "file" {
             let fs = &self.fs;
             let io = &*self.ctx.io;
@@ -117,14 +117,14 @@ impl UserImporter for FileImporter {
 
     fn load<'a>(
         &'a self,
-        url: &'a SassUrl,
+        url: &'a OwnedUrl,
     ) -> LocalBoxFuture<'a, SassResult<Option<ImporterResult>>> {
         let fs = &self.fs;
         let io = self.ctx.io.clone();
         Box::pin(async move { fs.load(&*io, url).await })
     }
 
-    fn could_canonicalize(&self, _url: &SassUrl, _base_url: &SassUrl) -> bool {
+    fn could_canonicalize(&self, _url: &OwnedUrl, _base_url: &OwnedUrl) -> bool {
         false
     }
 

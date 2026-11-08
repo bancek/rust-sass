@@ -10,7 +10,7 @@
 use std::fmt;
 use std::fmt::Write;
 
-use crate::url::SassUrl;
+use crate::url::OwnedUrl;
 
 use crate::common::ast_node::AstNode;
 use crate::common::core_errors::ArgumentError;
@@ -24,7 +24,7 @@ use crate::ast::sass::configured_variable::ConfiguredVariable;
 /// A `@use` rule.
 pub struct UseRule<'parse> {
     /// The URI of the module to load, relative to the containing file.
-    pub url: SassUrl,
+    pub url: OwnedUrl,
     /// The namespace for the loaded module's members, or `None` for
     /// namespace-less access.
     pub namespace: Option<String>,
@@ -35,7 +35,7 @@ pub struct UseRule<'parse> {
 
 impl<'parse> UseRule<'parse> {
     pub fn new(
-        url: SassUrl,
+        url: OwnedUrl,
         namespace: Option<String>,
         span: FileSpan<'parse>,
         configuration: Vec<ConfiguredVariable<'parse>>,
@@ -107,7 +107,7 @@ impl<'parse> fmt::Display for UseRule<'parse> {
     }
 }
 
-fn url_basename(url: &SassUrl) -> &str {
+fn url_basename(url: &OwnedUrl) -> &str {
     let path = url.path();
     let path = match path.rfind('/') {
         Some(idx) => &path[idx + 1..],
@@ -138,7 +138,7 @@ mod tests {
     fn test_new() {
         let arena = Bump::new();
         let span = make_span(&arena, "@use 'mod';");
-        let url = SassUrl::parse("https://example.com/module").unwrap();
+        let url = OwnedUrl::parse("https://example.com/module").unwrap();
         let ur = UseRule::new(url.clone(), None, span, vec![]).unwrap();
         assert_eq!(ur.url, url);
     }
@@ -147,7 +147,7 @@ mod tests {
     fn test_display() {
         let arena = Bump::new();
         let span = make_span(&arena, "@use 'mod';");
-        let url = SassUrl::parse("https://example.com/module").unwrap();
+        let url = OwnedUrl::parse("https://example.com/module").unwrap();
         let ur = UseRule::new(url, None, span, vec![]).unwrap();
         let s = format!("{ur}");
         assert!(s.starts_with("@use "), "got {s:?}");

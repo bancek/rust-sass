@@ -12,7 +12,7 @@ use std::fmt;
 use bumpalo::Bump;
 
 use crate::arena_map::ArenaVec;
-use crate::url::SassUrl;
+use crate::url::OwnedUrl;
 
 use crate::common::ast_node::AstNode;
 use crate::common::exception::SassResult;
@@ -48,7 +48,7 @@ impl<'parse> CssStylesheet<'parse> {
     }
 
     /// Creates an empty stylesheet with the given source URL.
-    pub fn empty<'compile: 'parse>(source_url: Option<SassUrl>, arena: &'compile Bump) -> Self {
+    pub fn empty<'compile: 'parse>(source_url: Option<OwnedUrl>, arena: &'compile Bump) -> Self {
         let fs = FileSource::new_in(arena, "", source_url);
         let span = FileSpan::new(Some(fs), 0, 0);
         CssStylesheet {
@@ -139,7 +139,7 @@ mod tests {
     #[test]
     fn test_stylesheet_empty() {
         let arena = Bump::new();
-        let ss = CssStylesheet::empty(None::<SassUrl>, &arena);
+        let ss = CssStylesheet::empty(None::<OwnedUrl>, &arena);
         assert_eq!(ss.children.len(), 0);
         assert_eq!(ss.span().unwrap().text(), "");
     }

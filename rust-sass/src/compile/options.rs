@@ -12,7 +12,7 @@ use std::rc::Rc;
 
 use bumpalo::Bump;
 
-use crate::url::SassUrl;
+use crate::url::OwnedUrl;
 
 use crate::callable::Callable;
 use crate::deprecation::Deprecation;
@@ -50,7 +50,7 @@ pub struct CompileOptions<'compile, 'parse> {
     /// used as the base for relative imports and as the source-map entry;
     /// a relative value triggers the `COMPILE_STRING_RELATIVE_URL`
     /// deprecation unless a node-package importer is present.
-    pub url: Option<SassUrl>,
+    pub url: Option<OwnedUrl>,
     /// Package resolution configuration for `pkg:` URLs.
     pub package_config: Option<Rc<dyn PackageConfig>>,
     /// When set, legacy Node.js-style resolution applies and the
