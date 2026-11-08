@@ -30,7 +30,7 @@ pub struct FunctionRule<'parse> {
     pub original_name: String,
     /// The parameters the function accepts.
     pub parameters: ParameterList<'parse>,
-    pub children: Vec<Statement<'parse>>,
+    pub children: &'parse [Statement<'parse>],
     pub span: FileSpan<'parse>,
     /// The comment immediately preceding this declaration, if any.
     pub comment: Option<Box<SilentComment<'parse>>>,
@@ -42,7 +42,7 @@ impl<'parse> FunctionRule<'parse> {
     pub fn new(
         original_name: String,
         parameters: ParameterList<'parse>,
-        children: Vec<Statement<'parse>>,
+        children: &'parse [Statement<'parse>],
         span: FileSpan<'parse>,
         comment: Option<SilentComment<'parse>>,
     ) -> Self {
@@ -80,7 +80,7 @@ impl<'parse> FunctionRule<'parse> {
         write!(buf, "@function {}(", to_css_identifier(&self.name)?).unwrap();
         write!(buf, "{}", self.parameters).unwrap();
         write!(buf, ") {{").unwrap();
-        for child in &self.children {
+        for child in self.children {
             write!(buf, " {child}").unwrap();
         }
         write!(buf, " }}").unwrap();
@@ -117,7 +117,7 @@ mod tests {
         let arena = Bump::new();
         let span = make_span(&arena, "@function foo() { }");
         let params = ParameterList::empty(span);
-        let fr = FunctionRule::new("foo".into(), params, vec![], span, None);
+        let fr = FunctionRule::new("foo".into(), params, &[], span, None);
         assert_eq!(fr.name, "foo");
     }
 
@@ -126,7 +126,7 @@ mod tests {
         let arena = Bump::new();
         let span = make_span(&arena, "@function foo() { }");
         let params = ParameterList::empty(span);
-        let fr = FunctionRule::new("foo".into(), params, vec![], span, None);
+        let fr = FunctionRule::new("foo".into(), params, &[], span, None);
         let s = format!("{fr}");
         assert!(s.contains("@function"), "got {s:?}");
     }

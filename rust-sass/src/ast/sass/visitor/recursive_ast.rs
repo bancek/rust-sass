@@ -164,7 +164,7 @@ impl<'parse> StatementVisitor<'parse> for RecursiveAstVisitor {
         if let Some(ref query) = node.query {
             self.visit_interpolation(query)?;
         }
-        self.visit_children(&node.children)
+        self.visit_children(node.children)
     }
 
     fn visit_at_rule(&mut self, node: &AtRule<'parse>) -> SassResult<()> {
@@ -172,7 +172,7 @@ impl<'parse> StatementVisitor<'parse> for RecursiveAstVisitor {
         if let Some(ref value) = node.value {
             self.visit_interpolation(value)?;
         }
-        if let Some(ref children) = node.children {
+        if let Some(children) = node.children {
             self.visit_children(children)?;
         }
         Ok(())
@@ -180,7 +180,7 @@ impl<'parse> StatementVisitor<'parse> for RecursiveAstVisitor {
 
     fn visit_content_block(&mut self, node: &ContentBlock<'parse>) -> SassResult<()> {
         self.visit_parameter_defaults(&node.parameters)?;
-        self.visit_children(&node.children)
+        self.visit_children(node.children)
     }
 
     fn visit_content_rule(&mut self, node: &ContentRule<'parse>) -> SassResult<()> {
@@ -196,7 +196,7 @@ impl<'parse> StatementVisitor<'parse> for RecursiveAstVisitor {
         if let Some(ref value) = node.value {
             self.visit_expression(value)?;
         }
-        if let Some(ref children) = node.children {
+        if let Some(children) = node.children {
             self.visit_children(children)?;
         }
         Ok(())
@@ -204,7 +204,7 @@ impl<'parse> StatementVisitor<'parse> for RecursiveAstVisitor {
 
     fn visit_each_rule(&mut self, node: &EachRule<'parse>) -> SassResult<()> {
         self.visit_expression(&node.list)?;
-        self.visit_children(&node.children)
+        self.visit_children(node.children)
     }
 
     fn visit_error_rule(&mut self, node: &ErrorRule<'parse>) -> SassResult<()> {
@@ -218,7 +218,7 @@ impl<'parse> StatementVisitor<'parse> for RecursiveAstVisitor {
     fn visit_for_rule(&mut self, node: &ForRule<'parse>) -> SassResult<()> {
         self.visit_expression(&node.from)?;
         self.visit_expression(&node.to)?;
-        self.visit_children(&node.children)
+        self.visit_children(node.children)
     }
 
     fn visit_forward_rule(&mut self, node: &ForwardRule<'parse>) -> SassResult<()> {
@@ -230,17 +230,17 @@ impl<'parse> StatementVisitor<'parse> for RecursiveAstVisitor {
 
     fn visit_function_rule(&mut self, node: &FunctionRule<'parse>) -> SassResult<()> {
         self.visit_parameter_defaults(&node.parameters)?;
-        self.visit_children(&node.children)
+        self.visit_children(node.children)
     }
 
     fn visit_if_rule(&mut self, node: &IfRule<'parse>) -> SassResult<()> {
         for clause in &node.clauses {
             self.visit_expression(&clause.expression)?;
-            for child in &clause.children {
+            for child in clause.children {
                 child.accept(self)?;
             }
         }
-        if let Some(ref last) = node.last_clause {
+        if let Some(last) = node.last_clause {
             for child in last {
                 child.accept(self)?;
             }
@@ -274,12 +274,12 @@ impl<'parse> StatementVisitor<'parse> for RecursiveAstVisitor {
 
     fn visit_media_rule(&mut self, node: &MediaRule<'parse>) -> SassResult<()> {
         self.visit_interpolation(&node.query)?;
-        self.visit_children(&node.children)
+        self.visit_children(node.children)
     }
 
     fn visit_mixin_rule(&mut self, node: &MixinRule<'parse>) -> SassResult<()> {
         self.visit_parameter_defaults(&node.parameters)?;
-        self.visit_children(&node.children)
+        self.visit_children(node.children)
     }
 
     fn visit_return_rule(&mut self, node: &ReturnRule<'parse>) -> SassResult<()> {
@@ -291,19 +291,19 @@ impl<'parse> StatementVisitor<'parse> for RecursiveAstVisitor {
     }
 
     fn visit_stylesheet(&mut self, _node: &Stylesheet<'parse>) -> SassResult<()> {
-        self.visit_children(&_node.children)
+        self.visit_children(_node.children)
     }
 
     fn visit_style_rule(&mut self, node: &StyleRule<'parse>) -> SassResult<()> {
         if let Some(ref selector) = node.selector {
             self.visit_interpolation(selector)?;
         }
-        self.visit_children(&node.children)
+        self.visit_children(node.children)
     }
 
     fn visit_supports_rule(&mut self, node: &SupportsRule<'parse>) -> SassResult<()> {
         self.visit_supports_condition(&node.condition)?;
-        self.visit_children(&node.children)
+        self.visit_children(node.children)
     }
 
     fn visit_use_rule(&mut self, node: &UseRule<'parse>) -> SassResult<()> {
@@ -323,7 +323,7 @@ impl<'parse> StatementVisitor<'parse> for RecursiveAstVisitor {
 
     fn visit_while_rule(&mut self, node: &WhileRule<'parse>) -> SassResult<()> {
         self.visit_expression(&node.condition)?;
-        self.visit_children(&node.children)
+        self.visit_children(node.children)
     }
 }
 
@@ -832,7 +832,7 @@ mod tests {
         )));
         let param = Parameter::new(arena.alloc_str("x"), span, default);
         let pl = ParameterList::new(arena.alloc_slice_fill_iter(vec![param]), span, None);
-        let fr = FunctionRule::new("f".into(), pl, vec![], span, None);
+        let fr = FunctionRule::new("f".into(), pl, &[], span, None);
         Statement::FunctionRule(fr).accept(&mut v).unwrap();
     }
 
@@ -841,7 +841,7 @@ mod tests {
         let arena = Bump::new();
         let mut v = RecursiveAstVisitor::new();
         let sel = Interpolation::plain(".a".into(), test_span(&arena, ".a"));
-        let sr = StyleRule::new(sel, vec![], test_span(&arena, ".a { }"));
+        let sr = StyleRule::new(sel, &[], test_span(&arena, ".a { }"));
         Statement::StyleRule(sr).accept(&mut v).unwrap();
     }
 
@@ -859,7 +859,7 @@ mod tests {
         let arena = Bump::new();
         let mut v = RecursiveAstVisitor::new();
         let query = Interpolation::plain("screen".into(), test_span(&arena, "screen"));
-        let mr = MediaRule::new(query, vec![], test_span(&arena, "@media screen { }"));
+        let mr = MediaRule::new(query, &[], test_span(&arena, "@media screen { }"));
         Statement::MediaRule(mr).accept(&mut v).unwrap();
     }
 

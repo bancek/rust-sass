@@ -312,7 +312,7 @@ where
     let old_importer = std::mem::replace(&mut state.importer, importer);
     let old_stylesheet = state
         .stylesheet
-        .replace(arena.alloc(Stylesheet::new(vec![], span)));
+        .replace(arena.alloc(Stylesheet::new(&[], span)));
     let result = f(config, state).await;
     state.importer = old_importer;
     state.stylesheet = old_stylesheet;
@@ -338,7 +338,7 @@ where
     let old_importer = std::mem::replace(&mut state.importer, importer);
     let old_stylesheet = state
         .stylesheet
-        .replace(arena.alloc(Stylesheet::new(vec![], span)));
+        .replace(arena.alloc(Stylesheet::new(&[], span)));
     let result = f(config, state).await;
     state.importer = old_importer;
     state.stylesheet = old_stylesheet;

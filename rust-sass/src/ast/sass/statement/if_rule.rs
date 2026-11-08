@@ -31,7 +31,7 @@ pub struct IfRule<'parse> {
     /// The final, unconditional `@else` clause.
     ///
     /// `None` when there is no unconditional `@else`.
-    pub last_clause: Option<Vec<Statement<'parse>>>,
+    pub last_clause: Option<&'parse [Statement<'parse>]>,
     pub span: FileSpan<'parse>,
 }
 
@@ -46,14 +46,14 @@ pub struct IfRule<'parse> {
 pub struct IfClause<'parse> {
     /// The expression to evaluate to determine whether to run this rule.
     pub expression: Expression<'parse>,
-    pub children: Vec<Statement<'parse>>,
+    pub children: &'parse [Statement<'parse>],
 }
 
 impl<'parse> IfRule<'parse> {
     pub fn new(
         clauses: Vec<IfClause<'parse>>,
         span: FileSpan<'parse>,
-        last_clause: Option<Vec<Statement<'parse>>>,
+        last_clause: Option<&'parse [Statement<'parse>]>,
     ) -> Self {
         IfRule {
             clauses,
@@ -64,7 +64,7 @@ impl<'parse> IfRule<'parse> {
 }
 
 impl<'parse> IfClause<'parse> {
-    pub fn new(expression: Expression<'parse>, children: Vec<Statement<'parse>>) -> Self {
+    pub fn new(expression: Expression<'parse>, children: &'parse [Statement<'parse>]) -> Self {
         IfClause {
             expression,
             children,
@@ -96,12 +96,12 @@ impl<'parse> IfRule<'parse> {
                 Expression::to_display_string(&clause.expression)?
             )
             .unwrap();
-            for child in &clause.children {
+            for child in clause.children {
                 write!(buf, " {child}").unwrap();
             }
             write!(buf, " }}").unwrap();
         }
-        if let Some(ref last) = self.last_clause {
+        if let Some(last) = self.last_clause {
             write!(buf, " @else {{").unwrap();
             for child in last {
                 write!(buf, " {child}").unwrap();
@@ -142,7 +142,7 @@ mod tests {
         let arena = Bump::new();
         let span = make_span(&arena, "@if true { }");
         let cond = Expression::Boolean(BooleanExpression::new(true, span));
-        let clause = IfClause::new(cond, vec![]);
+        let clause = IfClause::new(cond, &[]);
         let ir = IfRule::new(vec![clause], span, None);
         assert_eq!(ir.clauses.len(), 1);
     }
@@ -152,8 +152,8 @@ mod tests {
         let arena = Bump::new();
         let span = make_span(&arena, "@if true { } @else { }");
         let cond = Expression::Boolean(BooleanExpression::new(true, span));
-        let clause = IfClause::new(cond, vec![]);
-        let ir = IfRule::new(vec![clause], span, Some(vec![]));
+        let clause = IfClause::new(cond, &[]);
+        let ir = IfRule::new(vec![clause], span, Some(&[]));
         assert!(ir.last_clause.is_some());
     }
 
@@ -162,7 +162,7 @@ mod tests {
         let arena = Bump::new();
         let span = make_span(&arena, "@if true { }");
         let cond = Expression::Boolean(BooleanExpression::new(true, span));
-        let clause = IfClause::new(cond, vec![]);
+        let clause = IfClause::new(cond, &[]);
         let ir = IfRule::new(vec![clause], span, None);
         let s = format!("{ir}");
         assert!(s.contains("@if"), "got {s:?}");

@@ -20,7 +20,7 @@ use crate::ast::sass::supports_condition::SupportsCondition;
 #[derive(Clone, Debug)]
 /// A `@supports` rule.
 pub struct SupportsRule<'parse> {
-    pub children: Vec<Statement<'parse>>,
+    pub children: &'parse [Statement<'parse>],
     /// The condition selecting which browsers this rule targets.
     pub condition: SupportsCondition<'parse>,
     pub span: FileSpan<'parse>,
@@ -29,7 +29,7 @@ pub struct SupportsRule<'parse> {
 impl<'parse> SupportsRule<'parse> {
     pub fn new(
         condition: SupportsCondition<'parse>,
-        children: Vec<Statement<'parse>>,
+        children: &'parse [Statement<'parse>],
         span: FileSpan<'parse>,
     ) -> Self {
         SupportsRule {
@@ -50,7 +50,7 @@ impl<'parse> SupportsRule<'parse> {
     pub fn to_display_string(&self) -> SassResult<String> {
         let mut buf = String::new();
         write!(buf, "@supports {} {{", self.condition).unwrap();
-        for child in &self.children {
+        for child in self.children {
             write!(buf, " {child}").unwrap();
         }
         write!(buf, " }}").unwrap();

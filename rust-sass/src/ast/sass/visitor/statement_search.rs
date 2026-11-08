@@ -61,18 +61,18 @@ impl<'parse> StatementVisitor<'parse> for StatementSearchVisitor<'_> {
     type Output = bool;
 
     fn visit_at_root_rule(&mut self, node: &AtRootRule<'parse>) -> SassResult<bool> {
-        self.visit_children(&node.children)
+        self.visit_children(node.children)
     }
 
     fn visit_at_rule(&mut self, node: &AtRule<'parse>) -> SassResult<bool> {
-        if let Some(ref children) = node.children {
+        if let Some(children) = node.children {
             return self.visit_children(children);
         }
         Ok(false)
     }
 
     fn visit_content_block(&mut self, node: &ContentBlock<'parse>) -> SassResult<bool> {
-        self.visit_children(&node.children)
+        self.visit_children(node.children)
     }
 
     fn visit_content_rule(&mut self, node: &ContentRule<'parse>) -> SassResult<bool> {
@@ -87,14 +87,14 @@ impl<'parse> StatementVisitor<'parse> for StatementSearchVisitor<'_> {
     }
 
     fn visit_declaration(&mut self, node: &Declaration<'parse>) -> SassResult<bool> {
-        if let Some(ref children) = node.children {
+        if let Some(children) = node.children {
             return self.visit_children(children);
         }
         Ok(false)
     }
 
     fn visit_each_rule(&mut self, node: &EachRule<'parse>) -> SassResult<bool> {
-        self.visit_children(&node.children)
+        self.visit_children(node.children)
     }
 
     fn visit_error_rule(&mut self, _node: &ErrorRule<'parse>) -> SassResult<bool> {
@@ -106,7 +106,7 @@ impl<'parse> StatementVisitor<'parse> for StatementSearchVisitor<'_> {
     }
 
     fn visit_for_rule(&mut self, node: &ForRule<'parse>) -> SassResult<bool> {
-        self.visit_children(&node.children)
+        self.visit_children(node.children)
     }
 
     fn visit_forward_rule(&mut self, _node: &ForwardRule<'parse>) -> SassResult<bool> {
@@ -114,18 +114,18 @@ impl<'parse> StatementVisitor<'parse> for StatementSearchVisitor<'_> {
     }
 
     fn visit_function_rule(&mut self, node: &FunctionRule<'parse>) -> SassResult<bool> {
-        self.visit_children(&node.children)
+        self.visit_children(node.children)
     }
 
     fn visit_if_rule(&mut self, node: &IfRule<'parse>) -> SassResult<bool> {
         for clause in &node.clauses {
-            for child in &clause.children {
+            for child in clause.children {
                 if child.accept(self)? {
                     return Ok(true);
                 }
             }
         }
-        if let Some(ref last) = node.last_clause {
+        if let Some(last) = node.last_clause {
             for child in last {
                 if child.accept(self)? {
                     return Ok(true);
@@ -151,11 +151,11 @@ impl<'parse> StatementVisitor<'parse> for StatementSearchVisitor<'_> {
     }
 
     fn visit_media_rule(&mut self, node: &MediaRule<'parse>) -> SassResult<bool> {
-        self.visit_children(&node.children)
+        self.visit_children(node.children)
     }
 
     fn visit_mixin_rule(&mut self, node: &MixinRule<'parse>) -> SassResult<bool> {
-        self.visit_children(&node.children)
+        self.visit_children(node.children)
     }
 
     fn visit_return_rule(&mut self, _node: &ReturnRule<'parse>) -> SassResult<bool> {
@@ -167,15 +167,15 @@ impl<'parse> StatementVisitor<'parse> for StatementSearchVisitor<'_> {
     }
 
     fn visit_stylesheet(&mut self, node: &Stylesheet<'parse>) -> SassResult<bool> {
-        self.visit_children(&node.children)
+        self.visit_children(node.children)
     }
 
     fn visit_style_rule(&mut self, node: &StyleRule<'parse>) -> SassResult<bool> {
-        self.visit_children(&node.children)
+        self.visit_children(node.children)
     }
 
     fn visit_supports_rule(&mut self, node: &SupportsRule<'parse>) -> SassResult<bool> {
-        self.visit_children(&node.children)
+        self.visit_children(node.children)
     }
 
     fn visit_use_rule(&mut self, _node: &UseRule<'parse>) -> SassResult<bool> {
@@ -194,7 +194,7 @@ impl<'parse> StatementVisitor<'parse> for StatementSearchVisitor<'_> {
     }
 
     fn visit_while_rule(&mut self, node: &WhileRule<'parse>) -> SassResult<bool> {
-        self.visit_children(&node.children)
+        self.visit_children(node.children)
     }
 }
 
@@ -288,7 +288,7 @@ mod tests {
         let arena = Bump::new();
         let mut v = StatementSearchVisitor::new();
         let params = ParameterList::empty(test_span(&arena, ""));
-        let cb = ContentBlock::new(params, vec![], test_span(&arena, "{ }"));
+        let cb = ContentBlock::new(params, &[], test_span(&arena, "{ }"));
         let args = ArgumentList::empty(test_span(&arena, ""));
         let ir = IncludeRule::new(
             "foo".into(),

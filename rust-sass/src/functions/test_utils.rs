@@ -3,6 +3,7 @@
 // go-source: (test helpers, not present in Go)
 
 use crate::ast::sass::argument_list::ArgumentList;
+use crate::ast::sass::statement::arena_statements;
 use crate::ast::sass::statement::CallableDeclaration;
 use crate::ast::sass::statement::ContentRule;
 use crate::ast::sass::statement::FunctionRule;
@@ -115,7 +116,7 @@ where
             CallableDeclaration::Mixin(MixinRule::new(
                 "m".to_string(),
                 ParameterList::empty(BOGUS_SPAN),
-                children,
+                arena_statements(arena, children),
                 BOGUS_SPAN,
                 None,
             )),
@@ -141,7 +142,7 @@ where
             CallableDeclaration::Function(FunctionRule::new(
                 "f".to_string(),
                 ParameterList::empty(BOGUS_SPAN),
-                vec![],
+                &[],
                 BOGUS_SPAN,
                 None,
             )),

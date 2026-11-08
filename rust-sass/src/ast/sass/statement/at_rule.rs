@@ -25,7 +25,7 @@ use crate::ast::sass::statement::Statement;
 pub struct AtRule<'parse> {
     /// The block children, or `None` when the rule ends with `;` and has no
     /// block.
-    pub children: Option<Vec<Statement<'parse>>>,
+    pub children: Option<&'parse [Statement<'parse>]>,
     /// The name of this rule, without the leading `@`.
     pub name: Interpolation<'parse>,
     /// The value of this rule, if it has one.
@@ -38,7 +38,7 @@ impl<'parse> AtRule<'parse> {
         name: Interpolation<'parse>,
         span: FileSpan<'parse>,
         value: Option<Interpolation<'parse>>,
-        children: Option<Vec<Statement<'parse>>>,
+        children: Option<&'parse [Statement<'parse>]>,
     ) -> Self {
         AtRule {
             children,
@@ -62,7 +62,7 @@ impl<'parse> AtRule<'parse> {
         if let Some(ref value) = self.value {
             write!(buf, " {value}").unwrap();
         }
-        match &self.children {
+        match self.children {
             None => write!(buf, ";").unwrap(),
             Some(children) => {
                 write!(buf, " {{").unwrap();
@@ -133,7 +133,7 @@ mod tests {
         let arena = Bump::new();
         let span = make_span(&arena, "@unknown { }");
         let name = make_interp(&arena, "unknown");
-        let ar = AtRule::new(name, span, None, Some(vec![]));
+        let ar = AtRule::new(name, span, None, Some(&[]));
         let s = format!("{ar}");
         assert!(!s.ends_with(';'), "got {s:?}");
     }
@@ -144,10 +144,10 @@ mod tests {
         let span = make_span(&arena, "@unknown;");
         let name = make_interp(&arena, "unknown");
         let ar1 = AtRule::new(name.clone(), span, None, None);
-        let ar2 = AtRule::new(name, span, None, Some(vec![]));
+        let ar2 = AtRule::new(name, span, None, Some(&[]));
         // None = no block (ends with ;)
         assert!(ar1.children.is_none());
-        // Some(vec![]) = empty {} block
+        // Some(&[]) = empty {} block
         assert!(ar2.children.as_ref().unwrap().is_empty());
     }
 }

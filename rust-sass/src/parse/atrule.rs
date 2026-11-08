@@ -59,7 +59,7 @@ use crate::ast::sass::statement::supports_rule::SupportsRule;
 use crate::ast::sass::statement::use_rule::UseRule;
 use crate::ast::sass::statement::warn_rule::WarnRule;
 use crate::ast::sass::statement::while_rule::WhileRule;
-use crate::ast::sass::statement::Statement;
+use crate::ast::sass::statement::{arena_statements, arena_statements_opt, Statement};
 use crate::ast::sass::static_import::StaticImport;
 use crate::ast::sass::supports_condition::SupportsCondition;
 use crate::common::ast_node::AstNode;
@@ -282,6 +282,7 @@ fn at_root_rule_impl<'b>(
     state: &mut StylesheetState<'b>,
     start: LineScannerState,
 ) -> ParseResult<'b, AtRootRule<'b>> {
+    let arena = state.arena;
     whitespace_impl(scanner, &mut state.parser_state, false)?;
     if scanner.peek_char(0) == '(' as i32 {
         let query = at_root_query_impl(scanner, state)?;
@@ -290,7 +291,13 @@ fn at_root_rule_impl<'b>(
             state,
             &mut |s, st| statement_impl(s, st, false).map(Some),
             start,
-            |_, children, span| Ok(AtRootRule::new(children, span, Some(query))),
+            |_, children, span| {
+                Ok(AtRootRule::new(
+                    arena_statements(arena, children),
+                    span,
+                    Some(query),
+                ))
+            },
         );
     }
     let has_children = looking_at_children_impl(scanner, state)?;
@@ -303,13 +310,19 @@ fn at_root_rule_impl<'b>(
             state,
             &mut |s, st| statement_impl(s, st, false).map(Some),
             start,
-            |_, children, span| Ok(AtRootRule::new(children, span, None)),
+            |_, children, span| {
+                Ok(AtRootRule::new(
+                    arena_statements(arena, children),
+                    span,
+                    None,
+                ))
+            },
         );
     }
     let child = style_rule_impl(scanner, state, None, None)?;
     let span = span_from_impl(scanner, &state.parser_state, start)?.file_span()?;
     Ok(AtRootRule::new(
-        vec![Statement::StyleRule(child)],
+        arena_statements(arena, vec![Statement::StyleRule(child)]),
         span,
         None,
     ))
@@ -1083,6 +1096,7 @@ pub(crate) fn mixin_rule_impl<'b>(
     state: &mut StylesheetState<'b>,
     start: LineScannerState,
 ) -> ParseResult<'b, MixinRule<'b>> {
+    let arena = state.arena;
     whitespace_impl(scanner, &mut state.parser_state, true)?;
     let preceding_comment = state.last_silent_comment.take();
     let before_name = scanner.state();
@@ -1125,7 +1139,15 @@ pub(crate) fn mixin_rule_impl<'b>(
         state,
         &mut |s, st| statement_impl(s, st, false).map(Some),
         start,
-        |_, children, span| Ok(MixinRule::new(n, p, children, span, comment)),
+        |_, children, span| {
+            Ok(MixinRule::new(
+                n,
+                p,
+                arena_statements(arena, children),
+                span,
+                comment,
+            ))
+        },
     )?;
     state.in_mixin = false;
     Ok(result)
@@ -1148,6 +1170,7 @@ fn function_rule_impl<'b>(
     start: LineScannerState,
     at_rule_name: &Interpolation<'b>,
 ) -> ParseResult<'b, Statement<'b>> {
+    let arena = state.arena;
     whitespace_impl(scanner, &mut state.parser_state, true)?;
     let preceding_comment = state.last_silent_comment.take();
     let before_name = scanner.state();
@@ -1216,7 +1239,11 @@ fn function_rule_impl<'b>(
         start,
         |_, children, span| {
             Ok(Statement::FunctionRule(FunctionRule::new(
-                n, p, children, span, comment,
+                n,
+                p,
+                arena_statements(arena, children),
+                span,
+                comment,
             )))
         },
     )
@@ -1238,6 +1265,7 @@ fn each_rule_impl<'b>(
         &mut StylesheetState<'b>,
     ) -> ParseResult<'b, Statement<'b>>,
 ) -> ParseResult<'b, EachRule<'b>> {
+    let arena = state.arena;
     whitespace_impl(scanner, &mut state.parser_state, true)?;
     let was_in_control_directive = state.in_control_directive;
     state.in_control_directive = true;
@@ -1268,7 +1296,14 @@ fn each_rule_impl<'b>(
         state,
         &mut |s, st| child(s, st).map(Some),
         start,
-        |_, children, span| Ok(EachRule::new(vars, l, children, span)),
+        |_, children, span| {
+            Ok(EachRule::new(
+                vars,
+                l,
+                arena_statements(arena, children),
+                span,
+            ))
+        },
     )?;
     state.in_control_directive = was_in_control_directive;
     Ok(result)
@@ -1293,6 +1328,7 @@ pub(crate) fn for_rule_impl<'b>(
         &mut StylesheetState<'b>,
     ) -> ParseResult<'b, Statement<'b>>,
 ) -> ParseResult<'b, ForRule<'b>> {
+    let arena = state.arena;
     whitespace_impl(scanner, &mut state.parser_state, true)?;
     let was_in_control_directive = state.in_control_directive;
     state.in_control_directive = true;
@@ -1364,7 +1400,16 @@ pub(crate) fn for_rule_impl<'b>(
         state,
         &mut |s, st| child(s, st).map(Some),
         start,
-        |_, children, span| Ok(ForRule::new(v, f, t, children, span, exc)),
+        |_, children, span| {
+            Ok(ForRule::new(
+                v,
+                f,
+                t,
+                arena_statements(arena, children),
+                span,
+                exc,
+            ))
+        },
     )?;
     state.in_control_directive = was_in_control_directive;
     Ok(result)
@@ -1388,6 +1433,7 @@ fn if_rule_impl<'b>(
         &mut StylesheetState<'b>,
     ) -> ParseResult<'b, Statement<'b>>,
 ) -> ParseResult<'b, IfRule<'b>> {
+    let arena = state.arena;
     whitespace_impl(scanner, &mut state.parser_state, true)?;
     let _if_indentation = current_indentation_impl(state);
     let was_in_control_directive = state.in_control_directive;
@@ -1404,7 +1450,7 @@ fn if_rule_impl<'b>(
     )?;
     let children = children_impl(scanner, state, &mut |s, st| child(s, st).map(Some))?;
     whitespace_without_comments_impl(scanner, &state.parser_state, false)?;
-    let mut clauses = vec![IfClause::new(condition, children)];
+    let mut clauses = vec![IfClause::new(condition, arena_statements(arena, children))];
     let mut last_clause: Option<Vec<Statement<'b>>> = None;
     loop {
         if !scan_else_impl(scanner, state, _if_indentation)? {
@@ -1424,7 +1470,7 @@ fn if_rule_impl<'b>(
                 },
             )?;
             let ch = children_impl(scanner, state, &mut |s, st| child(s, st).map(Some))?;
-            clauses.push(IfClause::new(cond, ch));
+            clauses.push(IfClause::new(cond, arena_statements(arena, ch)));
         } else {
             let ch = children_impl(scanner, state, &mut |s, st| child(s, st).map(Some))?;
             last_clause = Some(ch);
@@ -1434,7 +1480,11 @@ fn if_rule_impl<'b>(
     state.in_control_directive = was_in_control_directive;
     let span = span_from_impl(scanner, &state.parser_state, start)?.file_span()?;
     whitespace_without_comments_impl(scanner, &state.parser_state, false)?;
-    Ok(IfRule::new(clauses, span, last_clause))
+    Ok(IfRule::new(
+        clauses,
+        span,
+        arena_statements_opt(arena, last_clause),
+    ))
 }
 
 // ======================================================================
@@ -1453,6 +1503,7 @@ fn while_rule_impl<'b>(
         &mut StylesheetState<'b>,
     ) -> ParseResult<'b, Statement<'b>>,
 ) -> ParseResult<'b, WhileRule<'b>> {
+    let arena = state.arena;
     whitespace_impl(scanner, &mut state.parser_state, true)?;
     let was_in_control_directive = state.in_control_directive;
     state.in_control_directive = true;
@@ -1472,7 +1523,7 @@ fn while_rule_impl<'b>(
         state,
         &mut |s, st| child(s, st).map(Some),
         start,
-        |_, children, span| Ok(WhileRule::new(c, children, span)),
+        |_, children, span| Ok(WhileRule::new(c, arena_statements(arena, children), span)),
     )?;
     state.in_control_directive = was_in_control_directive;
     Ok(result)
@@ -1491,6 +1542,7 @@ pub(crate) fn media_rule_impl<'b>(
     state: &mut StylesheetState<'b>,
     start: LineScannerState,
 ) -> ParseResult<'b, MediaRule<'b>> {
+    let arena = state.arena;
     whitespace_impl(scanner, &mut state.parser_state, false)?;
     let query = media_query_list_impl(scanner, state)?;
     let q = query;
@@ -1499,7 +1551,7 @@ pub(crate) fn media_rule_impl<'b>(
         state,
         &mut |s, st| statement_impl(s, st, false).map(Some),
         start,
-        |_, children, span| Ok(MediaRule::new(q, children, span)),
+        |_, children, span| Ok(MediaRule::new(q, arena_statements(arena, children), span)),
     )
 }
 
@@ -1512,6 +1564,7 @@ pub(crate) fn supports_rule_impl<'b>(
     state: &mut StylesheetState<'b>,
     start: LineScannerState,
 ) -> ParseResult<'b, SupportsRule<'b>> {
+    let arena = state.arena;
     whitespace_impl(scanner, &mut state.parser_state, false)?;
     let condition = supports_condition_impl(scanner, state, false)?;
     whitespace_impl(scanner, &mut state.parser_state, false)?;
@@ -1521,7 +1574,13 @@ pub(crate) fn supports_rule_impl<'b>(
         state,
         &mut |s, st| statement_impl(s, st, false).map(Some),
         start,
-        |_, children, span| Ok(SupportsRule::new(cond, children, span)),
+        |_, children, span| {
+            Ok(SupportsRule::new(
+                cond,
+                arena_statements(arena, children),
+                span,
+            ))
+        },
     )
 }
 
@@ -1541,6 +1600,7 @@ pub(crate) fn include_rule_impl<'b>(
     state: &mut StylesheetState<'b>,
     start: LineScannerState,
 ) -> ParseResult<'b, IncludeRule<'b>> {
+    let arena = state.arena;
     whitespace_impl(scanner, &mut state.parser_state, true)?;
     let mut namespace = String::new();
     let mut name = identifier_impl(scanner, &state.parser_state, false, false)?;
@@ -1574,7 +1634,13 @@ pub(crate) fn include_rule_impl<'b>(
             state,
             &mut |s, st| statement_impl(s, st, false).map(Some),
             start,
-            |_, children, span| Ok(ContentBlock::new(cp, children, span)),
+            |_, children, span| {
+                Ok(ContentBlock::new(
+                    cp,
+                    arena_statements(arena, children),
+                    span,
+                ))
+            },
         )?;
         state.in_content_block = was_in_content_block;
         content = Some(cb);
@@ -1618,6 +1684,7 @@ pub(crate) fn moz_document_rule_impl<'b>(
     start: LineScannerState,
     name: &Interpolation<'b>,
 ) -> ParseResult<'b, AtRule<'b>> {
+    let arena = state.arena;
     whitespace_impl(scanner, &mut state.parser_state, false)?;
     let value_start = scanner.state();
     let mut buffer = InterpolationBuffer::new();
@@ -1704,7 +1771,12 @@ pub(crate) fn moz_document_rule_impl<'b>(
                 secondary: vec![],
             });
             }
-            Ok(AtRule::new(name2, span, val, Some(children)))
+            Ok(AtRule::new(
+                name2,
+                span,
+                val,
+                Some(arena_statements(arena, children)),
+            ))
         },
     )
 }
@@ -1726,6 +1798,7 @@ pub(crate) fn unknown_at_rule_impl<'b>(
     start: LineScannerState,
     name: &Interpolation<'b>,
 ) -> ParseResult<'b, Statement<'b>> {
+    let arena = state.arena;
     let was_in_unknown_at_rule = state.in_unknown_at_rule;
     state.in_unknown_at_rule = true;
     whitespace_impl(scanner, &mut state.parser_state, false)?;
@@ -1762,7 +1835,14 @@ pub(crate) fn unknown_at_rule_impl<'b>(
             state,
             &mut |s, st| statement_impl(s, st, false).map(Some),
             start,
-            |_, children, span| Ok(Statement::AtRule(AtRule::new(n2, span, v2, Some(children)))),
+            |_, children, span| {
+                Ok(Statement::AtRule(AtRule::new(
+                    n2,
+                    span,
+                    v2,
+                    Some(arena_statements(arena, children)),
+                )))
+            },
         )?;
         state.in_unknown_at_rule = was_in_unknown_at_rule;
         state.in_plain_css_function = was_in_plain_css_function;

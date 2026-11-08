@@ -33,7 +33,7 @@ pub struct MixinRule<'parse> {
     pub original_name: String,
     /// The parameters the mixin accepts.
     pub parameters: ParameterList<'parse>,
-    pub children: Vec<Statement<'parse>>,
+    pub children: &'parse [Statement<'parse>],
     pub span: FileSpan<'parse>,
     /// The comment immediately preceding this declaration, if any.
     pub comment: Option<Box<SilentComment<'parse>>>,
@@ -48,7 +48,7 @@ impl<'parse> MixinRule<'parse> {
     pub fn new(
         original_name: String,
         parameters: ParameterList<'parse>,
-        children: Vec<Statement<'parse>>,
+        children: &'parse [Statement<'parse>],
         span: FileSpan<'parse>,
         comment: Option<SilentComment<'parse>>,
     ) -> Self {
@@ -78,7 +78,7 @@ impl<'parse> MixinRule<'parse> {
         let mut visitor = StatementSearchVisitor::new();
         visitor.content_rule_func = Some(Box::new(|_| Ok(true)));
         let mut result = false;
-        for child in &self.children {
+        for child in self.children {
             if child.accept(&mut visitor).unwrap_or(false) {
                 result = true;
                 break;
@@ -133,7 +133,7 @@ impl<'parse> MixinRule<'parse> {
             write!(buf, "({})", self.parameters).unwrap();
         }
         write!(buf, " {{").unwrap();
-        for child in &self.children {
+        for child in self.children {
             write!(buf, " {child}").unwrap();
         }
         write!(buf, " }}").unwrap();
@@ -154,6 +154,7 @@ impl<'parse> fmt::Display for MixinRule<'parse> {
 mod tests {
     use super::*;
     use crate::ast::sass::parameter::Parameter;
+    use crate::ast::sass::statement::arena_statements;
     use crate::common::source_span_file_source::FileSource;
     use bumpalo::Bump;
 
@@ -171,7 +172,7 @@ mod tests {
         let arena = Bump::new();
         let span = make_span(&arena, "@mixin foo { }");
         let params = ParameterList::empty(span);
-        let mr = MixinRule::new("foo".into(), params, vec![], span, None);
+        let mr = MixinRule::new("foo".into(), params, &[], span, None);
         assert_eq!(mr.name, "foo");
     }
 
@@ -180,7 +181,7 @@ mod tests {
         let arena = Bump::new();
         let span = make_span(&arena, "@mixin foo { }");
         let params = ParameterList::empty(span);
-        let mr = MixinRule::new("foo".into(), params, vec![], span, None);
+        let mr = MixinRule::new("foo".into(), params, &[], span, None);
         let s = format!("{mr}");
         assert!(s.contains("@mixin"), "got {s:?}");
     }
@@ -192,7 +193,7 @@ mod tests {
         let span = FileSpan::new(Some(fs), 0, 18);
         let p = Parameter::new(arena.alloc_str("x"), FileSpan::new(Some(fs), 12, 14), None);
         let params = ParameterList::new(arena.alloc_slice_fill_iter(vec![p]), span, None);
-        let mr = MixinRule::new("foo".into(), params, vec![], span, None);
+        let mr = MixinRule::new("foo".into(), params, &[], span, None);
         let s = format!("{mr}");
         assert!(s.contains("($x)"), "got {s:?}");
     }
@@ -218,7 +219,7 @@ mod tests {
     fn test_has_content_false() {
         let arena = Bump::new();
         let span = make_span(&arena, "@mixin m { }");
-        let mr = MixinRule::new("m".into(), ParameterList::empty(span), vec![], span, None);
+        let mr = MixinRule::new("m".into(), ParameterList::empty(span), &[], span, None);
         assert!(!mr.has_content());
     }
 
@@ -229,7 +230,7 @@ mod tests {
         let mr = MixinRule::new(
             "m".into(),
             ParameterList::empty(span),
-            vec![content_rule(&arena)],
+            arena_statements(&arena, vec![content_rule(&arena)]),
             span,
             None,
         );
@@ -243,7 +244,7 @@ mod tests {
         let arena = Bump::new();
         let span = make_span(&arena, "@mixin m { @if true { @content; } }");
         let cond = Expression::Boolean(BooleanExpression::new(true, make_span(&arena, "true")));
-        let clause = IfClause::new(cond, vec![content_rule(&arena)]);
+        let clause = IfClause::new(cond, arena_statements(&arena, vec![content_rule(&arena)]));
         let if_rule = Statement::IfRule(IfRule::new(
             vec![clause],
             make_span(&arena, "@if true { @content; }"),
@@ -252,7 +253,7 @@ mod tests {
         let mr = MixinRule::new(
             "m".into(),
             ParameterList::empty(span),
-            vec![if_rule],
+            arena_statements(&arena, vec![if_rule]),
             span,
             None,
         );
@@ -266,7 +267,7 @@ mod tests {
         let mr = MixinRule::new(
             "m".into(),
             ParameterList::empty(span),
-            vec![content_rule(&arena)],
+            arena_statements(&arena, vec![content_rule(&arena)]),
             span,
             None,
         );
@@ -283,7 +284,7 @@ mod tests {
         // after the `=` subspan — indented `= foo` names start at `foo`.
         let arena = Bump::new();
         let span = make_span(&arena, "= foo");
-        let mr = MixinRule::new("foo".into(), ParameterList::empty(span), vec![], span, None);
+        let mr = MixinRule::new("foo".into(), ParameterList::empty(span), &[], span, None);
         assert_eq!(mr.name_span().unwrap().text(), "foo");
     }
 }

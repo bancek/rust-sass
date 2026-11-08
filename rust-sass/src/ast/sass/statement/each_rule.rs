@@ -23,7 +23,7 @@ use crate::ast::sass::statement::Statement;
 /// Iterates over the values in a list or map.
 #[derive(Clone, Debug)]
 pub struct EachRule<'parse> {
-    pub children: Vec<Statement<'parse>>,
+    pub children: &'parse [Statement<'parse>],
     /// The variables assigned for each iteration.
     pub variables: Vec<String>,
     /// The expression whose value this iterates through.
@@ -35,7 +35,7 @@ impl<'parse> EachRule<'parse> {
     pub fn new(
         variables: Vec<String>,
         list: Expression<'parse>,
-        children: Vec<Statement<'parse>>,
+        children: &'parse [Statement<'parse>],
         span: FileSpan<'parse>,
     ) -> Self {
         EachRule {
@@ -68,7 +68,7 @@ impl<'parse> EachRule<'parse> {
             Expression::to_display_string(&self.list)?
         )
         .unwrap();
-        for child in &self.children {
+        for child in self.children {
             write!(buf, " {child}").unwrap();
         }
         write!(buf, " }}").unwrap();
@@ -106,7 +106,7 @@ mod tests {
         let arena = Bump::new();
         let span = make_span(&arena, "@each $v in list { }");
         let list = Expression::Boolean(BooleanExpression::new(true, span));
-        let rule = EachRule::new(vec!["v".into()], list, vec![], span);
+        let rule = EachRule::new(vec!["v".into()], list, &[], span);
         assert_eq!(rule.variables.len(), 1);
     }
 
@@ -115,7 +115,7 @@ mod tests {
         let arena = Bump::new();
         let span = make_span(&arena, "@each $v in true { }");
         let list = Expression::Boolean(BooleanExpression::new(true, span));
-        let rule = EachRule::new(vec!["v".into()], list, vec![], span);
+        let rule = EachRule::new(vec!["v".into()], list, &[], span);
         let s = format!("{rule}");
         assert!(s.contains("@each"), "got {s:?}");
         assert!(s.contains("$v"), "got {s:?}");
@@ -126,7 +126,7 @@ mod tests {
         let arena = Bump::new();
         let span = make_span(&arena, "@each $v in list { }");
         let list = Expression::Boolean(BooleanExpression::new(true, span));
-        let rule = EachRule::new(vec!["v".into()], list, vec![], span);
+        let rule = EachRule::new(vec!["v".into()], list, &[], span);
         assert_eq!(rule.span().unwrap(), span);
     }
 }

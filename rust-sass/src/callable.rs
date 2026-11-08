@@ -1119,7 +1119,7 @@ mod tests {
         CallableDeclaration::Mixin(MixinRule::new(
             name.to_string(),
             ParameterList::empty(BOGUS_SPAN),
-            vec![],
+            &[],
             BOGUS_SPAN,
             None,
         ))
@@ -1129,7 +1129,7 @@ mod tests {
         CallableDeclaration::Function(FunctionRule::new(
             name.to_string(),
             ParameterList::empty(BOGUS_SPAN),
-            vec![],
+            &[],
             BOGUS_SPAN,
             None,
         ))

@@ -61,9 +61,9 @@ impl<'parse> CallableDeclaration<'parse> {
 
     pub fn children(&self) -> &[Statement<'parse>] {
         match self {
-            CallableDeclaration::Mixin(m) => &m.children,
-            CallableDeclaration::Function(f) => &f.children,
-            CallableDeclaration::ContentBlock(c) => &c.children,
+            CallableDeclaration::Mixin(m) => m.children,
+            CallableDeclaration::Function(f) => f.children,
+            CallableDeclaration::ContentBlock(c) => c.children,
         }
     }
 
@@ -99,7 +99,7 @@ mod tests {
     #[test]
     fn test_mixin_declaration_name_normalization() {
         // Mirrors Go: TestMixinRuleNameNormalization.
-        let mr = MixinRule::new("foo_bar".into(), params(), vec![], BOGUS_SPAN, None);
+        let mr = MixinRule::new("foo_bar".into(), params(), &[], BOGUS_SPAN, None);
         let decl = CallableDeclaration::Mixin(mr);
         assert_eq!(decl.name(), "foo-bar");
         assert_eq!(decl.original_name(), "foo_bar");
@@ -107,7 +107,7 @@ mod tests {
 
     #[test]
     fn test_function_declaration_name() {
-        let fr = FunctionRule::new("f_n".into(), params(), vec![], BOGUS_SPAN, None);
+        let fr = FunctionRule::new("f_n".into(), params(), &[], BOGUS_SPAN, None);
         let decl = CallableDeclaration::Function(fr);
         assert_eq!(decl.name(), "f-n");
         assert_eq!(decl.original_name(), "f_n");
@@ -116,7 +116,7 @@ mod tests {
     #[test]
     fn test_content_block_declaration_name() {
         // Mirrors Go: TestContentBlockName — Dart passes "@content" as the name.
-        let cb = ContentBlock::new(params(), vec![], BOGUS_SPAN);
+        let cb = ContentBlock::new(params(), &[], BOGUS_SPAN);
         let decl = CallableDeclaration::ContentBlock(cb);
         assert_eq!(decl.name(), "@content");
         assert_eq!(decl.original_name(), "@content");
@@ -124,7 +124,7 @@ mod tests {
 
     #[test]
     fn test_declaration_accessors() {
-        let mr = MixinRule::new("m".into(), params(), vec![], BOGUS_SPAN, None);
+        let mr = MixinRule::new("m".into(), params(), &[], BOGUS_SPAN, None);
         let decl = CallableDeclaration::Mixin(mr);
         assert!(decl.children().is_empty());
         assert!(decl.parameters().is_empty());

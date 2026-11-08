@@ -22,7 +22,7 @@ use crate::ast::sass::statement::Statement;
 /// This moves its contents "up" the tree through parent nodes.
 #[derive(Clone, Debug)]
 pub struct AtRootRule<'parse> {
-    pub children: Vec<Statement<'parse>>,
+    pub children: &'parse [Statement<'parse>],
     /// The query specifying which statements this should move its contents
     /// through.
     pub query: Option<Interpolation<'parse>>,
@@ -31,7 +31,7 @@ pub struct AtRootRule<'parse> {
 
 impl<'parse> AtRootRule<'parse> {
     pub fn new(
-        children: Vec<Statement<'parse>>,
+        children: &'parse [Statement<'parse>],
         span: FileSpan<'parse>,
         query: Option<Interpolation<'parse>>,
     ) -> Self {
@@ -57,7 +57,7 @@ impl<'parse> AtRootRule<'parse> {
             write!(buf, "{query} ").unwrap();
         }
         write!(buf, "{{").unwrap();
-        for child in &self.children {
+        for child in self.children {
             write!(buf, " {child}").unwrap();
         }
         write!(buf, " }}").unwrap();
@@ -93,7 +93,7 @@ mod tests {
     fn test_new() {
         let arena = Bump::new();
         let span = make_span(&arena, "@at-root { }");
-        let rule = AtRootRule::new(vec![], span, None);
+        let rule = AtRootRule::new(&[], span, None);
         assert!(rule.query.is_none());
     }
 
@@ -103,7 +103,7 @@ mod tests {
         let fs = FileSource::new_in(&arena, "@at-root (with: rule) { }", None);
         let span = FileSpan::new(Some(fs), 0, 24);
         let query = Interpolation::plain("(with: rule)".into(), FileSpan::new(Some(fs), 9, 21));
-        let rule = AtRootRule::new(vec![], span, Some(query));
+        let rule = AtRootRule::new(&[], span, Some(query));
         assert!(rule.query.is_some());
     }
 
@@ -111,7 +111,7 @@ mod tests {
     fn test_span() {
         let arena = Bump::new();
         let span = make_span(&arena, "@at-root { }");
-        let rule = AtRootRule::new(vec![], span, None);
+        let rule = AtRootRule::new(&[], span, None);
         assert_eq!(rule.span().unwrap(), span);
     }
 
@@ -119,7 +119,7 @@ mod tests {
     fn test_display() {
         let arena = Bump::new();
         let span = make_span(&arena, "@at-root { }");
-        let rule = AtRootRule::new(vec![], span, None);
+        let rule = AtRootRule::new(&[], span, None);
         let s = format!("{rule}");
         assert!(s.contains("@at-root"), "got {s:?}");
     }

@@ -25,14 +25,14 @@ use crate::ast::sass::statement::Statement;
 pub struct ContentBlock<'parse> {
     /// The parameters the content block accepts.
     pub parameters: ParameterList<'parse>,
-    pub children: Vec<Statement<'parse>>,
+    pub children: &'parse [Statement<'parse>],
     pub span: FileSpan<'parse>,
 }
 
 impl<'parse> ContentBlock<'parse> {
     pub fn new(
         parameters: ParameterList<'parse>,
-        children: Vec<Statement<'parse>>,
+        children: &'parse [Statement<'parse>],
         span: FileSpan<'parse>,
     ) -> Self {
         ContentBlock {
@@ -56,7 +56,7 @@ impl<'parse> ContentBlock<'parse> {
             write!(buf, " using ({})", self.parameters).unwrap();
         }
         write!(buf, " {{").unwrap();
-        for child in &self.children {
+        for child in self.children {
             write!(buf, " {child}").unwrap();
         }
         write!(buf, " }}").unwrap();
@@ -93,7 +93,7 @@ mod tests {
         let arena = Bump::new();
         let span = make_span(&arena, "{ }");
         let params = ParameterList::empty(span);
-        let cb = ContentBlock::new(params, vec![], span);
+        let cb = ContentBlock::new(params, &[], span);
         assert_eq!(cb.span().unwrap(), span);
     }
 
@@ -102,7 +102,7 @@ mod tests {
         let arena = Bump::new();
         let span = make_span(&arena, "{ }");
         let params = ParameterList::empty(span);
-        let cb = ContentBlock::new(params, vec![], span);
+        let cb = ContentBlock::new(params, &[], span);
         let s = format!("{cb}");
         assert!(s.contains('{'), "got {s:?}");
     }

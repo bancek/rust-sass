@@ -129,11 +129,11 @@ impl<'parse> StatementVisitor<'parse> for FindDependenciesVisitor<'parse> {
     type Output = ();
 
     fn visit_at_root_rule(&mut self, node: &AtRootRule<'parse>) -> SassResult<()> {
-        self.visit_children(&node.children)
+        self.visit_children(node.children)
     }
 
     fn visit_at_rule(&mut self, node: &AtRule<'parse>) -> SassResult<()> {
-        if let Some(ref children) = node.children {
+        if let Some(children) = node.children {
             self.visit_children(children)?;
         }
         Ok(())
@@ -152,7 +152,7 @@ impl<'parse> StatementVisitor<'parse> for FindDependenciesVisitor<'parse> {
     }
 
     fn visit_declaration(&mut self, node: &Declaration<'parse>) -> SassResult<()> {
-        if let Some(ref children) = node.children {
+        if let Some(children) = node.children {
             self.visit_children(children)?;
         }
         Ok(())
@@ -232,7 +232,7 @@ impl<'parse> StatementVisitor<'parse> for FindDependenciesVisitor<'parse> {
     }
 
     fn visit_media_rule(&mut self, node: &MediaRule<'parse>) -> SassResult<()> {
-        self.visit_children(&node.children)
+        self.visit_children(node.children)
     }
 
     fn visit_mixin_rule(&mut self, _node: &MixinRule<'parse>) -> SassResult<()> {
@@ -248,15 +248,15 @@ impl<'parse> StatementVisitor<'parse> for FindDependenciesVisitor<'parse> {
     }
 
     fn visit_stylesheet(&mut self, node: &Stylesheet<'parse>) -> SassResult<()> {
-        self.visit_children(&node.children)
+        self.visit_children(node.children)
     }
 
     fn visit_style_rule(&mut self, node: &StyleRule<'parse>) -> SassResult<()> {
-        self.visit_children(&node.children)
+        self.visit_children(node.children)
     }
 
     fn visit_supports_rule(&mut self, node: &SupportsRule<'parse>) -> SassResult<()> {
-        self.visit_children(&node.children)
+        self.visit_children(node.children)
     }
 
     fn visit_use_rule(&mut self, node: &UseRule<'parse>) -> SassResult<()> {
@@ -295,6 +295,7 @@ mod tests {
     use crate::ast::sass::import::Import;
     use crate::ast::sass::interpolation::Interpolation;
     use crate::ast::sass::parameter_list::ParameterList;
+    use crate::ast::sass::statement::arena_statements;
     use crate::common::file_span::FileSpan;
     use crate::common::source_span_file_source::FileSource;
     use crate::url::OwnedUrl;
@@ -315,7 +316,7 @@ mod tests {
         let span = test_span(&arena, "@use 'foo';");
         let u = OwnedUrl::parse("file:///foo").unwrap();
         let ur = UseRule::new(u.clone(), None, span, vec![]).unwrap();
-        let ss = Stylesheet::new(vec![Statement::UseRule(ur)], span);
+        let ss = Stylesheet::new(arena_statements(&arena, vec![Statement::UseRule(ur)]), span);
         let report = find_dependencies(&ss).unwrap();
 
         assert!(report.uses.contains(&u));
@@ -327,7 +328,10 @@ mod tests {
         let span = test_span(&arena, "@forward 'bar';");
         let u = OwnedUrl::parse("file:///bar").unwrap();
         let fr = ForwardRule::new(u.clone(), span, None, vec![]);
-        let ss = Stylesheet::new(vec![Statement::ForwardRule(fr)], span);
+        let ss = Stylesheet::new(
+            arena_statements(&arena, vec![Statement::ForwardRule(fr)]),
+            span,
+        );
         let report = find_dependencies(&ss).unwrap();
 
         assert!(report.forwards.contains(&u));
@@ -339,7 +343,7 @@ mod tests {
         let span = test_span(&arena, "@use 'sass:color';");
         let u = OwnedUrl::parse("sass:color").unwrap();
         let ur = UseRule::new(u, None, span, vec![]).unwrap();
-        let ss = Stylesheet::new(vec![Statement::UseRule(ur)], span);
+        let ss = Stylesheet::new(arena_statements(&arena, vec![Statement::UseRule(ur)]), span);
         let report = find_dependencies(&ss).unwrap();
 
         assert!(report.uses.is_empty());
@@ -373,7 +377,10 @@ mod tests {
         );
 
         let ss = Stylesheet::new(
-            vec![Statement::UseRule(meta_use), Statement::IncludeRule(inc)],
+            arena_statements(
+                &arena,
+                vec![Statement::UseRule(meta_use), Statement::IncludeRule(inc)],
+            ),
             span,
         );
         let report = find_dependencies(&ss).unwrap();
@@ -393,7 +400,10 @@ mod tests {
             test_span(&arena, "'file'"),
         ));
         let ir = ImportRule::new(vec![di], span);
-        let ss = Stylesheet::new(vec![Statement::ImportRule(ir)], span);
+        let ss = Stylesheet::new(
+            arena_statements(&arena, vec![Statement::ImportRule(ir)]),
+            span,
+        );
         let report = find_dependencies(&ss).unwrap();
 
         assert!(report.imports.contains(&u));
@@ -405,7 +415,7 @@ mod tests {
         let span = test_span(&arena, "@use 'mod';");
         let u = OwnedUrl::parse("file:///mod").unwrap();
         let ur = UseRule::new(u.clone(), None, span, vec![]).unwrap();
-        let ss = Stylesheet::new(vec![Statement::UseRule(ur)], span);
+        let ss = Stylesheet::new(arena_statements(&arena, vec![Statement::UseRule(ur)]), span);
         let report = find_dependencies(&ss).unwrap();
 
         let modules = report.modules();
@@ -425,7 +435,10 @@ mod tests {
         ));
         let ir = ImportRule::new(vec![di], span);
         let ss = Stylesheet::new(
-            vec![Statement::UseRule(ur), Statement::ImportRule(ir)],
+            arena_statements(
+                &arena,
+                vec![Statement::UseRule(ur), Statement::ImportRule(ir)],
+            ),
             span,
         );
         let report = find_dependencies(&ss).unwrap();
@@ -440,8 +453,11 @@ mod tests {
         let arena = Bump::new();
         let span = test_span(&arena, "@function f() { @use 'inner'; @return 1; }");
         let params = ParameterList::empty(test_span(&arena, ""));
-        let fr = FunctionRule::new("f".into(), params, vec![], span, None);
-        let ss = Stylesheet::new(vec![Statement::FunctionRule(fr)], span);
+        let fr = FunctionRule::new("f".into(), params, &[], span, None);
+        let ss = Stylesheet::new(
+            arena_statements(&arena, vec![Statement::FunctionRule(fr)]),
+            span,
+        );
         let report = find_dependencies(&ss).unwrap();
 
         assert!(report.uses.is_empty());

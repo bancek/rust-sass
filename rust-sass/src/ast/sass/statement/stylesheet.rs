@@ -48,7 +48,7 @@ pub struct ParseTimeWarning<'parse> {
 ///
 /// This is the root Sass node. It contains top-level statements.
 pub struct Stylesheet<'parse> {
-    pub children: Vec<Statement<'parse>>,
+    pub children: &'parse [Statement<'parse>],
     pub span: FileSpan<'parse>,
     // Whether this was parsed from a plain CSS stylesheet.
     pub plain_css: bool,
@@ -66,14 +66,14 @@ pub struct Stylesheet<'parse> {
 
 impl<'parse> Stylesheet<'parse> {
     /// Creates a stylesheet holding `children`.
-    pub fn new(children: Vec<Statement<'parse>>, span: FileSpan<'parse>) -> Self {
+    pub fn new(children: &'parse [Statement<'parse>], span: FileSpan<'parse>) -> Self {
         Stylesheet::detailed(children, span, vec![], false, IndexMap::new())
     }
 
     // Internal constructor that also sets warnings, the plain-CSS flag, and
     // the global-variable table.
     pub fn detailed(
-        children: Vec<Statement<'parse>>,
+        children: &'parse [Statement<'parse>],
         span: FileSpan<'parse>,
         warnings: Vec<ParseTimeWarning<'parse>>,
         plain_css: bool,
@@ -81,7 +81,7 @@ impl<'parse> Stylesheet<'parse> {
     ) -> Self {
         let mut uses = Vec::new();
         let mut forwards = Vec::new();
-        for child in &children {
+        for child in children {
             match child {
                 Statement::UseRule(u) => uses.push(u.clone()),
                 Statement::ForwardRule(f) => forwards.push(f.clone()),
@@ -232,7 +232,7 @@ mod tests {
     fn test_new() {
         let arena = Bump::new();
         let span = make_span(&arena, "a { }");
-        let ss = Stylesheet::new(vec![], span);
+        let ss = Stylesheet::new(&[], span);
         assert!(!ss.plain_css);
     }
 
@@ -241,7 +241,7 @@ mod tests {
         let arena = Bump::new();
         let span = make_span(&arena, "a { }");
         let gv: IndexMap<String, FileSpan> = IndexMap::new();
-        let ss = Stylesheet::detailed(vec![], span, vec![], true, gv);
+        let ss = Stylesheet::detailed(&[], span, vec![], true, gv);
         assert!(ss.plain_css);
     }
 
@@ -257,7 +257,7 @@ mod tests {
             secondary: vec![],
         }];
         let gv: IndexMap<String, FileSpan> = IndexMap::new();
-        let ss = Stylesheet::detailed(vec![], span, warnings, false, gv);
+        let ss = Stylesheet::detailed(&[], span, warnings, false, gv);
         assert_eq!(ss.parse_time_warnings.len(), 1);
         assert_eq!(ss.parse_time_warnings[0].message, "test warning");
     }
@@ -266,7 +266,7 @@ mod tests {
     fn test_span() {
         let arena = Bump::new();
         let span = make_span(&arena, "a { }");
-        let ss = Stylesheet::new(vec![], span);
+        let ss = Stylesheet::new(&[], span);
         assert_eq!(ss.span().unwrap(), span);
     }
 
@@ -274,7 +274,7 @@ mod tests {
     fn test_display_empty() {
         let arena = Bump::new();
         let span = make_span(&arena, "");
-        let ss = Stylesheet::new(vec![], span);
+        let ss = Stylesheet::new(&[], span);
         assert_eq!(format!("{ss}"), "");
     }
 

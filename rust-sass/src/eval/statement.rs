@@ -299,7 +299,7 @@ where
             warn(config, state, &warning.message, warning.span)?;
         }
     }
-    for child in &node.children {
+    for child in node.children {
         evaluate_statement(config, state, arena, child).await?;
     }
 
@@ -719,9 +719,9 @@ where
             state,
             rule_node,
             through,
-            Some(has_declarations(&node.children)),
+            Some(has_declarations(node.children)),
             async |c, s| {
-                for child in &node.children {
+                for child in node.children {
                     evaluate_statement(c, s, arena, child).await?;
                 }
                 Ok(())
@@ -783,7 +783,7 @@ where
             state.style_rule_ignoring_at_root = Some(prep.css_rule.clone());
             state.css_style_rule_node = Some(prep.rule_node.clone());
 
-            for child in &node.children {
+            for child in node.children {
                 evaluate_statement(config, state, arena, child).await?;
             }
 
@@ -792,7 +792,7 @@ where
             Ok(())
         },
         false,
-        has_declarations(&node.children),
+        has_declarations(node.children),
     )
     .await?;
 
@@ -1677,7 +1677,7 @@ where
             async |config, state| {
                 // Opaque NESTED-tabs scope (libsass bubble boundary).
                 let tabs_start = tabs_opaque_push(state);
-                for child in &node.children {
+                for child in node.children {
                     evaluate_statement(config, state, arena, child).await?;
                 }
                 tabs_opaque_pop(state, &tabs_node, tabs_start);
@@ -1744,7 +1744,7 @@ where
         state,
         rule,
         through,
-        Some(has_declarations(&node.children)),
+        Some(has_declarations(node.children)),
         async |config, state| {
             // Opaque NESTED-tabs scope (libsass bubble boundary).
             let tabs_start = tabs_opaque_push(state);
@@ -1771,7 +1771,7 @@ where
                             None,
                             Some(false),
                             async |c, s| {
-                                for child in &node.children {
+                                for child in node.children {
                                     evaluate_statement(c, s, arena, child).await?;
                                 }
                                 Ok(())
@@ -1780,7 +1780,7 @@ where
                         .await?;
                         tabs_frame_pop_and_stamp(state);
                     } else {
-                        for child in &node.children {
+                        for child in node.children {
                             if let Statement::StyleRule(sr) = child {
                                 evaluate_style_rule(config, state, arena, sr).await?;
                             } else {
@@ -1902,7 +1902,7 @@ where
                     var_span,
                 );
 
-                for child in &node.children {
+                for child in node.children {
                     if let Some(val) = evaluate_statement(config, state, arena, child).await? {
                         return Ok(Some(val));
                     }
@@ -2310,7 +2310,7 @@ where
         }
     }
 
-    if let Some(ref children) = node.children {
+    if let Some(children) = node.children {
         if !children.is_empty() {
             let old_declaration_name = state.declaration_name.clone();
             state.declaration_name = Some(decl_name_text);
@@ -2764,7 +2764,7 @@ where
                 // at-rules (including `@keyframes`) collects no outer
                 // stamps (libsass debubbles at-rule content opaquely).
                 let tabs_start = tabs_opaque_push(s);
-                if let Some(ref children) = node.children {
+                if let Some(children) = node.children {
                     for child in children {
                         evaluate_statement(c, s, arena, child).await?;
                     }
@@ -2798,7 +2798,7 @@ where
             let tabs_start = tabs_opaque_push(state);
             let no_sr = style_rule(state).is_none();
             if no_sr || state.in_keyframes || name_value == "font-face" {
-                if let Some(ref children) = node.children {
+                if let Some(children) = node.children {
                     for child in children {
                         evaluate_statement(config, state, arena, child).await?;
                     }
@@ -2813,7 +2813,7 @@ where
                     None,
                     Some(false),
                     async |c, s| {
-                        if let Some(ref children) = node.children {
+                        if let Some(children) = node.children {
                             for child in children {
                                 evaluate_statement(c, s, arena, child).await?;
                             }
@@ -2822,7 +2822,7 @@ where
                     },
                 )
                 .await?;
-            } else if let Some(ref children) = node.children {
+            } else if let Some(children) = node.children {
                 for child in children {
                     evaluate_statement(config, state, arena, child).await?;
                 }
@@ -2914,13 +2914,13 @@ where
             .scope(
                 arena,
                 async || {
-                    for child in &node.children {
+                    for child in node.children {
                         evaluate_statement(config, state, arena, child).await?;
                     }
                     Ok(None)
                 },
                 false,
-                has_declarations(&node.children),
+                has_declarations(node.children),
             )
             .await;
     }
@@ -2980,13 +2980,13 @@ where
         .scope(
             arena,
             async || {
-                for child in &node.children {
+                for child in node.children {
                     evaluate_statement(config, state, arena, child).await?;
                 }
                 Ok(None)
             },
             false,
-            has_declarations(&node.children),
+            has_declarations(node.children),
         )
         .await;
 
@@ -3998,11 +3998,11 @@ where
             state,
             rule,
             None,
-            Some(has_declarations(&node.children)),
+            Some(has_declarations(node.children)),
             async |c, s| {
                 // Opaque NESTED-tabs scope (libsass bubble boundary).
                 let tabs_start = tabs_opaque_push(s);
-                for child in &node.children {
+                for child in node.children {
                     evaluate_statement(c, s, arena, child).await?;
                 }
                 tabs_opaque_pop(s, &tabs_node, tabs_start);
@@ -4024,7 +4024,7 @@ where
         state,
         rule,
         through,
-        Some(has_declarations(&node.children)),
+        Some(has_declarations(node.children)),
         async |config, state| {
             // Opaque NESTED-tabs scope (libsass bubble boundary).
             let tabs_start = tabs_opaque_push(state);
@@ -4034,7 +4034,7 @@ where
                 // Bubble-copy style frame for NESTED tabs (see media path).
                 tabs_frame_push(state, &sr_copy);
                 with_parent(arena, config, state, sr_copy, None, None, async |c, s| {
-                    for child in &node.children {
+                    for child in node.children {
                         evaluate_statement(c, s, arena, child).await?;
                     }
                     Ok(())
@@ -4042,7 +4042,7 @@ where
                 .await?;
                 tabs_frame_pop_and_stamp(state);
             } else {
-                for child in &node.children {
+                for child in node.children {
                     evaluate_statement(config, state, arena, child).await?;
                 }
             }
@@ -4102,11 +4102,11 @@ pub(crate) async fn evaluate_statement_if_rule<'compile, 'parse>(
 where
     'compile: 'parse,
 {
-    let mut chosen: Option<&[Statement<'parse>]> = node.last_clause.as_deref();
+    let mut chosen: Option<&[Statement<'parse>]> = node.last_clause;
     for clause in &node.clauses {
         let cond = evaluate_expression(config, state, arena, &clause.expression).await?;
         if cond.is_truthy() {
-            chosen = Some(&clause.children);
+            chosen = Some(clause.children);
             break;
         }
     }
@@ -4183,7 +4183,7 @@ where
                     }
                 }
 
-                for child in &node.children {
+                for child in node.children {
                     if let Some(val) = evaluate_statement(config, state, arena, child).await? {
                         return Ok(Some(val));
                     }
@@ -4217,7 +4217,7 @@ pub(crate) async fn evaluate_statement_while_rule<'compile, 'parse>(
 where
     'compile: 'parse,
 {
-    let has_decls = has_declarations(&node.children);
+    let has_decls = has_declarations(node.children);
     let env = state.env;
     env.scope(
         arena,
@@ -4227,7 +4227,7 @@ where
                 if !cond.is_truthy() {
                     return Ok(None);
                 }
-                for child in &node.children {
+                for child in node.children {
                     if let Some(val) = evaluate_statement(config, state, arena, child).await? {
                         return Ok(Some(val));
                     }
@@ -4246,6 +4246,8 @@ where
 
 #[cfg(test)]
 mod tests {
+    use crate::ast::sass::statement::arena_statements;
+
     use crate::ast::sass::dynamic_import::DynamicImport;
     use crate::ast::sass::expression_string::StringExpression;
     use crate::ast::sass::static_import::StaticImport;
@@ -4344,7 +4346,7 @@ mod tests {
         let arena = Bump::new();
         let span = make_span(&arena, "");
         let (config, mut state) = test_visitor(&arena);
-        let sheet = Stylesheet::new(vec![], span);
+        let sheet = Stylesheet::new(&[], span);
         let result = evaluate_stylesheet(&config, &mut state, &arena, &sheet).await;
         assert!(result.is_ok());
     }
@@ -4472,7 +4474,7 @@ mod tests {
         });
         let clause = IfClause {
             expression: Expression::Boolean(BooleanExpression { value: true, span }),
-            children: vec![return_stmt],
+            children: arena_statements(&arena, vec![return_stmt]),
         };
         let rule = IfRule {
             clauses: vec![clause],
@@ -4516,7 +4518,7 @@ mod tests {
                 span,
             }),
             is_exclusive: false,
-            children: vec![return_stmt],
+            children: arena_statements(&arena, vec![return_stmt]),
             span,
         };
         let result = evaluate_statement_for_rule(&config, &mut state, &arena, &rule)
@@ -4555,7 +4557,7 @@ mod tests {
                 value: Box::new(Value::new_with_arena(&arena, ValueKind::List(list))),
                 span,
             }),
-            children: vec![return_stmt],
+            children: arena_statements(&arena, vec![return_stmt]),
             span,
         };
         let result = evaluate_statement_each_rule(&config, &mut state, &arena, &rule)
@@ -4584,7 +4586,7 @@ mod tests {
         });
         let rule = WhileRule {
             condition: Expression::Boolean(BooleanExpression { value: true, span }),
-            children: vec![return_stmt],
+            children: arena_statements(&arena, vec![return_stmt]),
             span,
         };
         let result = evaluate_statement_while_rule(&config, &mut state, &arena, &rule)
@@ -4782,7 +4784,7 @@ mod tests {
         });
         let rule = MediaRule {
             query,
-            children: vec![child],
+            children: arena_statements(&arena, vec![child]),
             span,
         };
         evaluate_media_rule(&config, &mut state, &arena, &rule)
@@ -4810,7 +4812,7 @@ mod tests {
         let query = Interpolation::plain("screen".into(), Span::File(span));
         let rule = MediaRule {
             query,
-            children: vec![],
+            children: &[],
             span,
         };
         let err = evaluate_media_rule(&config, &mut state, &arena, &rule)
@@ -4857,7 +4859,7 @@ mod tests {
         let (config, mut state) = test_visitor_with_root(arena);
         let span = make_span(arena, "root");
         state.stylesheet = Some(arena.alloc(Stylesheet::detailed(
-            vec![],
+            &[],
             span,
             vec![],
             plain_css,
@@ -4874,7 +4876,7 @@ mod tests {
         state.in_unknown_at_rule = true;
         state.in_dependency = false;
         let selector = Interpolation::plain(".foo".into(), Span::File(span));
-        let rule = StyleRule::new(selector, vec![], span);
+        let rule = StyleRule::new(selector, &[], span);
 
         let result = evaluate_style_rule(&config, &mut state, &arena, &rule).await;
         assert!(result.is_ok());
@@ -4906,7 +4908,7 @@ mod tests {
         let (config, mut state) = test_visitor_with_root_and_stylesheet(&arena, false);
         state.declaration_name = Some("color".into());
         let selector = Interpolation::plain(".foo".into(), Span::File(span));
-        let rule = StyleRule::new(selector, vec![], span);
+        let rule = StyleRule::new(selector, &[], span);
 
         let err = evaluate_style_rule(&config, &mut state, &arena, &rule)
             .await
@@ -4930,7 +4932,7 @@ mod tests {
             ModifiableCssNodeKind::KeyframeBlock(kfb),
         ));
         let selector = Interpolation::plain(".bar".into(), Span::File(span));
-        let rule = StyleRule::new(selector, vec![], span);
+        let rule = StyleRule::new(selector, &[], span);
 
         let err = evaluate_style_rule(&config, &mut state, &arena, &rule)
             .await
@@ -4948,7 +4950,7 @@ mod tests {
         let (config, mut state) = test_visitor_with_root_and_stylesheet(&arena, false);
         state.in_keyframes = true;
         let selector = Interpolation::plain("from".into(), Span::File(span));
-        let rule = StyleRule::new(selector, vec![], span);
+        let rule = StyleRule::new(selector, &[], span);
 
         let result = evaluate_style_rule(&config, &mut state, &arena, &rule).await;
         assert!(result.is_ok());
@@ -4970,7 +4972,7 @@ mod tests {
         state.in_unknown_at_rule = true;
         state.in_dependency = false;
         let selector = Interpolation::plain(".foo".into(), Span::File(span));
-        let rule = StyleRule::new(selector, vec![], span);
+        let rule = StyleRule::new(selector, &[], span);
 
         evaluate_style_rule(&config, &mut state, &arena, &rule)
             .await
@@ -4991,7 +4993,7 @@ mod tests {
         state.in_unknown_at_rule = true;
         state.in_dependency = false;
         let parent_sel = Interpolation::plain(".parent".into(), Span::File(span));
-        let parent_rule = StyleRule::new(parent_sel, vec![], span);
+        let parent_rule = StyleRule::new(parent_sel, &[], span);
         evaluate_style_rule(&config, &mut state, &arena, &parent_rule)
             .await
             .unwrap();
@@ -5014,7 +5016,7 @@ mod tests {
         state.style_rule_ignoring_at_root = Some(parent_css);
 
         let child_sel = Interpolation::plain(".child".into(), Span::File(span));
-        let child_rule = StyleRule::new(child_sel, vec![], span);
+        let child_rule = StyleRule::new(child_sel, &[], span);
         evaluate_style_rule(&config, &mut state, &arena, &child_rule)
             .await
             .unwrap();
@@ -5041,7 +5043,7 @@ mod tests {
         state.in_unknown_at_rule = true;
         state.in_dependency = false;
         let parent_sel = Interpolation::plain(".parent".into(), Span::File(span));
-        let parent_rule = StyleRule::new(parent_sel, vec![], span);
+        let parent_rule = StyleRule::new(parent_sel, &[], span);
         evaluate_style_rule(&config, &mut state, &arena, &parent_rule)
             .await
             .unwrap();
@@ -5058,7 +5060,7 @@ mod tests {
         state.style_rule_ignoring_at_root = Some(parent_css);
 
         state.stylesheet = Some(arena.alloc(Stylesheet::detailed(
-            vec![],
+            &[],
             span,
             vec![],
             true,
@@ -5067,7 +5069,7 @@ mod tests {
 
         let child_span = make_span(&arena, "> .child");
         let child_sel = Interpolation::plain("> .child".into(), Span::File(child_span));
-        let child_rule = StyleRule::new(child_sel, vec![], child_span);
+        let child_rule = StyleRule::new(child_sel, &[], child_span);
         let err = evaluate_style_rule(&config, &mut state, &arena, &child_rule)
             .await
             .unwrap_err();

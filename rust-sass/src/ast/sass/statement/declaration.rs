@@ -22,7 +22,7 @@ use crate::ast::sass::statement::Statement;
 /// A declaration (that is, a `name: value` pair).
 #[derive(Clone, Debug)]
 pub struct Declaration<'parse> {
-    pub children: Option<Vec<Statement<'parse>>>,
+    pub children: Option<&'parse [Statement<'parse>]>,
     /// The name of this declaration.
     pub name: Interpolation<'parse>,
     /// The value of this declaration.
@@ -79,7 +79,7 @@ impl<'parse> Declaration<'parse> {
     /// For these declarations, a value is optional.
     pub fn nested(
         name: Interpolation<'parse>,
-        children: Vec<Statement<'parse>>,
+        children: &'parse [Statement<'parse>],
         span: FileSpan<'parse>,
         value: Option<Expression<'parse>>,
     ) -> Self {
@@ -109,7 +109,7 @@ impl<'parse> Declaration<'parse> {
             }
             write!(buf, "{}", Expression::to_display_string(value)?).unwrap();
         }
-        match &self.children {
+        match self.children {
             None => write!(buf, ";").unwrap(),
             Some(children) => {
                 write!(buf, " {{").unwrap();
@@ -186,7 +186,7 @@ mod tests {
         let arena = Bump::new();
         let span = make_span(&arena, "color: red { }");
         let name = make_interp(&arena, "color");
-        let d = Declaration::nested(name, vec![], span, None);
+        let d = Declaration::nested(name, &[], span, None);
         assert!(d.children.is_some());
     }
 

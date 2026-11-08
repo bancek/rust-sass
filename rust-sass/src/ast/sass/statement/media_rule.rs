@@ -20,7 +20,7 @@ use crate::ast::sass::statement::Statement;
 #[derive(Clone, Debug)]
 /// A `@media` rule.
 pub struct MediaRule<'parse> {
-    pub children: Vec<Statement<'parse>>,
+    pub children: &'parse [Statement<'parse>],
     /// The query selecting which platforms the styles apply to.
     ///
     /// This is only parsed once interpolation has been resolved.
@@ -31,7 +31,7 @@ pub struct MediaRule<'parse> {
 impl<'parse> MediaRule<'parse> {
     pub fn new(
         query: Interpolation<'parse>,
-        children: Vec<Statement<'parse>>,
+        children: &'parse [Statement<'parse>],
         span: FileSpan<'parse>,
     ) -> Self {
         MediaRule {
@@ -52,7 +52,7 @@ impl<'parse> MediaRule<'parse> {
     pub fn to_display_string(&self) -> SassResult<String> {
         let mut buf = String::new();
         write!(buf, "@media {} {{", self.query).unwrap();
-        for child in &self.children {
+        for child in self.children {
             write!(buf, " {child}").unwrap();
         }
         write!(buf, " }}").unwrap();
@@ -89,7 +89,7 @@ mod tests {
         let arena = Bump::new();
         let span = make_span(&arena, "@media screen { }");
         let query = Interpolation::plain("screen".into(), span);
-        let mr = MediaRule::new(query, vec![], span);
+        let mr = MediaRule::new(query, &[], span);
         assert_eq!(mr.span().unwrap(), span);
     }
 
@@ -98,7 +98,7 @@ mod tests {
         let arena = Bump::new();
         let span = make_span(&arena, "@media screen { }");
         let query = Interpolation::plain("screen".into(), span);
-        let mr = MediaRule::new(query, vec![], span);
+        let mr = MediaRule::new(query, &[], span);
         let s = format!("{mr}");
         assert!(s.contains("@media"), "got {s:?}");
     }

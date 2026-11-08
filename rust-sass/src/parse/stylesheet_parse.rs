@@ -33,7 +33,7 @@ use crate::ast::sass::statement::stylesheet::ParseTimeWarning;
 use crate::ast::sass::statement::stylesheet::Stylesheet;
 use crate::ast::sass::statement::use_rule::UseRule;
 use crate::ast::sass::statement::variable_declaration::VariableDeclaration;
-use crate::ast::sass::statement::Statement;
+use crate::ast::sass::statement::{arena_statements, Statement};
 use crate::common::ast_node::AstNode;
 use crate::common::exception::{SassError, SassResult};
 use crate::common::file_span::FileSpan;
@@ -754,6 +754,7 @@ pub(crate) fn style_rule_impl<'b>(
     buffer: Option<InterpolationBuffer<'b>>,
     start_: Option<LineScannerState>,
 ) -> ParseResult<'b, StyleRule<'b>> {
+    let arena = state.arena;
     state.is_use_allowed = false;
     let start = start_.unwrap_or_else(|| scanner.state());
     if state.parse_selectors {
@@ -783,7 +784,7 @@ pub(crate) fn style_rule_impl<'b>(
                 }
                 Ok(StyleRule::with_parsed_selector(
                     selector_list,
-                    children,
+                    arena_statements(arena, children),
                     span,
                 ))
             },
@@ -873,6 +874,7 @@ fn with_style_rule_children_impl<'b>(
     start: LineScannerState,
     selector: Interpolation<'b>,
 ) -> ParseResult<'b, StyleRule<'b>> {
+    let arena = state.arena;
     let was_in_style_rule = state.in_style_rule;
     state.in_style_rule = true;
     let result = with_children_impl(
@@ -893,7 +895,11 @@ fn with_style_rule_children_impl<'b>(
                     secondary: vec![],
                 });
             }
-            Ok(StyleRule::new(selector, children, span))
+            Ok(StyleRule::new(
+                selector,
+                arena_statements(arena, children),
+                span,
+            ))
         },
     )?;
     state.in_style_rule = was_in_style_rule;
@@ -996,6 +1002,7 @@ fn try_declaration_children_impl<'b>(
     _start: LineScannerState,
     _value: Option<Expression<'b>>,
 ) -> ParseResult<'b, Option<Declaration<'b>>> {
+    let arena = state.arena;
     let has_children = looking_at_children_impl(scanner, state)?;
     if !has_children {
         return Ok(None);
@@ -1013,7 +1020,14 @@ fn try_declaration_children_impl<'b>(
         state,
         &mut |s, st| declaration_child_impl(s, st).map(Some),
         _start,
-        |_, children, span| Ok(Some(Declaration::nested(name, children, span, value))),
+        |_, children, span| {
+            Ok(Some(Declaration::nested(
+                name,
+                arena_statements(arena, children),
+                span,
+                value,
+            )))
+        },
     )
 }
 
@@ -1045,6 +1059,7 @@ pub(crate) fn parse_impl<'b>(
     scanner: &mut SpanScanner<'b>,
     state: &mut StylesheetState<'b>,
 ) -> ParseResult<'b, Stylesheet<'b>> {
+    let arena = state.arena;
     let start = scanner.state();
     scanner.scan_char('\u{FEFF}');
     let stmts = statements_impl(
@@ -1071,7 +1086,7 @@ pub(crate) fn parse_impl<'b>(
     let global_variables: indexmap::IndexMap<String, FileSpan<'b>> =
         state.global_variables.drain().collect();
     Ok(Stylesheet::detailed(
-        stmts,
+        arena_statements(arena, stmts),
         span,
         warnings,
         plain_css,
