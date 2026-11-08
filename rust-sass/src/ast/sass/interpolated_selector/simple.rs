@@ -223,7 +223,7 @@ mod tests {
     fn test_accept_dispatch_class() {
         let arena = Bump::new();
         let span = make_span(&arena, "foo");
-        let name = Interpolation::plain("foo".into(), span);
+        let name = Interpolation::plain(&arena, "foo".into(), span);
         let class = InterpolatedClassSelector::new(name);
         let sel = InterpolatedSimpleSelector::Class(class);
         let mut vis = MockVisitor {
@@ -237,7 +237,7 @@ mod tests {
     fn test_accept_dispatch_id() {
         let arena = Bump::new();
         let span = make_span(&arena, "bar");
-        let name = Interpolation::plain("bar".into(), span);
+        let name = Interpolation::plain(&arena, "bar".into(), span);
         let id = InterpolatedIDSelector::new(name);
         let sel = InterpolatedSimpleSelector::ID(id);
         let mut vis = MockVisitor {

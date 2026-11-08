@@ -1,3 +1,5 @@
+use bumpalo::Bump;
+
 // Copyright 2016 Google Inc. Use of this source code is governed by an
 // MIT-style license that can be found in the LICENSE file or at
 // https://opensource.org/licenses/MIT.
@@ -168,6 +170,7 @@ impl<'parse> InterpolationBuffer<'parse> {
     /// collapses to [`Interpolation::plain`].
     pub fn interpolation(
         &self,
+        arena: &'parse Bump,
         span: impl Into<Span<'parse>>,
     ) -> SassResult<Interpolation<'parse>> {
         let span = span.into();
@@ -180,11 +183,11 @@ impl<'parse> InterpolationBuffer<'parse> {
 
         if contents.len() == 1 {
             if let InterpolationPart::Text(s) = &contents[0] {
-                return Ok(Interpolation::plain(s.clone(), span));
+                return Ok(Interpolation::plain(arena, s.clone(), span));
             }
         }
 
-        Ok(Interpolation::new(contents, spans, span)?)
+        Ok(Interpolation::new(arena, contents, spans, span)?)
     }
 }
 
@@ -314,6 +317,7 @@ mod tests {
         let expr_span = test_span(&arena, source, 2, 10);
         let expr = Expression::Variable(VariableExpression::new("expr".into(), var_span, None));
         let interp = Interpolation::new(
+            &arena,
             vec![InterpolationPart::Expression(Box::new(expr))],
             vec![Some(expr_span)],
             interp_span,
@@ -330,7 +334,7 @@ mod tests {
     fn test_add_interpolation_empty() {
         let arena = Bump::new();
         let span = test_span(&arena, "", 0, 0);
-        let interp = Interpolation::new(vec![], vec![], span).unwrap();
+        let interp = Interpolation::new(&arena, vec![], vec![], span).unwrap();
 
         let mut buf = InterpolationBuffer::new();
         buf.add_interpolation(&interp);
@@ -344,7 +348,7 @@ mod tests {
 
         let mut buf = InterpolationBuffer::new();
         buf.write("hello");
-        let interp = buf.interpolation(span).unwrap();
+        let interp = buf.interpolation(&arena, span).unwrap();
 
         assert!(interp.is_plain());
         assert_eq!(interp.as_plain(), Some("hello"));
@@ -364,7 +368,7 @@ mod tests {
         buf.add(expr, expr_span);
         buf.write(".b");
 
-        let interp = buf.interpolation(file_span).unwrap();
+        let interp = buf.interpolation(&arena, file_span).unwrap();
         assert!(!interp.is_plain());
         assert_eq!(interp.contents.len(), 3);
     }
@@ -400,7 +404,7 @@ mod tests {
         buf.add(expr, expr_span);
         buf.write("after");
 
-        let interp = buf.interpolation(file_span).unwrap();
+        let interp = buf.interpolation(&arena, file_span).unwrap();
         assert_eq!(interp.contents.len(), 3);
         // First should be "before"
         match &interp.contents[0] {

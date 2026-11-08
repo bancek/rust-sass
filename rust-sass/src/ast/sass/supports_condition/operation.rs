@@ -1,3 +1,5 @@
+use bumpalo::Bump;
+
 // Copyright 2016 Google Inc. Use of this source code is governed by an
 // MIT-style license that can be found in the LICENSE file or at
 // https://opensource.org/licenses/MIT.
@@ -53,9 +55,9 @@ impl<'parse> SupportsOperation<'parse> {
     // Rebuilds an interpolation with the same text by splicing both
     // operands' interpolations back between the `before`/`between`/`after`
     // source slices.
-    pub fn to_interpolation(&self) -> SassResult<Interpolation<'parse>> {
-        let left_interp = self.left.to_interpolation()?;
-        let right_interp = self.right.to_interpolation()?;
+    pub fn to_interpolation(&self, arena: &'parse Bump) -> SassResult<Interpolation<'parse>> {
+        let left_interp = self.left.to_interpolation(arena)?;
+        let right_interp = self.right.to_interpolation(arena)?;
         let left_fs = self.left.span()?;
         let right_fs = self.right.span()?;
         let left_s = Span::File(left_fs);
@@ -71,7 +73,7 @@ impl<'parse> SupportsOperation<'parse> {
         buf.write(between.text());
         buf.add_interpolation(&right_interp);
         buf.write(after.text());
-        buf.interpolation(self.span)
+        buf.interpolation(arena, self.span)
     }
 
     // Returns a copy of this condition with `span` as its span.

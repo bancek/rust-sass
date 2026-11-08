@@ -278,7 +278,7 @@ pub(crate) fn media_query_list_impl<'b>(
     }
     let span = span_from_impl(scanner, &state.parser_state, start)?.file_span()?;
     buffer
-        .interpolation(span)
+        .interpolation(state.arena, span)
         .map_err(|e| ParseError::from(e).into())
 }
 

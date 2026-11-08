@@ -92,7 +92,7 @@ mod tests {
     {
         let fs = FileSource::new_in(arena, text, None);
         let span = FileSpan::new(Some(fs), 0, text.len());
-        Interpolation::plain(text.to_string(), span)
+        Interpolation::plain(arena, text.to_string(), span)
     }
 
     #[test]

@@ -807,7 +807,7 @@ fn interpolated_string_impl<'parse>(
         if next == quote as i32 {
             scanner.read_char()?;
             let str_span = span_from_impl(scanner, &state.parser_state, start)?;
-            let interp = buffer.interpolation(str_span).map_err(|e| {
+            let interp = buffer.interpolation(state.arena, str_span).map_err(|e| {
                 let sp = span_from_impl(scanner, &state.parser_state, start).unwrap();
                 error_impl(&e.to_string(), &sp.file_span().unwrap())
             })?;
@@ -876,7 +876,7 @@ fn hash_expression_impl<'parse>(
     buffer.write_char_code('#');
     buffer.add_interpolation(&identifier);
     let hash_span = span_from_impl(scanner, &state.parser_state, start)?;
-    let interp = match buffer.interpolation(hash_span) {
+    let interp = match buffer.interpolation(state.arena, hash_span) {
         Ok(i) => i,
         Err(e) => {
             let sp = span_from_impl(scanner, &state.parser_state, start)?;
@@ -989,6 +989,7 @@ fn is_hex_color(interp: &Interpolation) -> bool {
 /// after the range is an error.
 fn unicode_range_impl<'parse>(
     scanner: &mut SpanScanner<'parse>,
+    arena: &'parse Bump,
 ) -> ParseResult<'parse, StringExpression<'parse>> {
     let start = scanner.state();
     scanner.read_char()?;
@@ -1026,6 +1027,7 @@ fn unicode_range_impl<'parse>(
     }
     if has_q {
         return Ok(StringExpression::plain(
+            arena,
             scanner.substring(start.position, None),
             scanner.span_from(start),
             false,
@@ -1063,6 +1065,7 @@ fn unicode_range_impl<'parse>(
         ));
     }
     Ok(StringExpression::plain(
+        arena,
         scanner.substring(start.position, None),
         scanner.span_from(start),
         false,
@@ -1094,7 +1097,10 @@ fn ident_like<'parse>(
             // hacks. Matches Dart: `identifierLike` (`stylesheet.dart`).
             let span = span_from_impl(scanner, &state.parser_state, start)?.file_span()?;
             return Ok(Expression::String(StringExpression::plain(
-                "\\0 ", span, false,
+                state.arena,
+                "\\0 ",
+                span,
+                false,
             )));
         }
         if p == "if" && scanner.peek_char(0) == '(' as i32 {
@@ -1509,6 +1515,7 @@ pub(crate) fn argument_invocation<'parse>(
             && scanner.peek_char(0) == ')' as i32
         {
             positional.push(Expression::String(StringExpression::plain(
+                state.arena,
                 "",
                 scanner.empty_span(),
                 false,
@@ -1844,7 +1851,7 @@ fn try_arbitrary_substitution<'parse>(
         let mut buf = InterpolationBuffer::new();
         buf.add(expression, span);
         let raw = buf
-            .interpolation(span)
+            .interpolation(state.arena, span)
             .map_err(|e| error_impl(&e.to_string(), &span))?;
         return Ok(Some(IfConditionExpression::Raw(IfConditionRaw::new(raw))));
     }
@@ -1854,16 +1861,19 @@ fn try_arbitrary_substitution<'parse>(
 
     if scan_identifier_impl(scanner, "if", false)? {
         name = Some(Interpolation::plain(
+            state.arena,
             "if".to_string(),
             scanner.span_from(start),
         ));
     } else if scan_identifier_impl(scanner, "var", false)? {
         name = Some(Interpolation::plain(
+            state.arena,
             "var".to_string(),
             scanner.span_from(start),
         ));
     } else if scan_identifier_impl(scanner, "attr", false)? {
         name = Some(Interpolation::plain(
+            state.arena,
             "attr".to_string(),
             scanner.span_from(start),
         ));
@@ -1939,10 +1949,10 @@ fn if_condition_raw<'parse>(
     }
 
     let mut buffer = InterpolationBuffer::new();
-    let preceding_interp = preceding.to_interpolation(subst)?;
+    let preceding_interp = preceding.to_interpolation(state.arena, subst)?;
     buffer.add_interpolation(&preceding_interp);
     buffer.write_char_code(' ');
-    let next_interp = next.to_interpolation(subst)?;
+    let next_interp = next.to_interpolation(state.arena, subst)?;
     buffer.add_interpolation(&next_interp);
 
     let mut last_group = next;
@@ -1971,7 +1981,7 @@ fn if_condition_raw<'parse>(
             // Dart: `var lastGroup = _ifGroup()` — shadow, outer not updated
             let lg = if_group(scanner, state)?;
             buffer.write(" and ");
-            let last_interp = lg.to_interpolation(subst)?;
+            let last_interp = lg.to_interpolation(state.arena, subst)?;
             buffer.add_interpolation(&last_interp);
         } else {
             let is_or = if op.is_none() || op != Some(IfBoolOp::And) {
@@ -1992,7 +2002,7 @@ fn if_condition_raw<'parse>(
                 let lg = if_group(scanner, state)?;
                 whitespace_impl(scanner, &mut state.parser_state, true)?;
                 buffer.write(" or ");
-                let last_interp = lg.to_interpolation(subst)?;
+                let last_interp = lg.to_interpolation(state.arena, subst)?;
                 buffer.add_interpolation(&last_interp);
                 last_group = lg;
             } else {
@@ -2004,12 +2014,12 @@ fn if_condition_raw<'parse>(
                 {
                     let lg = if_group(scanner, state)?;
                     buffer.write_char_code(' ');
-                    let last_interp = lg.to_interpolation(subst)?;
+                    let last_interp = lg.to_interpolation(state.arena, subst)?;
                     buffer.add_interpolation(&last_interp);
                     last_group = lg;
                 } else if let Some(nx) = try_arbitrary_substitution(scanner, state)? {
                     buffer.write_char_code(' ');
-                    let last_interp = nx.to_interpolation(subst)?;
+                    let last_interp = nx.to_interpolation(state.arena, subst)?;
                     buffer.add_interpolation(&last_interp);
                     last_group = nx;
                 } else {
@@ -2025,7 +2035,7 @@ fn if_condition_raw<'parse>(
     let end_pos = scanner.state().position;
     let span = scanner.span_from_to(start_pos, end_pos);
     let raw = buffer
-        .interpolation(span)
+        .interpolation(state.arena, span)
         .map_err(|e| error_impl(&e.to_string(), &span))?;
     Ok(IfConditionExpression::Raw(IfConditionRaw::new(raw)))
 }
@@ -2188,7 +2198,7 @@ pub(crate) fn try_special_function_impl<'parse>(
                 }
                 let expr_span = span_from_impl(scanner, &state.parser_state, start)?.file_span()?;
                 let interp = buffer
-                    .interpolation(expr_span)
+                    .interpolation(state.arena, expr_span)
                     .map_err(|e| error_impl(&e.to_string(), &scanner.span_from(start)))?;
                 return Ok(Some(Expression::String(StringExpression::new(
                     interp, false,
@@ -2247,7 +2257,7 @@ pub(crate) fn try_special_function_impl<'parse>(
                     let vendor_span =
                         span_from_impl(scanner, &state.parser_state, start)?.file_span()?;
                     let interp = buffer
-                        .interpolation(vendor_span)
+                        .interpolation(state.arena, vendor_span)
                         .map_err(|e| error_impl(&e.to_string(), &scanner.span_from(start)))?;
                     let suggest_expr = StringExpression::new(interp, true);
                     let suggest_interp = suggest_expr
@@ -2268,7 +2278,7 @@ pub(crate) fn try_special_function_impl<'parse>(
                 let progid_span =
                     span_from_impl(scanner, &state.parser_state, start)?.file_span()?;
                 let interp = buffer
-                    .interpolation(progid_span)
+                    .interpolation(state.arena, progid_span)
                     .map_err(|e| error_impl(&e.to_string(), &scanner.span_from(start)))?;
                 return Ok(Some(Expression::String(StringExpression::new(
                     interp, false,
@@ -2325,7 +2335,7 @@ fn calc_like<'parse>(
     buffer.write_char_code(')');
     let calc_span = span_from_impl(scanner, &state.parser_state, start)?.file_span()?;
     let interp = buffer
-        .interpolation(calc_span)
+        .interpolation(state.arena, calc_span)
         .map_err(|e| error_impl(&e.to_string(), &scanner.span_from(start)))?;
     Ok(Some(Expression::String(StringExpression::new(
         interp, false,
@@ -2418,6 +2428,7 @@ fn parse_single<'parse>(
             whitespace_impl(scanner, &mut state.parser_state, true)?;
             expect_identifier_impl(scanner, "important", "", true)?;
             return Ok(Expression::String(StringExpression::plain(
+                state.arena,
                 "!important",
                 // Matches Dart: spanFrom(start) covers `!important`.
                 scanner.span_from(bang),
@@ -2428,6 +2439,7 @@ fn parse_single<'parse>(
             let pct = scanner.state();
             scanner.read_char()?;
             return Ok(Expression::String(StringExpression::plain(
+                state.arena,
                 // Matches Dart: the span covers just `%`.
                 "%",
                 scanner.span_from_to(pct.position, pct.position + 1),
@@ -2435,7 +2447,10 @@ fn parse_single<'parse>(
             )));
         }
         _ if (ch == 'u' as i32 || ch == 'U' as i32) && scanner.peek_char(1) == '+' as i32 => {
-            return Ok(Expression::String(unicode_range_impl(scanner)?));
+            return Ok(Expression::String(unicode_range_impl(
+                scanner,
+                state.arena,
+            )?));
         }
         _ if character::is_digit(ch as u8 as char) => {
             return Ok(Expression::Number(number_impl(
@@ -2780,7 +2795,8 @@ where
                 whitespace_impl(scanner, &mut state.parser_state, true)?;
                 if !looking_at_expression_impl(scanner) {
                     let span = scanner.span_from_pos(op_start);
-                    let expr = Expression::String(StringExpression::plain("%", span, false));
+                    let expr =
+                        Expression::String(StringExpression::plain(state.arena, "%", span, false));
                     add_single(scanner, state, &mut ops, &mut acc, expr, start)?;
                 } else {
                     add_op(
@@ -2936,7 +2952,12 @@ where
                     expect_identifier_impl(scanner, "important", "", true)?;
                     // Matches Dart's loop `!` arm: span starts at `!`.
                     let span = scanner.span_from(bang);
-                    let e = Expression::String(StringExpression::plain("!important", span, false));
+                    let e = Expression::String(StringExpression::plain(
+                        state.arena,
+                        "!important",
+                        span,
+                        false,
+                    ));
                     add_single(scanner, state, &mut ops, &mut acc, e, start)?;
                 } else {
                     break;
@@ -2952,7 +2973,7 @@ where
                 add_single(scanner, state, &mut ops, &mut acc, nn, start)?;
             }
             _ if (ch == 'u' as i32 || ch == 'U' as i32) && scanner.peek_char(1) == '+' as i32 => {
-                let u = unicode_range_impl(scanner)?;
+                let u = unicode_range_impl(scanner, state.arena)?;
                 add_single(
                     scanner,
                     state,
@@ -3078,7 +3099,7 @@ pub(crate) fn dynamic_url_impl<'parse>(
     let dyn_span = span_from_impl(scanner, &state.parser_state, start)?.file_span()?;
     Ok(Expression::InterpolatedFunction(
         InterpolatedFunctionExpression::new(
-            Interpolation::plain("url".to_string(), scanner.span_from(start)),
+            Interpolation::plain(state.arena, "url".to_string(), scanner.span_from(start)),
             invocation,
             dyn_span,
         ),
@@ -3162,7 +3183,10 @@ pub(crate) fn try_url_contents<'parse>(
             buffer.write_char_code(c);
             let url_span = span_from_impl(scanner, &state.parser_state, start)?.file_span()?;
             let result = buffer
-                .interpolation(span_from_impl(scanner, &state.parser_state, start)?)
+                .interpolation(
+                    state.arena,
+                    span_from_impl(scanner, &state.parser_state, start)?,
+                )
                 .map_err(|e| error_impl(&e.to_string(), &url_span))?;
 
             if vendored && invalid_sass_script {
@@ -3220,7 +3244,7 @@ pub(crate) fn interpolated_string_token_impl<'parse>(
             let ch = scanner.read_char()?;
             buffer.write_char_code(ch);
             let tok_span = span_from_impl(scanner, &state.parser_state, start)?;
-            return Ok(buffer.interpolation(tok_span).map_err(|e| {
+            return Ok(buffer.interpolation(state.arena, tok_span).map_err(|e| {
                 let sp = span_from_impl(scanner, &state.parser_state, start).unwrap();
                 error_impl(&e.to_string(), &sp.file_span().unwrap())
             })?);
@@ -4761,7 +4785,7 @@ mod tests {
         let a = Bump::new();
         let fs = FileSource::new_in(&a, "u+1", None);
         let mut sc = SpanScanner::new(fs);
-        let se = unicode_range_impl(&mut sc).unwrap();
+        let se = unicode_range_impl(&mut sc, &a).unwrap();
         assert_eq!(se.text.as_plain(), Some("u+1"));
     }
 
@@ -4770,7 +4794,7 @@ mod tests {
         let a = Bump::new();
         let fs = FileSource::new_in(&a, "u+10ffff", None);
         let mut sc = SpanScanner::new(fs);
-        let se = unicode_range_impl(&mut sc).unwrap();
+        let se = unicode_range_impl(&mut sc, &a).unwrap();
         assert_eq!(se.text.as_plain(), Some("u+10ffff"));
     }
 
@@ -4779,7 +4803,7 @@ mod tests {
         let a = Bump::new();
         let fs = FileSource::new_in(&a, "u+??", None);
         let mut sc = SpanScanner::new(fs);
-        let se = unicode_range_impl(&mut sc).unwrap();
+        let se = unicode_range_impl(&mut sc, &a).unwrap();
         assert_eq!(se.text.as_plain(), Some("u+??"));
     }
 
@@ -4788,7 +4812,7 @@ mod tests {
         let a = Bump::new();
         let fs = FileSource::new_in(&a, "u+0020-007e", None);
         let mut sc = SpanScanner::new(fs);
-        let se = unicode_range_impl(&mut sc).unwrap();
+        let se = unicode_range_impl(&mut sc, &a).unwrap();
         assert_eq!(se.text.as_plain(), Some("u+0020-007e"));
     }
 
@@ -4797,7 +4821,7 @@ mod tests {
         let a = Bump::new();
         let fs = FileSource::new_in(&a, "U+1", None);
         let mut sc = SpanScanner::new(fs);
-        let se = unicode_range_impl(&mut sc).unwrap();
+        let se = unicode_range_impl(&mut sc, &a).unwrap();
         assert_eq!(se.text.as_plain(), Some("U+1"));
     }
 
@@ -4806,7 +4830,7 @@ mod tests {
         let a = Bump::new();
         let fs = FileSource::new_in(&a, "u+", None);
         let mut sc = SpanScanner::new(fs);
-        match *unicode_range_impl(&mut sc).unwrap_err() {
+        match *unicode_range_impl(&mut sc, &a).unwrap_err() {
             ParseError::Scan(e) => {
                 assert_eq!(e.message, r#"Expected hex digit or "?"."#);
             }
@@ -4821,7 +4845,7 @@ mod tests {
         let a = Bump::new();
         let fs = FileSource::new_in(&a, "u+1234567", None);
         let mut sc = SpanScanner::new(fs);
-        assert!(unicode_range_impl(&mut sc).is_err());
+        assert!(unicode_range_impl(&mut sc, &a).is_err());
     }
 
     #[test]

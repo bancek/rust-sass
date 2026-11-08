@@ -95,7 +95,7 @@ mod tests {
     {
         let fs = FileSource::new_in(arena, name, None);
         let span = FileSpan::new(Some(fs), 1, name.len());
-        let interp = Interpolation::plain(name.into(), span);
+        let interp = Interpolation::plain(arena, name.into(), span);
         let class = InterpolatedClassSelector::new(interp);
         InterpolatedCompoundSelector::new(vec![InterpolatedSimpleSelector::Class(class)]).unwrap()
     }

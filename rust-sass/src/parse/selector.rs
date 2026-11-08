@@ -385,7 +385,7 @@ pub(crate) fn attribute_name_impl<'b>(
     let start = scanner.state();
     if scanner.scan_char('*') {
         let ns_span = span_from_impl(scanner, &state.parser_state, start)?.file_span()?;
-        let namespace = Interpolation::plain("*".to_string(), ns_span);
+        let namespace = Interpolation::plain(state.arena, "*".to_string(), ns_span);
         scanner.expect_char('|')?;
         let name = interpolated_identifier_impl(scanner, state)?;
         let full_span = span_from_impl(scanner, &state.parser_state, start)?.file_span()?;
@@ -398,7 +398,7 @@ pub(crate) fn attribute_name_impl<'b>(
 
     if scanner.scan_char('|') {
         let ns_span = span_from_to_impl(scanner, &state.parser_state, start, Some(&start))?;
-        let namespace = Interpolation::plain(String::new(), ns_span);
+        let namespace = Interpolation::plain(state.arena, String::new(), ns_span);
         let name = interpolated_identifier_impl(scanner, state)?;
         let full_span = span_from_impl(scanner, &state.parser_state, start)?.file_span()?;
         return Ok(InterpolatedQualifiedName::new(
@@ -638,7 +638,7 @@ pub(crate) fn type_or_universal_selector_impl<'b>(
         }
         let ns_span =
             span_from_to_impl(scanner, &state.parser_state, start, Some(&after_asterisk))?;
-        let namespace = Interpolation::plain("*".to_string(), ns_span);
+        let namespace = Interpolation::plain(state.arena, "*".to_string(), ns_span);
         if scanner.scan_char('*') {
             let file_span = span_from_impl(scanner, &state.parser_state, start)?.file_span()?;
             return Ok(InterpolatedSimpleSelector::Universal(
@@ -656,7 +656,7 @@ pub(crate) fn type_or_universal_selector_impl<'b>(
         ));
     } else if scanner.scan_char('|') {
         let ns_span = span_from_to_impl(scanner, &state.parser_state, start, Some(&start))?;
-        let namespace = Interpolation::plain(String::new(), ns_span);
+        let namespace = Interpolation::plain(state.arena, String::new(), ns_span);
         if scanner.scan_char('*') {
             let file_span = span_from_impl(scanner, &state.parser_state, start)?.file_span()?;
             return Ok(InterpolatedSimpleSelector::Universal(

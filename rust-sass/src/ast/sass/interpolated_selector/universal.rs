@@ -96,7 +96,7 @@ mod tests {
         let arena = Bump::new();
         let span = make_span(&arena, "svg|*");
         let ns_span = make_span(&arena, "svg");
-        let ns = Interpolation::plain("svg".into(), ns_span);
+        let ns = Interpolation::plain(&arena, "svg".into(), ns_span);
         let sel = InterpolatedUniversalSelector::new(span, Some(ns));
         assert!(sel.namespace.is_some());
     }

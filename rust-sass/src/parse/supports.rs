@@ -191,7 +191,7 @@ pub(crate) fn supports_condition_in_parens_impl<'b>(
     scanner.expect_char(')')?;
     let contents_span = span_from_impl(scanner, &state.parser_state, name_start)?.file_span()?;
     let contents_interp = contents
-        .interpolation(contents_span)
+        .interpolation(state.arena, contents_span)
         .map_err(|e| error_impl(&e.to_string(), &scanner.span_from(name_start)))?;
     let span = span_from_impl(scanner, &state.parser_state, start)?.file_span()?;
     Ok(SupportsCondition::Anything(SupportsAnything::new(

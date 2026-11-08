@@ -1,3 +1,5 @@
+use bumpalo::Bump;
+
 // Copyright 2016 Google Inc. Use of this source code is governed by an
 // MIT-style license that can be found in the LICENSE file or at
 // https://opensource.org/licenses/MIT.
@@ -45,7 +47,7 @@ impl<'parse> SupportsDeclaration<'parse> {
     // name is spliced in as raw interpolation text; everything else (and any
     // value without its own source interpolation) is embedded as an
     // expression so it re-evaluates to the same source slice.
-    pub fn to_interpolation(&self) -> SassResult<Interpolation<'parse>> {
+    pub fn to_interpolation(&self, arena: &'parse Bump) -> SassResult<Interpolation<'parse>> {
         let name_fs = self.name.span()?;
         let name_s = Span::File(name_fs);
         let value_fs = self.value.span()?;
@@ -77,7 +79,7 @@ impl<'parse> SupportsDeclaration<'parse> {
         }
 
         buf.write(after.text());
-        buf.interpolation(self.span)
+        buf.interpolation(arena, self.span)
     }
 
     // Returns a copy of this condition with `span` as its span.
@@ -150,8 +152,8 @@ mod tests {
     fn test_construction_and_display() {
         let arena = Bump::new();
         let span = test_span(&arena, "(a: b)", 0, 6);
-        let name_text = Interpolation::plain("a".into(), test_span(&arena, "a", 1, 2));
-        let val_text = Interpolation::plain("b".into(), test_span(&arena, "b", 4, 5));
+        let name_text = Interpolation::plain(&arena, "a".into(), test_span(&arena, "a", 1, 2));
+        let val_text = Interpolation::plain(&arena, "b".into(), test_span(&arena, "b", 4, 5));
         let name = Expression::String(StringExpression::new(name_text, false));
         let value = Expression::String(StringExpression::new(val_text, false));
         let cond = SupportsDeclaration::new(name, value, span);
@@ -163,9 +165,9 @@ mod tests {
     fn test_is_custom_property_true() {
         let arena = Bump::new();
         let span = test_span(&arena, "--x", 0, 3);
-        let name_text = Interpolation::plain("--x".into(), span);
+        let name_text = Interpolation::plain(&arena, "--x".into(), span);
         let name = Expression::String(StringExpression::new(name_text, false));
-        let val_text = Interpolation::plain("y".into(), span);
+        let val_text = Interpolation::plain(&arena, "y".into(), span);
         let value = Expression::String(StringExpression::new(val_text, false));
         let cond = SupportsDeclaration::new(name, value, span);
         assert!(cond.is_custom_property());
@@ -175,9 +177,9 @@ mod tests {
     fn test_is_custom_property_false() {
         let arena = Bump::new();
         let span = test_span(&arena, "a", 0, 1);
-        let name_text = Interpolation::plain("a".into(), span);
+        let name_text = Interpolation::plain(&arena, "a".into(), span);
         let name = Expression::String(StringExpression::new(name_text, false));
-        let val_text = Interpolation::plain("b".into(), span);
+        let val_text = Interpolation::plain(&arena, "b".into(), span);
         let value = Expression::String(StringExpression::new(val_text, false));
         let cond = SupportsDeclaration::new(name, value, span);
         assert!(!cond.is_custom_property());

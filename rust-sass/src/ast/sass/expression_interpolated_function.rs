@@ -81,7 +81,7 @@ mod tests {
         let arena = Bump::new();
         let fs = FileSource::new_in(&arena, "#{$fn}()", None);
         let span = FileSpan::new(Some(fs), 0, 8);
-        let name = Interpolation::plain("fn".into(), span);
+        let name = Interpolation::plain(&arena, "fn".into(), span);
         let expr = InterpolatedFunctionExpression::new(name, ArgumentList::empty(span), span);
         expr.span().unwrap();
     }
@@ -91,7 +91,7 @@ mod tests {
         let arena = Bump::new();
         let fs = FileSource::new_in(&arena, "x()", None);
         let span = FileSpan::new(Some(fs), 0, 3);
-        let name = Interpolation::plain("x".into(), span);
+        let name = Interpolation::plain(&arena, "x".into(), span);
         let expr = InterpolatedFunctionExpression::new(name, ArgumentList::empty(span), span);
         assert!(expr.source_interpolation().is_none());
     }
@@ -101,7 +101,7 @@ mod tests {
         let arena = Bump::new();
         let fs = FileSource::new_in(&arena, "fn()", None);
         let span = FileSpan::new(Some(fs), 0, 4);
-        let name = Interpolation::plain("fn".into(), span);
+        let name = Interpolation::plain(&arena, "fn".into(), span);
         let expr = InterpolatedFunctionExpression::new(name, ArgumentList::empty(span), span);
         assert_eq!(format!("{expr}"), "fn()");
     }

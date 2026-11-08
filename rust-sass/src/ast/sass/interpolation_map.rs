@@ -532,9 +532,13 @@ mod tests {
         let arena = Bump::new();
         let fs = FileSource::new_in(&arena, "x", None);
         let span = FileSpan::new(Some(fs), 0, 1);
-        let interp =
-            Interpolation::new(vec![InterpolationPart::Text("x".into())], vec![None], span)
-                .unwrap();
+        let interp = Interpolation::new(
+            &arena,
+            vec![InterpolationPart::Text("x".into())],
+            vec![None],
+            span,
+        )
+        .unwrap();
         assert!(InterpolationMap::new(interp, vec![]).is_ok());
     }
 
@@ -543,9 +547,13 @@ mod tests {
         let arena = Bump::new();
         let fs = FileSource::new_in(&arena, "x", None);
         let span = FileSpan::new(Some(fs), 0, 1);
-        let interp =
-            Interpolation::new(vec![InterpolationPart::Text("x".into())], vec![None], span)
-                .unwrap();
+        let interp = Interpolation::new(
+            &arena,
+            vec![InterpolationPart::Text("x".into())],
+            vec![None],
+            span,
+        )
+        .unwrap();
         let err = InterpolationMap::new(interp, vec![1]).unwrap_err();
         assert!(err.message.contains("0 targetOffsets"));
     }
@@ -555,7 +563,7 @@ mod tests {
         let arena = Bump::new();
         let fs = FileSource::new_in(&arena, "hello", None);
         let span = FileSpan::new(Some(fs), 0, 5);
-        let interp = Interpolation::new(vec![], vec![], span).unwrap();
+        let interp = Interpolation::new(&arena, vec![], vec![], span).unwrap();
         let m = InterpolationMap::new(interp, vec![]).unwrap();
 
         let gen_url = OwnedUrl::parse("generated:///output").unwrap();
@@ -583,6 +591,7 @@ mod tests {
         let hash_span = FileSpan::new(Some(fs), 2, 9); // "#{expr}"
         let expr = Expression::Variable(VariableExpression::new("expr".into(), var_span, None));
         let interp = Interpolation::new(
+            &arena,
             vec![
                 InterpolationPart::Text("a.".into()),
                 InterpolationPart::Expression(Box::new(expr)),
@@ -618,7 +627,7 @@ mod tests {
         let source = "abc def { ignore } ";
         let fs = FileSource::new_in(&arena, source, None);
         let span = FileSpan::new(Some(fs), 0, source.len());
-        let interp = Interpolation::plain(source.into(), span);
+        let interp = Interpolation::plain(&arena, source.into(), span);
         let m = InterpolationMap::new(interp, vec![]).unwrap();
         assert_eq!(m.expand_interpolation_span_right(3).unwrap(), 5);
     }
@@ -629,7 +638,7 @@ mod tests {
         let source = "// */\n#{foo}";
         let fs = FileSource::new_in(&arena, source, None);
         let span = FileSpan::new(Some(fs), 0, source.len());
-        let interp = Interpolation::plain(source.into(), span);
+        let interp = Interpolation::plain(&arena, source.into(), span);
         let m = InterpolationMap::new(interp, vec![]).unwrap();
         assert_eq!(
             m.expand_interpolation_span_left(source.len()).unwrap(),
@@ -642,7 +651,7 @@ mod tests {
         let arena = Bump::new();
         let fs = FileSource::new_in(&arena, "source", None);
         let span = FileSpan::new(Some(fs), 0, 6);
-        let interp = Interpolation::plain("source".into(), span);
+        let interp = Interpolation::plain(&arena, "source".into(), span);
         let m = InterpolationMap::new(interp, vec![]).unwrap();
 
         let same_fs_span = Span::File(FileSpan::new(Some(fs), 0, 1));
@@ -656,7 +665,7 @@ mod tests {
         let arena = Bump::new();
         let fs = FileSource::new_in(&arena, "source", None);
         let span = FileSpan::new(Some(fs), 0, 6);
-        let interp = Interpolation::plain("source".into(), span);
+        let interp = Interpolation::plain(&arena, "source".into(), span);
         let m = InterpolationMap::new(interp, vec![]).unwrap();
         let target = Span::File(FileSpan::new(Some(fs), 1, 3));
         let mapped = m.map_span(&target).unwrap();
@@ -677,7 +686,7 @@ mod tests {
         let arena = Bump::new();
         let fs_a = FileSource::new_in(&arena, "source", None);
         let span = FileSpan::new(Some(fs_a), 0, 6);
-        let interp = Interpolation::plain("source".into(), span);
+        let interp = Interpolation::plain(&arena, "source".into(), span);
         let m = InterpolationMap::new(interp, vec![]).unwrap();
 
         let fs_b = FileSource::new_in(&arena, "source", None);
@@ -698,7 +707,7 @@ mod tests {
         let arena = Bump::new();
         let fs_a = FileSource::new_in(&arena, "hello", None);
         let span = FileSpan::new(Some(fs_a), 0, 5);
-        let interp = Interpolation::new(vec![], vec![], span).unwrap();
+        let interp = Interpolation::new(&arena, vec![], vec![], span).unwrap();
         let m = InterpolationMap::new(interp, vec![]).unwrap();
 
         let fs_b = FileSource::new_in(&arena, "hello", None);
@@ -734,6 +743,7 @@ mod tests {
         let hash_span = FileSpan::new(Some(fs_a), 2, 9); // "#{expr}"
         let expr = Expression::Variable(VariableExpression::new("expr".into(), var_span, None));
         let interp = Interpolation::new(
+            &arena,
             vec![
                 InterpolationPart::Text("a.".into()),
                 InterpolationPart::Expression(Box::new(expr)),
@@ -781,7 +791,7 @@ mod tests {
         let arena = Bump::new();
         let fs = FileSource::new_in(&arena, "source", None);
         let span = FileSpan::new(Some(fs), 0, 6);
-        let interp = Interpolation::new(vec![], vec![], span).unwrap();
+        let interp = Interpolation::new(&arena, vec![], vec![], span).unwrap();
         let m = InterpolationMap::new(interp, vec![]).unwrap();
         let ctx = SourceSpanWithContext::from_file_span(&FileSpan::new(Some(fs), 1, 3)).unwrap();
         let err = SassError::Format {

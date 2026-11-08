@@ -81,7 +81,7 @@ mod tests {
     fn test_placeholder_selector_display() {
         let arena = Bump::new();
         let span = make_span(&arena, "baz");
-        let name = Interpolation::plain("baz".into(), span);
+        let name = Interpolation::plain(&arena, "baz".into(), span);
         let sel = InterpolatedPlaceholderSelector::new(name);
         assert_eq!(format!("{sel}"), "%baz");
     }

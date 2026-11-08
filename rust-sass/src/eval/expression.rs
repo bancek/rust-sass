@@ -290,7 +290,7 @@ where
         ))
     } else {
         let mut buf = String::new();
-        for part in &text.contents {
+        for part in text.contents {
             match part {
                 InterpolationPart::Text(t) => {
                     buf.push_str(t);
@@ -1838,7 +1838,7 @@ mod tests {
         let arena = Bump::new();
         let span = make_span(&arena, "hello");
         let (config, mut state) = test_visitor(&arena);
-        let interp = Interpolation::plain("hello".into(), Span::File(span));
+        let interp = Interpolation::plain(&arena, "hello".into(), Span::File(span));
         let expr = StringExpression {
             text: interp,
             has_quotes: false,

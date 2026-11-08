@@ -162,10 +162,11 @@ impl<'parse> ReplaceExpressionVisitor<'parse> {
 
     pub fn replace_interpolation<V: ExpressionVisitor<'parse, Output = Expression<'parse>>>(
         visitor: &mut V,
+        arena: &'parse Bump,
         interp: &Interpolation<'parse>,
     ) -> SassResult<Interpolation<'parse>> {
         let mut new_contents = Vec::with_capacity(interp.contents.len());
-        for part in &interp.contents {
+        for part in interp.contents {
             match part {
                 InterpolationPart::Expression(expr) => {
                     let replaced = expr.accept(visitor)?;
@@ -176,8 +177,13 @@ impl<'parse> ReplaceExpressionVisitor<'parse> {
                 }
             }
         }
-        Interpolation::new(new_contents, interp.spans.clone(), interp.span.clone())
-            .map_err(|e| Box::new(SassError::from(e)))
+        Interpolation::new(
+            arena,
+            new_contents,
+            interp.spans.to_vec(),
+            interp.span.clone(),
+        )
+        .map_err(|e| Box::new(SassError::from(e)))
     }
 }
 
@@ -244,7 +250,8 @@ impl<'parse> ExpressionVisitor<'parse> for ReplaceExpressionVisitor<'parse> {
         &mut self,
         node: &InterpolatedFunctionExpression<'parse>,
     ) -> SassResult<Expression<'parse>> {
-        let name = Self::replace_interpolation(self, &node.name)?;
+        let arena = self.arena;
+        let name = Self::replace_interpolation(self, arena, &node.name)?;
         let args = Self::replace_argument_list(self.arena, self, &node.arguments)?;
         Ok(Expression::InterpolatedFunction(
             InterpolatedFunctionExpression::new(name, args, node.span),
@@ -311,7 +318,8 @@ impl<'parse> ExpressionVisitor<'parse> for ReplaceExpressionVisitor<'parse> {
     }
 
     fn visit_string(&mut self, node: &StringExpression<'parse>) -> SassResult<Expression<'parse>> {
-        let text = Self::replace_interpolation(self, &node.text)?;
+        let arena = self.arena;
+        let text = Self::replace_interpolation(self, arena, &node.text)?;
         Ok(Expression::String(StringExpression::new(
             text,
             node.has_quotes,
@@ -394,8 +402,10 @@ impl<'parse> IfConditionExpressionVisitor<'parse> for ReplaceExpressionVisitor<'
         &mut self,
         node: &IfConditionFunction<'parse>,
     ) -> SassResult<IfConditionExpression<'parse>> {
-        let name = Self::replace_interpolation(self, &node.name)?;
-        let arguments = Self::replace_interpolation(self, &node.arguments)?;
+        let arena = self.arena;
+        let name = Self::replace_interpolation(self, arena, &node.name)?;
+        let arena = self.arena;
+        let arguments = Self::replace_interpolation(self, arena, &node.arguments)?;
         Ok(IfConditionExpression::Function(Box::new(
             IfConditionFunction::new(name, arguments, node.span),
         )))
@@ -415,7 +425,8 @@ impl<'parse> IfConditionExpressionVisitor<'parse> for ReplaceExpressionVisitor<'
         &mut self,
         node: &IfConditionRaw<'parse>,
     ) -> SassResult<IfConditionExpression<'parse>> {
-        let text = Self::replace_interpolation(self, &node.text)?;
+        let arena = self.arena;
+        let text = Self::replace_interpolation(self, arena, &node.text)?;
         Ok(IfConditionExpression::Raw(IfConditionRaw::new(text)))
     }
 }
@@ -536,8 +547,18 @@ mod tests {
         let mut v = ReplaceExpressionVisitor::new(&arena);
         let span = test_span(&arena, "(a, b)");
         let items = vec![
-            Expression::String(StringExpression::plain("a", test_span(&arena, "a"), true)),
-            Expression::String(StringExpression::plain("b", test_span(&arena, "b"), true)),
+            Expression::String(StringExpression::plain(
+                &arena,
+                "a",
+                test_span(&arena, "a"),
+                true,
+            )),
+            Expression::String(StringExpression::plain(
+                &arena,
+                "b",
+                test_span(&arena, "b"),
+                true,
+            )),
         ];
         let node =
             ListExpression::new(arena_slice(&arena, items), ListSeparator::Comma, span, true);
@@ -559,7 +580,12 @@ mod tests {
             arena_slice(
                 &arena,
                 vec![(
-                    Expression::String(StringExpression::plain("a", test_span(&arena, "a"), false)),
+                    Expression::String(StringExpression::plain(
+                        &arena,
+                        "a",
+                        test_span(&arena, "a"),
+                        false,
+                    )),
                     Expression::Number(NumberExpression::new(1.0, test_span(&arena, "1"), None)),
                 )],
             ),
@@ -578,7 +604,7 @@ mod tests {
     fn test_replace_string() {
         let arena = Bump::new();
         let mut v = ReplaceExpressionVisitor::new(&arena);
-        let text = Interpolation::plain("hello".into(), test_span(&arena, "hello"));
+        let text = Interpolation::plain(&arena, "hello".into(), test_span(&arena, "hello"));
         let node = StringExpression::new(text, true);
         let result = Expression::String(node).accept(&mut v).unwrap();
         match result {
@@ -604,13 +630,33 @@ mod tests {
         let arena = Bump::new();
         let mut v = ReplaceExpressionVisitor::new(&arena);
         let left = SupportsCondition::Declaration(SupportsDeclaration::new(
-            Expression::String(StringExpression::plain("a", test_span(&arena, "a"), false)),
-            Expression::String(StringExpression::plain("b", test_span(&arena, "b"), false)),
+            Expression::String(StringExpression::plain(
+                &arena,
+                "a",
+                test_span(&arena, "a"),
+                false,
+            )),
+            Expression::String(StringExpression::plain(
+                &arena,
+                "b",
+                test_span(&arena, "b"),
+                false,
+            )),
             test_span(&arena, "(a: b)"),
         ));
         let right = SupportsCondition::Declaration(SupportsDeclaration::new(
-            Expression::String(StringExpression::plain("c", test_span(&arena, "c"), false)),
-            Expression::String(StringExpression::plain("d", test_span(&arena, "d"), false)),
+            Expression::String(StringExpression::plain(
+                &arena,
+                "c",
+                test_span(&arena, "c"),
+                false,
+            )),
+            Expression::String(StringExpression::plain(
+                &arena,
+                "d",
+                test_span(&arena, "d"),
+                false,
+            )),
             test_span(&arena, "(c: d)"),
         ));
         let cond = SupportsCondition::Operation(SupportsOperation::new(
@@ -631,8 +677,9 @@ mod tests {
         // process via `unreachable!()/panic!`.
         let arena = Bump::new();
         let mut v = ReplaceExpressionVisitor::new(&arena);
-        let name = Interpolation::plain("unknown-fn".into(), test_span(&arena, "unknown-fn"));
-        let args = Interpolation::plain("(1)".into(), test_span(&arena, "(1)"));
+        let name =
+            Interpolation::plain(&arena, "unknown-fn".into(), test_span(&arena, "unknown-fn"));
+        let args = Interpolation::plain(&arena, "(1)".into(), test_span(&arena, "(1)"));
         let cond = SupportsCondition::Function(SupportsFunction::new(
             name,
             args,
@@ -649,7 +696,7 @@ mod tests {
         }
         // Same via the Anything variant.
         let anything = SupportsCondition::Anything(SupportsAnything::new(
-            Interpolation::plain("x".into(), test_span(&arena, "x")),
+            Interpolation::plain(&arena, "x".into(), test_span(&arena, "x")),
             test_span(&arena, "(x)"),
         ));
         let err = ReplaceExpressionVisitor::replace_supports_condition(&mut v, &anything)
@@ -681,6 +728,7 @@ mod tests {
         let span = test_span(&arena, "a #{$x} b");
         let expr_span = test_span(&arena, "#{$x}");
         let interp = Interpolation::new(
+            &arena,
             vec![
                 InterpolationPart::Text("a ".into()),
                 InterpolationPart::Expression(Box::new(Expression::Variable(

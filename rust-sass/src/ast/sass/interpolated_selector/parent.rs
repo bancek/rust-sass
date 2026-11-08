@@ -96,7 +96,7 @@ mod tests {
         let arena = Bump::new();
         let span = make_span(&arena, "&suffix");
         let sfx_span = make_span(&arena, "suffix");
-        let suffix = Interpolation::plain("suffix".into(), sfx_span);
+        let suffix = Interpolation::plain(&arena, "suffix".into(), sfx_span);
         let sel = InterpolatedParentSelector::new(span, Some(suffix));
         assert!(sel.suffix.is_some());
     }

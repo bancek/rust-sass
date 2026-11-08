@@ -128,7 +128,7 @@ mod tests {
     fn test_pseudo_class() {
         let arena = Bump::new();
         let span = make_span(&arena, ":hover");
-        let name = Interpolation::plain("hover".into(), make_span(&arena, "hover"));
+        let name = Interpolation::plain(&arena, "hover".into(), make_span(&arena, "hover"));
         let sel = InterpolatedPseudoSelector::new(name, span, false, None, None);
         assert!(sel.is_syntactic_class);
         assert!(!sel.is_syntactic_element());
@@ -138,7 +138,7 @@ mod tests {
     fn test_pseudo_element() {
         let arena = Bump::new();
         let span = make_span(&arena, "::before");
-        let name = Interpolation::plain("before".into(), make_span(&arena, "before"));
+        let name = Interpolation::plain(&arena, "before".into(), make_span(&arena, "before"));
         let sel = InterpolatedPseudoSelector::new(name, span, true, None, None);
         assert!(!sel.is_syntactic_class);
         assert!(sel.is_syntactic_element());
@@ -148,9 +148,9 @@ mod tests {
     fn test_pseudo_with_argument() {
         let arena = Bump::new();
         let span = make_span(&arena, ":nth-child(2n+1)");
-        let name = Interpolation::plain("nth-child".into(), make_span(&arena, "nth-child"));
+        let name = Interpolation::plain(&arena, "nth-child".into(), make_span(&arena, "nth-child"));
         let arg_span = make_span(&arena, "2n+1");
-        let arg = Interpolation::plain("2n+1".into(), arg_span);
+        let arg = Interpolation::plain(&arena, "2n+1".into(), arg_span);
         let sel = InterpolatedPseudoSelector::new(name, span, false, Some(arg), None);
         assert!(sel.argument.is_some());
     }

@@ -618,14 +618,16 @@ fn declaration_or_buffer_impl<'b>(
     mid_buffer.push(':');
     let interp_span =
         span_from_to_impl(scanner, &state.parser_state, start, Some(&before_colon))?.file_span()?;
-    let name = name_buffer.interpolation(interp_span).map_err(|e| {
-        let err_span = span_from_impl(scanner, &state.parser_state, start)
-            .unwrap_or_else(|_| Span::File(scanner.empty_span()));
-        error_impl(
-            &e.to_string(),
-            &err_span.file_span().unwrap_or(scanner.empty_span()),
-        )
-    })?;
+    let name = name_buffer
+        .interpolation(state.arena, interp_span)
+        .map_err(|e| {
+            let err_span = span_from_impl(scanner, &state.parser_state, start)
+                .unwrap_or_else(|_| Span::File(scanner.empty_span()));
+            error_impl(
+                &e.to_string(),
+                &err_span.file_span().unwrap_or(scanner.empty_span()),
+            )
+        })?;
     let is_custom_property = name.initial_plain().starts_with("--");
     if is_custom_property
         || (state.in_plain_css_function
@@ -635,7 +637,7 @@ fn declaration_or_buffer_impl<'b>(
     {
         let value_expr = if at_end_of_statement_impl(scanner, state) {
             StringExpression::new(
-                Interpolation::plain(String::new(), scanner.empty_span()),
+                Interpolation::plain(state.arena, String::new(), scanner.empty_span()),
                 false,
             )
         } else {
@@ -796,7 +798,7 @@ pub(crate) fn style_rule_impl<'b>(
     if let Some(mut buf) = buffer {
         buf.add_interpolation(&interpolation);
         let interp_span = span_from_impl(scanner, &state.parser_state, start)?.file_span()?;
-        interpolation = buf.interpolation(interp_span).map_err(|e| {
+        interpolation = buf.interpolation(state.arena, interp_span).map_err(|e| {
             let err_span = span_from_impl(scanner, &state.parser_state, start)
                 .unwrap_or_else(|_| Span::File(scanner.empty_span()));
             error_impl(
@@ -931,14 +933,16 @@ fn property_or_variable_declaration_impl<'b>(
         let interp = interpolated_identifier_impl(scanner, state)?;
         name_buffer.add_interpolation(&interp);
         let interp_span = span_from_impl(scanner, &state.parser_state, start)?.file_span()?;
-        name = name_buffer.interpolation(interp_span).map_err(|e| {
-            let err_span = span_from_impl(scanner, &state.parser_state, start)
-                .unwrap_or_else(|_| Span::File(scanner.empty_span()));
-            error_impl(
-                &e.to_string(),
-                &err_span.file_span().unwrap_or(scanner.empty_span()),
-            )
-        })?;
+        name = name_buffer
+            .interpolation(state.arena, interp_span)
+            .map_err(|e| {
+                let err_span = span_from_impl(scanner, &state.parser_state, start)
+                    .unwrap_or_else(|_| Span::File(scanner.empty_span()));
+                error_impl(
+                    &e.to_string(),
+                    &err_span.file_span().unwrap_or(scanner.empty_span()),
+                )
+            })?;
     } else if !matches!(state.parser_state.syntax, Syntax::Css(_)) {
         let result = variable_declaration_or_interpolation_impl(scanner, state)?;
         match result {

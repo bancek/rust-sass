@@ -413,7 +413,7 @@ pub(crate) fn sass_loud_comment_impl<'b>(
                     }
 
                     let interp = buffer
-                        .interpolation(span)
+                        .interpolation(state.arena, span)
                         .map_err(|e| Box::new(ParseError::Sass(e)))?;
                     return Ok(LoudComment::new(interp));
                 }
@@ -437,7 +437,7 @@ pub(crate) fn sass_loud_comment_impl<'b>(
     // Unterminated comment
     let span = span_from_impl(scanner, &state.parser_state, start)?.file_span()?;
     let interp = buffer
-        .interpolation(span)
+        .interpolation(state.arena, span)
         .map_err(|e| Box::new(ParseError::Sass(e)))?;
     Ok(LoudComment::new(interp))
 }
@@ -802,7 +802,7 @@ pub(crate) fn sass_import_argument_impl<'b>(
     if is_plain_import_url(&raw_url) {
         let quoted = format!("\"{raw_url}\"");
         Ok(Import::Static(StaticImport::new(
-            Interpolation::plain(quoted, span),
+            Interpolation::plain(state.arena, quoted, span),
             span,
             None,
         )))
@@ -851,7 +851,7 @@ pub(crate) fn sass_style_rule_selector_impl<'b>(
     }
     let span = span_from_impl(scanner, &state.parser_state, start)?.file_span()?;
     buffer
-        .interpolation(span)
+        .interpolation(state.arena, span)
         .map_err(|e| Box::new(ParseError::Sass(e)))
 }
 

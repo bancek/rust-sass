@@ -73,6 +73,7 @@ mod tests {
         let fs = FileSource::new_in(&arena, "@error \"msg\";", None);
         let span = FileSpan::new(Some(fs), 0, 14);
         let expr = Expression::String(StringExpression::plain(
+            &arena,
             "msg",
             FileSpan::new(Some(fs), 7, 12),
             true,
@@ -87,6 +88,7 @@ mod tests {
         let fs = FileSource::new_in(&arena, "@error \"msg\";", None);
         let span = FileSpan::new(Some(fs), 0, 14);
         let expr = Expression::String(StringExpression::plain(
+            &arena,
             "msg",
             FileSpan::new(Some(fs), 7, 12),
             true,
@@ -101,6 +103,7 @@ mod tests {
         let fs = FileSource::new_in(&arena, "@error \"msg\";", None);
         let span = FileSpan::new(Some(fs), 0, 14);
         let expr = Expression::String(StringExpression::plain(
+            &arena,
             "msg",
             FileSpan::new(Some(fs), 7, 12),
             true,

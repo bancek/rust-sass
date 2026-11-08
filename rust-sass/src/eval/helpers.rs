@@ -2156,7 +2156,7 @@ where
     let mut target_offsets: Vec<usize> = Vec::new();
     let mut first = true;
 
-    for part in &interpolation.contents {
+    for part in interpolation.contents {
         if !first && source_map {
             target_offsets.push(result.len());
         }
@@ -3388,7 +3388,7 @@ mod tests {
         let arena = Bump::new();
         let span = make_span(&arena, "");
         let (config, mut state) = test_visitor(&arena);
-        let interp = Interpolation::plain("hello world".to_string(), Span::File(span));
+        let interp = Interpolation::plain(&arena, "hello world".to_string(), Span::File(span));
         let result = perform_interpolation(&config, &mut state, &arena, &interp, false)
             .await
             .unwrap();
@@ -3400,7 +3400,7 @@ mod tests {
         let arena = Bump::new();
         let span = make_span(&arena, "");
         let (config, mut state) = test_visitor(&arena);
-        let interp = Interpolation::plain("hello".to_string(), Span::File(span));
+        let interp = Interpolation::plain(&arena, "hello".to_string(), Span::File(span));
         let (result, map) =
             perform_interpolation_with_map(&config, &mut state, &arena, &interp, false)
                 .await
@@ -3421,6 +3421,7 @@ mod tests {
             span,
         });
         let interp = Interpolation::new(
+            &arena,
             vec![
                 InterpolationPart::Text("prefix:".into()),
                 InterpolationPart::Expression(Box::new(expr)),
@@ -3449,6 +3450,7 @@ mod tests {
             span,
         });
         let interp = Interpolation::new(
+            &arena,
             vec![InterpolationPart::Expression(Box::new(expr))],
             vec![Some(span)],
             Span::File(span),

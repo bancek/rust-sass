@@ -421,7 +421,7 @@ mod tests {
     fn test_accept_dispatch_extend_rule() {
         let arena = Bump::new();
         let span = test_span(&arena, "@extend .foo;");
-        let interp = Interpolation::plain(".foo".into(), span);
+        let interp = Interpolation::plain(&arena, ".foo".into(), span);
         let rule = ExtendRule::new(interp, span, false);
         let stmt = Statement::ExtendRule(rule);
         let mut visitor = MockVisitor {
@@ -436,7 +436,7 @@ mod tests {
     fn test_accept_dispatch_declaration() {
         let arena = Bump::new();
         let span = test_span(&arena, "color: red;");
-        let name = Interpolation::plain("color".into(), span);
+        let name = Interpolation::plain(&arena, "color".into(), span);
         let val = Expression::Boolean(BooleanExpression::new(true, span));
         let rule = Declaration::new(name, val, span);
         let stmt = Statement::Declaration(rule);

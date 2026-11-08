@@ -371,7 +371,7 @@ mod tests {
     fn test_string_unquoted() {
         let arena = Bump::new();
         let span = test_span(&arena, "foo", 0, 3);
-        let text = Interpolation::plain("foo".into(), span);
+        let text = Interpolation::plain(&arena, "foo".into(), span);
         let expr = Expression::String(StringExpression::new(text, false));
         let mut v = IsCalculationSafeVisitor::new();
         assert!(expr.accept(&mut v).unwrap());
@@ -381,7 +381,7 @@ mod tests {
     fn test_string_quoted() {
         let arena = Bump::new();
         let span = test_span(&arena, "\"foo\"", 0, 5);
-        let text = Interpolation::plain("foo".into(), span);
+        let text = Interpolation::plain(&arena, "foo".into(), span);
         let expr = Expression::String(StringExpression::new(text, true));
         let mut v = IsCalculationSafeVisitor::new();
         assert!(!expr.accept(&mut v).unwrap());
@@ -391,7 +391,7 @@ mod tests {
     fn test_string_important() {
         let arena = Bump::new();
         let span = test_span(&arena, "!important", 0, 10);
-        let text = Interpolation::plain("!important".into(), span);
+        let text = Interpolation::plain(&arena, "!important".into(), span);
         let expr = Expression::String(StringExpression::new(text, false));
         let mut v = IsCalculationSafeVisitor::new();
         assert!(!expr.accept(&mut v).unwrap());
@@ -428,7 +428,7 @@ mod tests {
         // continuation (not `+`) but char[1] IS `+` → unsafe (false).
         let arena = Bump::new();
         let span = test_span(&arena, "é+foo", 0, 6);
-        let text = Interpolation::plain("é+foo".into(), span);
+        let text = Interpolation::plain(&arena, "é+foo".into(), span);
         let expr = Expression::String(StringExpression::new(text, false));
         let mut v = IsCalculationSafeVisitor::new();
         assert!(

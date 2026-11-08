@@ -153,7 +153,7 @@ mod tests {
         'parse: 'compile,
     {
         let span = make_span(arena, text);
-        Interpolation::plain(text.into(), span)
+        Interpolation::plain(arena, text.into(), span)
     }
 
     #[test]
@@ -162,6 +162,7 @@ mod tests {
         let span = make_span(&arena, "color: red;");
         let name = make_interp(&arena, "color");
         let val = Expression::String(StringExpression::plain(
+            &arena,
             "red",
             FileSpan::new(None, 0, 0),
             true,
@@ -176,7 +177,7 @@ mod tests {
         let arena = Bump::new();
         let span = make_span(&arena, "color: red;");
         let name = make_interp(&arena, "color");
-        let val = StringExpression::plain("red", FileSpan::new(None, 0, 0), true);
+        let val = StringExpression::plain(&arena, "red", FileSpan::new(None, 0, 0), true);
         let d = Declaration::not_sass_script(name, val, span);
         assert!(!d.parsed_as_sass_script);
     }
@@ -196,6 +197,7 @@ mod tests {
         let span = make_span(&arena, "color: red;");
         let name = make_interp(&arena, "color");
         let val = Expression::String(StringExpression::plain(
+            &arena,
             "red",
             FileSpan::new(None, 0, 0),
             true,

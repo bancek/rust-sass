@@ -7,6 +7,7 @@
 // dart-source: lib/src/ast/sass/interpolation.dart
 // go-source: go/value/sass_interpolation.go
 
+use bumpalo::Bump;
 use std::fmt;
 use std::fmt::Write;
 
@@ -38,7 +39,7 @@ pub struct Interpolation<'parse> {
     /// This contains alternating [`InterpolationPart::Text`] and
     /// [`InterpolationPart::Expression`] parts. It never contains two
     /// adjacent `Text` parts.
-    pub contents: Vec<InterpolationPart<'parse>>,
+    pub contents: &'parse [InterpolationPart<'parse>],
     /// The source spans for each [`Expression`] in [`contents`](Self::contents).
     ///
     /// Unlike `Expression::span`, which just covers the expression itself,
@@ -47,19 +48,23 @@ pub struct Interpolation<'parse> {
     //
     // Dart marks `spans` `@internal`: callers outside interpolation
     // machinery should use `span_for_element` instead.
-    pub spans: Vec<Option<FileSpan<'parse>>>,
+    pub spans: &'parse [Option<FileSpan<'parse>>],
     /// The span covering the entire interpolation.
     pub span: Span<'parse>,
+    /// The arena this interpolation was allocated in, so later derived
+    /// interpolations (e.g. re-quoting a string) can allocate too.
+    pub(crate) arena: &'parse Bump,
 }
 
 impl<'parse> Interpolation<'parse> {
     /// Creates an interpolation with a single plain text element and no
     /// interpolated expressions.
-    pub fn plain(text: String, span: impl Into<Span<'parse>>) -> Self {
+    pub fn plain(arena: &'parse Bump, text: String, span: impl Into<Span<'parse>>) -> Self {
         Interpolation {
-            contents: vec![InterpolationPart::Text(text)],
-            spans: vec![None],
+            contents: arena.alloc_slice_fill_iter([InterpolationPart::Text(text)]),
+            spans: arena.alloc_slice_fill_iter([None]),
             span: span.into(),
+            arena,
         }
     }
 
@@ -71,6 +76,7 @@ impl<'parse> Interpolation<'parse> {
     ///
     /// The single `span` must cover the entire interpolation.
     pub fn new(
+        arena: &'parse Bump,
         contents: Vec<InterpolationPart<'parse>>,
         spans: Vec<Option<FileSpan<'parse>>>,
         span: impl Into<Span<'parse>>,
@@ -120,9 +126,10 @@ impl<'parse> Interpolation<'parse> {
         }
 
         Ok(Interpolation {
-            contents,
-            spans,
+            contents: arena.alloc_slice_fill_iter(contents),
+            spans: arena.alloc_slice_fill_iter(spans),
             span: span.into(),
+            arena,
         })
     }
 
@@ -137,7 +144,7 @@ impl<'parse> Interpolation<'parse> {
     ///
     /// Otherwise returns `None`.
     pub fn as_plain(&self) -> Option<&str> {
-        match self.contents.as_slice() {
+        match self.contents {
             [] => Some(""),
             [InterpolationPart::Text(s)] => Some(s.as_str()),
             _ => None,
@@ -213,7 +220,7 @@ impl<'parse> Interpolation<'parse> {
     /// Renders the interpolation with expressions wrapped in `#{...}`.
     pub fn to_display_string(&self) -> SassResult<String> {
         let mut buf = String::new();
-        for part in &self.contents {
+        for part in self.contents {
             match part {
                 InterpolationPart::Text(s) => write!(buf, "{s}").unwrap(),
                 InterpolationPart::Expression(expr) => {
@@ -259,7 +266,7 @@ mod tests {
     fn test_plain() {
         let arena = Bump::new();
         let span = test_span(&arena, "hello", 0, 5);
-        let interp = Interpolation::plain("hello".into(), span);
+        let interp = Interpolation::plain(&arena, "hello".into(), span);
 
         assert!(interp.is_plain());
         assert_eq!(interp.as_plain(), Some("hello"));
@@ -282,6 +289,7 @@ mod tests {
         let expr = Expression::Variable(VariableExpression::new("expr".into(), var_span, None));
 
         let interp = Interpolation::new(
+            &arena,
             vec![
                 InterpolationPart::Text("a.".into()),
                 InterpolationPart::Expression(Box::new(expr)),
@@ -303,6 +311,7 @@ mod tests {
         let arena = Bump::new();
         let span = test_span(&arena, "ab", 0, 2);
         let err = Interpolation::new(
+            &arena,
             vec![
                 InterpolationPart::Text("a".into()),
                 InterpolationPart::Text("b".into()),
@@ -319,6 +328,7 @@ mod tests {
         let arena = Bump::new();
         let span = test_span(&arena, "a", 0, 1);
         let err = Interpolation::new(
+            &arena,
             vec![InterpolationPart::Text("a".into())],
             vec![None, None],
             span,
@@ -336,6 +346,7 @@ mod tests {
         let expr = Expression::Variable(VariableExpression::new("expr".into(), var_span, None));
 
         let err = Interpolation::new(
+            &arena,
             vec![
                 InterpolationPart::Text("a.".into()),
                 InterpolationPart::Expression(Box::new(expr)),
@@ -353,6 +364,7 @@ mod tests {
         let arena = Bump::new();
         let span = test_span(&arena, "a", 0, 1);
         let err = Interpolation::new(
+            &arena,
             vec![InterpolationPart::Text("a".into())],
             vec![Some(test_span(&arena, "x", 0, 1))],
             span,
@@ -371,6 +383,7 @@ mod tests {
         let expr = Expression::Variable(VariableExpression::new("expr".into(), var_span, None));
 
         let interp = Interpolation::new(
+            &arena,
             vec![
                 InterpolationPart::Text("a.".into()),
                 InterpolationPart::Expression(Box::new(expr)),
@@ -396,6 +409,7 @@ mod tests {
         let expr = Expression::Variable(VariableExpression::new("expr".into(), var_span, None));
 
         let interp = Interpolation::new(
+            &arena,
             vec![
                 InterpolationPart::Text("a.".into()),
                 InterpolationPart::Expression(Box::new(expr)),
@@ -415,7 +429,7 @@ mod tests {
     fn test_as_plain_empty() {
         let arena = Bump::new();
         let span = test_span(&arena, "", 0, 0);
-        let interp = Interpolation::new(vec![], vec![], span).unwrap();
+        let interp = Interpolation::new(&arena, vec![], vec![], span).unwrap();
         assert_eq!(interp.as_plain(), Some(""));
         assert!(interp.is_plain());
     }
@@ -424,7 +438,7 @@ mod tests {
     fn test_interpolation_span() {
         let arena = Bump::new();
         let span = test_span(&arena, "hello", 0, 5);
-        let interp = Interpolation::plain("hello".into(), span);
+        let interp = Interpolation::plain(&arena, "hello".into(), span);
         let _got = interp.span().unwrap();
     }
 }

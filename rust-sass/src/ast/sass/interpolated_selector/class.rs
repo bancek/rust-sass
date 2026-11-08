@@ -81,7 +81,7 @@ mod tests {
     fn test_class_selector_construction() {
         let arena = Bump::new();
         let span = make_span(&arena, "foo");
-        let name = Interpolation::plain("foo".into(), span);
+        let name = Interpolation::plain(&arena, "foo".into(), span);
         let sel = InterpolatedClassSelector::new(name);
         assert_eq!(sel.span().unwrap().start_location().offset, 0);
     }
@@ -90,7 +90,7 @@ mod tests {
     fn test_class_selector_display() {
         let arena = Bump::new();
         let span = make_span(&arena, "foo");
-        let name = Interpolation::plain("foo".into(), span);
+        let name = Interpolation::plain(&arena, "foo".into(), span);
         let sel = InterpolatedClassSelector::new(name);
         assert_eq!(format!("{sel}"), ".foo");
     }

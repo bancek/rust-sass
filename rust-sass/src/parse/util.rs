@@ -708,12 +708,12 @@ mod tests {
             let fs = FileSource::new_in(&arena, "hello", None);
             FileSpan::new(Some(fs), 0, 5)
         };
-        let interp = Interpolation::plain("hello".into(), span);
+        let interp = Interpolation::plain(&arena, "hello".into(), span);
         let expr = Expression::String(StringExpression::new(interp, false));
 
         let mut buffer = InterpolationBuffer::new();
         StylesheetParser::add_or_inject(&mut buffer, &expr).unwrap();
-        let result = buffer.interpolation(span).unwrap();
+        let result = buffer.interpolation(&arena, span).unwrap();
         assert!(result.is_plain());
         assert_eq!(result.as_plain(), Some("hello"));
     }
@@ -725,12 +725,12 @@ mod tests {
             let fs = FileSource::new_in(&arena, "hello", None);
             FileSpan::new(Some(fs), 0, 5)
         };
-        let interp = Interpolation::plain("hello".into(), span);
+        let interp = Interpolation::plain(&arena, "hello".into(), span);
         let expr = Expression::String(StringExpression::new(interp, true));
 
         let mut buffer = InterpolationBuffer::new();
         StylesheetParser::add_or_inject(&mut buffer, &expr).unwrap();
-        let result = buffer.interpolation(span).unwrap();
+        let result = buffer.interpolation(&arena, span).unwrap();
         assert!(!result.is_plain());
     }
 
@@ -741,7 +741,7 @@ mod tests {
             let fs = FileSource::new_in(&arena, "hello", None);
             FileSpan::new(Some(fs), 0, 5)
         };
-        let interp = Interpolation::plain("hello".into(), span);
+        let interp = Interpolation::plain(&arena, "hello".into(), span);
         let expr = Expression::String(StringExpression::new(interp, false));
 
         let mut buffer = InterpolationBuffer::new();

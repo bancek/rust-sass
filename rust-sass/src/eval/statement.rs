@@ -4357,7 +4357,7 @@ mod tests {
         let span = make_span(&arena, "@error \"msg\"");
         let (config, mut state) = test_visitor(&arena);
         let expr = Expression::String(StringExpression {
-            text: Interpolation::plain("msg".into(), Span::File(span)),
+            text: Interpolation::plain(&arena, "msg".into(), Span::File(span)),
             has_quotes: true,
         });
         let node = ErrorRule {
@@ -4607,8 +4607,8 @@ mod tests {
         let arena = Bump::new();
         let span = make_span(&arena, "@import url(\"foo.css\")");
         let (config, mut state) = test_visitor_with_root(&arena);
-        let name = Interpolation::plain("import".into(), Span::File(span));
-        let value = Interpolation::plain("url(\"foo.css\")".into(), Span::File(span));
+        let name = Interpolation::plain(&arena, "import".into(), Span::File(span));
+        let value = Interpolation::plain(&arena, "url(\"foo.css\")".into(), Span::File(span));
         let rule = AtRule {
             name,
             value: Some(value),
@@ -4639,7 +4639,7 @@ mod tests {
         let span = make_span(&arena, "color: red");
         let (config, mut state) = test_visitor_with_root(&arena);
         state.in_unknown_at_rule = true;
-        let name = Interpolation::plain("color".into(), Span::File(span));
+        let name = Interpolation::plain(&arena, "color".into(), Span::File(span));
         let val_expr = Expression::Value(ValueExpression {
             value: Box::new(Value::new_with_arena(
                 &arena,
@@ -4675,7 +4675,7 @@ mod tests {
         let arena = Bump::new();
         let span = make_span(&arena, "color: red");
         let (config, mut state) = test_visitor_with_root(&arena);
-        let name = Interpolation::plain("color".into(), Span::File(span));
+        let name = Interpolation::plain(&arena, "color".into(), Span::File(span));
         let val_expr = Expression::Value(ValueExpression {
             value: Box::new(Value::new_with_arena(&arena, ValueKind::Null)),
             span,
@@ -4702,7 +4702,7 @@ mod tests {
         let span = make_span(&arena, "color: null");
         let (config, mut state) = test_visitor_with_root(&arena);
         state.in_unknown_at_rule = true;
-        let name = Interpolation::plain("color".into(), Span::File(span));
+        let name = Interpolation::plain(&arena, "color".into(), Span::File(span));
         let val_expr = Expression::Value(ValueExpression {
             value: Box::new(Value::new_with_arena(&arena, ValueKind::Null)),
             span,
@@ -4728,7 +4728,7 @@ mod tests {
         let (config, mut state) = test_visitor_with_root(&arena);
         state.in_unknown_at_rule = true;
         state.declaration_name = Some("font".into());
-        let name = Interpolation::plain("weight".into(), Span::File(span));
+        let name = Interpolation::plain(&arena, "weight".into(), Span::File(span));
         let val_expr = Expression::Value(ValueExpression {
             value: Box::new(Value::new_with_arena(
                 &arena,
@@ -4766,7 +4766,7 @@ mod tests {
         let arena = Bump::new();
         let span = make_span(&arena, "@media screen { $x: 1; }");
         let (config, mut state) = test_visitor_with_root(&arena);
-        let query = Interpolation::plain("screen".into(), Span::File(span));
+        let query = Interpolation::plain(&arena, "screen".into(), Span::File(span));
         // Add a child that sets a variable — this proves the with_media_queries
         // callback ran successfully (which only happens if parsing succeeded).
         let child = Statement::VariableDeclaration(VariableDeclaration {
@@ -4809,7 +4809,7 @@ mod tests {
         let span = make_span(&arena, "@media screen");
         let (config, mut state) = test_visitor_with_root(&arena);
         state.declaration_name = Some("color".into());
-        let query = Interpolation::plain("screen".into(), Span::File(span));
+        let query = Interpolation::plain(&arena, "screen".into(), Span::File(span));
         let rule = MediaRule {
             query,
             children: &[],
@@ -4831,7 +4831,7 @@ mod tests {
         let arena = Bump::new();
         let span = make_span(&arena, "@extend .foo");
         let (config, mut state) = test_visitor_with_root(&arena);
-        let selector = Interpolation::plain(".foo".into(), Span::File(span));
+        let selector = Interpolation::plain(&arena, ".foo".into(), Span::File(span));
         let rule = ExtendRule {
             selector,
             span,
@@ -4875,7 +4875,7 @@ mod tests {
         let (config, mut state) = test_visitor_with_root_and_stylesheet(&arena, false);
         state.in_unknown_at_rule = true;
         state.in_dependency = false;
-        let selector = Interpolation::plain(".foo".into(), Span::File(span));
+        let selector = Interpolation::plain(&arena, ".foo".into(), Span::File(span));
         let rule = StyleRule::new(selector, &[], span);
 
         let result = evaluate_style_rule(&config, &mut state, &arena, &rule).await;
@@ -4907,7 +4907,7 @@ mod tests {
         let span = make_span(&arena, ".foo");
         let (config, mut state) = test_visitor_with_root_and_stylesheet(&arena, false);
         state.declaration_name = Some("color".into());
-        let selector = Interpolation::plain(".foo".into(), Span::File(span));
+        let selector = Interpolation::plain(&arena, ".foo".into(), Span::File(span));
         let rule = StyleRule::new(selector, &[], span);
 
         let err = evaluate_style_rule(&config, &mut state, &arena, &rule)
@@ -4931,7 +4931,7 @@ mod tests {
             &arena,
             ModifiableCssNodeKind::KeyframeBlock(kfb),
         ));
-        let selector = Interpolation::plain(".bar".into(), Span::File(span));
+        let selector = Interpolation::plain(&arena, ".bar".into(), Span::File(span));
         let rule = StyleRule::new(selector, &[], span);
 
         let err = evaluate_style_rule(&config, &mut state, &arena, &rule)
@@ -4949,7 +4949,7 @@ mod tests {
         let span = make_span(&arena, "from");
         let (config, mut state) = test_visitor_with_root_and_stylesheet(&arena, false);
         state.in_keyframes = true;
-        let selector = Interpolation::plain("from".into(), Span::File(span));
+        let selector = Interpolation::plain(&arena, "from".into(), Span::File(span));
         let rule = StyleRule::new(selector, &[], span);
 
         let result = evaluate_style_rule(&config, &mut state, &arena, &rule).await;
@@ -4971,7 +4971,7 @@ mod tests {
         let (config, mut state) = test_visitor_with_root_and_stylesheet(&arena, false);
         state.in_unknown_at_rule = true;
         state.in_dependency = false;
-        let selector = Interpolation::plain(".foo".into(), Span::File(span));
+        let selector = Interpolation::plain(&arena, ".foo".into(), Span::File(span));
         let rule = StyleRule::new(selector, &[], span);
 
         evaluate_style_rule(&config, &mut state, &arena, &rule)
@@ -4992,7 +4992,7 @@ mod tests {
         let (config, mut state) = test_visitor_with_root_and_stylesheet(&arena, false);
         state.in_unknown_at_rule = true;
         state.in_dependency = false;
-        let parent_sel = Interpolation::plain(".parent".into(), Span::File(span));
+        let parent_sel = Interpolation::plain(&arena, ".parent".into(), Span::File(span));
         let parent_rule = StyleRule::new(parent_sel, &[], span);
         evaluate_style_rule(&config, &mut state, &arena, &parent_rule)
             .await
@@ -5015,7 +5015,7 @@ mod tests {
         };
         state.style_rule_ignoring_at_root = Some(parent_css);
 
-        let child_sel = Interpolation::plain(".child".into(), Span::File(span));
+        let child_sel = Interpolation::plain(&arena, ".child".into(), Span::File(span));
         let child_rule = StyleRule::new(child_sel, &[], span);
         evaluate_style_rule(&config, &mut state, &arena, &child_rule)
             .await
@@ -5042,7 +5042,7 @@ mod tests {
         let (config, mut state) = test_visitor_with_root_and_stylesheet(&arena, false);
         state.in_unknown_at_rule = true;
         state.in_dependency = false;
-        let parent_sel = Interpolation::plain(".parent".into(), Span::File(span));
+        let parent_sel = Interpolation::plain(&arena, ".parent".into(), Span::File(span));
         let parent_rule = StyleRule::new(parent_sel, &[], span);
         evaluate_style_rule(&config, &mut state, &arena, &parent_rule)
             .await
@@ -5068,7 +5068,7 @@ mod tests {
         )));
 
         let child_span = make_span(&arena, "> .child");
-        let child_sel = Interpolation::plain("> .child".into(), Span::File(child_span));
+        let child_sel = Interpolation::plain(&arena, "> .child".into(), Span::File(child_span));
         let child_rule = StyleRule::new(child_sel, &[], child_span);
         let err = evaluate_style_rule(&config, &mut state, &arena, &child_rule)
             .await
@@ -5104,7 +5104,7 @@ mod tests {
         let arena = Bump::new();
         let span = make_span(&arena, "@import \"foo.css\"");
         let (config, mut state) = test_visitor_with_root_stylesheet_and_cache(&arena);
-        let url = Interpolation::plain("foo.css".into(), Span::File(span));
+        let url = Interpolation::plain(&arena, "foo.css".into(), Span::File(span));
         let static_import = StaticImport::new(url, span, None);
         let imports = vec![Import::Static(static_import)];
         let rule = ImportRule::new(imports, span);
@@ -5126,8 +5126,8 @@ mod tests {
         let arena = Bump::new();
         let span = make_span(&arena, "@import \"foo.css\" screen");
         let (config, mut state) = test_visitor_with_root_stylesheet_and_cache(&arena);
-        let url = Interpolation::plain("foo.css".into(), Span::File(span));
-        let modifiers = Interpolation::plain("screen".into(), Span::File(span));
+        let url = Interpolation::plain(&arena, "foo.css".into(), Span::File(span));
+        let modifiers = Interpolation::plain(&arena, "screen".into(), Span::File(span));
         let static_import = StaticImport::new(url, span, Some(modifiers));
         let imports = vec![Import::Static(static_import)];
         let rule = ImportRule::new(imports, span);

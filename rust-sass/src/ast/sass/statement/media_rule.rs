@@ -88,7 +88,7 @@ mod tests {
     fn test_new() {
         let arena = Bump::new();
         let span = make_span(&arena, "@media screen { }");
-        let query = Interpolation::plain("screen".into(), span);
+        let query = Interpolation::plain(&arena, "screen".into(), span);
         let mr = MediaRule::new(query, &[], span);
         assert_eq!(mr.span().unwrap(), span);
     }
@@ -97,7 +97,7 @@ mod tests {
     fn test_display() {
         let arena = Bump::new();
         let span = make_span(&arena, "@media screen { }");
-        let query = Interpolation::plain("screen".into(), span);
+        let query = Interpolation::plain(&arena, "screen".into(), span);
         let mr = MediaRule::new(query, &[], span);
         let s = format!("{mr}");
         assert!(s.contains("@media"), "got {s:?}");

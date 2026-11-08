@@ -1918,8 +1918,8 @@ mod tests {
         SelectorList::new(arena, complexes, BOGUS_SPAN).unwrap()
     }
 
-    fn make_extend_rule<'compile>(optional: bool) -> ExtendRule<'compile> {
-        let interp = Interpolation::plain(".foo".into(), BOGUS_SPAN);
+    fn make_extend_rule<'compile>(arena: &'compile Bump, optional: bool) -> ExtendRule<'compile> {
+        let interp = Interpolation::plain(arena, ".foo".into(), BOGUS_SPAN);
         ExtendRule::new(interp, BOGUS_SPAN, optional)
     }
 
@@ -1955,7 +1955,13 @@ mod tests {
         let sel = make_selector_list(&arena, vec![extender]);
         let target = class("b");
         store
-            .add_extension(&arena, &sel, &target, &make_extend_rule(false), None)
+            .add_extension(
+                &arena,
+                &sel,
+                &target,
+                &make_extend_rule(&arena, false),
+                None,
+            )
             .unwrap();
         assert!(!store.is_empty());
     }
@@ -1998,7 +2004,7 @@ mod tests {
                 &arena,
                 &make_selector_list(&arena, vec![extender]),
                 &target,
-                &make_extend_rule(false),
+                &make_extend_rule(&arena, false),
                 None,
             )
             .unwrap();
@@ -2035,7 +2041,7 @@ mod tests {
                 &arena,
                 &make_selector_list(&arena, vec![extender]),
                 &target,
-                &make_extend_rule(false),
+                &make_extend_rule(&arena, false),
                 None,
             )
             .unwrap();
@@ -2059,7 +2065,7 @@ mod tests {
                 &arena,
                 &make_selector_list(&arena, vec![ext_a]),
                 &class("b"),
-                &make_extend_rule(false),
+                &make_extend_rule(&arena, false),
                 None,
             )
             .unwrap();
@@ -2071,7 +2077,7 @@ mod tests {
                 &arena,
                 &make_selector_list(&arena, vec![ext_c]),
                 &class("a"),
-                &make_extend_rule(false),
+                &make_extend_rule(&arena, false),
                 None,
             )
             .unwrap();
@@ -2111,7 +2117,7 @@ mod tests {
                 &arena,
                 &make_selector_list(&arena, vec![useless]),
                 &class("b"),
-                &make_extend_rule(false),
+                &make_extend_rule(&arena, false),
                 None,
             )
             .unwrap();
@@ -2139,7 +2145,7 @@ mod tests {
                 &arena,
                 &make_selector_list(&arena, vec![extender]),
                 &class("z"),
-                &make_extend_rule(false),
+                &make_extend_rule(&arena, false),
                 None,
             )
             .unwrap();
@@ -2187,7 +2193,7 @@ mod tests {
                 &arena,
                 &make_selector_list(&arena, vec![ext_a]),
                 &class("b"),
-                &make_extend_rule(false),
+                &make_extend_rule(&arena, false),
                 None,
             )
             .unwrap();
@@ -2222,7 +2228,7 @@ mod tests {
                 &arena,
                 &make_selector_list(&arena, vec![ext_a]),
                 &private,
-                &make_extend_rule(false),
+                &make_extend_rule(&arena, false),
                 None,
             )
             .unwrap();
@@ -2246,7 +2252,7 @@ mod tests {
                 &arena,
                 &make_selector_list(&arena, vec![ext_a]),
                 &class("b"),
-                &make_extend_rule(false),
+                &make_extend_rule(&arena, false),
                 None,
             )
             .unwrap();
@@ -2268,7 +2274,7 @@ mod tests {
                 &arena,
                 &make_selector_list(&arena, vec![ext_a]),
                 &class("b"),
-                &make_extend_rule(true),
+                &make_extend_rule(&arena, true),
                 None,
             )
             .unwrap();
@@ -2330,7 +2336,7 @@ mod tests {
                 &arena,
                 &make_selector_list(&arena, vec![extender]),
                 &target,
-                &make_extend_rule(false),
+                &make_extend_rule(&arena, false),
                 Some(mc.clone()),
             )
             .unwrap();

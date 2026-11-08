@@ -273,7 +273,7 @@ mod tests {
     fn test_visit_at_rule_nil_children() {
         let arena = Bump::new();
         let mut v = RecursiveStatementVisitor::new();
-        let name = Interpolation::plain("foo".into(), test_span(&arena, "foo"));
+        let name = Interpolation::plain(&arena, "foo".into(), test_span(&arena, "foo"));
         let ar = AtRule::new(name, test_span(&arena, "@foo;"), None, None);
         Statement::AtRule(ar).accept(&mut v).unwrap();
     }
@@ -282,7 +282,7 @@ mod tests {
     fn test_visit_at_rule_empty_children() {
         let arena = Bump::new();
         let mut v = RecursiveStatementVisitor::new();
-        let name = Interpolation::plain("foo".into(), test_span(&arena, "foo"));
+        let name = Interpolation::plain(&arena, "foo".into(), test_span(&arena, "foo"));
         let ar = AtRule::new(name, test_span(&arena, "@foo { }"), None, Some(&[]));
         Statement::AtRule(ar).accept(&mut v).unwrap();
     }
@@ -291,7 +291,7 @@ mod tests {
     fn test_visit_at_rule_with_children() {
         let arena = Bump::new();
         let mut v = RecursiveStatementVisitor::new();
-        let name = Interpolation::plain("foo".into(), test_span(&arena, "foo"));
+        let name = Interpolation::plain(&arena, "foo".into(), test_span(&arena, "foo"));
         let child = var_decl(&arena, "x");
         let ar = AtRule::new(
             name,
@@ -306,7 +306,7 @@ mod tests {
     fn test_visit_declaration_nil_children() {
         let arena = Bump::new();
         let mut v = RecursiveStatementVisitor::new();
-        let name = Interpolation::plain("color".into(), test_span(&arena, "color"));
+        let name = Interpolation::plain(&arena, "color".into(), test_span(&arena, "color"));
         let val = null_expr(&arena);
         let d = Declaration::new(name, val, test_span(&arena, "color: null;"));
         Statement::Declaration(d).accept(&mut v).unwrap();
@@ -316,7 +316,7 @@ mod tests {
     fn test_visit_declaration_with_children() {
         let arena = Bump::new();
         let mut v = RecursiveStatementVisitor::new();
-        let name = Interpolation::plain("color".into(), test_span(&arena, "color"));
+        let name = Interpolation::plain(&arena, "color".into(), test_span(&arena, "color"));
         let _val = null_expr(&arena);
         let child = var_decl(&arena, "x");
         let d = Declaration::nested(
@@ -423,7 +423,7 @@ mod tests {
 
         let base_span = test_span(&arena, "test");
         let null = null_expr(&arena);
-        let plain = Interpolation::plain("a".into(), test_span(&arena, "a"));
+        let plain = Interpolation::plain(&arena, "a".into(), test_span(&arena, "a"));
 
         let leaves: Vec<Statement<'_>> = vec![
             Statement::ContentRule(ContentRule::new(ArgumentList::empty(base_span), base_span)),
@@ -434,6 +434,7 @@ mod tests {
             Statement::ExtendRule(ExtendRule::new(plain, base_span, false)),
             Statement::ImportRule(ImportRule::new(vec![], base_span)),
             Statement::LoudComment(LoudComment::new(Interpolation::plain(
+                &arena,
                 "/* */".into(),
                 base_span,
             ))),
@@ -453,7 +454,7 @@ mod tests {
     fn test_visit_style_rule() {
         let arena = Bump::new();
         let mut v = RecursiveStatementVisitor::new();
-        let sel = Interpolation::plain(".a".into(), test_span(&arena, ".a"));
+        let sel = Interpolation::plain(&arena, ".a".into(), test_span(&arena, ".a"));
         let child = var_decl(&arena, "x");
         let sr = StyleRule::new(
             sel,
@@ -467,7 +468,7 @@ mod tests {
     fn test_visit_media_rule() {
         let arena = Bump::new();
         let mut v = RecursiveStatementVisitor::new();
-        let query = Interpolation::plain("screen".into(), test_span(&arena, "screen"));
+        let query = Interpolation::plain(&arena, "screen".into(), test_span(&arena, "screen"));
         let mr = MediaRule::new(query, &[], test_span(&arena, "@media screen { }"));
         Statement::MediaRule(mr).accept(&mut v).unwrap();
     }
@@ -477,8 +478,18 @@ mod tests {
         let arena = Bump::new();
         let mut v = RecursiveStatementVisitor::new();
         let decl = SupportsCondition::Declaration(SupportsDeclaration::new(
-            Expression::String(StringExpression::plain("a", test_span(&arena, "a"), false)),
-            Expression::String(StringExpression::plain("b", test_span(&arena, "b"), false)),
+            Expression::String(StringExpression::plain(
+                &arena,
+                "a",
+                test_span(&arena, "a"),
+                false,
+            )),
+            Expression::String(StringExpression::plain(
+                &arena,
+                "b",
+                test_span(&arena, "b"),
+                false,
+            )),
             test_span(&arena, "(a: b)"),
         ));
         let sr = SupportsRule::new(decl, &[], test_span(&arena, "@supports (a: b) { }"));
@@ -493,8 +504,18 @@ mod tests {
             arena_slice(
                 &arena,
                 vec![
-                    Expression::String(StringExpression::plain("a", test_span(&arena, "a"), true)),
-                    Expression::String(StringExpression::plain("b", test_span(&arena, "b"), true)),
+                    Expression::String(StringExpression::plain(
+                        &arena,
+                        "a",
+                        test_span(&arena, "a"),
+                        true,
+                    )),
+                    Expression::String(StringExpression::plain(
+                        &arena,
+                        "b",
+                        test_span(&arena, "b"),
+                        true,
+                    )),
                 ],
             ),
             ListSeparator::Comma,

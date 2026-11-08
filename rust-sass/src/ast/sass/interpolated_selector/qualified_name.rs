@@ -94,7 +94,7 @@ mod tests {
     fn test_qualified_name_construction() {
         let arena = Bump::new();
         let span = make_span(&arena, "div");
-        let name = Interpolation::plain("div".into(), span);
+        let name = Interpolation::plain(&arena, "div".into(), span);
         let qn = InterpolatedQualifiedName::new(name, span, None);
         assert!(qn.namespace.is_none());
     }
@@ -103,9 +103,9 @@ mod tests {
     fn test_qualified_name_with_namespace() {
         let arena = Bump::new();
         let span = make_span(&arena, "svg|div");
-        let name = Interpolation::plain("div".into(), span);
+        let name = Interpolation::plain(&arena, "div".into(), span);
         let ns_span = make_span(&arena, "svg");
-        let ns = Interpolation::plain("svg".into(), ns_span);
+        let ns = Interpolation::plain(&arena, "svg".into(), ns_span);
         let qn = InterpolatedQualifiedName::new(name, span, Some(ns));
         assert!(qn.namespace.is_some());
     }
@@ -114,7 +114,7 @@ mod tests {
     fn test_qualified_name_display() {
         let arena = Bump::new();
         let span = make_span(&arena, "div");
-        let name = Interpolation::plain("div".into(), span);
+        let name = Interpolation::plain(&arena, "div".into(), span);
         let qn = InterpolatedQualifiedName::new(name, span, None);
         assert_eq!(format!("{qn}"), "div");
     }
@@ -123,9 +123,9 @@ mod tests {
     fn test_qualified_name_display_with_namespace() {
         let arena = Bump::new();
         let span = make_span(&arena, "svg|div");
-        let name = Interpolation::plain("div".into(), span);
+        let name = Interpolation::plain(&arena, "div".into(), span);
         let ns_span = make_span(&arena, "svg");
-        let ns = Interpolation::plain("svg".into(), ns_span);
+        let ns = Interpolation::plain(&arena, "svg".into(), ns_span);
         let qn = InterpolatedQualifiedName::new(name, span, Some(ns));
         assert_eq!(format!("{qn}"), "svg|div");
     }

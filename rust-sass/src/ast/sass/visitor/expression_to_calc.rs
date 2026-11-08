@@ -220,7 +220,8 @@ impl<'parse> ExpressionVisitor<'parse> for MakeExpressionCalculationSafe<'parse>
     }
 
     fn visit_string(&mut self, node: &StringExpression<'parse>) -> SassResult<Expression<'parse>> {
-        let text = ReplaceExpressionVisitor::replace_interpolation(self, &node.text)?;
+        let arena = self.arena;
+        let text = ReplaceExpressionVisitor::replace_interpolation(self, arena, &node.text)?;
         Ok(Expression::String(StringExpression::new(
             text,
             node.has_quotes,
@@ -364,7 +365,7 @@ mod tests {
     fn test_visit_interpolated_function_identity() {
         let arena = Bump::new();
         let span = test_span(&arena, "fn(1)");
-        let name = Interpolation::plain("fn".into(), span);
+        let name = Interpolation::plain(&arena, "fn".into(), span);
         let args = ArgumentList::new(
             &arena,
             vec![],

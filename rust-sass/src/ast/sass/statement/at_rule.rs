@@ -106,7 +106,7 @@ mod tests {
         'parse: 'compile,
     {
         let span = make_span(arena, text);
-        Interpolation::plain(text.into(), span)
+        Interpolation::plain(arena, text.into(), span)
     }
 
     #[test]

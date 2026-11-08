@@ -98,7 +98,7 @@ mod tests {
     fn test_compound_single() {
         let arena = Bump::new();
         let span = make_span(&arena, "foo");
-        let name = Interpolation::plain("foo".into(), span);
+        let name = Interpolation::plain(&arena, "foo".into(), span);
         let class = InterpolatedClassSelector::new(name);
         let simp = InterpolatedSimpleSelector::Class(class);
         let compound = InterpolatedCompoundSelector::new(vec![simp]).unwrap();

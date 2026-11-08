@@ -3573,7 +3573,7 @@ mod tests {
             "setup: allocations must not be identical"
         );
         let interp_span = FileSpan::new(Some(interp_fs), 0, interp_text.len());
-        let interp = Interpolation::new(vec![], vec![], interp_span).unwrap();
+        let interp = Interpolation::new(arena, vec![], vec![], interp_span).unwrap();
         let map = InterpolationMap::new(interp, vec![]).unwrap();
         let map_ref: &'parse InterpolationMap<'parse> = arena.alloc(map);
         let parser = Parser::new(gen_fs, Syntax::Scss, Some(map_ref));

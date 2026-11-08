@@ -1,3 +1,5 @@
+use bumpalo::Bump;
+
 // Copyright 2025 Google Inc. Use of this source code is governed by an
 // MIT-style license that can be found in the LICENSE file or at
 // https://opensource.org/licenses/MIT.
@@ -147,15 +149,20 @@ impl<'parse> IfConditionExpression<'parse> {
     // [`IfConditionSass`]; the passed node's span is used for that error.
     pub fn to_interpolation(
         &self,
+        arena: &'parse Bump,
         arbitrary_substitution: &dyn AstNode<'parse>,
     ) -> SassResult<Interpolation<'parse>> {
         match self {
-            IfConditionExpression::Parenthesized(c) => c.to_interpolation(arbitrary_substitution),
-            IfConditionExpression::Negation(c) => c.to_interpolation(arbitrary_substitution),
-            IfConditionExpression::Operation(c) => c.to_interpolation(arbitrary_substitution),
-            IfConditionExpression::Function(c) => c.to_interpolation(arbitrary_substitution),
-            IfConditionExpression::Sass(c) => c.to_interpolation(arbitrary_substitution),
-            IfConditionExpression::Raw(c) => c.to_interpolation(arbitrary_substitution),
+            IfConditionExpression::Parenthesized(c) => {
+                c.to_interpolation(arena, arbitrary_substitution)
+            }
+            IfConditionExpression::Negation(c) => c.to_interpolation(arena, arbitrary_substitution),
+            IfConditionExpression::Operation(c) => {
+                c.to_interpolation(arena, arbitrary_substitution)
+            }
+            IfConditionExpression::Function(c) => c.to_interpolation(arena, arbitrary_substitution),
+            IfConditionExpression::Sass(c) => c.to_interpolation(arena, arbitrary_substitution),
+            IfConditionExpression::Raw(c) => c.to_interpolation(arena, arbitrary_substitution),
         }
     }
 
@@ -235,15 +242,18 @@ impl<'parse> IfConditionParenthesized<'parse> {
 
     pub fn to_interpolation(
         &self,
+        arena: &'parse Bump,
         arbitrary_substitution: &dyn AstNode<'parse>,
     ) -> SassResult<Interpolation<'parse>> {
         let mut buf = InterpolationBuffer::new();
         buf.write_char_code('(');
-        let inner = self.expression.to_interpolation(arbitrary_substitution)?;
+        let inner = self
+            .expression
+            .to_interpolation(arena, arbitrary_substitution)?;
         buf.add_interpolation(&inner);
         buf.write_char_code(')');
         let span = self.span()?;
-        buf.interpolation(span)
+        buf.interpolation(arena, span)
     }
 }
 
@@ -294,14 +304,17 @@ impl<'parse> IfConditionNegation<'parse> {
 
     pub fn to_interpolation(
         &self,
+        arena: &'parse Bump,
         arbitrary_substitution: &dyn AstNode<'parse>,
     ) -> SassResult<Interpolation<'parse>> {
         let mut buf = InterpolationBuffer::new();
         buf.write("not ");
-        let inner = self.expression.to_interpolation(arbitrary_substitution)?;
+        let inner = self
+            .expression
+            .to_interpolation(arena, arbitrary_substitution)?;
         buf.add_interpolation(&inner);
         let span = self.span()?;
-        buf.interpolation(span)
+        buf.interpolation(arena, span)
     }
 }
 
@@ -392,6 +405,7 @@ impl<'parse> IfConditionOperation<'parse> {
 
     pub fn to_interpolation(
         &self,
+        arena: &'parse Bump,
         arbitrary_substitution: &dyn AstNode<'parse>,
     ) -> SassResult<Interpolation<'parse>> {
         let mut buf = InterpolationBuffer::new();
@@ -401,11 +415,11 @@ impl<'parse> IfConditionOperation<'parse> {
                 buf.write(&format!("{}", self.operator));
                 buf.write_char_code(' ');
             }
-            let inner = expr.to_interpolation(arbitrary_substitution)?;
+            let inner = expr.to_interpolation(arena, arbitrary_substitution)?;
             buf.add_interpolation(&inner);
         }
         let span = self.span()?;
-        buf.interpolation(span)
+        buf.interpolation(arena, span)
     }
 }
 
@@ -480,6 +494,7 @@ impl<'parse> IfConditionFunction<'parse> {
 
     pub fn to_interpolation(
         &self,
+        arena: &'parse Bump,
         _arbitrary_substitution: &dyn AstNode<'parse>,
     ) -> SassResult<Interpolation<'parse>> {
         let mut buf = InterpolationBuffer::new();
@@ -488,7 +503,7 @@ impl<'parse> IfConditionFunction<'parse> {
         buf.add_interpolation(&self.arguments);
         buf.write_char_code(')');
         let span = self.span()?;
-        buf.interpolation(span)
+        buf.interpolation(arena, span)
     }
 }
 
@@ -539,6 +554,7 @@ impl<'parse> IfConditionSass<'parse> {
 
     pub fn to_interpolation(
         &self,
+        _arena: &'parse Bump,
         arbitrary_substitution: &dyn AstNode<'parse>,
     ) -> SassResult<Interpolation<'parse>> {
         let sub_span = arbitrary_substitution.span()?;
@@ -612,6 +628,7 @@ impl<'parse> IfConditionRaw<'parse> {
 
     pub fn to_interpolation(
         &self,
+        _arena: &'parse Bump,
         _arbitrary_substitution: &dyn AstNode<'parse>,
     ) -> SassResult<Interpolation<'parse>> {
         Ok(self.text.clone())

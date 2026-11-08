@@ -1,3 +1,5 @@
+use bumpalo::Bump;
+
 // Copyright 2016 Google Inc. Use of this source code is governed by an
 // MIT-style license that can be found in the LICENSE file or at
 // https://opensource.org/licenses/MIT.
@@ -39,8 +41,8 @@ impl<'parse> SupportsNegation<'parse> {
 
     // Rebuilds an interpolation with the same text by splicing the negated
     // condition's interpolation back between the surrounding source slices.
-    pub fn to_interpolation(&self) -> SassResult<Interpolation<'parse>> {
-        let inner_interp = self.condition.to_interpolation()?;
+    pub fn to_interpolation(&self, arena: &'parse Bump) -> SassResult<Interpolation<'parse>> {
+        let inner_interp = self.condition.to_interpolation(arena)?;
         let cond_fs = self.condition.span()?;
         let inner_s = Span::File(cond_fs);
 
@@ -51,7 +53,7 @@ impl<'parse> SupportsNegation<'parse> {
         buf.write(before.text());
         buf.add_interpolation(&inner_interp);
         buf.write(after.text());
-        buf.interpolation(self.span)
+        buf.interpolation(arena, self.span)
     }
 
     // Returns a copy of this condition with `span` as its span.

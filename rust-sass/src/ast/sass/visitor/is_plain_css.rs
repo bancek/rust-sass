@@ -312,7 +312,7 @@ mod tests {
     fn test_string_plain() {
         let arena = Bump::new();
         let span = test_span(&arena, "foo", 0, 3);
-        let text = Interpolation::plain("foo".into(), span);
+        let text = Interpolation::plain(&arena, "foo".into(), span);
         let expr = Expression::String(StringExpression::new(text, false));
         let mut v = IsPlainCssVisitor::new(false);
         assert!(expr.accept(&mut v).unwrap());
@@ -326,7 +326,7 @@ mod tests {
         let var_expr = Expression::Variable(VariableExpression::new("x".into(), expr_span, None));
         let mut buf = InterpolationBuffer::new();
         buf.add(var_expr, expr_span);
-        let text = buf.interpolation(s).unwrap();
+        let text = buf.interpolation(&arena, s).unwrap();
         let expr = Expression::String(StringExpression::new(text, false));
         let mut v = IsPlainCssVisitor::new(false);
         assert!(!expr.accept(&mut v).unwrap());
@@ -340,7 +340,7 @@ mod tests {
         let var_expr = Expression::Variable(VariableExpression::new("x".into(), expr_span, None));
         let mut buf = InterpolationBuffer::new();
         buf.add(var_expr, expr_span);
-        let text = buf.interpolation(s).unwrap();
+        let text = buf.interpolation(&arena, s).unwrap();
         let expr = Expression::String(StringExpression::new(text, false));
         let mut v = IsPlainCssVisitor::new(true);
         assert!(expr.accept(&mut v).unwrap());

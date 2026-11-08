@@ -98,11 +98,11 @@ mod tests {
         let span = test_span(&arena, "(a: b)", 0, 6);
         let pairs = vec![(
             Expression::String(StringExpression::new(
-                Interpolation::plain("a".into(), span),
+                Interpolation::plain(&arena, "a".into(), span),
                 false,
             )),
             Expression::String(StringExpression::new(
-                Interpolation::plain("b".into(), span),
+                Interpolation::plain(&arena, "b".into(), span),
                 false,
             )),
         )];
@@ -116,11 +116,11 @@ mod tests {
         let span = test_span(&arena, "(a: b)", 0, 6);
         let pairs = vec![(
             Expression::String(StringExpression::new(
-                Interpolation::plain("a".into(), span),
+                Interpolation::plain(&arena, "a".into(), span),
                 false,
             )),
             Expression::String(StringExpression::new(
-                Interpolation::plain("b".into(), span),
+                Interpolation::plain(&arena, "b".into(), span),
                 false,
             )),
         )];

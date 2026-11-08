@@ -140,7 +140,7 @@ impl RecursiveAstVisitor {
     }
 
     fn visit_interpolation(&mut self, interp: &Interpolation<'_>) -> SassResult<()> {
-        for part in &interp.contents {
+        for part in interp.contents {
             if let InterpolationPart::Expression(expr) = part {
                 self.visit_expression(expr)?;
             }
@@ -636,8 +636,8 @@ mod tests {
         let arena = Bump::new();
         let mut v = RecursiveAstVisitor::new();
         let span = test_span(&arena, "@foo bar { }");
-        let name = Interpolation::plain("foo".into(), test_span(&arena, "foo"));
-        let value = Interpolation::plain("bar".into(), test_span(&arena, "bar"));
+        let name = Interpolation::plain(&arena, "foo".into(), test_span(&arena, "foo"));
+        let value = Interpolation::plain(&arena, "bar".into(), test_span(&arena, "bar"));
         let ar = AtRule::new(name, span, Some(value), None);
         Statement::AtRule(ar).accept(&mut v).unwrap();
     }
@@ -647,8 +647,9 @@ mod tests {
         let arena = Bump::new();
         let mut v = RecursiveAstVisitor::new();
         let span = test_span(&arena, "color: red;");
-        let name = Interpolation::plain("color".into(), test_span(&arena, "color"));
+        let name = Interpolation::plain(&arena, "color".into(), test_span(&arena, "color"));
         let val = Expression::String(StringExpression::plain(
+            &arena,
             "red",
             test_span(&arena, "red"),
             false,
@@ -718,8 +719,18 @@ mod tests {
         let arena = Bump::new();
         let mut v = RecursiveAstVisitor::new();
         let items = vec![
-            Expression::String(StringExpression::plain("a", test_span(&arena, "a"), true)),
-            Expression::String(StringExpression::plain("b", test_span(&arena, "b"), true)),
+            Expression::String(StringExpression::plain(
+                &arena,
+                "a",
+                test_span(&arena, "a"),
+                true,
+            )),
+            Expression::String(StringExpression::plain(
+                &arena,
+                "b",
+                test_span(&arena, "b"),
+                true,
+            )),
         ];
         let le = ListExpression::new(
             arena_slice(&arena, items),
@@ -735,7 +746,12 @@ mod tests {
         let arena = Bump::new();
         let mut v = RecursiveAstVisitor::new();
         let pairs = vec![(
-            Expression::String(StringExpression::plain("a", test_span(&arena, "a"), false)),
+            Expression::String(StringExpression::plain(
+                &arena,
+                "a",
+                test_span(&arena, "a"),
+                false,
+            )),
             Expression::Number(NumberExpression::new(1.0, test_span(&arena, "1"), None)),
         )];
         let me = MapExpression::new(arena_slice(&arena, pairs), test_span(&arena, "(a: 1)"));
@@ -775,8 +791,18 @@ mod tests {
         let arena = Bump::new();
         let mut v = RecursiveAstVisitor::new();
         let decl = SupportsCondition::Declaration(SupportsDeclaration::new(
-            Expression::String(StringExpression::plain("a", test_span(&arena, "a"), false)),
-            Expression::String(StringExpression::plain("b", test_span(&arena, "b"), false)),
+            Expression::String(StringExpression::plain(
+                &arena,
+                "a",
+                test_span(&arena, "a"),
+                false,
+            )),
+            Expression::String(StringExpression::plain(
+                &arena,
+                "b",
+                test_span(&arena, "b"),
+                false,
+            )),
             test_span(&arena, "(a: b)"),
         ));
         let neg = SupportsCondition::Negation(SupportsNegation::new(
@@ -816,7 +842,7 @@ mod tests {
         let arena = Bump::new();
         let mut v = RecursiveAstVisitor::new();
         let span = test_span(&arena, "@import 'foo';");
-        let url = Interpolation::plain("foo".into(), test_span(&arena, "foo"));
+        let url = Interpolation::plain(&arena, "foo".into(), test_span(&arena, "foo"));
         let si = Import::Static(StaticImport::new(url, test_span(&arena, "'foo'"), None));
         let ir = ImportRule::new(vec![si], span);
         Statement::ImportRule(ir).accept(&mut v).unwrap();
@@ -842,7 +868,7 @@ mod tests {
     fn test_visit_style_rule_selector() {
         let arena = Bump::new();
         let mut v = RecursiveAstVisitor::new();
-        let sel = Interpolation::plain(".a".into(), test_span(&arena, ".a"));
+        let sel = Interpolation::plain(&arena, ".a".into(), test_span(&arena, ".a"));
         let sr = StyleRule::new(sel, &[], test_span(&arena, ".a { }"));
         Statement::StyleRule(sr).accept(&mut v).unwrap();
     }
@@ -851,7 +877,7 @@ mod tests {
     fn test_visit_loud_comment_interpolation() {
         let arena = Bump::new();
         let mut v = RecursiveAstVisitor::new();
-        let text = Interpolation::plain("/* */".into(), test_span(&arena, "/* */"));
+        let text = Interpolation::plain(&arena, "/* */".into(), test_span(&arena, "/* */"));
         let lc = LoudComment::new(text);
         Statement::LoudComment(lc).accept(&mut v).unwrap();
     }
@@ -860,7 +886,7 @@ mod tests {
     fn test_visit_media_rule_interpolation() {
         let arena = Bump::new();
         let mut v = RecursiveAstVisitor::new();
-        let query = Interpolation::plain("screen".into(), test_span(&arena, "screen"));
+        let query = Interpolation::plain(&arena, "screen".into(), test_span(&arena, "screen"));
         let mr = MediaRule::new(query, &[], test_span(&arena, "@media screen { }"));
         Statement::MediaRule(mr).accept(&mut v).unwrap();
     }
@@ -869,7 +895,7 @@ mod tests {
     fn test_visit_string_expression_interpolation() {
         let arena = Bump::new();
         let mut v = RecursiveAstVisitor::new();
-        let text = Interpolation::plain("hello".into(), test_span(&arena, "hello"));
+        let text = Interpolation::plain(&arena, "hello".into(), test_span(&arena, "hello"));
         let se = StringExpression::new(text, true);
         Expression::String(se).accept(&mut v).unwrap();
     }

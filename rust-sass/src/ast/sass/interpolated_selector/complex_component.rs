@@ -97,6 +97,7 @@ mod tests {
         let span = make_span(&arena, "test");
         let compound = InterpolatedCompoundSelector::new(vec![InterpolatedSimpleSelector::Class(
             InterpolatedClassSelector::new(Interpolation::plain(
+                &arena,
                 "foo".into(),
                 make_span(&arena, "foo"),
             )),

@@ -371,7 +371,7 @@ fn at_root_query_impl<'b>(
     buffer.write_char_code(')');
     let span = span_from_impl(scanner, &state.parser_state, start)?.file_span()?;
     buffer
-        .interpolation(span)
+        .interpolation(state.arena, span)
         .map_err(|e| Box::new(ParseError::Sass(e)))
 }
 
@@ -953,6 +953,7 @@ pub(crate) fn import_argument_impl<'b>(
         } else {
             let expr_span = url_expr.span()?;
             Interpolation::new(
+                state.arena,
                 vec![InterpolationPart::Expression(Box::new(url_expr.clone()))],
                 vec![Some(expr_span)],
                 Span::File(expr_span),
@@ -970,7 +971,7 @@ pub(crate) fn import_argument_impl<'b>(
         let span = span_from_impl(scanner, &state.parser_state, start)?.file_span()?;
         let url_span_text = url_span.text().to_string();
         return Ok(Import::Static(StaticImport::new(
-            Interpolation::plain(url_span_text, url_span),
+            Interpolation::plain(state.arena, url_span_text, url_span),
             span,
             modifiers,
         )));
@@ -1053,7 +1054,7 @@ pub(crate) fn try_import_modifiers_impl<'b>(
                     let span = span_from_impl(scanner, &state.parser_state, start)?.file_span()?;
                     return Ok(Some(
                         buffer
-                            .interpolation(span)
+                            .interpolation(state.arena, span)
                             .map_err(|e| Box::new(ParseError::Sass(e)))?,
                     ));
                 }
@@ -1067,14 +1068,14 @@ pub(crate) fn try_import_modifiers_impl<'b>(
             let span = span_from_impl(scanner, &state.parser_state, start)?.file_span()?;
             return Ok(Some(
                 buffer
-                    .interpolation(span)
+                    .interpolation(state.arena, span)
                     .map_err(|e| Box::new(ParseError::Sass(e)))?,
             ));
         } else {
             let span = span_from_impl(scanner, &state.parser_state, start)?.file_span()?;
             return Ok(Some(
                 buffer
-                    .interpolation(span)
+                    .interpolation(state.arena, span)
                     .map_err(|e| Box::new(ParseError::Sass(e)))?,
             ));
         }
@@ -1751,7 +1752,7 @@ pub(crate) fn moz_document_rule_impl<'b>(
     let value_span = span_from_impl(scanner, &state.parser_state, value_start)?.file_span()?;
     let value = Some(
         buffer
-            .interpolation(value_span)
+            .interpolation(state.arena, value_span)
             .map_err(|e| Box::new(ParseError::Sass(e)))?,
     );
     let val = value;

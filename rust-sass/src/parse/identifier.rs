@@ -62,7 +62,7 @@ fn interpolated_identifier_impl_with_expr<'parse>(
             buffer.write_char_code('-');
             interpolated_identifier_body_helper_impl(scanner, state, &mut buffer, expression)?;
             let span = span_from_impl(scanner, &state.parser_state, start)?;
-            return Ok(buffer.interpolation(span)?);
+            return Ok(buffer.interpolation(state.arena, span)?);
         }
     }
 
@@ -96,7 +96,7 @@ fn interpolated_identifier_impl_with_expr<'parse>(
 
     interpolated_identifier_body_helper_impl(scanner, state, &mut buffer, expression)?;
     let span = span_from_impl(scanner, &state.parser_state, start)?;
-    Ok(buffer.interpolation(span)?)
+    Ok(buffer.interpolation(state.arena, span)?)
 }
 
 /// Consumes a chunk of a possibly-interpolated CSS identifier after the name
@@ -118,7 +118,7 @@ pub(crate) fn interpolated_identifier_body_impl<'parse>(
         ));
     }
     let span = span_from_impl(scanner, &state.parser_state, start)?;
-    Ok(buffer.interpolation(span)?)
+    Ok(buffer.interpolation(state.arena, span)?)
 }
 
 // Like `interpolated_identifier_body_impl`, but parses the body into the

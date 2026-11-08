@@ -68,7 +68,7 @@ mod tests {
         let arena = Bump::new();
         let fs = FileSource::new_in(&arena, "div", None);
         let span = FileSpan::new(Some(fs), 0, 3);
-        let name = Interpolation::plain("div".into(), span);
+        let name = Interpolation::plain(&arena, "div".into(), span);
         let qn = InterpolatedQualifiedName::new(name, span, None);
         let sel = InterpolatedTypeSelector::new(qn);
         assert_eq!(sel.span().unwrap(), span);

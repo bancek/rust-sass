@@ -114,7 +114,7 @@ pub(crate) fn scss_loud_comment_impl<'b>(
                 buffer.write_char_code(ch);
                 let span = span_from_impl(scanner, &state.parser_state, start)?.file_span()?;
                 let interp = buffer
-                    .interpolation(span)
+                    .interpolation(state.arena, span)
                     .map_err(|e| Box::new(ParseError::Sass(e)))?;
                 return Ok(LoudComment::new(interp));
             }

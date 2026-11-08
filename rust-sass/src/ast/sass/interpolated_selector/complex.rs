@@ -111,7 +111,7 @@ mod tests {
         'parse: 'compile,
     {
         let span = make_span(arena, name);
-        let interp = Interpolation::plain(name.into(), span);
+        let interp = Interpolation::plain(arena, name.into(), span);
         let class = InterpolatedClassSelector::new(interp);
         InterpolatedCompoundSelector::new(vec![InterpolatedSimpleSelector::Class(class)]).unwrap()
     }

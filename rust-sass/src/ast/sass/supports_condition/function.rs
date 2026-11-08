@@ -1,3 +1,5 @@
+use bumpalo::Bump;
+
 // Copyright 2020 Google Inc. Use of this source code is governed by an
 // MIT-style license that can be found in the LICENSE file or at
 // https://opensource.org/licenses/MIT.
@@ -46,7 +48,7 @@ impl<'parse> SupportsFunction<'parse> {
     // Rebuilds an interpolation with the same text by splicing the stored
     // name and arguments back between the original `between`/`after` source
     // slices.
-    pub fn to_interpolation(&self) -> SassResult<Interpolation<'parse>> {
+    pub fn to_interpolation(&self, arena: &'parse Bump) -> SassResult<Interpolation<'parse>> {
         let name_fs = self.name.span()?;
         let args_fs = self.arguments.span()?;
         let args_s = Span::File(args_fs);
@@ -59,7 +61,7 @@ impl<'parse> SupportsFunction<'parse> {
         buf.write(between.text());
         buf.add_interpolation(&self.arguments);
         buf.write(after.text());
-        buf.interpolation(self.span)
+        buf.interpolation(arena, self.span)
     }
 
     // Returns a copy of this condition with `span` as its span.
@@ -115,8 +117,8 @@ mod tests {
     fn test_construction_and_display() {
         let arena = Bump::new();
         let span = test_span(&arena, "fn(args)", 0, 8);
-        let name = Interpolation::plain("fn".into(), test_span(&arena, "fn", 0, 2));
-        let args = Interpolation::plain("args".into(), test_span(&arena, "args", 3, 7));
+        let name = Interpolation::plain(&arena, "fn".into(), test_span(&arena, "fn", 0, 2));
+        let args = Interpolation::plain(&arena, "args".into(), test_span(&arena, "args", 3, 7));
         let cond = SupportsFunction::new(name, args, span);
         assert_eq!(format!("{cond}"), "fn(args)");
         cond.span().unwrap();

@@ -102,7 +102,11 @@ mod tests {
         let arena = Bump::new();
         let fs = FileSource::new_in(&arena, "@at-root (with: rule) { }", None);
         let span = FileSpan::new(Some(fs), 0, 24);
-        let query = Interpolation::plain("(with: rule)".into(), FileSpan::new(Some(fs), 9, 21));
+        let query = Interpolation::plain(
+            &arena,
+            "(with: rule)".into(),
+            FileSpan::new(Some(fs), 9, 21),
+        );
         let rule = AtRootRule::new(&[], span, Some(query));
         assert!(rule.query.is_some());
     }

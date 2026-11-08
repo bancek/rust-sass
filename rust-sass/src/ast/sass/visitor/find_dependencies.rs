@@ -357,7 +357,11 @@ mod tests {
         let meta_use = UseRule::new(meta_url, Some("meta".into()), span, vec![]).unwrap();
 
         let include_span = test_span(&arena, "@include meta.load-css('baz');");
-        let arg_text = Interpolation::plain("file:///baz".into(), test_span(&arena, "file:///baz"));
+        let arg_text = Interpolation::plain(
+            &arena,
+            "file:///baz".into(),
+            test_span(&arena, "file:///baz"),
+        );
         let str_expr = Expression::String(StringExpression::new(arg_text, true));
         let args = ArgumentList::new(
             &arena,

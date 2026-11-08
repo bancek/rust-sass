@@ -1,3 +1,5 @@
+use bumpalo::Bump;
+
 // Copyright 2016 Google Inc. Use of this source code is governed by an
 // MIT-style license that can be found in the LICENSE file or at
 // https://opensource.org/licenses/MIT.
@@ -51,14 +53,14 @@ pub enum SupportsCondition<'parse> {
 impl<'parse> SupportsCondition<'parse> {
     // Converts this condition into an interpolation that produces the same
     // value.
-    pub fn to_interpolation(&self) -> SassResult<Interpolation<'parse>> {
+    pub fn to_interpolation(&self, arena: &'parse Bump) -> SassResult<Interpolation<'parse>> {
         match self {
-            Self::Anything(c) => c.to_interpolation(),
-            Self::Declaration(c) => c.to_interpolation(),
-            Self::Function(c) => c.to_interpolation(),
-            Self::Interpolation(c) => c.to_interpolation(),
-            Self::Negation(c) => c.to_interpolation(),
-            Self::Operation(c) => c.to_interpolation(),
+            Self::Anything(c) => c.to_interpolation(arena),
+            Self::Declaration(c) => c.to_interpolation(arena),
+            Self::Function(c) => c.to_interpolation(arena),
+            Self::Interpolation(c) => c.to_interpolation(arena),
+            Self::Negation(c) => c.to_interpolation(arena),
+            Self::Operation(c) => c.to_interpolation(arena),
         }
     }
 
