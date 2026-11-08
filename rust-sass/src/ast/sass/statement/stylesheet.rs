@@ -26,6 +26,7 @@ use crate::common::source_span_file_source::FileSource;
 use crate::deprecation::Deprecation;
 use crate::url::OwnedUrl;
 
+use crate::ast::sass::arena_slice;
 use crate::ast::sass::statement::forward_rule::ForwardRule;
 use crate::ast::sass::statement::use_rule::UseRule;
 use crate::ast::sass::statement::Statement;
@@ -53,9 +54,9 @@ pub struct Stylesheet<'parse> {
     // Whether this was parsed from a plain CSS stylesheet.
     pub plain_css: bool,
     /// All the `@use` rules that appear at the top of this stylesheet.
-    pub uses: Vec<UseRule<'parse>>,
+    pub uses: &'parse [UseRule<'parse>],
     /// All the `@forward` rules that appear at the top of this stylesheet.
-    pub forwards: Vec<ForwardRule<'parse>>,
+    pub forwards: &'parse [ForwardRule<'parse>],
     // Warnings discovered while parsing, emitted during evaluation once a
     // logger is available.
     pub parse_time_warnings: Vec<ParseTimeWarning<'parse>>,
@@ -66,13 +67,18 @@ pub struct Stylesheet<'parse> {
 
 impl<'parse> Stylesheet<'parse> {
     /// Creates a stylesheet holding `children`.
-    pub fn new(children: &'parse [Statement<'parse>], span: FileSpan<'parse>) -> Self {
-        Stylesheet::detailed(children, span, vec![], false, IndexMap::new())
+    pub fn new(
+        arena: &'parse Bump,
+        children: &'parse [Statement<'parse>],
+        span: FileSpan<'parse>,
+    ) -> Self {
+        Stylesheet::detailed(arena, children, span, vec![], false, IndexMap::new())
     }
 
     // Internal constructor that also sets warnings, the plain-CSS flag, and
     // the global-variable table.
     pub fn detailed(
+        arena: &'parse Bump,
         children: &'parse [Statement<'parse>],
         span: FileSpan<'parse>,
         warnings: Vec<ParseTimeWarning<'parse>>,
@@ -95,8 +101,8 @@ impl<'parse> Stylesheet<'parse> {
             children,
             span,
             plain_css,
-            uses,
-            forwards,
+            uses: arena_slice(arena, uses),
+            forwards: arena_slice(arena, forwards),
             parse_time_warnings: warnings,
             global_variables,
         }
@@ -104,12 +110,12 @@ impl<'parse> Stylesheet<'parse> {
 
     /// Returns the `@use` rules at the top of this stylesheet.
     pub fn uses(&self) -> &[UseRule<'parse>] {
-        &self.uses
+        self.uses
     }
 
     /// Returns the `@forward` rules at the top of this stylesheet.
     pub fn forwards(&self) -> &[ForwardRule<'parse>] {
-        &self.forwards
+        self.forwards
     }
 
     /// Parses an SCSS stylesheet from `contents`.
@@ -232,7 +238,7 @@ mod tests {
     fn test_new() {
         let arena = Bump::new();
         let span = make_span(&arena, "a { }");
-        let ss = Stylesheet::new(&[], span);
+        let ss = Stylesheet::new(&arena, &[], span);
         assert!(!ss.plain_css);
     }
 
@@ -241,7 +247,7 @@ mod tests {
         let arena = Bump::new();
         let span = make_span(&arena, "a { }");
         let gv: IndexMap<String, FileSpan> = IndexMap::new();
-        let ss = Stylesheet::detailed(&[], span, vec![], true, gv);
+        let ss = Stylesheet::detailed(&arena, &[], span, vec![], true, gv);
         assert!(ss.plain_css);
     }
 
@@ -257,7 +263,7 @@ mod tests {
             secondary: vec![],
         }];
         let gv: IndexMap<String, FileSpan> = IndexMap::new();
-        let ss = Stylesheet::detailed(&[], span, warnings, false, gv);
+        let ss = Stylesheet::detailed(&arena, &[], span, warnings, false, gv);
         assert_eq!(ss.parse_time_warnings.len(), 1);
         assert_eq!(ss.parse_time_warnings[0].message, "test warning");
     }
@@ -266,7 +272,7 @@ mod tests {
     fn test_span() {
         let arena = Bump::new();
         let span = make_span(&arena, "a { }");
-        let ss = Stylesheet::new(&[], span);
+        let ss = Stylesheet::new(&arena, &[], span);
         assert_eq!(ss.span().unwrap(), span);
     }
 
@@ -274,7 +280,7 @@ mod tests {
     fn test_display_empty() {
         let arena = Bump::new();
         let span = make_span(&arena, "");
-        let ss = Stylesheet::new(&[], span);
+        let ss = Stylesheet::new(&arena, &[], span);
         assert_eq!(format!("{ss}"), "");
     }
 

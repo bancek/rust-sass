@@ -316,7 +316,11 @@ mod tests {
         let span = test_span(&arena, "@use 'foo';");
         let u = OwnedUrl::parse("file:///foo").unwrap();
         let ur = UseRule::new(u.clone(), None, span, vec![]).unwrap();
-        let ss = Stylesheet::new(arena_statements(&arena, vec![Statement::UseRule(ur)]), span);
+        let ss = Stylesheet::new(
+            &arena,
+            arena_statements(&arena, vec![Statement::UseRule(ur)]),
+            span,
+        );
         let report = find_dependencies(&ss).unwrap();
 
         assert!(report.uses.contains(&u));
@@ -329,6 +333,7 @@ mod tests {
         let u = OwnedUrl::parse("file:///bar").unwrap();
         let fr = ForwardRule::new(u.clone(), span, None, vec![]);
         let ss = Stylesheet::new(
+            &arena,
             arena_statements(&arena, vec![Statement::ForwardRule(fr)]),
             span,
         );
@@ -343,7 +348,11 @@ mod tests {
         let span = test_span(&arena, "@use 'sass:color';");
         let u = OwnedUrl::parse("sass:color").unwrap();
         let ur = UseRule::new(u, None, span, vec![]).unwrap();
-        let ss = Stylesheet::new(arena_statements(&arena, vec![Statement::UseRule(ur)]), span);
+        let ss = Stylesheet::new(
+            &arena,
+            arena_statements(&arena, vec![Statement::UseRule(ur)]),
+            span,
+        );
         let report = find_dependencies(&ss).unwrap();
 
         assert!(report.uses.is_empty());
@@ -381,6 +390,7 @@ mod tests {
         );
 
         let ss = Stylesheet::new(
+            &arena,
             arena_statements(
                 &arena,
                 vec![Statement::UseRule(meta_use), Statement::IncludeRule(inc)],
@@ -405,6 +415,7 @@ mod tests {
         ));
         let ir = ImportRule::new(vec![di], span);
         let ss = Stylesheet::new(
+            &arena,
             arena_statements(&arena, vec![Statement::ImportRule(ir)]),
             span,
         );
@@ -419,7 +430,11 @@ mod tests {
         let span = test_span(&arena, "@use 'mod';");
         let u = OwnedUrl::parse("file:///mod").unwrap();
         let ur = UseRule::new(u.clone(), None, span, vec![]).unwrap();
-        let ss = Stylesheet::new(arena_statements(&arena, vec![Statement::UseRule(ur)]), span);
+        let ss = Stylesheet::new(
+            &arena,
+            arena_statements(&arena, vec![Statement::UseRule(ur)]),
+            span,
+        );
         let report = find_dependencies(&ss).unwrap();
 
         let modules = report.modules();
@@ -439,6 +454,7 @@ mod tests {
         ));
         let ir = ImportRule::new(vec![di], span);
         let ss = Stylesheet::new(
+            &arena,
             arena_statements(
                 &arena,
                 vec![Statement::UseRule(ur), Statement::ImportRule(ir)],
@@ -459,6 +475,7 @@ mod tests {
         let params = ParameterList::empty(test_span(&arena, ""));
         let fr = FunctionRule::new("f".into(), params, &[], span, None);
         let ss = Stylesheet::new(
+            &arena,
             arena_statements(&arena, vec![Statement::FunctionRule(fr)]),
             span,
         );

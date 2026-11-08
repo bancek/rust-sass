@@ -4346,7 +4346,7 @@ mod tests {
         let arena = Bump::new();
         let span = make_span(&arena, "");
         let (config, mut state) = test_visitor(&arena);
-        let sheet = Stylesheet::new(&[], span);
+        let sheet = Stylesheet::new(&arena, &[], span);
         let result = evaluate_stylesheet(&config, &mut state, &arena, &sheet).await;
         assert!(result.is_ok());
     }
@@ -4859,6 +4859,7 @@ mod tests {
         let (config, mut state) = test_visitor_with_root(arena);
         let span = make_span(arena, "root");
         state.stylesheet = Some(arena.alloc(Stylesheet::detailed(
+            arena,
             &[],
             span,
             vec![],
@@ -5060,6 +5061,7 @@ mod tests {
         state.style_rule_ignoring_at_root = Some(parent_css);
 
         state.stylesheet = Some(arena.alloc(Stylesheet::detailed(
+            &arena,
             &[],
             span,
             vec![],

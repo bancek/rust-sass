@@ -1090,6 +1090,7 @@ pub(crate) fn parse_impl<'b>(
     let global_variables: indexmap::IndexMap<String, FileSpan<'b>> =
         state.global_variables.drain().collect();
     Ok(Stylesheet::detailed(
+        arena,
         arena_statements(arena, stmts),
         span,
         warnings,

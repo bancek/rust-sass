@@ -263,6 +263,7 @@ mod tests {
         let mut v = RecursiveStatementVisitor::new();
         let child = var_decl(&arena, "x");
         let ss = Stylesheet::new(
+            &arena,
             arena_statements(&arena, vec![child]),
             test_span(&arena, "$x: null;"),
         );
