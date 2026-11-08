@@ -3423,9 +3423,9 @@ mod tests {
         let interp = Interpolation::new(
             &arena,
             vec![
-                InterpolationPart::Text("prefix:".into()),
+                InterpolationPart::Text("prefix:"),
                 InterpolationPart::Expression(Box::new(expr)),
-                InterpolationPart::Text("suffix".into()),
+                InterpolationPart::Text("suffix"),
             ],
             vec![None, Some(span), None],
             Span::File(span),

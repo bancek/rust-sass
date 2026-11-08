@@ -173,7 +173,7 @@ impl<'parse> ReplaceExpressionVisitor<'parse> {
                     new_contents.push(InterpolationPart::Expression(Box::new(replaced)));
                 }
                 InterpolationPart::Text(s) => {
-                    new_contents.push(InterpolationPart::Text(s.clone()));
+                    new_contents.push(InterpolationPart::Text(s));
                 }
             }
         }
@@ -730,11 +730,11 @@ mod tests {
         let interp = Interpolation::new(
             &arena,
             vec![
-                InterpolationPart::Text("a ".into()),
+                InterpolationPart::Text("a "),
                 InterpolationPart::Expression(Box::new(Expression::Variable(
                     VariableExpression::new("x".into(), test_span(&arena, "$x"), None),
                 ))),
-                InterpolationPart::Text(" b".into()),
+                InterpolationPart::Text(" b"),
             ],
             vec![None, Some(expr_span), None],
             span,

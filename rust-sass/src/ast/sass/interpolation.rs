@@ -26,9 +26,16 @@ use crate::ast::sass::expression::Expression;
 #[derive(Clone, Debug)]
 pub enum InterpolationPart<'parse> {
     /// Plain text (never adjacent to another `Text`).
-    Text(String),
+    Text(&'parse str),
     /// An interpolated expression (boxed: the recursive position).
     Expression(Box<Expression<'parse>>),
+}
+
+impl<'parse> InterpolationPart<'parse> {
+    /// Creates a plain-text part allocated in `arena`.
+    pub fn text(arena: &'parse Bump, text: impl AsRef<str>) -> Self {
+        InterpolationPart::Text(arena.alloc_str(text.as_ref()))
+    }
 }
 
 /// Plain text interpolated with Sass expressions.
@@ -61,7 +68,8 @@ impl<'parse> Interpolation<'parse> {
     /// interpolated expressions.
     pub fn plain(arena: &'parse Bump, text: String, span: impl Into<Span<'parse>>) -> Self {
         Interpolation {
-            contents: arena.alloc_slice_fill_iter([InterpolationPart::Text(text)]),
+            contents: arena
+                .alloc_slice_fill_iter([InterpolationPart::Text(arena.alloc_str(&text))]),
             spans: arena.alloc_slice_fill_iter([None]),
             span: span.into(),
             arena,
@@ -146,7 +154,7 @@ impl<'parse> Interpolation<'parse> {
     pub fn as_plain(&self) -> Option<&str> {
         match self.contents {
             [] => Some(""),
-            [InterpolationPart::Text(s)] => Some(s.as_str()),
+            [InterpolationPart::Text(s)] => Some(*s),
             _ => None,
         }
     }
@@ -169,7 +177,7 @@ impl<'parse> Interpolation<'parse> {
     // public API.
     pub fn initial_plain(&self) -> &str {
         match self.contents.first() {
-            Some(InterpolationPart::Text(s)) => s.as_str(),
+            Some(InterpolationPart::Text(s)) => s,
             _ => "",
         }
     }
@@ -273,7 +281,7 @@ mod tests {
         assert_eq!(interp.contents.len(), 1);
         assert!(matches!(
             &interp.contents[0],
-            InterpolationPart::Text(s) if s == "hello"
+            InterpolationPart::Text(s) if *s == "hello"
         ));
         assert!(interp.spans[0].is_none());
     }
@@ -291,9 +299,9 @@ mod tests {
         let interp = Interpolation::new(
             &arena,
             vec![
-                InterpolationPart::Text("a.".into()),
+                InterpolationPart::Text("a."),
                 InterpolationPart::Expression(Box::new(expr)),
-                InterpolationPart::Text(".b".into()),
+                InterpolationPart::Text(".b"),
             ],
             vec![None, Some(interp_expr_span), None],
             file_span,
@@ -312,10 +320,7 @@ mod tests {
         let span = test_span(&arena, "ab", 0, 2);
         let err = Interpolation::new(
             &arena,
-            vec![
-                InterpolationPart::Text("a".into()),
-                InterpolationPart::Text("b".into()),
-            ],
+            vec![InterpolationPart::Text("a"), InterpolationPart::Text("b")],
             vec![None, None],
             span,
         )
@@ -329,7 +334,7 @@ mod tests {
         let span = test_span(&arena, "a", 0, 1);
         let err = Interpolation::new(
             &arena,
-            vec![InterpolationPart::Text("a".into())],
+            vec![InterpolationPart::Text("a")],
             vec![None, None],
             span,
         )
@@ -348,9 +353,9 @@ mod tests {
         let err = Interpolation::new(
             &arena,
             vec![
-                InterpolationPart::Text("a.".into()),
+                InterpolationPart::Text("a."),
                 InterpolationPart::Expression(Box::new(expr)),
-                InterpolationPart::Text(".b".into()),
+                InterpolationPart::Text(".b"),
             ],
             vec![None, None, None],
             file_span,
@@ -365,7 +370,7 @@ mod tests {
         let span = test_span(&arena, "a", 0, 1);
         let err = Interpolation::new(
             &arena,
-            vec![InterpolationPart::Text("a".into())],
+            vec![InterpolationPart::Text("a")],
             vec![Some(test_span(&arena, "x", 0, 1))],
             span,
         )
@@ -385,9 +390,9 @@ mod tests {
         let interp = Interpolation::new(
             &arena,
             vec![
-                InterpolationPart::Text("a.".into()),
+                InterpolationPart::Text("a."),
                 InterpolationPart::Expression(Box::new(expr)),
-                InterpolationPart::Text(".b".into()),
+                InterpolationPart::Text(".b"),
             ],
             vec![None, Some(interp_expr_span), None],
             file_span,
@@ -411,9 +416,9 @@ mod tests {
         let interp = Interpolation::new(
             &arena,
             vec![
-                InterpolationPart::Text("a.".into()),
+                InterpolationPart::Text("a."),
                 InterpolationPart::Expression(Box::new(expr)),
-                InterpolationPart::Text(".b".into()),
+                InterpolationPart::Text(".b"),
             ],
             vec![None, Some(interp_expr_span), None],
             file_span,

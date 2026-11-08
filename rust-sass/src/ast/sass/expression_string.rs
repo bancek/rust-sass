@@ -44,7 +44,7 @@ impl<'parse> StringExpression<'parse> {
         has_quotes: bool,
     ) -> Self {
         StringExpression {
-            text: Interpolation::plain(arena, text.into(), span),
+            text: Interpolation::plain(arena, text.to_string(), span),
             has_quotes,
         }
     }
@@ -76,7 +76,7 @@ impl<'parse> StringExpression<'parse> {
             .contents
             .iter()
             .filter_map(|p| match p {
-                InterpolationPart::Text(s) => Some(s.as_str()),
+                InterpolationPart::Text(s) => Some(*s),
                 _ => None,
             })
             .collect();

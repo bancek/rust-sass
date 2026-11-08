@@ -532,13 +532,9 @@ mod tests {
         let arena = Bump::new();
         let fs = FileSource::new_in(&arena, "x", None);
         let span = FileSpan::new(Some(fs), 0, 1);
-        let interp = Interpolation::new(
-            &arena,
-            vec![InterpolationPart::Text("x".into())],
-            vec![None],
-            span,
-        )
-        .unwrap();
+        let interp =
+            Interpolation::new(&arena, vec![InterpolationPart::Text("x")], vec![None], span)
+                .unwrap();
         assert!(InterpolationMap::new(interp, vec![]).is_ok());
     }
 
@@ -547,13 +543,9 @@ mod tests {
         let arena = Bump::new();
         let fs = FileSource::new_in(&arena, "x", None);
         let span = FileSpan::new(Some(fs), 0, 1);
-        let interp = Interpolation::new(
-            &arena,
-            vec![InterpolationPart::Text("x".into())],
-            vec![None],
-            span,
-        )
-        .unwrap();
+        let interp =
+            Interpolation::new(&arena, vec![InterpolationPart::Text("x")], vec![None], span)
+                .unwrap();
         let err = InterpolationMap::new(interp, vec![1]).unwrap_err();
         assert!(err.message.contains("0 targetOffsets"));
     }
@@ -593,9 +585,9 @@ mod tests {
         let interp = Interpolation::new(
             &arena,
             vec![
-                InterpolationPart::Text("a.".into()),
+                InterpolationPart::Text("a."),
                 InterpolationPart::Expression(Box::new(expr)),
-                InterpolationPart::Text(".b".into()),
+                InterpolationPart::Text(".b"),
             ],
             vec![None, Some(hash_span), None],
             file_span,
@@ -745,9 +737,9 @@ mod tests {
         let interp = Interpolation::new(
             &arena,
             vec![
-                InterpolationPart::Text("a.".into()),
+                InterpolationPart::Text("a."),
                 InterpolationPart::Expression(Box::new(expr)),
-                InterpolationPart::Text(".b".into()),
+                InterpolationPart::Text(".b"),
             ],
             vec![None, Some(hash_span), None],
             file_span,
