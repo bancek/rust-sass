@@ -7,10 +7,10 @@
 // dart-source: lib/src/ast/css/modifiable/node.dart
 // go-source: go/value/css_modifiable_node.go
 
+use std::cell::Cell;
 use std::cell::Ref;
 use std::cell::RefCell;
 use std::fmt;
-use std::rc::{Rc, Weak};
 
 use bumpalo::Bump;
 
@@ -255,10 +255,9 @@ impl<'parse> fmt::Display for ModifiableCssNodeKind<'parse> {
 // ModifiableCssNodeInner — all mutable state in one RefCell
 // =============================================================================
 
-#[derive(Debug)]
 pub(super) struct ModifiableCssNodeInner<'parse> {
     pub kind: ModifiableCssNodeKind<'parse>,
-    parent: Weak<RefCell<ModifiableCssNodeInner<'parse>>>,
+    parent: Cell<Option<&'parse RefCell<ModifiableCssNodeInner<'parse>>>>,
     index_in_parent: usize,
     is_group_end: bool,
     /// Extra NESTED-output indent levels for libsass parity (libsass's
@@ -284,7 +283,19 @@ pub(super) struct ModifiableCssNodeInner<'parse> {
 /// same parent, children, and flags until the tree is restructured.
 #[derive(Clone, Debug)]
 pub struct ModifiableCssNode<'parse> {
-    inner: Rc<RefCell<ModifiableCssNodeInner<'parse>>>,
+    inner: &'parse RefCell<ModifiableCssNodeInner<'parse>>,
+}
+
+impl<'parse> fmt::Debug for ModifiableCssNodeInner<'parse> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        // Parent links are skipped: formatting them would recurse forever.
+        f.debug_struct("ModifiableCssNodeInner")
+            .field("kind", &self.kind)
+            .field("index_in_parent", &self.index_in_parent)
+            .field("is_group_end", &self.is_group_end)
+            .field("tabs", &self.tabs)
+            .finish()
+    }
 }
 
 impl<'parse> ModifiableCssNode<'parse> {
@@ -294,13 +305,13 @@ impl<'parse> ModifiableCssNode<'parse> {
 
     /// Creates a node with no parent and `is_group_end` unset.
     pub fn new<'compile: 'parse>(
-        _arena: &'compile Bump,
+        arena: &'compile Bump,
         kind: ModifiableCssNodeKind<'parse>,
     ) -> Self {
         ModifiableCssNode {
-            inner: Rc::new(RefCell::new(ModifiableCssNodeInner {
+            inner: arena.alloc(RefCell::new(ModifiableCssNodeInner {
                 kind,
-                parent: Weak::new(),
+                parent: Cell::new(None),
                 index_in_parent: 0,
                 is_group_end: false,
                 tabs: 0,
@@ -355,15 +366,14 @@ impl<'parse> ModifiableCssNode<'parse> {
         self.inner
             .borrow()
             .parent
-            .upgrade()
-            .map(|rc| ModifiableCssNode { inner: rc })
+            .get()
+            .map(|inner| ModifiableCssNode { inner })
     }
 
     /// Sets the back-pointer directly, without touching any child list.
     /// Prefer [`add_child`](Self::add_child) when attaching through a parent.
     pub fn set_parent(&self, parent: Option<&ModifiableCssNode<'parse>>) {
-        self.inner.borrow_mut().parent =
-            parent.map(|p| Rc::downgrade(&p.inner)).unwrap_or_default();
+        self.inner.borrow_mut().parent.set(parent.map(|p| p.inner));
     }
 
     pub fn set_index_in_parent(&self, i: usize) {
@@ -677,7 +687,7 @@ impl<'parse> fmt::Display for ModifiableCssNode<'parse> {
 
 impl<'parse> PartialEq for ModifiableCssNode<'parse> {
     fn eq(&self, other: &Self) -> bool {
-        Rc::ptr_eq(&self.inner, &other.inner)
+        std::ptr::eq(self.inner, other.inner)
     }
 }
 

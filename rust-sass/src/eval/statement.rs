@@ -2866,11 +2866,7 @@ where
     // Walk parent chain, collecting CSS parent nodes not excluded by query
     let mut cur = state.parent.clone();
     let mut included: Vec<ModifiableCssNode<'parse>> = Vec::new();
-    loop {
-        let parent = match cur {
-            Some(ref p) => p.clone(),
-            None => break,
-        };
+    while let Some(parent) = cur {
         let kind = parent.kind();
         if matches!(&*kind, ModifiableCssNodeKind::Stylesheet(_)) {
             break;
