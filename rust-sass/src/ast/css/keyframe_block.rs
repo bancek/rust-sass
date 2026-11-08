@@ -9,6 +9,9 @@
 
 use std::fmt;
 
+use bumpalo::Bump;
+
+use crate::arena_map::ArenaVec;
 use crate::common::ast_css_value::CssValue;
 use crate::common::ast_node::AstNode;
 use crate::common::exception::SassResult;
@@ -80,16 +83,20 @@ pub struct ModifiableCssKeyframeBlock<'parse> {
     /// The source span for this block.
     pub span: FileSpan<'parse>,
     /// The child statements of this block.
-    pub children: Vec<ModifiableCssNode<'parse>>,
+    pub children: ArenaVec<'parse, ModifiableCssNode<'parse>>,
 }
 
 impl<'parse> ModifiableCssKeyframeBlock<'parse> {
     /// Creates a modifiable keyframe block with no children yet.
-    pub fn new(selector: CssValue<'parse, Vec<String>>, span: FileSpan<'parse>) -> Self {
+    pub fn new(
+        arena: &'parse Bump,
+        selector: CssValue<'parse, Vec<String>>,
+        span: FileSpan<'parse>,
+    ) -> Self {
         ModifiableCssKeyframeBlock {
             selector,
             span,
-            children: Vec::new(),
+            children: ArenaVec::new_in(arena),
         }
     }
 }
@@ -137,7 +144,7 @@ mod tests {
         let span = make_span(&arena, "test");
         let sel_span = make_span(&arena, "10%");
         let sel = CssValue::new(vec!["10%".into()], sel_span);
-        let b = ModifiableCssKeyframeBlock::new(sel, span);
+        let b = ModifiableCssKeyframeBlock::new(&arena, sel, span);
         assert_eq!(b.selector.value, vec!["10%"]);
     }
 }

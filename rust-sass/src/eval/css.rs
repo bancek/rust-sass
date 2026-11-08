@@ -270,6 +270,7 @@ where
     let rule = ModifiableCssNode::new(
         arena,
         ModifiableCssNodeKind::KeyframeBlock(ModifiableCssKeyframeBlock::new(
+            arena,
             node.selector.clone(),
             node.span,
         )),
@@ -335,6 +336,7 @@ where
         let rule = ModifiableCssNode::new(
             arena,
             ModifiableCssNodeKind::AtRule(ModifiableCssAtRule::new(
+                arena,
                 node.name.clone(),
                 node.span,
                 true,
@@ -358,6 +360,7 @@ where
     let rule = ModifiableCssNode::new(
         arena,
         ModifiableCssNodeKind::AtRule(ModifiableCssAtRule::new(
+            arena,
             node.name.clone(),
             node.span,
             false,
@@ -445,6 +448,7 @@ where
     let rule = ModifiableCssNode::new(
         arena,
         ModifiableCssNodeKind::SupportsRule(ModifiableCssSupportsRule::new(
+            arena,
             node.condition.clone(),
             node.span,
         )),
@@ -592,6 +596,7 @@ where
     };
 
     let msr = ModifiableCssStyleRule::new(
+        arena,
         selector_box.inner,
         node.span,
         Some(original_selector),
@@ -686,6 +691,7 @@ where
         let rule_node = ModifiableCssNode::new(
             arena,
             ModifiableCssNodeKind::MediaRule(ModifiableCssMediaRule::new(
+                arena,
                 node.queries.clone(),
                 node.span,
             )?),
@@ -736,6 +742,7 @@ where
     let rule_node = ModifiableCssNode::new(
         arena,
         ModifiableCssNodeKind::MediaRule(ModifiableCssMediaRule::new(
+            arena,
             queries_for_rule.clone(),
             node.span,
         )?),
@@ -867,7 +874,7 @@ mod tests {
         let mut state = EvalState::new(arena, span);
         let root = ModifiableCssNode::new(
             arena,
-            ModifiableCssNodeKind::Stylesheet(ModifiableCssStylesheet::new(span)),
+            ModifiableCssNodeKind::Stylesheet(ModifiableCssStylesheet::new(arena, span)),
         );
         state.root = Some(root.clone());
         state.parent = Some(root);
@@ -1143,6 +1150,7 @@ mod tests {
         state.parent = Some(ModifiableCssNode::new(
             &arena,
             ModifiableCssNodeKind::KeyframeBlock(ModifiableCssKeyframeBlock::new(
+                &arena,
                 kb.selector.clone(),
                 kb.span,
             )),
@@ -1231,6 +1239,7 @@ mod tests {
         let at_rule = ModifiableCssNode::new(
             &arena,
             ModifiableCssNodeKind::AtRule(ModifiableCssAtRule::new(
+                &arena,
                 make_val(&arena, "media"),
                 make_span(&arena, "@media"),
                 false,
@@ -1252,6 +1261,7 @@ mod tests {
         let at_rule = ModifiableCssNode::new(
             &arena,
             ModifiableCssNodeKind::AtRule(ModifiableCssAtRule::new(
+                &arena,
                 make_val(&arena, "custom"),
                 make_span(&arena, "@custom"),
                 false,

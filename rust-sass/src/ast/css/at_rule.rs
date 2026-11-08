@@ -9,6 +9,9 @@
 
 use std::fmt;
 
+use bumpalo::Bump;
+
+use crate::arena_map::ArenaVec;
 use crate::common::ast_css_value::CssValue;
 use crate::common::ast_node::AstNode;
 use crate::common::exception::SassResult;
@@ -103,12 +106,13 @@ pub struct ModifiableCssAtRule<'parse> {
     /// The source span for this rule.
     pub span: FileSpan<'parse>,
     /// The child statements of this rule.
-    pub children: Vec<ModifiableCssNode<'parse>>,
+    pub children: ArenaVec<'parse, ModifiableCssNode<'parse>>,
 }
 
 impl<'parse> ModifiableCssAtRule<'parse> {
     /// Creates an at-rule with no children yet attached.
     pub fn new(
+        arena: &'parse Bump,
         name: CssValue<'parse, String>,
         span: FileSpan<'parse>,
         childless: bool,
@@ -119,7 +123,7 @@ impl<'parse> ModifiableCssAtRule<'parse> {
             value,
             childless,
             span,
-            children: Vec::new(),
+            children: ArenaVec::new_in(arena),
         }
     }
 }
@@ -176,7 +180,7 @@ mod tests {
         let arena = Bump::new();
         let span = make_span(&arena, "@media {}");
         let name = make_val(&arena, "media");
-        let r = ModifiableCssAtRule::new(name, span, false, None);
+        let r = ModifiableCssAtRule::new(&arena, name, span, false, None);
         assert_eq!(r.name.value, "media");
         assert!(!r.childless);
     }
@@ -186,7 +190,7 @@ mod tests {
         let arena = Bump::new();
         let span = make_span(&arena, "@import;");
         let name = make_val(&arena, "import");
-        let r = ModifiableCssAtRule::new(name, span, true, None);
+        let r = ModifiableCssAtRule::new(&arena, name, span, true, None);
         assert!(r.childless);
     }
 

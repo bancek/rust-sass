@@ -72,6 +72,7 @@ where
     let mod_node = ModifiableCssNode::new(
         arena,
         ModifiableCssNodeKind::AtRule(ModifiableCssAtRule::new(
+            arena,
             node.name.clone(),
             node.span,
             node.childless,
@@ -259,6 +260,7 @@ where
     let mod_node = ModifiableCssNode::new(
         arena,
         ModifiableCssNodeKind::MediaRule(ModifiableCssMediaRule::new(
+            arena,
             node.queries.clone(),
             node.span,
         )?),
@@ -316,6 +318,7 @@ where
     let mod_node = ModifiableCssNode::new(
         arena,
         ModifiableCssNodeKind::StyleRule(ModifiableCssStyleRule::new(
+            arena,
             arena.alloc(RefCell::new(node.selector)),
             node.span,
             Some(node.original_selector),
@@ -406,6 +409,7 @@ where
     let mod_node = ModifiableCssNode::new(
         arena,
         ModifiableCssNodeKind::SupportsRule(ModifiableCssSupportsRule::new(
+            arena,
             node.condition.clone(),
             node.span,
         )),
@@ -532,7 +536,7 @@ mod tests {
         let mut state = EvalState::new(arena, span);
         let root = ModifiableCssNode::new(
             arena,
-            ModifiableCssNodeKind::Stylesheet(ModifiableCssStylesheet::new(span)),
+            ModifiableCssNodeKind::Stylesheet(ModifiableCssStylesheet::new(arena, span)),
         );
         state.root = Some(root.clone());
         state.parent = Some(root);
@@ -664,6 +668,7 @@ mod tests {
         let at_rule = ModifiableCssNode::new(
             &arena,
             ModifiableCssNodeKind::AtRule(ModifiableCssAtRule::new(
+                &arena,
                 make_val(&arena, "custom"),
                 make_span(&arena, "@custom"),
                 false,

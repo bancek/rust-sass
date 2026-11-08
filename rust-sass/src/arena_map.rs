@@ -29,9 +29,11 @@ use std::fmt;
 use std::hash::{BuildHasher, Hash};
 use std::ops::{Index, IndexMut};
 
-use allocator_api2::vec::Vec as ArenaVec;
 use bumpalo::Bump;
 use hashbrown::HashTable;
+
+/// An arena-backed `Vec` (Dart `List<T>`).
+pub type ArenaVec<'p, T> = allocator_api2::vec::Vec<T, &'p Bump>;
 
 /// The cached hash makes removals and rehashes allocation-free of hashing.
 struct Bucket<K, V> {
@@ -42,7 +44,7 @@ struct Bucket<K, V> {
 
 /// An insertion-ordered map backed by the compile arena.
 pub struct ArenaMap<'parse, K, V, S = RandomState> {
-    entries: ArenaVec<Bucket<K, V>, &'parse Bump>,
+    entries: ArenaVec<'parse, Bucket<K, V>>,
     /// Maps a hash to its entry's index in `entries`.
     indices: HashTable<usize, &'parse Bump>,
     hasher: S,

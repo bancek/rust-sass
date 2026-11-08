@@ -11,6 +11,7 @@ use std::fmt;
 
 use bumpalo::Bump;
 
+use crate::arena_map::ArenaVec;
 use crate::url::SassUrl;
 
 use crate::common::ast_node::AstNode;
@@ -85,15 +86,15 @@ pub struct ModifiableCssStylesheet<'parse> {
     /// The source span for this stylesheet.
     pub span: FileSpan<'parse>,
     /// The top-level statements of this stylesheet.
-    pub children: Vec<ModifiableCssNode<'parse>>,
+    pub children: ArenaVec<'parse, ModifiableCssNode<'parse>>,
 }
 
 impl<'parse> ModifiableCssStylesheet<'parse> {
     /// Creates a modifiable stylesheet with no children yet.
-    pub fn new(span: FileSpan<'parse>) -> Self {
+    pub fn new(arena: &'parse Bump, span: FileSpan<'parse>) -> Self {
         ModifiableCssStylesheet {
             span,
-            children: Vec::new(),
+            children: ArenaVec::new_in(arena),
         }
     }
 }
@@ -131,7 +132,7 @@ mod tests {
     fn test_stylesheet_construction() {
         let arena = Bump::new();
         let span = make_span(&arena, "test");
-        let ss = ModifiableCssStylesheet::new(span);
+        let ss = ModifiableCssStylesheet::new(&arena, span);
         assert_eq!(ss.children.len(), 0);
     }
 

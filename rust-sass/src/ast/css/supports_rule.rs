@@ -9,6 +9,9 @@
 
 use std::fmt;
 
+use bumpalo::Bump;
+
+use crate::arena_map::ArenaVec;
 use crate::common::ast_css_value::CssValue;
 use crate::common::ast_node::AstNode;
 use crate::common::exception::SassResult;
@@ -77,16 +80,20 @@ pub struct ModifiableCssSupportsRule<'parse> {
     /// The source span for this rule.
     pub span: FileSpan<'parse>,
     /// The child statements of this rule.
-    pub children: Vec<ModifiableCssNode<'parse>>,
+    pub children: ArenaVec<'parse, ModifiableCssNode<'parse>>,
 }
 
 impl<'parse> ModifiableCssSupportsRule<'parse> {
     /// Creates a modifiable supports rule with no children yet.
-    pub fn new(condition: CssValue<'parse, String>, span: FileSpan<'parse>) -> Self {
+    pub fn new(
+        arena: &'parse Bump,
+        condition: CssValue<'parse, String>,
+        span: FileSpan<'parse>,
+    ) -> Self {
         ModifiableCssSupportsRule {
             condition,
             span,
-            children: Vec::new(),
+            children: ArenaVec::new_in(arena),
         }
     }
 }
@@ -129,7 +136,7 @@ mod tests {
         let span = make_span(&arena, "test");
         let cond_span = make_span(&arena, "display: grid");
         let cond = CssValue::new("display: grid".into(), cond_span);
-        let r = ModifiableCssSupportsRule::new(cond, span);
+        let r = ModifiableCssSupportsRule::new(&arena, cond, span);
         assert_eq!(r.condition.value, "display: grid");
     }
 }

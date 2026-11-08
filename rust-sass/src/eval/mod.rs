@@ -670,7 +670,7 @@ where
     // fallback for deprecation warnings (Dart: run() line 714).
     let node_span = stylesheet.span;
     helpers::with_evaluation_context(&v.config, &mut v.state, node_span, async |config, state| {
-        let ss = ModifiableCssStylesheet::new(node_span);
+        let ss = ModifiableCssStylesheet::new(arena, node_span);
         let root = ModifiableCssNode::new(arena, ModifiableCssNodeKind::Stylesheet(ss));
         state.root = Some(root.clone());
         state.parent = Some(root);
@@ -727,7 +727,7 @@ where
     };
     let css = ModifiableCssNode::new(
         arena,
-        ModifiableCssNodeKind::Stylesheet(ModifiableCssStylesheet::new(node_span)),
+        ModifiableCssNodeKind::Stylesheet(ModifiableCssStylesheet::new(arena, node_span)),
     );
     for child in &css_children {
         css.add_child(child)?;

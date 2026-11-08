@@ -136,7 +136,7 @@ impl<'compile: 'parse, 'parse> EnvironmentModule<'compile, 'parse> {
         let span = FileSpan::new(Some(fs), 0, 0);
         let css = ModifiableCssNode::new(
             arena,
-            ModifiableCssNodeKind::Stylesheet(ModifiableCssStylesheet::new(span)),
+            ModifiableCssNodeKind::Stylesheet(ModifiableCssStylesheet::new(arena, span)),
         );
         Self::new(
             arena,

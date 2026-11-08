@@ -86,7 +86,7 @@ impl<'compile: 'parse, 'parse> BuiltInModule<'compile, 'parse> {
             mixins: mx_map,
             css: ModifiableCssNode::new(
                 arena,
-                ModifiableCssNodeKind::Stylesheet(ModifiableCssStylesheet::new(BOGUS_SPAN)),
+                ModifiableCssNodeKind::Stylesheet(ModifiableCssStylesheet::new(arena, BOGUS_SPAN)),
             ),
             variable_nodes: ArenaMap::new_in(arena),
             pre_module_comments: ArenaMap::new_in(arena),
@@ -1041,7 +1041,7 @@ mod tests {
         }
         let css = ModifiableCssNode::new(
             arena,
-            ModifiableCssNodeKind::Stylesheet(ModifiableCssStylesheet::new(test_span())),
+            ModifiableCssNodeKind::Stylesheet(ModifiableCssStylesheet::new(arena, test_span())),
         );
         for child in &children {
             css.add_child(child).unwrap();

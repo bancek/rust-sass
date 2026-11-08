@@ -10,6 +10,9 @@
 use std::cell::RefCell;
 use std::fmt;
 
+use bumpalo::Bump;
+
+use crate::arena_map::ArenaVec;
 use crate::common::ast_node::AstNode;
 use crate::common::exception::SassResult;
 use crate::common::file_span::FileSpan;
@@ -103,7 +106,7 @@ pub struct ModifiableCssStyleRule<'parse> {
     /// The source span for this rule.
     pub span: FileSpan<'parse>,
     /// The child statements of this rule.
-    pub children: Vec<ModifiableCssNode<'parse>>,
+    pub children: ArenaVec<'parse, ModifiableCssNode<'parse>>,
 }
 
 impl<'parse> ModifiableCssStyleRule<'parse> {
@@ -112,6 +115,7 @@ impl<'parse> ModifiableCssStyleRule<'parse> {
     /// When `original_selector` is `None`, it defaults to the current value
     /// of `selector`.
     pub fn new(
+        arena: &'parse Bump,
         selector: &'parse RefCell<SelectorList<'parse>>,
         span: FileSpan<'parse>,
         original_selector: Option<SelectorList<'parse>>,
@@ -123,7 +127,7 @@ impl<'parse> ModifiableCssStyleRule<'parse> {
             original_selector: orig,
             from_plain_css,
             span,
-            children: Vec::new(),
+            children: ArenaVec::new_in(arena),
         }
     }
 
@@ -203,7 +207,7 @@ mod tests {
         let span = make_span(&arena, "test");
         let sel = make_selector_list(&arena, "foo");
         let rc = arena.alloc(RefCell::new(sel));
-        let r = ModifiableCssStyleRule::new(rc, span, Some(sel), false);
+        let r = ModifiableCssStyleRule::new(&arena, rc, span, Some(sel), false);
         assert!(!r.from_plain_css);
     }
 
@@ -213,7 +217,7 @@ mod tests {
         let span = make_span(&arena, "test");
         let sel = make_selector_list(&arena, "foo");
         let rc = arena.alloc(RefCell::new(sel));
-        let r = ModifiableCssStyleRule::new(rc, span, Some(sel), true);
+        let r = ModifiableCssStyleRule::new(&arena, rc, span, Some(sel), true);
         assert!(r.from_plain_css);
     }
 }

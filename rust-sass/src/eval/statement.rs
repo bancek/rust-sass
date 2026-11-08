@@ -632,6 +632,7 @@ where
 
     let from_plain_css = state.stylesheet.as_ref().is_some_and(|s| s.plain_css);
     let msr = ModifiableCssStyleRule::new(
+        arena,
         selector_box.inner,
         node.span,
         Some(parsed_selector),
@@ -707,7 +708,8 @@ where
         let mut kp = KeyframeSelectorParser::new_with_map(source, Some(selector_map));
         let parsed = kp.parse()?;
         let selector_span = selector.span()?;
-        let rule = ModifiableCssKeyframeBlock::new(CssValue::new(parsed, selector_span), node.span);
+        let rule =
+            ModifiableCssKeyframeBlock::new(arena, CssValue::new(parsed, selector_span), node.span);
         let rule_node = ModifiableCssNode::new(arena, ModifiableCssNodeKind::KeyframeBlock(rule));
         let through: Option<&dyn Fn(&ModifiableCssNode<'parse>) -> bool> =
             Some(&|n| n.is_style_rule());
@@ -1539,7 +1541,7 @@ where
                                 let new_root = ModifiableCssNode::new(
                                     arena,
                                     ModifiableCssNodeKind::Stylesheet(
-                                        ModifiableCssStylesheet::new(loaded.stylesheet.span),
+                                        ModifiableCssStylesheet::new(arena, loaded.stylesheet.span),
                                     ),
                                 );
                                 s2.root = Some(new_root.clone());
@@ -1658,7 +1660,11 @@ where
         let span = node.span()?;
         let rule = ModifiableCssNode::new(
             arena,
-            ModifiableCssNodeKind::MediaRule(ModifiableCssMediaRule::new(css_queries, span)?),
+            ModifiableCssNodeKind::MediaRule(ModifiableCssMediaRule::new(
+                arena,
+                css_queries,
+                span,
+            )?),
         );
         let tabs_node = rule.clone();
         with_parent(
@@ -1704,7 +1710,11 @@ where
 
     let rule = ModifiableCssNode::new(
         arena,
-        ModifiableCssNodeKind::MediaRule(ModifiableCssMediaRule::new(rule_queries.clone(), span)?),
+        ModifiableCssNodeKind::MediaRule(ModifiableCssMediaRule::new(
+            arena,
+            rule_queries.clone(),
+            span,
+        )?),
     );
 
     // The through function skips over style rules (always) and media rules
@@ -2714,7 +2724,9 @@ where
         copy_parent_after_sibling(arena, state)?;
         let at_rule = ModifiableCssNode::new(
             arena,
-            ModifiableCssNodeKind::AtRule(ModifiableCssAtRule::new(name, node.span, true, value)),
+            ModifiableCssNodeKind::AtRule(ModifiableCssAtRule::new(
+                arena, name, node.span, true, value,
+            )),
         );
         add_child(arena, state, &at_rule, None)?;
         return Ok(None);
@@ -2731,7 +2743,9 @@ where
 
     let at_rule = ModifiableCssNode::new(
         arena,
-        ModifiableCssNodeKind::AtRule(ModifiableCssAtRule::new(name, node.span, false, value)),
+        ModifiableCssNodeKind::AtRule(ModifiableCssAtRule::new(
+            arena, name, node.span, false, value,
+        )),
     );
 
     if has_css_nesting(state) {
@@ -3404,7 +3418,7 @@ where
     state.stylesheet = Some(stylesheet);
     let new_root = ModifiableCssNode::new(
         arena,
-        ModifiableCssNodeKind::Stylesheet(ModifiableCssStylesheet::new(stylesheet.span)),
+        ModifiableCssNodeKind::Stylesheet(ModifiableCssStylesheet::new(arena, stylesheet.span)),
     );
     state.root = Some(new_root.clone());
     state.parent = Some(new_root);
@@ -3441,7 +3455,7 @@ where
     };
     let css = ModifiableCssNode::new(
         arena,
-        ModifiableCssNodeKind::Stylesheet(ModifiableCssStylesheet::new(stylesheet.span)),
+        ModifiableCssNodeKind::Stylesheet(ModifiableCssStylesheet::new(arena, stylesheet.span)),
     );
     for child in &css_children {
         css.add_child(child)?;
@@ -3971,7 +3985,9 @@ where
     let condition = CssValue::new(condition_text, cond_span);
     let rule = ModifiableCssNode::new(
         arena,
-        ModifiableCssNodeKind::SupportsRule(ModifiableCssSupportsRule::new(condition, node.span)),
+        ModifiableCssNodeKind::SupportsRule(ModifiableCssSupportsRule::new(
+            arena, condition, node.span,
+        )),
     );
 
     if has_css_nesting(state) {
@@ -4303,7 +4319,7 @@ mod tests {
         let span = make_span(arena, "root");
         let root = ModifiableCssNode::new(
             arena,
-            ModifiableCssNodeKind::Stylesheet(ModifiableCssStylesheet::new(span)),
+            ModifiableCssNodeKind::Stylesheet(ModifiableCssStylesheet::new(arena, span)),
         );
         state.root = Some(root.clone());
         state.parent = Some(root);
@@ -4907,7 +4923,8 @@ mod tests {
         let span = make_span(&arena, ".bar");
         let (config, mut state) = test_visitor_with_root_and_stylesheet(&arena, false);
         state.in_keyframes = true;
-        let kfb = ModifiableCssKeyframeBlock::new(CssValue::new(vec!["from".into()], span), span);
+        let kfb =
+            ModifiableCssKeyframeBlock::new(&arena, CssValue::new(vec!["from".into()], span), span);
         state.parent = Some(ModifiableCssNode::new(
             &arena,
             ModifiableCssNodeKind::KeyframeBlock(kfb),

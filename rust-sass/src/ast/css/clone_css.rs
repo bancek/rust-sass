@@ -74,6 +74,7 @@ impl<'parse> CloneCssVisitor<'parse> for CloneCssVisitorWithExt<'parse> {
         node: &ModifiableCssAtRule<'parse>,
     ) -> SassResult<ModifiableCssNode<'parse>> {
         let rule = ModifiableCssAtRule::new(
+            arena,
             node.name.clone(),
             node.span,
             node.childless,
@@ -137,7 +138,7 @@ impl<'parse> CloneCssVisitor<'parse> for CloneCssVisitorWithExt<'parse> {
         arena: &'compile Bump,
         node: &ModifiableCssKeyframeBlock<'parse>,
     ) -> SassResult<ModifiableCssNode<'parse>> {
-        let b = ModifiableCssKeyframeBlock::new(node.selector.clone(), node.span);
+        let b = ModifiableCssKeyframeBlock::new(arena, node.selector.clone(), node.span);
         let new_node = ModifiableCssNode::new(arena, ModifiableCssNodeKind::KeyframeBlock(b));
         visit_children(arena, &new_node, &node.children, self)
     }
@@ -147,7 +148,7 @@ impl<'parse> CloneCssVisitor<'parse> for CloneCssVisitorWithExt<'parse> {
         arena: &'compile Bump,
         node: &ModifiableCssMediaRule<'parse>,
     ) -> SassResult<ModifiableCssNode<'parse>> {
-        let r = ModifiableCssMediaRule::new(node.queries.clone(), node.span)?;
+        let r = ModifiableCssMediaRule::new(arena, node.queries.clone(), node.span)?;
         let new_node = ModifiableCssNode::new(arena, ModifiableCssNodeKind::MediaRule(r));
         visit_children(arena, &new_node, &node.children, self)
     }
@@ -173,6 +174,7 @@ impl<'parse> CloneCssVisitor<'parse> for CloneCssVisitorWithExt<'parse> {
         // Dart `clone_css.dart visitCssStyleRule` omits `fromPlainCss`
         // (defaults to false).
         let rule = ModifiableCssStyleRule::new(
+            arena,
             new_box.inner,
             node.span,
             Some(node.original_selector),
@@ -187,7 +189,7 @@ impl<'parse> CloneCssVisitor<'parse> for CloneCssVisitorWithExt<'parse> {
         arena: &'compile Bump,
         node: &ModifiableCssStylesheet<'parse>,
     ) -> SassResult<ModifiableCssNode<'parse>> {
-        let s = ModifiableCssStylesheet::new(node.span);
+        let s = ModifiableCssStylesheet::new(arena, node.span);
         let new_node = ModifiableCssNode::new(arena, ModifiableCssNodeKind::Stylesheet(s));
         visit_children(arena, &new_node, &node.children, self)
     }
@@ -197,7 +199,7 @@ impl<'parse> CloneCssVisitor<'parse> for CloneCssVisitorWithExt<'parse> {
         arena: &'compile Bump,
         node: &ModifiableCssSupportsRule<'parse>,
     ) -> SassResult<ModifiableCssNode<'parse>> {
-        let r = ModifiableCssSupportsRule::new(node.condition.clone(), node.span);
+        let r = ModifiableCssSupportsRule::new(arena, node.condition.clone(), node.span);
         let new_node = ModifiableCssNode::new(arena, ModifiableCssNodeKind::SupportsRule(r));
         visit_children(arena, &new_node, &node.children, self)
     }
@@ -218,6 +220,7 @@ impl<'parse> CloneCssVisitor<'parse> for CloneCssVisitorNoExt {
         node: &ModifiableCssAtRule<'parse>,
     ) -> SassResult<ModifiableCssNode<'parse>> {
         let rule = ModifiableCssAtRule::new(
+            arena,
             node.name.clone(),
             node.span,
             node.childless,
@@ -281,7 +284,7 @@ impl<'parse> CloneCssVisitor<'parse> for CloneCssVisitorNoExt {
         arena: &'compile Bump,
         node: &ModifiableCssKeyframeBlock<'parse>,
     ) -> SassResult<ModifiableCssNode<'parse>> {
-        let b = ModifiableCssKeyframeBlock::new(node.selector.clone(), node.span);
+        let b = ModifiableCssKeyframeBlock::new(arena, node.selector.clone(), node.span);
         let new_node = ModifiableCssNode::new(arena, ModifiableCssNodeKind::KeyframeBlock(b));
         visit_children(arena, &new_node, &node.children, self)
     }
@@ -291,7 +294,7 @@ impl<'parse> CloneCssVisitor<'parse> for CloneCssVisitorNoExt {
         arena: &'compile Bump,
         node: &ModifiableCssMediaRule<'parse>,
     ) -> SassResult<ModifiableCssNode<'parse>> {
-        let r = ModifiableCssMediaRule::new(node.queries.clone(), node.span)?;
+        let r = ModifiableCssMediaRule::new(arena, node.queries.clone(), node.span)?;
         let new_node = ModifiableCssNode::new(arena, ModifiableCssNodeKind::MediaRule(r));
         visit_children(arena, &new_node, &node.children, self)
     }
@@ -304,7 +307,8 @@ impl<'parse> CloneCssVisitor<'parse> for CloneCssVisitorNoExt {
         let sel = arena.alloc(RefCell::new(*node.selector.borrow()));
         // Dart `clone_css.dart visitCssStyleRule` omits `fromPlainCss`
         // (defaults to false).
-        let rule = ModifiableCssStyleRule::new(sel, node.span, Some(node.original_selector), false);
+        let rule =
+            ModifiableCssStyleRule::new(arena, sel, node.span, Some(node.original_selector), false);
         let new_node = ModifiableCssNode::new(arena, ModifiableCssNodeKind::StyleRule(rule));
         visit_children(arena, &new_node, &node.children, self)
     }
@@ -314,7 +318,7 @@ impl<'parse> CloneCssVisitor<'parse> for CloneCssVisitorNoExt {
         arena: &'compile Bump,
         node: &ModifiableCssStylesheet<'parse>,
     ) -> SassResult<ModifiableCssNode<'parse>> {
-        let s = ModifiableCssStylesheet::new(node.span);
+        let s = ModifiableCssStylesheet::new(arena, node.span);
         let new_node = ModifiableCssNode::new(arena, ModifiableCssNodeKind::Stylesheet(s));
         visit_children(arena, &new_node, &node.children, self)
     }
@@ -324,7 +328,7 @@ impl<'parse> CloneCssVisitor<'parse> for CloneCssVisitorNoExt {
         arena: &'compile Bump,
         node: &ModifiableCssSupportsRule<'parse>,
     ) -> SassResult<ModifiableCssNode<'parse>> {
-        let r = ModifiableCssSupportsRule::new(node.condition.clone(), node.span);
+        let r = ModifiableCssSupportsRule::new(arena, node.condition.clone(), node.span);
         let new_node = ModifiableCssNode::new(arena, ModifiableCssNodeKind::SupportsRule(r));
         visit_children(arena, &new_node, &node.children, self)
     }
@@ -348,7 +352,7 @@ pub fn clone_css_stylesheet<'compile: 'parse, 'parse>(
     let span = sheet.span()?;
     let new_sheet = ModifiableCssNode::new(
         arena,
-        ModifiableCssNodeKind::Stylesheet(ModifiableCssStylesheet::new(span)),
+        ModifiableCssNodeKind::Stylesheet(ModifiableCssStylesheet::new(arena, span)),
     );
     let _ = arena;
     if let Some(old_children) = sheet.children() {
@@ -439,7 +443,10 @@ mod tests {
     {
         ModifiableCssNode::new(
             arena,
-            ModifiableCssNodeKind::Stylesheet(ModifiableCssStylesheet::new(make_span(arena, ""))),
+            ModifiableCssNodeKind::Stylesheet(ModifiableCssStylesheet::new(
+                arena,
+                make_span(arena, ""),
+            )),
         )
     }
 
@@ -550,7 +557,7 @@ mod tests {
         let name = make_val(&arena, "import");
         let at_rule = ModifiableCssNode::new(
             &arena,
-            ModifiableCssNodeKind::AtRule(ModifiableCssAtRule::new(name, span, true, None)),
+            ModifiableCssNodeKind::AtRule(ModifiableCssAtRule::new(&arena, name, span, true, None)),
         );
         sheet.add_child(&at_rule).unwrap();
         let store = ExtensionStore::new(&arena);
@@ -567,7 +574,9 @@ mod tests {
         let name = make_val(&arena, "media");
         let at_rule = ModifiableCssNode::new(
             &arena,
-            ModifiableCssNodeKind::AtRule(ModifiableCssAtRule::new(name, span, false, None)),
+            ModifiableCssNodeKind::AtRule(ModifiableCssAtRule::new(
+                &arena, name, span, false, None,
+            )),
         );
         let comment = ModifiableCssNode::new(
             &arena,
@@ -599,6 +608,7 @@ mod tests {
         let rule = ModifiableCssNode::new(
             &arena,
             ModifiableCssNodeKind::StyleRule(ModifiableCssStyleRule::new(
+                &arena,
                 store_box.inner,
                 span,
                 Some(sel),
@@ -621,7 +631,8 @@ mod tests {
         let media = ModifiableCssNode::new(
             &arena,
             ModifiableCssNodeKind::MediaRule(
-                ModifiableCssMediaRule::new(vec![make_css_media_query("(color)")], span).unwrap(),
+                ModifiableCssMediaRule::new(&arena, vec![make_css_media_query("(color)")], span)
+                    .unwrap(),
             ),
         );
         let comment = ModifiableCssNode::new(
@@ -652,7 +663,7 @@ mod tests {
         let cond = make_val(&arena, "display: grid");
         let supports = ModifiableCssNode::new(
             &arena,
-            ModifiableCssNodeKind::SupportsRule(ModifiableCssSupportsRule::new(cond, span)),
+            ModifiableCssNodeKind::SupportsRule(ModifiableCssSupportsRule::new(&arena, cond, span)),
         );
         let comment = ModifiableCssNode::new(
             &arena,
@@ -683,7 +694,9 @@ mod tests {
         let sel = CssValue::new(vec!["10%".into()], sel_span);
         let block = ModifiableCssNode::new(
             &arena,
-            ModifiableCssNodeKind::KeyframeBlock(ModifiableCssKeyframeBlock::new(sel, span)),
+            ModifiableCssNodeKind::KeyframeBlock(ModifiableCssKeyframeBlock::new(
+                &arena, sel, span,
+            )),
         );
         let comment = ModifiableCssNode::new(
             &arena,
@@ -715,6 +728,7 @@ mod tests {
         let outer = ModifiableCssNode::new(
             &arena,
             ModifiableCssNodeKind::StyleRule(ModifiableCssStyleRule::new(
+                &arena,
                 store_box_outer.inner,
                 span,
                 Some(sel_outer),
@@ -724,7 +738,8 @@ mod tests {
         let media = ModifiableCssNode::new(
             &arena,
             ModifiableCssNodeKind::MediaRule(
-                ModifiableCssMediaRule::new(vec![make_css_media_query("(color)")], span).unwrap(),
+                ModifiableCssMediaRule::new(&arena, vec![make_css_media_query("(color)")], span)
+                    .unwrap(),
             ),
         );
         let sel_inner = make_selector_list(&arena, ".inner");
@@ -732,6 +747,7 @@ mod tests {
         let inner = ModifiableCssNode::new(
             &arena,
             ModifiableCssNodeKind::StyleRule(ModifiableCssStyleRule::new(
+                &arena,
                 store_box_inner.inner,
                 span,
                 Some(sel_inner),
@@ -809,7 +825,9 @@ mod tests {
         let rc = arena.alloc(RefCell::new(sel));
         let rule = ModifiableCssNode::new(
             &arena,
-            ModifiableCssNodeKind::StyleRule(ModifiableCssStyleRule::new(rc, span, None, false)),
+            ModifiableCssNodeKind::StyleRule(ModifiableCssStyleRule::new(
+                &arena, rc, span, None, false,
+            )),
         );
 
         let cloned = clone_css_node_no_ext(&arena, &rule).unwrap();
@@ -829,8 +847,12 @@ mod tests {
         let media = ModifiableCssNode::new(
             &arena,
             ModifiableCssNodeKind::MediaRule(
-                ModifiableCssMediaRule::new(vec![make_css_media_query("(min-width: 1px)")], span)
-                    .unwrap(),
+                ModifiableCssMediaRule::new(
+                    &arena,
+                    vec![make_css_media_query("(min-width: 1px)")],
+                    span,
+                )
+                .unwrap(),
             ),
         );
         let comment = ModifiableCssNode::new(
@@ -858,7 +880,7 @@ mod tests {
         let outer = ModifiableCssNode::new(
             &arena,
             ModifiableCssNodeKind::StyleRule(ModifiableCssStyleRule::new(
-                rc_outer, span, None, false,
+                &arena, rc_outer, span, None, false,
             )),
         );
         let sel_inner = make_selector_list(&arena, ".inner");
@@ -866,7 +888,7 @@ mod tests {
         let inner = ModifiableCssNode::new(
             &arena,
             ModifiableCssNodeKind::StyleRule(ModifiableCssStyleRule::new(
-                rc_inner, span, None, false,
+                &arena, rc_inner, span, None, false,
             )),
         );
         let comment = ModifiableCssNode::new(
@@ -894,7 +916,9 @@ mod tests {
         let rc = arena.alloc(RefCell::new(sel));
         let rule = ModifiableCssNode::new(
             &arena,
-            ModifiableCssNodeKind::StyleRule(ModifiableCssStyleRule::new(rc, span, None, false)),
+            ModifiableCssNodeKind::StyleRule(ModifiableCssStyleRule::new(
+                &arena, rc, span, None, false,
+            )),
         );
         let comment = ModifiableCssNode::new(
             &arena,
