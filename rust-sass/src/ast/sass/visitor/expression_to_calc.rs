@@ -172,11 +172,11 @@ impl<'parse> ExpressionVisitor<'parse> for MakeExpressionCalculationSafe<'parse>
 
     fn visit_list(&mut self, node: &ListExpression<'parse>) -> SassResult<Expression<'parse>> {
         let mut contents = Vec::with_capacity(node.contents.len());
-        for item in &node.contents {
+        for item in node.contents {
             contents.push(item.accept(self)?);
         }
         Ok(Expression::List(ListExpression::new(
-            contents,
+            crate::ast::sass::arena_slice(self.arena, contents),
             node.separator,
             node.span,
             node.has_brackets,
@@ -185,10 +185,13 @@ impl<'parse> ExpressionVisitor<'parse> for MakeExpressionCalculationSafe<'parse>
 
     fn visit_map(&mut self, node: &MapExpression<'parse>) -> SassResult<Expression<'parse>> {
         let mut pairs = Vec::with_capacity(node.pairs.len());
-        for (k, v) in &node.pairs {
+        for (k, v) in node.pairs {
             pairs.push((k.accept(self)?, v.accept(self)?));
         }
-        Ok(Expression::Map(MapExpression::new(pairs, node.span)))
+        Ok(Expression::Map(MapExpression::new(
+            crate::ast::sass::arena_slice(self.arena, pairs),
+            node.span,
+        )))
     }
 
     fn visit_null(&mut self, node: &NullExpression<'parse>) -> SassResult<Expression<'parse>> {
@@ -270,6 +273,8 @@ impl<'parse> ExpressionVisitor<'parse> for MakeExpressionCalculationSafe<'parse>
 
 #[cfg(test)]
 mod tests {
+    use crate::ast::sass::arena_slice;
+
     use super::*;
     use crate::ast::sass::expression::Expression;
     use crate::ast::sass::expression_if::{
@@ -349,7 +354,7 @@ mod tests {
                 expression: Expression::Number(NumberExpression::new(2.0, span, None)),
             },
         ];
-        let node = IfExpression::new(branches, span).unwrap();
+        let node = IfExpression::new(arena_slice(&arena, branches), span).unwrap();
         let mut visitor = MakeExpressionCalculationSafe::new(&arena);
         let result = visitor.visit_if(&node).unwrap();
         assert!(matches!(result, Expression::If(_)));

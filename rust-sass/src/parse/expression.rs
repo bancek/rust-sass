@@ -18,6 +18,9 @@
 //! references. Nested bracketed lists use an explicit [`BracketFrame`] stack
 //! rather than recursive `_expression(bracketList: true)` calls.
 
+use bumpalo::Bump;
+
+use crate::ast::sass::arena_slice;
 use crate::ast::sass::argument_list::ArgumentList;
 use crate::ast::sass::binary_operator::BinaryOperator;
 use crate::ast::sass::expression::Expression;
@@ -377,6 +380,7 @@ fn resolve_all<'parse>(
 // [`ListExpression`].
 fn resolve_space<'parse>(
     scanner: &SpanScanner<'parse>,
+    arena: &'parse Bump,
     acc: &mut Acc<'parse>,
 ) -> ParseResult<'parse, ()> {
     if acc.space_exprs.is_empty() {
@@ -405,7 +409,7 @@ fn resolve_space<'parse>(
         .expand(&last_span)
         .map_err(|e| error_impl(&e.to_string(), &first))?;
     acc.single = Some(Expression::List(ListExpression::new(
-        acc.space_exprs.clone(),
+        arena_slice(arena, acc.space_exprs.clone()),
         ListSeparator::Space,
         span,
         false,
@@ -652,7 +656,7 @@ pub(crate) fn parentheses_impl<'parse>(
         let list_span = span_from_impl(scanner, &state.parser_state, start)?.file_span()?;
         state.in_parentheses = was_in_parentheses;
         return Ok(Expression::List(ListExpression::new(
-            vec![],
+            &[],
             ListSeparator::Undecided,
             list_span,
             false,
@@ -705,7 +709,12 @@ pub(crate) fn parentheses_impl<'parse>(
         whitespace_impl(scanner, &mut state.parser_state, true)?;
     }
     let inside_span = span_from_impl(scanner, &state.parser_state, inside)?.file_span()?;
-    let list = ListExpression::new(expressions, ListSeparator::Comma, inside_span, false);
+    let list = ListExpression::new(
+        arena_slice(state.arena, expressions),
+        ListSeparator::Comma,
+        inside_span,
+        false,
+    );
     scanner.expect_char(')')?;
     let close_span = span_from_impl(scanner, &state.parser_state, start)?.file_span()?;
     state.in_parentheses = was_in_parentheses;
@@ -769,7 +778,10 @@ fn map_expr_impl<'parse>(
     }
     scanner.expect_char(')')?;
     let map_span = span_from_impl(scanner, &state.parser_state, start)?.file_span()?;
-    Ok(MapExpression::new(pairs, map_span))
+    Ok(MapExpression::new(
+        arena_slice(state.arena, pairs),
+        map_span,
+    ))
 }
 
 /// Consumes a quoted string expression with interpolation.
@@ -1608,7 +1620,7 @@ pub(crate) fn if_expression<'parse>(
         whitespace_impl(scanner, &mut state.parser_state, true)?;
     }
     scanner.expect_char(')')?;
-    IfExpression::new(branches, scanner.span_from(start))
+    IfExpression::new(arena_slice(state.arena, branches), scanner.span_from(start))
         .map_err(|e| Box::new(error_impl(&e.to_string(), &scanner.span_from(start))))
 }
 
@@ -1689,9 +1701,11 @@ fn if_condition<'parse>(
                         groups.remove(0)
                     } else {
                         IfConditionExpression::Operation(
-                            IfConditionOperation::new(groups.clone(), op.unwrap()).map_err(
-                                |e| error_impl(&e.to_string(), &scanner.span_from(start)),
-                            )?,
+                            IfConditionOperation::new(
+                                arena_slice(state.arena, groups.clone()),
+                                op.unwrap(),
+                            )
+                            .map_err(|e| error_impl(&e.to_string(), &scanner.span_from(start)))?,
                         )
                     };
                     let next = if_group(scanner, state)?;
@@ -1702,9 +1716,11 @@ fn if_condition<'parse>(
                         groups.remove(0)
                     } else {
                         IfConditionExpression::Operation(
-                            IfConditionOperation::new(groups.clone(), op.unwrap()).map_err(
-                                |e| error_impl(&e.to_string(), &scanner.span_from(start)),
-                            )?,
+                            IfConditionOperation::new(
+                                arena_slice(state.arena, groups.clone()),
+                                op.unwrap(),
+                            )
+                            .map_err(|e| error_impl(&e.to_string(), &scanner.span_from(start)))?,
                         )
                     };
                     return if_condition_raw(scanner, state, preceding, substitution);
@@ -1718,7 +1734,7 @@ fn if_condition<'parse>(
         return Ok(groups.remove(0));
     }
     Ok(IfConditionExpression::Operation(
-        IfConditionOperation::new(groups, op.unwrap())
+        IfConditionOperation::new(arena_slice(state.arena, groups), op.unwrap())
             .map_err(|e| error_impl(&e.to_string(), &scanner.span_from(start)))?,
     ))
 }
@@ -2467,14 +2483,14 @@ fn build_bracket_result<'parse>(
     resolve_all(scanner, state, ops, acc)?;
 
     if !acc.comma_exprs.is_empty() {
-        resolve_space(scanner, acc)?;
+        resolve_space(scanner, state.arena, acc)?;
         let mut comma = std::mem::take(&mut acc.comma_exprs);
         if let Some(se) = acc.single.take() {
             comma.push(se);
         }
         let span = span_from_impl(scanner, &state.parser_state, bracket_before)?.file_span()?;
         return Ok(Expression::List(ListExpression::new(
-            comma,
+            arena_slice(state.arena, comma),
             ListSeparator::Comma,
             span,
             true,
@@ -2488,7 +2504,7 @@ fn build_bracket_result<'parse>(
         }
         let span = span_from_impl(scanner, &state.parser_state, bracket_before)?.file_span()?;
         return Ok(Expression::List(ListExpression::new(
-            sp,
+            arena_slice(state.arena, sp),
             ListSeparator::Space,
             span,
             true,
@@ -2498,7 +2514,7 @@ fn build_bracket_result<'parse>(
     if let Some(single) = acc.single.take() {
         let span = span_from_impl(scanner, &state.parser_state, bracket_before)?.file_span()?;
         return Ok(Expression::List(ListExpression::new(
-            vec![single],
+            arena_slice(state.arena, vec![single]),
             ListSeparator::Undecided,
             span,
             true,
@@ -2507,7 +2523,7 @@ fn build_bracket_result<'parse>(
 
     let span = span_from_impl(scanner, &state.parser_state, bracket_before)?.file_span()?;
     Ok(Expression::List(ListExpression::new(
-        vec![],
+        &[],
         ListSeparator::Undecided,
         span,
         true,
@@ -2551,7 +2567,7 @@ where
         if scanner.scan_char(']') {
             let span = span_from_impl(scanner, &state.parser_state, bb)?.file_span()?;
             return Ok(Expression::List(ListExpression::new(
-                vec![],
+                &[],
                 ListSeparator::Undecided,
                 span,
                 true,
@@ -2590,7 +2606,7 @@ where
         if scanner.scan_char(']') {
             let span = span_from_impl(scanner, &state.parser_state, bb)?.file_span()?;
             acc.single = Some(Expression::List(ListExpression::new(
-                vec![],
+                &[],
                 ListSeparator::Undecided,
                 span,
                 true,
@@ -2838,7 +2854,7 @@ where
                         &mut ops,
                         &mut acc,
                         Expression::List(ListExpression::new(
-                            vec![],
+                            &[],
                             ListSeparator::Undecided,
                             span,
                             true,
@@ -2990,7 +3006,7 @@ where
                     ));
                 }
                 resolve_all(scanner, state, &mut ops, &mut acc)?;
-                resolve_space(scanner, &mut acc)?;
+                resolve_space(scanner, state.arena, &mut acc)?;
                 acc.comma_exprs.push(acc.single.take().unwrap());
                 scanner.read_char()?;
                 acc.allow_slash = true;
@@ -3011,7 +3027,7 @@ where
 
     // Comma list resolution
     if !acc.comma_exprs.is_empty() {
-        resolve_space(scanner, &mut acc)?;
+        resolve_space(scanner, state.arena, &mut acc)?;
         let mut comma = acc.comma_exprs.clone();
         if let Some(se) = acc.single.take() {
             comma.push(se);
@@ -3019,18 +3035,18 @@ where
         let span = span_from_impl(scanner, &state.parser_state, start)?.file_span()?;
         state.parser_state.in_expression = was_in_expr;
         return Ok(Expression::List(ListExpression::new(
-            comma,
+            arena_slice(state.arena, comma),
             ListSeparator::Comma,
             span,
             was_bracket_list,
         )));
     }
 
-    resolve_space(scanner, &mut acc)?;
+    resolve_space(scanner, state.arena, &mut acc)?;
 
     state.parser_state.in_expression = was_in_expr;
     Ok(acc.single.unwrap_or(Expression::List(ListExpression::new(
-        vec![],
+        &[],
         ListSeparator::Undecided,
         scanner.empty_span(),
         was_bracket_list,

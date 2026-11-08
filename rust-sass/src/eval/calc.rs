@@ -300,7 +300,7 @@ where
                 )));
             }
             let mut elements: Vec<CalcArgument> = Vec::new();
-            for elem in &l.contents {
+            for elem in l.contents {
                 let val = box_rec_in!(
                     expression_to_calc_argument(
                         config,

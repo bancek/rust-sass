@@ -352,7 +352,7 @@ impl<'parse> ExpressionVisitor<'parse> for RecursiveAstVisitor {
     }
 
     fn visit_if(&mut self, node: &IfExpression<'parse>) -> SassResult<()> {
-        for branch in &node.branches {
+        for branch in node.branches {
             if let Some(ref condition) = branch.condition {
                 condition.accept(self)?;
             }
@@ -374,14 +374,14 @@ impl<'parse> ExpressionVisitor<'parse> for RecursiveAstVisitor {
     }
 
     fn visit_list(&mut self, node: &ListExpression<'parse>) -> SassResult<()> {
-        for item in &node.contents {
+        for item in node.contents {
             item.accept(self)?;
         }
         Ok(())
     }
 
     fn visit_map(&mut self, node: &MapExpression<'parse>) -> SassResult<()> {
-        for pair in &node.pairs {
+        for pair in node.pairs {
             pair.0.accept(self)?;
             pair.1.accept(self)?;
         }
@@ -438,7 +438,7 @@ impl<'parse> IfConditionExpressionVisitor<'parse> for RecursiveAstVisitor {
     }
 
     fn visit_operation(&mut self, node: &IfConditionOperation<'parse>) -> SassResult<()> {
-        for expr in &node.expressions {
+        for expr in node.expressions {
             expr.accept(self)?;
         }
         Ok(())
@@ -559,6 +559,8 @@ impl<'parse> InterpolatedSelectorVisitor<'parse> for RecursiveAstVisitor {
 
 #[cfg(test)]
 mod tests {
+    use crate::ast::sass::arena_slice;
+
     use super::*;
     use crate::ast::sass::binary_operator::BinaryOperator;
     use crate::ast::sass::configured_variable::ConfiguredVariable;
@@ -720,7 +722,7 @@ mod tests {
             Expression::String(StringExpression::plain("b", test_span(&arena, "b"), true)),
         ];
         let le = ListExpression::new(
-            items,
+            arena_slice(&arena, items),
             ListSeparator::Comma,
             test_span(&arena, "(a, b)"),
             true,
@@ -736,7 +738,7 @@ mod tests {
             Expression::String(StringExpression::plain("a", test_span(&arena, "a"), false)),
             Expression::Number(NumberExpression::new(1.0, test_span(&arena, "1"), None)),
         )];
-        let me = MapExpression::new(pairs, test_span(&arena, "(a: 1)"));
+        let me = MapExpression::new(arena_slice(&arena, pairs), test_span(&arena, "(a: 1)"));
         Expression::Map(me).accept(&mut v).unwrap();
     }
 

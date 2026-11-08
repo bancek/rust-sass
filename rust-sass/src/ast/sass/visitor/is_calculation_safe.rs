@@ -113,7 +113,7 @@ impl<'parse> ExpressionVisitor<'parse> for IsCalculationSafeVisitor {
         if node.contents.len() <= 1 {
             return Ok(false);
         }
-        for expr in &node.contents {
+        for expr in node.contents {
             let safe = expr.accept(self)?;
             if !safe {
                 return Ok(false);
@@ -182,6 +182,8 @@ impl<'parse> ExpressionVisitor<'parse> for IsCalculationSafeVisitor {
 
 #[cfg(test)]
 mod tests {
+    use crate::ast::sass::arena_slice;
+
     use super::*;
     use crate::ast::sass::argument_list::ArgumentList;
     use crate::ast::sass::binary_operator::BinaryOperator;
@@ -305,7 +307,7 @@ mod tests {
             Expression::Number(NumberExpression::new(2.0, span, None)),
         ];
         let expr = Expression::List(ListExpression::new(
-            contents,
+            arena_slice(&arena, contents),
             ListSeparator::Space,
             span,
             false,
@@ -323,7 +325,7 @@ mod tests {
             Expression::Number(NumberExpression::new(2.0, span, None)),
         ];
         let expr = Expression::List(ListExpression::new(
-            contents,
+            arena_slice(&arena, contents),
             ListSeparator::Comma,
             span,
             false,
@@ -341,7 +343,7 @@ mod tests {
             Expression::Number(NumberExpression::new(2.0, span, None)),
         ];
         let expr = Expression::List(ListExpression::new(
-            contents,
+            arena_slice(&arena, contents),
             ListSeparator::Space,
             span,
             true,
@@ -356,7 +358,7 @@ mod tests {
         let span = test_span(&arena, "1", 0, 1);
         let contents = vec![Expression::Number(NumberExpression::new(1.0, span, None))];
         let expr = Expression::List(ListExpression::new(
-            contents,
+            arena_slice(&arena, contents),
             ListSeparator::Space,
             span,
             false,

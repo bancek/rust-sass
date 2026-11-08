@@ -23,7 +23,7 @@ use crate::ast::sass::interpolation::Interpolation;
 #[derive(Clone, Debug)]
 pub struct ListExpression<'parse> {
     /// The elements of this list.
-    pub contents: Vec<Expression<'parse>>,
+    pub contents: &'parse [Expression<'parse>],
     /// Which separator this list uses.
     pub separator: ListSeparator,
     /// Whether the list has square brackets or not.
@@ -33,7 +33,7 @@ pub struct ListExpression<'parse> {
 
 impl<'parse> ListExpression<'parse> {
     pub fn new(
-        contents: Vec<Expression<'parse>>,
+        contents: &'parse [Expression<'parse>],
         separator: ListSeparator,
         span: FileSpan<'parse>,
         has_brackets: bool,
@@ -128,6 +128,7 @@ impl<'parse> ListExpression<'parse> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ast::sass::arena_slice;
     use crate::ast::sass::expression_string::StringExpression;
     use crate::common::source_span_file_source::FileSource;
     use bumpalo::Bump;
@@ -160,7 +161,12 @@ mod tests {
                 true,
             )),
         ];
-        let expr = ListExpression::new(contents, ListSeparator::Comma, span, false);
+        let expr = ListExpression::new(
+            arena_slice(&arena, contents),
+            ListSeparator::Comma,
+            span,
+            false,
+        );
         assert_eq!(expr.contents.len(), 2);
     }
 
@@ -182,7 +188,12 @@ mod tests {
                 true,
             )),
         ];
-        let expr = ListExpression::new(contents, ListSeparator::Comma, span, false);
+        let expr = ListExpression::new(
+            arena_slice(&arena, contents),
+            ListSeparator::Comma,
+            span,
+            false,
+        );
         let result = format!("{expr}");
         assert!(!result.is_empty());
     }
@@ -191,7 +202,7 @@ mod tests {
     fn test_source_interpolation() {
         let arena = Bump::new();
         let span = test_span(&arena, "a, b", 0, 4);
-        let expr = ListExpression::new(vec![], ListSeparator::Space, span, false);
+        let expr = ListExpression::new(&[], ListSeparator::Space, span, false);
         assert!(expr.source_interpolation().is_none());
     }
 }

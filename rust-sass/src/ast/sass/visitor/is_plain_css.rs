@@ -99,7 +99,7 @@ impl<'parse> ExpressionVisitor<'parse> for IsPlainCssVisitor {
     }
 
     fn visit_if(&mut self, node: &IfExpression<'parse>) -> SassResult<bool> {
-        for branch in &node.branches {
+        for branch in node.branches {
             if let Some(ref cond) = branch.condition {
                 if !cond.accept(self)? {
                     return Ok(false);
@@ -130,7 +130,7 @@ impl<'parse> ExpressionVisitor<'parse> for IsPlainCssVisitor {
         if node.contents.is_empty() && !node.has_brackets {
             return Ok(false);
         }
-        for element in &node.contents {
+        for element in node.contents {
             if !element.accept(self)? {
                 return Ok(false);
             }
@@ -194,7 +194,7 @@ impl<'parse> IfConditionExpressionVisitor<'parse> for IsPlainCssVisitor {
     }
 
     fn visit_operation(&mut self, node: &IfConditionOperation<'parse>) -> SassResult<bool> {
-        for expr in &node.expressions {
+        for expr in node.expressions {
             if !expr.accept(self)? {
                 return Ok(false);
             }
@@ -217,6 +217,8 @@ impl<'parse> IfConditionExpressionVisitor<'parse> for IsPlainCssVisitor {
 
 #[cfg(test)]
 mod tests {
+    use crate::ast::sass::arena_slice;
+
     use super::*;
     use crate::ast::sass::binary_operator::BinaryOperator;
     use crate::ast::sass::expression::Expression;
@@ -301,7 +303,7 @@ mod tests {
     fn test_map() {
         let arena = Bump::new();
         let span = test_span(&arena, "()", 0, 2);
-        let expr = Expression::Map(MapExpression::new(vec![], span));
+        let expr = Expression::Map(MapExpression::new(&[], span));
         let mut v = IsPlainCssVisitor::new(false);
         assert!(!expr.accept(&mut v).unwrap());
     }
@@ -402,7 +404,7 @@ mod tests {
         let arena = Bump::new();
         let span = test_span(&arena, "", 0, 0);
         let expr = Expression::List(ListExpression::new(
-            vec![],
+            arena_slice(&arena, vec![]),
             ListSeparator::Space,
             span,
             false,
@@ -420,7 +422,7 @@ mod tests {
             Expression::Number(NumberExpression::new(2.0, span, None)),
         ];
         let expr = Expression::List(ListExpression::new(
-            contents,
+            arena_slice(&arena, contents),
             ListSeparator::Space,
             span,
             false,
@@ -438,7 +440,7 @@ mod tests {
             Expression::Variable(VariableExpression::new("x".into(), span, None)),
         ];
         let expr = Expression::List(ListExpression::new(
-            contents,
+            arena_slice(&arena, contents),
             ListSeparator::Space,
             span,
             false,

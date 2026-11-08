@@ -50,13 +50,13 @@ pub struct IfExpression<'parse> {
     ///
     /// A [`None`] condition indicates an `else` branch that is always
     /// evaluated.
-    pub branches: Vec<IfBranch<'parse>>,
+    pub branches: &'parse [IfBranch<'parse>],
     pub span: FileSpan<'parse>,
 }
 
 impl<'parse> IfExpression<'parse> {
     pub fn new(
-        branches: Vec<IfBranch<'parse>>,
+        branches: &'parse [IfBranch<'parse>],
         span: FileSpan<'parse>,
     ) -> Result<Self, ArgumentError> {
         if branches.is_empty() {
@@ -365,13 +365,13 @@ impl fmt::Display for BooleanOperator {
 #[derive(Clone, Debug)]
 pub struct IfConditionOperation<'parse> {
     /// The expressions conjoined or disjoined by this operation.
-    pub expressions: Vec<IfConditionExpression<'parse>>,
+    pub expressions: &'parse [IfConditionExpression<'parse>],
     pub operator: BooleanOperator,
 }
 
 impl<'parse> IfConditionOperation<'parse> {
     pub fn new(
-        expressions: Vec<IfConditionExpression<'parse>>,
+        expressions: &'parse [IfConditionExpression<'parse>],
         operator: BooleanOperator,
     ) -> Result<Self, ArgumentError> {
         if expressions.len() < 2 {
@@ -643,6 +643,8 @@ impl<'parse> fmt::Display for IfConditionRaw<'parse> {
 
 #[cfg(test)]
 mod tests {
+    use crate::ast::sass::arena_slice;
+
     use super::*;
     use crate::ast::sass::expression_boolean::BooleanExpression;
     use crate::common::source_span_file_source::FileSource;
@@ -673,7 +675,7 @@ mod tests {
             ))),
             expression: Expression::Boolean(BooleanExpression::new(true, span)),
         }];
-        let expr = IfExpression::new(branches, span).unwrap();
+        let expr = IfExpression::new(arena_slice(&arena, branches), span).unwrap();
         assert_eq!(expr.branches.len(), 1);
     }
 
@@ -681,7 +683,7 @@ mod tests {
     fn test_if_empty_branches_error() {
         let arena = Bump::new();
         let span = test_span(&arena, "", 0, 0);
-        assert!(IfExpression::new(vec![], span).is_err());
+        assert!(IfExpression::new(&[], span).is_err());
     }
 
     #[test]

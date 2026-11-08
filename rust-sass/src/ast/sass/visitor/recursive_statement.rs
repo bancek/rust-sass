@@ -178,6 +178,8 @@ impl<'parse> StatementVisitor<'parse> for RecursiveStatementVisitor {
 
 #[cfg(test)]
 mod tests {
+    use crate::ast::sass::arena_slice;
+
     use super::*;
     use crate::ast::sass::argument_list::ArgumentList;
     use crate::ast::sass::expression::Expression;
@@ -488,10 +490,13 @@ mod tests {
         let arena = Bump::new();
         let mut v = RecursiveStatementVisitor::new();
         let list = Expression::List(ListExpression::new(
-            vec![
-                Expression::String(StringExpression::plain("a", test_span(&arena, "a"), true)),
-                Expression::String(StringExpression::plain("b", test_span(&arena, "b"), true)),
-            ],
+            arena_slice(
+                &arena,
+                vec![
+                    Expression::String(StringExpression::plain("a", test_span(&arena, "a"), true)),
+                    Expression::String(StringExpression::plain("b", test_span(&arena, "b"), true)),
+                ],
+            ),
             ListSeparator::Comma,
             test_span(&arena, "(a, b)"),
             true,

@@ -223,7 +223,7 @@ impl<'parse> ExpressionVisitor<'parse> for ReplaceExpressionVisitor<'parse> {
 
     fn visit_if(&mut self, node: &IfExpression<'parse>) -> SassResult<Expression<'parse>> {
         let mut new_branches = Vec::with_capacity(node.branches.len());
-        for branch in &node.branches {
+        for branch in node.branches {
             let condition = match &branch.condition {
                 Some(c) => Some(c.accept(self)?),
                 None => None,
@@ -234,7 +234,10 @@ impl<'parse> ExpressionVisitor<'parse> for ReplaceExpressionVisitor<'parse> {
                 expression,
             });
         }
-        Ok(Expression::If(IfExpression::new(new_branches, node.span)?))
+        Ok(Expression::If(IfExpression::new(
+            crate::ast::sass::arena_slice(self.arena, new_branches),
+            node.span,
+        )?))
     }
 
     fn visit_interpolated_function(
@@ -260,11 +263,11 @@ impl<'parse> ExpressionVisitor<'parse> for ReplaceExpressionVisitor<'parse> {
 
     fn visit_list(&mut self, node: &ListExpression<'parse>) -> SassResult<Expression<'parse>> {
         let mut contents = Vec::with_capacity(node.contents.len());
-        for item in &node.contents {
+        for item in node.contents {
             contents.push(item.accept(self)?);
         }
         Ok(Expression::List(ListExpression::new(
-            contents,
+            crate::ast::sass::arena_slice(self.arena, contents),
             node.separator,
             node.span,
             node.has_brackets,
@@ -273,10 +276,13 @@ impl<'parse> ExpressionVisitor<'parse> for ReplaceExpressionVisitor<'parse> {
 
     fn visit_map(&mut self, node: &MapExpression<'parse>) -> SassResult<Expression<'parse>> {
         let mut pairs = Vec::with_capacity(node.pairs.len());
-        for (k, v) in &node.pairs {
+        for (k, v) in node.pairs {
             pairs.push((k.accept(self)?, v.accept(self)?));
         }
-        Ok(Expression::Map(MapExpression::new(pairs, node.span)))
+        Ok(Expression::Map(MapExpression::new(
+            crate::ast::sass::arena_slice(self.arena, pairs),
+            node.span,
+        )))
     }
 
     fn visit_null(&mut self, node: &NullExpression<'parse>) -> SassResult<Expression<'parse>> {
@@ -372,12 +378,15 @@ impl<'parse> IfConditionExpressionVisitor<'parse> for ReplaceExpressionVisitor<'
         node: &IfConditionOperation<'parse>,
     ) -> SassResult<IfConditionExpression<'parse>> {
         let mut exprs = Vec::with_capacity(node.expressions.len());
-        for e in &node.expressions {
+        for e in node.expressions {
             exprs.push(e.accept(self)?);
         }
         Ok(IfConditionExpression::Operation(
-            IfConditionOperation::new(exprs, node.operator)
-                .map_err(|e| Box::new(SassError::from(e)))?,
+            IfConditionOperation::new(
+                crate::ast::sass::arena_slice(self.arena, exprs),
+                node.operator,
+            )
+            .map_err(|e| Box::new(SassError::from(e)))?,
         ))
     }
 
@@ -413,6 +422,8 @@ impl<'parse> IfConditionExpressionVisitor<'parse> for ReplaceExpressionVisitor<'
 
 #[cfg(test)]
 mod tests {
+    use crate::ast::sass::arena_slice;
+
     use super::*;
     use crate::ast::sass::binary_operator::BinaryOperator;
     use crate::ast::sass::expression::Expression;
@@ -528,7 +539,8 @@ mod tests {
             Expression::String(StringExpression::plain("a", test_span(&arena, "a"), true)),
             Expression::String(StringExpression::plain("b", test_span(&arena, "b"), true)),
         ];
-        let node = ListExpression::new(items, ListSeparator::Comma, span, true);
+        let node =
+            ListExpression::new(arena_slice(&arena, items), ListSeparator::Comma, span, true);
         let result = Expression::List(node).accept(&mut v).unwrap();
         match result {
             Expression::List(le) => {
@@ -544,10 +556,13 @@ mod tests {
         let mut v = ReplaceExpressionVisitor::new(&arena);
         let span = test_span(&arena, "(a: 1)");
         let node = MapExpression::new(
-            vec![(
-                Expression::String(StringExpression::plain("a", test_span(&arena, "a"), false)),
-                Expression::Number(NumberExpression::new(1.0, test_span(&arena, "1"), None)),
-            )],
+            arena_slice(
+                &arena,
+                vec![(
+                    Expression::String(StringExpression::plain("a", test_span(&arena, "a"), false)),
+                    Expression::Number(NumberExpression::new(1.0, test_span(&arena, "1"), None)),
+                )],
+            ),
             span,
         );
         let result = Expression::Map(node).accept(&mut v).unwrap();

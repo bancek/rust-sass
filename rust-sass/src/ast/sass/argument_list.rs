@@ -177,6 +177,8 @@ impl<'parse> fmt::Display for ArgumentList<'parse> {
 
 #[cfg(test)]
 mod tests {
+    use crate::ast::sass::arena_slice;
+
     use super::*;
     use crate::ast::sass::expression_boolean::BooleanExpression;
     use crate::ast::sass::expression_list::ListExpression;
@@ -306,10 +308,13 @@ mod tests {
         let fs = FileSource::new_in(&arena, "(a, b)", None);
         let span = FileSpan::new(Some(fs), 0, 6);
         let list = Expression::List(ListExpression::new(
-            vec![
-                Expression::Boolean(BooleanExpression::new(true, span)),
-                Expression::Boolean(BooleanExpression::new(false, span)),
-            ],
+            arena_slice(
+                &arena,
+                vec![
+                    Expression::Boolean(BooleanExpression::new(true, span)),
+                    Expression::Boolean(BooleanExpression::new(false, span)),
+                ],
+            ),
             ListSeparator::Comma,
             span,
             false,

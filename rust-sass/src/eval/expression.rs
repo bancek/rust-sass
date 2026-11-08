@@ -426,7 +426,7 @@ where
     'compile: 'parse,
 {
     let mut contents = Vec::with_capacity(expr.contents.len());
-    for element in &expr.contents {
+    for element in expr.contents {
         let val = evaluate_expression(config, state, arena, element).await?;
         contents.push(val);
     }
@@ -456,7 +456,7 @@ where
 {
     let mut map = SassMap::empty();
     let mut key_spans: Vec<(Value<'parse>, FileSpan<'parse>)> = Vec::new();
-    for (key_expr, val_expr) in &expr.pairs {
+    for (key_expr, val_expr) in expr.pairs {
         let key = evaluate_expression(config, state, arena, key_expr).await?;
         let val = evaluate_expression(config, state, arena, val_expr).await?;
         if map.contains(&key) {
@@ -1144,7 +1144,7 @@ where
 {
     let mut results: Vec<IfBranchResult<'_>> = Vec::new();
 
-    for branch in &expr.branches {
+    for branch in expr.branches {
         let cond_result = match &branch.condition {
             Some(condition) => evaluate_if_condition(config, state, arena, condition).await?,
             None => IfCondResult::Bool(true),
@@ -1858,7 +1858,7 @@ mod tests {
         let span = make_span(&arena, "()");
         let (config, mut state) = test_visitor(&arena);
         let expr = ListExpression {
-            contents: vec![],
+            contents: &[],
             separator: ListSeparator::Comma,
             has_brackets: true,
             span,
@@ -1877,10 +1877,7 @@ mod tests {
         let arena = Bump::new();
         let span = make_span(&arena, "()");
         let (config, mut state) = test_visitor(&arena);
-        let expr = MapExpression {
-            pairs: vec![],
-            span,
-        };
+        let expr = MapExpression { pairs: &[], span };
         let result = evaluate_map_expression(&config, &mut state, &arena, &expr)
             .await
             .unwrap();
