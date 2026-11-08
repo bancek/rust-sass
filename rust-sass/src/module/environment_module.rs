@@ -186,10 +186,10 @@ impl<'compile: 'parse, 'parse> EnvironmentModule<'compile, 'parse> {
         let configurable = inner.configurable_variables.borrow();
 
         if variables.len() < configurable.len() {
-            if variables.iter().any(|v| configurable.contains(v)) {
+            if variables.iter().any(|v| configurable.contains(v.as_str())) {
                 return true;
             }
-        } else if configurable.iter().any(|v| variables.contains(v)) {
+        } else if configurable.iter().any(|v| variables.contains(*v)) {
             return true;
         }
 

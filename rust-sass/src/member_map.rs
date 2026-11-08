@@ -28,6 +28,8 @@ use std::fmt::Formatter;
 use bumpalo::Bump;
 use indexmap::IndexMap;
 
+use crate::arena_map::ArenaMap;
+
 // ===========================================================================
 // MemberMap trait — read-only ordered map for module member views.
 // Mirrors Go's orderedmap.Map[K,V] interface and Dart's Map<K,V> usage
@@ -95,7 +97,7 @@ impl<V: Clone + Debug> MemberMap<V> for IndexMapView<V> {
 }
 
 // ===========================================================================
-// RefCellMap — wraps &RefCell<IndexMap> for live environment views.
+// RefCellMap — wraps &RefCell<ArenaMap> for live environment views.
 // Reads through RefCell on each access to see mutations.
 //
 // Rust-only: Dart's module views read live maps directly (GC aliasing); the
@@ -104,16 +106,16 @@ impl<V: Clone + Debug> MemberMap<V> for IndexMapView<V> {
 
 #[derive(Debug, Clone)]
 pub struct RefCellMap<'p, V: Clone + Debug> {
-    pub inner: &'p RefCell<IndexMap<String, V>>,
+    pub inner: &'p RefCell<ArenaMap<'p, &'p str, V>>,
 }
 
 impl<'p, V: Clone + Debug> RefCellMap<'p, V> {
-    pub fn new(inner: &'p RefCell<IndexMap<String, V>>) -> Self {
+    pub fn new(inner: &'p RefCell<ArenaMap<'p, &'p str, V>>) -> Self {
         Self { inner }
     }
 
     /// Returns a Ref guard for direct borrow access (for tests).
-    pub fn borrow(&self) -> Ref<'_, IndexMap<String, V>> {
+    pub fn borrow(&self) -> Ref<'_, ArenaMap<'p, &'p str, V>> {
         self.inner.borrow()
     }
 }
@@ -132,14 +134,14 @@ impl<'p, V: Clone + Debug> MemberMap<V> for RefCellMap<'p, V> {
     }
 
     fn keys(&self) -> Vec<String> {
-        self.inner.borrow().keys().cloned().collect()
+        self.inner.borrow().keys().map(|k| k.to_string()).collect()
     }
 
     fn entries(&self) -> Vec<(String, V)> {
         self.inner
             .borrow()
             .iter()
-            .map(|(k, v)| (k.clone(), v.clone()))
+            .map(|(k, v)| (k.to_string(), v.clone()))
             .collect()
     }
 }
@@ -598,9 +600,19 @@ mod tests {
         arena.alloc(make_imv())
     }
 
+    fn make_arena_map<'a>(arena: &'a Bump) -> RefCell<ArenaMap<'a, &'a str, i32>> {
+        let mut map = ArenaMap::new_in(arena);
+        map.insert("a", 1);
+        map.insert("b", 2);
+        map.insert("c", 3);
+        map.insert("_private", 99);
+        map.insert("-dash", 100);
+        RefCell::new(map)
+    }
+
     fn make_refcell_view<'a>(
         arena: &'a Bump,
-        inner: &'a RefCell<IndexMap<String, i32>>,
+        inner: &'a RefCell<ArenaMap<'a, &'a str, i32>>,
     ) -> &'a dyn MemberMap<i32> {
         arena.alloc(RefCellMap { inner })
     }
@@ -682,18 +694,19 @@ mod tests {
     #[test]
     fn test_refcell_map_get() {
         let arena = Bump::new();
-        let inner = RefCell::new(make_map());
-        let v = make_refcell_view(&arena, &inner);
+        let inner: &RefCell<_> = arena.alloc(make_arena_map(&arena));
+        let v = make_refcell_view(&arena, inner);
         assert_eq!(v.get("a"), Some(1));
     }
 
     #[test]
     fn test_refcell_map_mutation_visible() {
-        let inner = RefCell::new(make_map());
-        let v = RefCellMap { inner: &inner };
+        let arena = Bump::new();
+        let inner: &RefCell<_> = arena.alloc(make_arena_map(&arena));
+        let v = RefCellMap { inner };
         assert_eq!(v.get("a"), Some(1));
         // Mutate through the RefCell
-        inner.borrow_mut().insert("a".into(), 42);
+        inner.borrow_mut().insert("a", 42);
         // View sees the new value (read-through)
         assert_eq!(v.get("a"), Some(42));
     }
@@ -702,10 +715,11 @@ mod tests {
     fn test_refcell_map_mutation_new_key_not_in_keys_snapshot() {
         // Keys snapshot at construction time would miss new keys.
         // But RefCellMap re-reads from RefCell each time.
-        let inner = RefCell::new(make_map());
-        let v = RefCellMap { inner: &inner };
+        let arena = Bump::new();
+        let inner: &RefCell<_> = arena.alloc(make_arena_map(&arena));
+        let v = RefCellMap { inner };
         assert_eq!(v.len(), 5);
-        inner.borrow_mut().insert("new".into(), 777);
+        inner.borrow_mut().insert("new", 777);
         assert_eq!(v.get("new"), Some(777));
         assert_eq!(v.len(), 6);
     }
@@ -826,14 +840,14 @@ mod tests {
     #[test]
     fn test_limited_safelist_live_value() {
         let arena = Bump::new();
-        let inner_map = RefCell::new(make_map());
-        let inner = make_refcell_view(&arena, &inner_map);
+        let inner_map: &RefCell<_> = arena.alloc(make_arena_map(&arena));
+        let inner = make_refcell_view(&arena, inner_map);
         let safelist: HashSet<String> = ["a".into()].into();
         let limited: &dyn MemberMap<i32> =
             arena.alloc(LimitedMapView::new_safelist(inner, &safelist));
         assert_eq!(limited.get("a"), Some(1));
         // Mutate the underlying value
-        inner_map.borrow_mut().insert("a".into(), 99);
+        inner_map.borrow_mut().insert("a", 99);
         // View sees the new value (live read)
         assert_eq!(limited.get("a"), Some(99));
     }
@@ -841,14 +855,14 @@ mod tests {
     #[test]
     fn test_limited_safelist_precomputed_keys_dont_see_new_keys() {
         let arena = Bump::new();
-        let inner_map = RefCell::new(make_map());
-        let inner = make_refcell_view(&arena, &inner_map);
+        let inner_map: &RefCell<_> = arena.alloc(make_arena_map(&arena));
+        let inner = make_refcell_view(&arena, inner_map);
         let safelist: HashSet<String> = ["a".into(), "new".into()].into();
         let limited: &dyn MemberMap<i32> =
             arena.alloc(LimitedMapView::new_safelist(inner, &safelist));
         assert_eq!(limited.len(), 1); // "a" exists, but "new" was not in inner at construction
                                       // Add "new" key to inner AFTER construction
-        inner_map.borrow_mut().insert("new".into(), 777);
+        inner_map.borrow_mut().insert("new", 777);
         // Can't see it — allowed was precomputed
         assert_eq!(limited.get("new"), None);
         assert_eq!(limited.len(), 1);
@@ -935,15 +949,17 @@ mod tests {
     #[test]
     fn test_merged_live_value() {
         let arena = Bump::new();
-        let inner_map = RefCell::new(IndexMap::from([("a".into(), 1)]));
-        let m1 = make_refcell_view(&arena, &inner_map);
+        let mut live = ArenaMap::new_in(&arena);
+        live.insert("a", 1);
+        let inner_map: &RefCell<_> = arena.alloc(RefCell::new(live));
+        let m1 = make_refcell_view(&arena, inner_map);
         let m2: &dyn MemberMap<i32> = arena.alloc(IndexMapView {
             map: IndexMap::new(),
         });
         let merged = MergedMapView::new(vec![m1, m2]);
         assert_eq!(merged.get("a"), Some(1));
         // Mutate underlying value
-        inner_map.borrow_mut().insert("a".into(), 99);
+        inner_map.borrow_mut().insert("a", 99);
         // View sees the new value
         assert_eq!(merged.get("a"), Some(99));
     }
@@ -1075,12 +1091,12 @@ mod tests {
     #[test]
     fn test_forwarded_map_chained_views_read_live() {
         let arena = Bump::new();
-        let inner_map = RefCell::new(make_map());
-        let inner = make_refcell_view(&arena, &inner_map);
+        let inner_map: &RefCell<_> = arena.alloc(make_arena_map(&arena));
+        let inner = make_refcell_view(&arena, inner_map);
         let result = forwarded_map(&arena, inner, Some("ns-"), None, None);
         assert_eq!(result.get("ns-a"), Some(1));
         // Mutate underlying value
-        inner_map.borrow_mut().insert("a".into(), 99);
+        inner_map.borrow_mut().insert("a", 99);
         // Prefixed view sees the new value (read-through chain: Prefixed → RefCellMap → RefCell)
         assert_eq!(result.get("ns-a"), Some(99));
     }
