@@ -15,8 +15,13 @@
 use crate::ast::css::clone_css::clone_css_stylesheet;
 use std::collections::HashSet;
 
+use allocator_api2::vec::Vec as AllocVec;
 use bumpalo::Bump;
 use indexmap::IndexMap;
+
+use crate::arena_map::ArenaMap;
+
+type ArenaVec<'p, T> = AllocVec<T, &'p Bump>;
 
 use crate::ast::css::comment::CssComment;
 use crate::ast::css::modifiable_node::{ModifiableCssNode, ModifiableCssNodeKind};
@@ -42,17 +47,18 @@ use crate::value::Value;
 #[derive(Clone)]
 pub struct EnvironmentModule<'compile, 'parse> {
     pub environment: Environment<'compile, 'parse>,
-    pub upstream: Vec<Module<'compile, 'parse>>,
+    pub upstream: &'parse [Module<'compile, 'parse>],
     pub variables: &'parse dyn MemberMap<Value<'parse>>,
     pub variable_nodes: &'parse dyn MemberMap<FileSpan<'parse>>,
     pub functions: &'parse dyn MemberMap<Callable<'compile, 'parse>>,
     pub mixins: &'parse dyn MemberMap<Callable<'compile, 'parse>>,
     pub extension_store: ExtensionStore<'parse>,
-    pub pre_module_comments: IndexMap<Module<'compile, 'parse>, Vec<CssComment<'parse>>>,
+    pub pre_module_comments:
+        &'parse ArenaMap<'parse, Module<'compile, 'parse>, ArenaVec<'parse, CssComment<'parse>>>,
     pub css: ModifiableCssNode<'parse>,
     pub transitively_contains_css: bool,
     pub transitively_contains_extensions: bool,
-    pub(crate) modules_by_variable: IndexMap<String, Module<'compile, 'parse>>,
+    pub(crate) modules_by_variable: &'parse ArenaMap<'parse, &'parse str, Module<'compile, 'parse>>,
 }
 
 impl<'compile: 'parse, 'parse> EnvironmentModule<'compile, 'parse> {
@@ -68,13 +74,24 @@ impl<'compile: 'parse, 'parse> EnvironmentModule<'compile, 'parse> {
         arena: &'compile Bump,
         environment: Environment<'compile, 'parse>,
         css: ModifiableCssNode<'parse>,
-        pre_module_comments: IndexMap<Module<'compile, 'parse>, Vec<CssComment<'parse>>>,
+        pre_module_comments: &IndexMap<Module<'compile, 'parse>, Vec<CssComment<'parse>>>,
         extension_store: ExtensionStore<'parse>,
         forwarded: &[Module<'compile, 'parse>],
         all_modules: &[Module<'compile, 'parse>],
     ) -> Module<'compile, 'parse> {
-        let modules_by_variable = make_modules_by_variable(forwarded);
+        let modules_by_variable = arena.alloc(make_modules_by_variable(arena, forwarded));
         let (vars, var_nodes, fns, mixs) = build_member_views(arena, &environment, forwarded);
+
+        let mut stored_comments: ArenaMap<
+            'parse,
+            Module<'compile, 'parse>,
+            ArenaVec<'parse, CssComment<'parse>>,
+        > = ArenaMap::new_in(arena);
+        for (module, comments) in pre_module_comments {
+            let mut stored = ArenaVec::new_in(arena);
+            stored.extend(comments.iter().cloned());
+            stored_comments.insert(*module, stored);
+        }
 
         let transitively_contains_css = !css.children().unwrap_or_default().is_empty()
             || !pre_module_comments.is_empty()
@@ -87,20 +104,20 @@ impl<'compile: 'parse, 'parse> EnvironmentModule<'compile, 'parse> {
 
         let env_module = EnvironmentModule {
             environment,
-            upstream: all_modules.to_vec(),
+            upstream: arena.alloc_slice_copy(all_modules),
             variables: vars,
             variable_nodes: var_nodes,
             functions: fns,
             mixins: mixs,
             extension_store,
-            pre_module_comments,
+            pre_module_comments: arena.alloc(stored_comments),
             css,
             transitively_contains_css,
             transitively_contains_extensions,
             modules_by_variable,
         };
 
-        Module::new(arena, ModuleKind::Environment(Box::new(env_module)))
+        Module::new(arena, ModuleKind::Environment(env_module))
     }
 
     /// Returns a module with the same members and upstream modules as
@@ -125,7 +142,7 @@ impl<'compile: 'parse, 'parse> EnvironmentModule<'compile, 'parse> {
             arena,
             environment,
             css,
-            IndexMap::new(),
+            &IndexMap::new(),
             ExtensionStore::Empty,
             forwarded,
             all_modules,
@@ -196,15 +213,15 @@ impl<'compile: 'parse, 'parse> EnvironmentModule<'compile, 'parse> {
         let mut checked: HashSet<Module<'compile, 'parse>> = HashSet::new();
         if variables.len() < self.modules_by_variable.len() {
             for v in variables {
-                if let Some(module) = self.modules_by_variable.get(v) {
+                if let Some(module) = self.modules_by_variable.get(v.as_str()) {
                     if checked.insert(*module) && module.could_have_been_configured(variables) {
                         return true;
                     }
                 }
             }
         } else {
-            for (v, module) in &self.modules_by_variable {
-                if variables.contains(v)
+            for (v, module) in self.modules_by_variable.iter() {
+                if variables.contains(*v)
                     && checked.insert(*module)
                     && module.could_have_been_configured(variables)
                 {
@@ -219,17 +236,14 @@ impl<'compile: 'parse, 'parse> EnvironmentModule<'compile, 'parse> {
     /// store. Returns an identical handle when the module contains no CSS.
     pub fn clone_css(&self, arena: &'compile Bump) -> SassResult<Module<'compile, 'parse>> {
         if !self.transitively_contains_css {
-            return Ok(Module::new(
-                arena,
-                ModuleKind::Environment(Box::new(self.clone())),
-            ));
+            return Ok(Module::new(arena, ModuleKind::Environment(self.clone())));
         }
         let (cloned_css, cloned_store) =
             clone_css_stylesheet(arena, &self.css, &self.extension_store)?;
-        let cloned_comments = self.pre_module_comments.clone();
+        let cloned_comments = self.pre_module_comments;
         let cloned = EnvironmentModule {
             environment: self.environment,
-            upstream: self.upstream.clone(),
+            upstream: self.upstream,
             variables: self.variables,
             variable_nodes: self.variable_nodes,
             functions: self.functions,
@@ -239,12 +253,9 @@ impl<'compile: 'parse, 'parse> EnvironmentModule<'compile, 'parse> {
             css: cloned_css,
             transitively_contains_css: self.transitively_contains_css,
             transitively_contains_extensions: self.transitively_contains_extensions,
-            modules_by_variable: self.modules_by_variable.clone(),
+            modules_by_variable: self.modules_by_variable,
         };
-        Ok(Module::new(
-            arena,
-            ModuleKind::Environment(Box::new(cloned)),
-        ))
+        Ok(Module::new(arena, ModuleKind::Environment(cloned)))
     }
 }
 
@@ -254,15 +265,13 @@ impl<'compile: 'parse, 'parse> EnvironmentModule<'compile, 'parse> {
 /// Nested environment modules are flattened (each forwarded variable maps to
 /// its ultimate origin) to avoid linear-depth delegation chains.
 fn make_modules_by_variable<'compile: 'parse, 'parse>(
+    arena: &'parse Bump,
     forwarded: &[Module<'compile, 'parse>],
-) -> IndexMap<String, Module<'compile, 'parse>> {
-    if forwarded.is_empty() {
-        return IndexMap::new();
-    }
-    let mut result: IndexMap<String, Module<'compile, 'parse>> = IndexMap::new();
+) -> ArenaMap<'parse, &'parse str, Module<'compile, 'parse>> {
+    let mut result = ArenaMap::new_in(arena);
     for module in forwarded {
         for key in module.variables().keys() {
-            result.insert(key.clone(), *module);
+            result.insert(&*arena.alloc_str(&key), *module);
         }
     }
     result

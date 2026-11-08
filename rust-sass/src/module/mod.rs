@@ -33,6 +33,10 @@ use crate::extend::store::ExtensionStore;
 use crate::member_map::{self, MemberMap};
 use crate::value::Value;
 
+use allocator_api2::vec::Vec as AllocVec;
+
+type ArenaVec<'p, T> = AllocVec<T, &'p Bump>;
+
 /// A module provided by Sass, available under the special `sass:` URL space.
 ///
 /// Dart: `BuiltInModule` (`module/built_in.dart`). Functions and mixins are
@@ -45,10 +49,9 @@ pub struct BuiltInModule<'compile, 'parse> {
     pub mixins: ArenaMap<'parse, &'parse str, Callable<'compile, 'parse>>,
     pub css: ModifiableCssNode<'parse>,
     variable_nodes: ArenaMap<'parse, &'parse str, FileSpan<'parse>>,
-    // Always empty for built-in modules. Kept as a std map because the shared
-    // `Module::pre_module_comments` accessor still returns an IndexMap; an
-    // empty map allocates nothing.
-    pre_module_comments: IndexMap<Module<'compile, 'parse>, Vec<CssComment<'parse>>>,
+    // Always empty for built-in modules.
+    pre_module_comments:
+        ArenaMap<'parse, Module<'compile, 'parse>, ArenaVec<'parse, CssComment<'parse>>>,
 }
 
 impl<'compile: 'parse, 'parse> BuiltInModule<'compile, 'parse> {
@@ -86,7 +89,7 @@ impl<'compile: 'parse, 'parse> BuiltInModule<'compile, 'parse> {
                 ModifiableCssNodeKind::Stylesheet(ModifiableCssStylesheet::new(BOGUS_SPAN)),
             ),
             variable_nodes: ArenaMap::new_in(arena),
-            pre_module_comments: IndexMap::new(),
+            pre_module_comments: ArenaMap::new_in(arena),
         }
     }
 
@@ -131,7 +134,7 @@ impl<'compile: 'parse, 'parse> BuiltInModule<'compile, 'parse> {
     /// Built-in modules carry none.
     pub fn pre_module_comments(
         &self,
-    ) -> &IndexMap<Module<'compile, 'parse>, Vec<CssComment<'parse>>> {
+    ) -> &ArenaMap<'parse, Module<'compile, 'parse>, ArenaVec<'parse, CssComment<'parse>>> {
         &self.pre_module_comments
     }
 
@@ -228,7 +231,7 @@ pub enum ModuleKind<'compile, 'parse> {
     BuiltIn(BuiltInModule<'compile, 'parse>),
     Forwarded(ForwardedModuleView<'compile, 'parse>),
     Shadowed(ShadowedModuleView<'compile, 'parse>),
-    Environment(Box<EnvironmentModule<'compile, 'parse>>),
+    Environment(EnvironmentModule<'compile, 'parse>),
 }
 
 // === Module wrapper with arena identity ===
@@ -290,7 +293,7 @@ impl<'compile: 'parse, 'parse> Module<'compile, 'parse> {
             ModuleKind::BuiltIn(_) => vec![],
             ModuleKind::Forwarded(f) => f.inner.upstream(),
             ModuleKind::Shadowed(s) => s.inner.upstream(),
-            ModuleKind::Environment(e) => e.upstream.clone(),
+            ModuleKind::Environment(e) => e.upstream.to_vec(),
         }
     }
 
@@ -403,12 +406,12 @@ impl<'compile: 'parse, 'parse> Module<'compile, 'parse> {
     /// written in this module that should be emitted before the given module.
     pub fn pre_module_comments(
         &self,
-    ) -> &IndexMap<Module<'compile, 'parse>, Vec<CssComment<'parse>>> {
+    ) -> &ArenaMap<'parse, Module<'compile, 'parse>, ArenaVec<'parse, CssComment<'parse>>> {
         match self.0 {
             ModuleKind::BuiltIn(b) => b.pre_module_comments(),
             ModuleKind::Forwarded(f) => f.inner.pre_module_comments(),
             ModuleKind::Shadowed(s) => s.inner.pre_module_comments(),
-            ModuleKind::Environment(e) => &e.pre_module_comments,
+            ModuleKind::Environment(e) => e.pre_module_comments,
         }
     }
 
@@ -1047,7 +1050,7 @@ mod tests {
             arena,
             env,
             css,
-            IndexMap::new(),
+            &IndexMap::new(),
             ExtensionStore::Empty,
             &[],
             &[],

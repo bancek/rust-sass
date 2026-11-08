@@ -1292,7 +1292,7 @@ impl<'compile: 'parse, 'parse> Environment<'compile, 'parse> {
             arena,
             *self,
             css.clone(),
-            pre_module_comments.clone(),
+            pre_module_comments,
             extension_store,
             &forwarded,
             &inner.all_modules.borrow(),
