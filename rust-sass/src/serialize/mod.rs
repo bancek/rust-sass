@@ -823,10 +823,10 @@ mod tests {
         // sourcesContent can actually be emitted.
         let arena = Bump::new();
         let text = "/* hello */";
-        let fs = FileSource::new_in(
+        let fs = FileSource::new_in_owned(
             &arena,
             text,
-            Some(OwnedUrl::parse("file:///input.scss").unwrap()),
+            Some(&OwnedUrl::parse("file:///input.scss").unwrap()),
         );
         let span = FileSpan::new(Some(fs), 0, text.len());
         let comment = CssNode::Comment(CssComment::new(text.to_string(), span));

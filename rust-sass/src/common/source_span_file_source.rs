@@ -7,10 +7,10 @@
 // dart-source: (external) package:source_span/lib/src/file.dart
 // go-source: go/sasscommon/source_span_file_source.go
 
-use crate::url::OwnedUrl;
+use crate::url::{ArenaUrl, OwnedUrl};
 use bumpalo::Bump;
-use std::cell::{Cell, RefCell};
-use std::rc::Rc;
+use std::cell::Cell;
+use std::fmt;
 
 use crate::common::file_span::{FileSpan, SourceLocation};
 
@@ -22,10 +22,9 @@ use crate::common::file_span::{FileSpan, SourceLocation};
 /// compile arena (`&'parse`), so offsets/line lookups borrow instead of
 /// copying; construction is infallible (Dart constructors throw `RangeError`
 /// on bad offsets, but this port validates at the call site instead).
-#[derive(Debug)]
 pub struct FileSource<'parse> {
-    /// The URL where the source is located, if known.
-    url: Option<OwnedUrl>,
+    /// The URL where the source is located, if known (arena-backed).
+    url: Option<&'parse ArenaUrl<'parse>>,
     /// The full source text (arena copy).
     text: &'parse str,
     /// Byte offset of the first character *after* each newline; entry 0 is
@@ -35,9 +34,19 @@ pub struct FileSource<'parse> {
     /// Single-entry memo for `get_line`, mirroring source_span's
     /// `_cachedLine`: consecutive span queries cluster on nearby lines.
     cached_line: Cell<Option<usize>>,
-    /// Lazily formatted URL string (shared via `Rc<str>` so dedup keys and
-    /// trace frames can clone by refcount instead of re-formatting).
-    url_str_cache: RefCell<Option<Rc<str>>>,
+    /// The compile arena; `LazyFileSpan::new` needs it to allocate its builder.
+    arena: &'parse Bump,
+}
+
+impl fmt::Debug for FileSource<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("FileSource")
+            .field("url", &self.url)
+            .field("text", &self.text)
+            .field("line_starts", &self.line_starts)
+            .field("cached_line", &self.cached_line)
+            .finish_non_exhaustive()
+    }
 }
 
 impl<'parse> PartialEq for FileSource<'parse> {
@@ -57,7 +66,7 @@ impl<'parse> FileSource<'parse> {
     pub fn new_in<'compile: 'parse>(
         arena: &'compile Bump,
         text: &str,
-        url: Option<OwnedUrl>,
+        url: Option<&'parse ArenaUrl<'parse>>,
     ) -> &'parse Self {
         let arena_text = arena.alloc_str(text);
         let line_starts = compute_line_starts(arena, text);
@@ -66,21 +75,29 @@ impl<'parse> FileSource<'parse> {
             text: arena_text,
             line_starts,
             cached_line: Cell::new(None),
-            url_str_cache: RefCell::new(None),
+            arena,
         })
     }
 
-    /// The URL as a shared string, formatted once per source.
-    ///
-    /// Warning-dedup keys and stack-trace frames need this repeatedly;
-    /// cloning an `Rc<str>` beats re-stringifying a `OwnedUrl` every time.
-    pub fn url_str_cached(&self) -> Option<Rc<str>> {
-        if let Some(s) = self.url_str_cache.borrow().as_ref() {
-            return Some(Rc::clone(s));
-        }
-        let s = Rc::from(self.url.as_ref()?.to_string().as_str());
-        *self.url_str_cache.borrow_mut() = Some(Rc::clone(&s));
-        Some(s)
+    /// Like [`new_in`](Self::new_in), taking an owned URL and copying it into
+    /// the arena first.
+    pub fn new_in_owned<'compile: 'parse>(
+        arena: &'compile Bump,
+        text: &str,
+        url: Option<&OwnedUrl>,
+    ) -> &'parse Self {
+        let url = url.map(|url| &*arena.alloc(ArenaUrl::from_owned(arena, url)));
+        Self::new_in(arena, text, url)
+    }
+
+    /// The URL's canonical string, already arena-allocated.
+    pub fn url_str_cached(&self) -> Option<&'parse str> {
+        self.url.map(|url| url.as_str())
+    }
+
+    /// The compile arena this source was allocated in.
+    pub fn arena(&self) -> &'parse Bump {
+        self.arena
     }
 
     /// Dart `identical()` on `SourceFile` — address equality, not `PartialEq`.
@@ -105,8 +122,8 @@ impl<'parse> FileSource<'parse> {
     }
 
     /// The URL where the source is located, if known.
-    pub fn url(&self) -> Option<&OwnedUrl> {
-        self.url.as_ref()
+    pub fn url(&self) -> Option<&'parse ArenaUrl<'parse>> {
+        self.url
     }
 
     /// The full source text.

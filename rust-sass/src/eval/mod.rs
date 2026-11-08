@@ -146,19 +146,20 @@ pub struct StackFrame<'compile, 'parse> {
 /// offset, and the file-source identity (address) to disambiguate
 /// same-offset spans from different sources.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
-pub struct WarnKey {
+pub struct WarnKey<'parse> {
     pub message: String,
-    pub source_url: Option<Rc<str>>,
+    /// The arena-canonical URL text (`ArenaUrl::text`); borrowing avoids an
+    /// allocation for every warning, including duplicates.
+    pub source_url: Option<&'parse str>,
     pub start_offset: usize,
     /// Identity of the FileSource to distinguish same-offset spans in different sources.
     pub file_id: usize,
 }
 
-impl WarnKey {
-    pub fn from_span<'parse>(message: &str, span: FileSpan<'parse>) -> Self {
+impl<'parse> WarnKey<'parse> {
+    pub fn from_span(message: &str, span: FileSpan<'parse>) -> Self {
         WarnKey {
             message: message.to_string(),
-            // Shared, formatted once per source (see `FileSource::url_str_cached`).
             source_url: span.url_str_cached(),
             start_offset: span.start_location().offset,
             file_id: span.file().map(|fs| fs as *const _ as usize).unwrap_or(0),
@@ -453,7 +454,7 @@ pub struct EvalState<'compile, 'parse> {
     /// emitted per location.
     ///
     /// Matches Dart: `_EvaluateVisitor._warningsEmitted`.
-    pub warnings_emitted: HashSet<WarnKey>,
+    pub warnings_emitted: HashSet<WarnKey<'parse>>,
 
     // ── Import / URL tracking ──
     /// Cache used to import other stylesheets. Flows by ownership: created in
@@ -685,7 +686,7 @@ where
                     state.loaded_urls.push(url_str);
                 }
             }
-            state.source_url = Some(url.clone());
+            state.source_url = Some(url.to_owned_url());
         }
 
         // Set importer + stylesheet + extension_store

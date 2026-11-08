@@ -1049,7 +1049,9 @@ where
     };
 
     let callable_node_span = state.callable_span.unwrap_or(BOGUS_SPAN);
-    let base_url = callable_node_span.source_url().cloned();
+    let base_url = callable_node_span
+        .source_url()
+        .map(|url| url.to_owned_url());
     let (module, _first_load) = load_module(
         config,
         state,

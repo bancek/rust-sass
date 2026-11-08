@@ -20,7 +20,8 @@
 //! string indices in Unicode code points.
 
 use crate::functions::helpers::warn_for_global_builtin_message;
-use crate::parse::stylesheet_parse::parse_parameter_list;
+use crate::parse::stylesheet_parse::parse_parameter_list_with_url;
+use crate::url::ArenaUrl;
 use std::collections::HashSet;
 use std::fmt;
 use std::hash::{Hash, Hasher};
@@ -302,6 +303,22 @@ impl Hash for Callable<'_, '_> {
 // === BuiltInCallable impl ===
 
 impl<'compile: 'parse, 'parse> BuiltInCallable<'compile, 'parse> {
+    /// Parses the module URL once per callable (not once per overload).
+    fn module_url(
+        arena: &'compile Bump,
+        url_str: &str,
+        name: &str,
+    ) -> Option<&'parse ArenaUrl<'parse>> {
+        if url_str.is_empty() {
+            return None;
+        }
+        Some(
+            &*arena.alloc(ArenaUrl::parse(arena, url_str).unwrap_or_else(|error| {
+                panic!("BUG: ParseParameterList for {name} in {url_str}: invalid URL: {error}")
+            })),
+        )
+    }
+
     /// Creates a function with a single parameter declaration and callback.
     ///
     /// The declaration is parsed from `params_str`, which uses the same
@@ -464,8 +481,9 @@ impl<'compile: 'parse, 'parse> BuiltInCallable<'compile, 'parse> {
         arena: &'compile Bump,
         callback: SyncBuiltInCallback<'compile, 'parse>,
     ) -> Self {
+        let url = Self::module_url(arena, url_str, name);
         let contents = format!("@function {name}({params_str}) {{");
-        let params = parse_parameter_list(&contents, url_str, arena).unwrap_or_else(|e| {
+        let params = parse_parameter_list_with_url(&contents, url, arena).unwrap_or_else(|e| {
             panic!("BUG: ParseParameterList for {name}({params_str}) in {url_str}: {e}")
         });
         let mut bic = BuiltInCallable::new(arena, name, params, callback);
@@ -483,8 +501,9 @@ impl<'compile: 'parse, 'parse> BuiltInCallable<'compile, 'parse> {
         arena: &'compile Bump,
         callback: AsyncBuiltInCallback<'compile, 'parse>,
     ) -> Self {
+        let url = Self::module_url(arena, url_str, name);
         let contents = format!("@function {name}({params_str}) {{");
-        let params = parse_parameter_list(&contents, url_str, arena).unwrap_or_else(|e| {
+        let params = parse_parameter_list_with_url(&contents, url, arena).unwrap_or_else(|e| {
             panic!("BUG: ParseParameterList for {name}({params_str}) in {url_str}: {e}")
         });
         let mut bic = BuiltInCallable::new_async(arena, name, params, callback);
@@ -503,8 +522,9 @@ impl<'compile: 'parse, 'parse> BuiltInCallable<'compile, 'parse> {
         arena: &'compile Bump,
         callback: SyncBuiltInCallback<'compile, 'parse>,
     ) -> Self {
+        let url = Self::module_url(arena, url_str, name);
         let contents = format!("@mixin {name}({params_str}) {{");
-        let params = parse_parameter_list(&contents, url_str, arena).unwrap_or_else(|e| {
+        let params = parse_parameter_list_with_url(&contents, url, arena).unwrap_or_else(|e| {
             panic!("BUG: ParseParameterList for {name}({params_str}) in {url_str}: {e}")
         });
         let mut bic = BuiltInCallable::new(arena, name, params, callback);
@@ -524,8 +544,9 @@ impl<'compile: 'parse, 'parse> BuiltInCallable<'compile, 'parse> {
         arena: &'compile Bump,
         callback: AsyncBuiltInCallback<'compile, 'parse>,
     ) -> Self {
+        let url = Self::module_url(arena, url_str, name);
         let contents = format!("@mixin {name}({params_str}) {{");
-        let params = parse_parameter_list(&contents, url_str, arena).unwrap_or_else(|e| {
+        let params = parse_parameter_list_with_url(&contents, url, arena).unwrap_or_else(|e| {
             panic!("BUG: ParseParameterList for {name}({params_str}) in {url_str}: {e}")
         });
         let mut bic = BuiltInCallable::new_async(arena, name, params, callback);
@@ -544,13 +565,15 @@ impl<'compile: 'parse, 'parse> BuiltInCallable<'compile, 'parse> {
         overload_defs: Vec<(&str, SyncBuiltInCallback<'compile, 'parse>)>,
         arena: &'compile Bump,
     ) -> Self {
+        let url = Self::module_url(arena, url_str, name);
         let overloads: Vec<BuiltInOverload<'compile, 'parse>> = overload_defs
             .into_iter()
             .map(|(params_str, callback)| {
                 let contents = format!("@function {name}({params_str}) {{");
-                let params = parse_parameter_list(&contents, url_str, arena).unwrap_or_else(|e| {
-                    panic!("BUG: ParseParameterList for {name}({params_str}): {e}")
-                });
+                let params =
+                    parse_parameter_list_with_url(&contents, url, arena).unwrap_or_else(|e| {
+                        panic!("BUG: ParseParameterList for {name}({params_str}): {e}")
+                    });
                 #[cfg(feature = "async")]
                 let callback = BuiltInCallback::Sync(callback);
                 BuiltInOverload { params, callback }
@@ -573,13 +596,15 @@ impl<'compile: 'parse, 'parse> BuiltInCallable<'compile, 'parse> {
         overload_defs: Vec<(&str, AsyncBuiltInCallback<'compile, 'parse>)>,
         arena: &'compile Bump,
     ) -> Self {
+        let url = Self::module_url(arena, url_str, name);
         let overloads: Vec<BuiltInOverload<'compile, 'parse>> = overload_defs
             .into_iter()
             .map(|(params_str, callback)| {
                 let contents = format!("@function {name}({params_str}) {{");
-                let params = parse_parameter_list(&contents, url_str, arena).unwrap_or_else(|e| {
-                    panic!("BUG: ParseParameterList for {name}({params_str}): {e}")
-                });
+                let params =
+                    parse_parameter_list_with_url(&contents, url, arena).unwrap_or_else(|e| {
+                        panic!("BUG: ParseParameterList for {name}({params_str}): {e}")
+                    });
                 BuiltInOverload {
                     params,
                     callback: BuiltInCallback::Async(callback),
@@ -626,8 +651,9 @@ impl<'compile: 'parse, 'parse> BuiltInCallable<'compile, 'parse> {
         arena: &'compile Bump,
         callback: SyncBuiltInCallback<'compile, 'parse>,
     ) -> Self {
+        let url = Self::module_url(arena, url_str, name);
         let contents = format!("@mixin {name}({params_str}) {{");
-        let params = parse_parameter_list(&contents, url_str, arena).unwrap_or_else(|e| {
+        let params = parse_parameter_list_with_url(&contents, url, arena).unwrap_or_else(|e| {
             panic!("BUG: ParseParameterList for {name}({params_str}) in {url_str}: {e}")
         });
         let mut bic = BuiltInCallable::new(arena, name, params, callback);

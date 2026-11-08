@@ -49,6 +49,8 @@ impl<'parse> CssStylesheet<'parse> {
 
     /// Creates an empty stylesheet with the given source URL.
     pub fn empty<'compile: 'parse>(source_url: Option<OwnedUrl>, arena: &'compile Bump) -> Self {
+        let source_url =
+            source_url.map(|url| &*arena.alloc(crate::url::ArenaUrl::from_owned(arena, &url)));
         let fs = FileSource::new_in(arena, "", source_url);
         let span = FileSpan::new(Some(fs), 0, 0);
         CssStylesheet {

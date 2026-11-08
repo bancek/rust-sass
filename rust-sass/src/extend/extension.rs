@@ -601,13 +601,9 @@ mod tests {
     fn test_assert_compatible_media_context_conflicting() {
         let arena = Bump::new();
         let url = OwnedUrl::parse("file:///test.scss").unwrap();
-        let src = FileSource::new_in(
-            &arena,
-            "@media screen {} @media print {}",
-            Some(url.clone()),
-        );
-        let ext_src = FileSource::new_in(&arena, "@extend .a;", Some(url.clone()));
-        let sel_src = FileSource::new_in(&arena, ".a", Some(url));
+        let src = FileSource::new_in_owned(&arena, "@media screen {} @media print {}", Some(&url));
+        let ext_src = FileSource::new_in_owned(&arena, "@extend .a;", Some(&url));
+        let sel_src = FileSource::new_in_owned(&arena, ".a", Some(&url));
         let extension_media_span = FileSpan::new(Some(src), 7, 13); // screen
         let extended_span = FileSpan::new(Some(src), 24, 29); // print
         let extension_span = FileSpan::new(Some(ext_src), 0, 10); // @extend .a

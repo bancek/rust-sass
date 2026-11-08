@@ -1718,13 +1718,16 @@ pub(crate) fn span_from_to_impl<'parse>(
         return Ok(Span::File(span));
     }
     let map = state.interpolation_map.unwrap();
-    Ok(Span::Lazy(LazyFileSpan::new(move || {
-        let mapped = map.map_span(&Span::File(span))?;
-        match mapped {
-            Span::File(fs) => Ok(fs),
-            _ => Ok(span),
-        }
-    })))
+    Ok(Span::Lazy(LazyFileSpan::new(
+        scanner.source().arena(),
+        move || {
+            let mapped = map.map_span(&Span::File(span))?;
+            match mapped {
+                Span::File(fs) => Ok(fs),
+                _ => Ok(span),
+            }
+        },
+    )))
 }
 
 /// Like `scanner.span_from_position`, but passes the span through the
@@ -1744,13 +1747,16 @@ pub(crate) fn span_from_position_impl<'parse>(
         return Ok(Span::File(span));
     }
     let map = state.interpolation_map.unwrap();
-    Ok(Span::Lazy(LazyFileSpan::new(move || {
-        let mapped = map.map_span(&Span::File(span))?;
-        match mapped {
-            Span::File(fs) => Ok(fs),
-            _ => Ok(span),
-        }
-    })))
+    Ok(Span::Lazy(LazyFileSpan::new(
+        scanner.source().arena(),
+        move || {
+            let mapped = map.map_span(&Span::File(span))?;
+            match mapped {
+                Span::File(fs) => Ok(fs),
+                _ => Ok(span),
+            }
+        },
+    )))
 }
 
 impl<'parse> Parser<'parse> {

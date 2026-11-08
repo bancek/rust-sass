@@ -7,13 +7,14 @@
 // dart-source: lib/src/util/lazy_file_span.dart + lib/src/util/multi_span.dart
 // go-source: go/sasscommon/util_lazy_file_span.go + go/sasscommon/util_multi_span.go
 
-use crate::url::OwnedUrl;
+use bumpalo::Bump;
 use std::cell::Cell;
 use std::fmt::Debug;
 use std::fmt::Display;
 use std::fmt::Error;
 use std::fmt::Formatter;
-use std::rc::Rc;
+
+use crate::url::{ArenaUrl, OwnedUrl};
 
 use crate::common::exception::{SassError, SassResult};
 use crate::common::file_span::{FileSpan, SourceLocation};
@@ -32,10 +33,10 @@ use crate::io::Io;
 /// without forcing resolution; once resolved the clone carries only the
 /// cached span.
 pub struct LazyFileSpan<'parse> {
-    // Deferred builder with shared ownership; the `Cell`+`Rc` shape is the
-    // lazy-cache semantics, not incidental complexity.
+    /// Deferred builder, arena-allocated; `Clone` copies the reference, the
+    /// `Cell` shape is the lazy-cache semantics.
     #[allow(clippy::type_complexity)]
-    builder: Cell<Option<Rc<dyn Fn() -> SassResult<FileSpan<'parse>> + 'parse>>>,
+    builder: Cell<Option<&'parse dyn Fn() -> SassResult<FileSpan<'parse>>>>,
     cached: Cell<Option<FileSpan<'parse>>>,
 }
 
@@ -44,12 +45,12 @@ impl<'parse> LazyFileSpan<'parse> {
     /// underlying span is needed.
     ///
     /// Mirrors Dart's `LazyFileSpan(builder)`.
-    pub fn new<F>(builder: F) -> Self
+    pub fn new<F>(arena: &'parse Bump, builder: F) -> Self
     where
         F: Fn() -> SassResult<FileSpan<'parse>> + 'parse,
     {
         LazyFileSpan {
-            builder: Cell::new(Some(Rc::new(builder))),
+            builder: Cell::new(Some(&*arena.alloc(builder))),
             cached: Cell::new(None),
         }
     }
@@ -77,11 +78,8 @@ impl<'parse> Clone for LazyFileSpan<'parse> {
                 cached: Cell::new(Some(fs)),
             };
         }
-        let builder_rc = self.builder.take().expect("no builder for clone");
-        let clone = Rc::clone(&builder_rc);
-        self.builder.set(Some(builder_rc));
         LazyFileSpan {
-            builder: Cell::new(Some(clone)),
+            builder: Cell::new(self.builder.get()),
             cached: Cell::new(None),
         }
     }
@@ -212,12 +210,18 @@ impl<'parse> Span<'parse> {
         }
     }
 
-    pub fn source_url(&self) -> Result<Option<OwnedUrl>, SpanError> {
+    /// The span's source URL as an arena reference (`None` when unknown).
+    pub(crate) fn url_ref(&self) -> Result<Option<&'parse ArenaUrl<'parse>>, SpanError> {
         match self {
-            Span::File(fs) => Ok(fs.source_url().cloned()),
-            Span::Lazy(l) => Ok(l.get()?.source_url().cloned()),
-            Span::Multi(m) => m.primary.source_url(),
+            Span::File(fs) => Ok(fs.source_url()),
+            Span::Lazy(l) => Ok(l.get()?.source_url()),
+            Span::Multi(m) => m.primary.url_ref(),
         }
+    }
+
+    /// The span's source URL as an owned value (boundary convenience).
+    pub fn source_url(&self) -> Result<Option<OwnedUrl>, SpanError> {
+        Ok(self.url_ref()?.map(|url| url.to_owned_url()))
     }
 
     pub fn file(&self) -> Result<Option<&'parse FileSource<'parse>>, SpanError> {
@@ -519,6 +523,7 @@ mod tests {
     use crate::url::OwnedUrl;
     use bumpalo::Bump;
     use std::cell::Cell;
+    use std::rc::Rc;
 
     fn test_source<'compile, 'parse>(
         arena: &'compile Bump,
@@ -541,7 +546,7 @@ mod tests {
         let fs = test_source(&arena, "x");
         let called = Rc::new(Cell::new(0));
         let called2 = Rc::clone(&called);
-        let lazy = LazyFileSpan::new(move || {
+        let lazy = LazyFileSpan::new(&arena, move || {
             called2.set(called2.get() + 1);
             Ok(FileSpan::new(Some(fs), 0, 1))
         });
@@ -556,7 +561,7 @@ mod tests {
         let fs = test_source(&arena, "x");
         let called = Rc::new(Cell::new(0));
         let called2 = Rc::clone(&called);
-        let lazy = LazyFileSpan::new(move || {
+        let lazy = LazyFileSpan::new(&arena, move || {
             called2.set(called2.get() + 1);
             Ok(FileSpan::new(Some(fs), 0, 1))
         });
@@ -571,7 +576,7 @@ mod tests {
     fn test_lazy_delegates_text() {
         let arena = Bump::new();
         let fs = test_source(&arena, "hello");
-        let lazy = LazyFileSpan::new(move || Ok(FileSpan::new(Some(fs), 0, 5)));
+        let lazy = LazyFileSpan::new(&arena, move || Ok(FileSpan::new(Some(fs), 0, 5)));
         let span = Span::Lazy(lazy);
         assert_eq!(span.text().unwrap(), "hello");
     }
@@ -580,7 +585,7 @@ mod tests {
     fn test_lazy_file_span_file() {
         let arena = Bump::new();
         let fs = test_source(&arena, "a");
-        let lazy = LazyFileSpan::new(move || Ok(FileSpan::new(Some(fs), 0, 1)));
+        let lazy = LazyFileSpan::new(&arena, move || Ok(FileSpan::new(Some(fs), 0, 1)));
         let span = Span::Lazy(lazy);
         assert_eq!(span.file().unwrap(), Some(fs));
     }
@@ -589,7 +594,7 @@ mod tests {
     fn test_lazy_delegates_start_location() {
         let arena = Bump::new();
         let fs = test_source(&arena, "hello\n");
-        let lazy = LazyFileSpan::new(move || Ok(FileSpan::new(Some(fs), 0, 5)));
+        let lazy = LazyFileSpan::new(&arena, move || Ok(FileSpan::new(Some(fs), 0, 5)));
         let span = Span::Lazy(lazy);
         let loc = span.start_location().unwrap();
         assert_eq!(
@@ -606,7 +611,7 @@ mod tests {
     fn test_lazy_file_span_end_location() {
         let arena = Bump::new();
         let fs = test_source(&arena, "hello\n");
-        let lazy = LazyFileSpan::new(move || Ok(FileSpan::new(Some(fs), 0, 5)));
+        let lazy = LazyFileSpan::new(&arena, move || Ok(FileSpan::new(Some(fs), 0, 5)));
         let span = Span::Lazy(lazy);
         let loc = span.end_location().unwrap();
         assert_eq!(
@@ -623,7 +628,7 @@ mod tests {
     fn test_lazy_file_span_length() {
         let arena = Bump::new();
         let fs = test_source(&arena, "hello");
-        let lazy = LazyFileSpan::new(move || Ok(FileSpan::new(Some(fs), 2, 7)));
+        let lazy = LazyFileSpan::new(&arena, move || Ok(FileSpan::new(Some(fs), 2, 7)));
         let span = Span::Lazy(lazy);
         assert_eq!(span.len().unwrap(), 5);
     }
@@ -632,8 +637,8 @@ mod tests {
     fn test_lazy_file_span_source_url() {
         let u = test_url("file:///test.scss");
         let arena = Bump::new();
-        let fs = FileSource::new_in(&arena, "a", Some(u.clone()));
-        let lazy = LazyFileSpan::new(move || Ok(FileSpan::new(Some(fs), 0, 1)));
+        let fs = FileSource::new_in_owned(&arena, "a", Some(&u));
+        let lazy = LazyFileSpan::new(&arena, move || Ok(FileSpan::new(Some(fs), 0, 1)));
         let span = Span::Lazy(lazy);
         assert_eq!(
             span.source_url().unwrap().as_ref().map(|u| u.as_str()),
@@ -645,7 +650,7 @@ mod tests {
     fn test_lazy_file_span_context() {
         let arena = Bump::new();
         let fs = test_source(&arena, "body { }\n");
-        let lazy = LazyFileSpan::new(move || Ok(FileSpan::new(Some(fs), 0, 8)));
+        let lazy = LazyFileSpan::new(&arena, move || Ok(FileSpan::new(Some(fs), 0, 8)));
         let span = Span::Lazy(lazy);
         assert!(!span.context().unwrap().is_empty());
     }
@@ -654,7 +659,7 @@ mod tests {
     fn test_lazy_file_span_string() {
         let arena = Bump::new();
         let fs = test_source(&arena, "hello");
-        let lazy = LazyFileSpan::new(move || Ok(FileSpan::new(Some(fs), 0, 5)));
+        let lazy = LazyFileSpan::new(&arena, move || Ok(FileSpan::new(Some(fs), 0, 5)));
         let span = Span::Lazy(lazy);
         assert_eq!(span.string().unwrap(), "hello");
     }
@@ -663,7 +668,7 @@ mod tests {
     fn test_lazy_delegates_expand() {
         let arena = Bump::new();
         let fs = test_source(&arena, "..........\n");
-        let lazy = LazyFileSpan::new(move || Ok(FileSpan::new(Some(fs), 3, 8)));
+        let lazy = LazyFileSpan::new(&arena, move || Ok(FileSpan::new(Some(fs), 3, 8)));
         let span = Span::Lazy(lazy);
         let other = Span::File(FileSpan::new(Some(fs), 0, 10));
         let expanded = span.expand(&other).unwrap();
@@ -675,7 +680,7 @@ mod tests {
     fn test_lazy_delegates_subspan() {
         let arena = Bump::new();
         let fs = test_source(&arena, "abcde");
-        let lazy = LazyFileSpan::new(move || Ok(FileSpan::new(Some(fs), 0, 5)));
+        let lazy = LazyFileSpan::new(&arena, move || Ok(FileSpan::new(Some(fs), 0, 5)));
         let span = Span::Lazy(lazy);
         let sub = span.subspan(1, 4).unwrap();
         assert_eq!(sub.text().unwrap(), "bcd");
@@ -685,7 +690,7 @@ mod tests {
     fn test_lazy_delegates_before() {
         let arena = Bump::new();
         let fs = test_source(&arena, "abcdef");
-        let lazy = LazyFileSpan::new(move || Ok(FileSpan::new(Some(fs), 0, 6)));
+        let lazy = LazyFileSpan::new(&arena, move || Ok(FileSpan::new(Some(fs), 0, 6)));
         let span = Span::Lazy(lazy);
         let sub = Span::File(FileSpan::new(Some(fs), 3, 6));
         let before_span = span.before(&sub).unwrap();
@@ -696,7 +701,7 @@ mod tests {
     fn test_lazy_file_span_trim_right() {
         let arena = Bump::new();
         let fs = test_source(&arena, "abc  ");
-        let lazy = LazyFileSpan::new(move || Ok(FileSpan::new(Some(fs), 0, 5)));
+        let lazy = LazyFileSpan::new(&arena, move || Ok(FileSpan::new(Some(fs), 0, 5)));
         let span = Span::Lazy(lazy);
         let trimmed = span.trim_right().unwrap();
         assert_eq!(trimmed.text().unwrap(), "abc");
@@ -706,7 +711,7 @@ mod tests {
     fn test_lazy_file_span_after() {
         let arena = Bump::new();
         let fs = test_source(&arena, "abcdef");
-        let lazy = LazyFileSpan::new(move || Ok(FileSpan::new(Some(fs), 0, 6)));
+        let lazy = LazyFileSpan::new(&arena, move || Ok(FileSpan::new(Some(fs), 0, 6)));
         let span = Span::Lazy(lazy);
         let sub = Span::File(FileSpan::new(Some(fs), 0, 3));
         let after_span = span.after(&sub).unwrap();
@@ -718,7 +723,7 @@ mod tests {
         let arena = Bump::new();
         let fs = test_source(&arena, "abcdef");
         let a = Span::File(FileSpan::new(Some(fs), 1, 2));
-        let lazy = LazyFileSpan::new(move || Ok(FileSpan::new(Some(fs), 4, 5)));
+        let lazy = LazyFileSpan::new(&arena, move || Ok(FileSpan::new(Some(fs), 4, 5)));
         let b = Span::Lazy(lazy);
         let between_span = a.between(&b).unwrap();
         assert_eq!(between_span.text().unwrap(), "cd");
@@ -729,7 +734,7 @@ mod tests {
         let arena = Bump::new();
         let fs = test_source(&arena, "abcdef");
         let inner = Span::File(FileSpan::new(Some(fs), 2, 4));
-        let lazy = LazyFileSpan::new(move || Ok(FileSpan::new(Some(fs), 0, 6)));
+        let lazy = LazyFileSpan::new(&arena, move || Ok(FileSpan::new(Some(fs), 0, 6)));
         let span = Span::Lazy(lazy);
         assert!(span.contains(&inner).unwrap());
     }
@@ -739,7 +744,7 @@ mod tests {
         let arena = Bump::new();
         let fs = test_source(&arena, "abcdef");
         let parent = Span::File(FileSpan::new(Some(fs), 0, 6));
-        let lazy_sub = LazyFileSpan::new(move || Ok(FileSpan::new(Some(fs), 2, 4)));
+        let lazy_sub = LazyFileSpan::new(&arena, move || Ok(FileSpan::new(Some(fs), 2, 4)));
         let sub = Span::Lazy(lazy_sub);
         let before_span = parent.before(&sub).unwrap();
         assert_eq!(before_span.text().unwrap(), "ab");

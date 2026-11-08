@@ -559,7 +559,7 @@ mod tests {
         let m = InterpolationMap::new(interp, vec![]).unwrap();
 
         let gen_url = OwnedUrl::parse("generated:///output").unwrap();
-        let gen_fs = FileSource::new_in(&arena, "output", Some(gen_url));
+        let gen_fs = FileSource::new_in_owned(&arena, "output", Some(&gen_url));
         let gen_span = Span::File(FileSpan::new(Some(gen_fs), 2, 4));
 
         assert!(!m.is_mapped(&gen_span).unwrap());
@@ -596,7 +596,7 @@ mod tests {
         let m = InterpolationMap::new(interp, vec![2, 7]).unwrap();
 
         let gen_url = OwnedUrl::parse("generated:///output").unwrap();
-        let gen_fs = FileSource::new_in(&arena, "a.VALUE.b", Some(gen_url));
+        let gen_fs = FileSource::new_in_owned(&arena, "a.VALUE.b", Some(&gen_url));
         let gen_span = Span::File(FileSpan::new(Some(gen_fs), 2, 7));
 
         assert!(!m.is_mapped(&gen_span).unwrap());

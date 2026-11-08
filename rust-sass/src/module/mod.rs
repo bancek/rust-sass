@@ -283,7 +283,9 @@ impl<'compile: 'parse, 'parse> Module<'compile, 'parse> {
             ModuleKind::BuiltIn(b) => b.url(),
             ModuleKind::Forwarded(f) => f.inner.url(),
             ModuleKind::Shadowed(s) => s.inner.url(),
-            ModuleKind::Environment(e) => Ok(e.css.span()?.source_url().cloned()),
+            ModuleKind::Environment(e) => {
+                Ok(e.css.span()?.source_url().map(|url| url.to_owned_url()))
+            }
         }
     }
 

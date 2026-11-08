@@ -1231,7 +1231,7 @@ where
         state
             .stylesheet
             .as_ref()
-            .and_then(|s| s.span.source_url().cloned())
+            .and_then(|s| s.span.source_url().map(|url| url.to_owned_url()))
     });
 
     let canonicalize_result = {

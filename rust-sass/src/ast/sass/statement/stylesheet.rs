@@ -123,7 +123,8 @@ impl<'parse> Stylesheet<'parse> {
         parse_selectors: bool,
         arena: &'compile Bump,
     ) -> SassResult<Self> {
-        let source = FileSource::new_in(arena, contents, url.cloned());
+        let url = url.map(|url| &*arena.alloc(crate::url::ArenaUrl::from_owned(arena, url)));
+        let source = FileSource::new_in(arena, contents, url);
         let mut parser = StylesheetParser::new(source, Syntax::Scss, None, arena);
         parser.state.parse_selectors = parse_selectors;
         parse_impl(&mut parser.scanner, &mut parser.state).map_err(Into::into)
@@ -140,7 +141,8 @@ impl<'parse> Stylesheet<'parse> {
         parse_selectors: bool,
         arena: &'compile Bump,
     ) -> SassResult<Self> {
-        let source = FileSource::new_in(arena, contents, url.cloned());
+        let url = url.map(|url| &*arena.alloc(crate::url::ArenaUrl::from_owned(arena, url)));
+        let source = FileSource::new_in(arena, contents, url);
         let mut parser = StylesheetParser::new(
             source,
             Syntax::Sass(SassIndentState {
@@ -168,7 +170,8 @@ impl<'parse> Stylesheet<'parse> {
         disallowed_function_names: &HashSet<String>,
         arena: &'compile Bump,
     ) -> SassResult<Self> {
-        let source = FileSource::new_in(arena, contents, url.cloned());
+        let url = url.map(|url| &*arena.alloc(crate::url::ArenaUrl::from_owned(arena, url)));
+        let source = FileSource::new_in(arena, contents, url);
         let mut parser = StylesheetParser::new(
             source,
             Syntax::Css(CssState {

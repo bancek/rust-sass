@@ -434,7 +434,7 @@ mod tests {
         'parse: 'compile,
     {
         let url = OwnedUrl::parse(url_str).unwrap();
-        FileSource::new_in(arena, text, Some(url))
+        FileSource::new_in_owned(arena, text, Some(&url))
     }
 
     fn test_span<'compile, 'parse>(

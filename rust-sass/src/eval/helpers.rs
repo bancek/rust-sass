@@ -119,7 +119,7 @@ where
     let mut current = state.stack.as_ref();
     while let Some(frame) = current {
         let mut f = Frame {
-            uri: frame.span.source_url().cloned(),
+            uri: frame.span.source_url().map(|url| url.to_owned_url()),
             line: frame.span.start_location().line + 1,
             column: frame.span.start_location().column + 1,
             member: frame.name.clone(),
@@ -133,7 +133,7 @@ where
     // Step 3: Append span frame at end
     if let Some(s) = span {
         let mut f = Frame {
-            uri: s.source_url().cloned(),
+            uri: s.source_url().map(|url| url.to_owned_url()),
             line: s.start_location().line + 1,
             column: s.start_location().column + 1,
             member: state.member.clone(),

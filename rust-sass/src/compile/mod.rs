@@ -334,6 +334,7 @@ pub fn decode_source_utf8<'a>(
         Err(e) => {
             let lossy = String::from_utf8_lossy(source_bytes).into_owned();
             let valid_up_to = e.valid_up_to();
+            let url = url.map(|url| &*arena.alloc(crate::url::ArenaUrl::from_owned(arena, &url)));
             let fs = FileSource::new_in(arena, &lossy, url);
             let span = FileSpan::new(Some(fs), valid_up_to, valid_up_to);
             let span_ctx = SourceSpanWithContext::from_file_span(&span).unwrap_or_else(|_| {

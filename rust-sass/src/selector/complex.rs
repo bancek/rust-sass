@@ -272,7 +272,8 @@ impl<'parse> ComplexSelector<'parse> {
         url: Option<&OwnedUrl>,
         allow_parent: bool,
     ) -> SassResult<ComplexSelector<'parse>> {
-        let file = FileSource::new_in(arena, contents, url.cloned());
+        let url = url.map(|url| &*arena.alloc(crate::url::ArenaUrl::from_owned(arena, url)));
+        let file = FileSource::new_in(arena, contents, url);
         let mut parser =
             SelectorParser::new_with_options(arena, file, allow_parent, false, None, None, None);
         parser.parse_complex_selector()

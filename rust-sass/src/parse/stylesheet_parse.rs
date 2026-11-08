@@ -12,6 +12,8 @@
 
 use bumpalo::Bump;
 
+use crate::url::ArenaUrl;
+
 use crate::common::exception::ScanError;
 use crate::common::file_span::SourceLocation;
 use crate::parse::atrule::parameter_list_impl;
@@ -40,7 +42,6 @@ use crate::common::source_span_span_with_context::SourceSpanWithContext;
 use crate::common::span::Span;
 use crate::common::span_scanner::{LineScannerState, SpanScanner};
 use crate::deprecation;
-use crate::url::OwnedUrl;
 use crate::util::character;
 
 use crate::parse::anyvalue::{
@@ -1382,15 +1383,29 @@ pub fn parse_parameter_list<'compile, 'parse>(
 where
     'compile: 'parse,
 {
-    let parsed_url = if url.is_empty() {
+    let url = if url.is_empty() {
         None
     } else {
-        Some(OwnedUrl::parse(url).map_err(|_| SassError::Script {
-            message: format!("Invalid URL: {url}"),
-            argument_name: None,
-        })?)
+        Some(
+            &*arena.alloc(ArenaUrl::parse(arena, url).map_err(|_| SassError::Script {
+                message: format!("Invalid URL: {url}"),
+                argument_name: None,
+            })?),
+        )
     };
-    let source = FileSource::new_in(arena, contents, parsed_url);
+    parse_parameter_list_with_url(contents, url, arena)
+}
+
+/// Parses a parameter list with an already-parsed arena URL.
+pub fn parse_parameter_list_with_url<'compile, 'parse>(
+    contents: &str,
+    url: Option<&'parse ArenaUrl<'parse>>,
+    arena: &'compile Bump,
+) -> SassResult<ParameterList<'parse>>
+where
+    'compile: 'parse,
+{
+    let source = FileSource::new_in(arena, contents, url);
     let mut scanner = SpanScanner::new(source);
     let mut state = ParserState {
         syntax: Syntax::Scss,

@@ -280,7 +280,7 @@ mod tests {
         'parse: 'compile,
     {
         let url = OwnedUrl::parse(url_str).unwrap();
-        FileSource::new_in(arena, "body { color: red; }", Some(url))
+        FileSource::new_in_owned(arena, "body { color: red; }", Some(&url))
     }
 
     fn test_file_span<'compile, 'parse>(arena: &'compile Bump, url_str: &str) -> FileSpan<'parse>

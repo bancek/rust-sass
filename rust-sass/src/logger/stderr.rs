@@ -332,7 +332,7 @@ mod tests {
         'parse: 'compile,
     {
         let u = OwnedUrl::parse(url_str).unwrap();
-        let fs = FileSource::new_in(arena, text, Some(u));
+        let fs = FileSource::new_in_owned(arena, text, Some(&u));
         Span::File(FileSpan::new(Some(fs), start, end))
     }
 
