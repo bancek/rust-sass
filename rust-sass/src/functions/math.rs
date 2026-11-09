@@ -238,7 +238,7 @@ where
 fn single_argument_math_func<'compile, 'parse>(
     name: &str,
     arena: &'compile Bump,
-    f: fn(&SassNumber) -> SassResult<SassNumber>,
+    f: fn(&SassNumber<'parse>) -> SassResult<SassNumber<'parse>>,
 ) -> BuiltInCallable<'compile, 'parse>
 where
     'compile: 'parse,

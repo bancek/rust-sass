@@ -122,9 +122,9 @@ pub(crate) fn visit_number_impl(
     value: &SassNumber,
 ) -> SassResult<()> {
     if let Some(slash) = &value.as_slash {
-        visit_number_impl(buf, state, &slash.0)?;
+        visit_number_impl(buf, state, slash.0)?;
         buf.write_char('/').unwrap();
-        visit_number_impl(buf, state, &slash.1)?;
+        visit_number_impl(buf, state, slash.1)?;
         return Ok(());
     }
     if value.value.is_infinite() || value.value.is_nan() {

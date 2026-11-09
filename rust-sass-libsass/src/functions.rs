@@ -1146,7 +1146,7 @@ mod tests {
         // Core-only kinds fail core→C with the upstream conversion text.
         let calc = Value::new_with_arena(
             &arena,
-            ValueKind::Calculation(Box::new(
+            ValueKind::Calculation(&*arena.alloc(
                 rust_sass::value::SassCalculation::new_unsimplified(
                     "calc",
                     vec![rust_sass::value::CalcArgument::Number(SassNumber::new(

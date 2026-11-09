@@ -41,14 +41,14 @@ use crate::value::{SassNumber, ValueVisitor};
 /// exposed through the constructors below. This ensures that every calculation
 /// a caller works with is always fully simplified.
 #[derive(Clone, Debug)]
-pub struct SassCalculation {
+pub struct SassCalculation<'parse> {
     /// The calculation's name, such as `"calc"`.
     pub name: String,
     /// The calculation's arguments.
     ///
     /// Each argument is either a [`SassNumber`][super::SassNumber], a
     /// [`SassCalculation`], an unquoted string, or a [`CalculationOperation`].
-    pub arguments: Vec<CalcArgument>,
+    pub arguments: Vec<CalcArgument<'parse>>,
     cached_hash: Cell<Option<usize>>,
 }
 
@@ -57,29 +57,29 @@ pub struct SassCalculation {
 /// Mirrors the `Object` union in Dart: a number, a nested calculation, an
 /// (un)quoted string, an operation, or interpolated text.
 #[derive(Clone, Debug)]
-pub enum CalcArgument {
+pub enum CalcArgument<'parse> {
     /// A numeric argument.
-    Number(SassNumber),
+    Number(SassNumber<'parse>),
     /// A nested calculation argument.
-    Calculation(Box<SassCalculation>),
+    Calculation(&'parse SassCalculation<'parse>),
     /// A string argument; the `bool` records whether it was quoted.
     /// Only unquoted strings are valid in a simplified calculation.
     String(String, bool),
     /// A binary operation argument.
-    Operation(Box<CalculationOperation>),
+    Operation(&'parse CalculationOperation<'parse>),
     /// Interpolated text injected into the calculation.
     Interpolation(String),
 }
 
 /// A binary operation that can appear in a [`SassCalculation`].
 #[derive(Clone, Debug)]
-pub struct CalculationOperation {
+pub struct CalculationOperation<'parse> {
     /// The operator.
     pub operator: CalculationOperator,
     /// The left-hand operand: a number, calculation, unquoted string, or operation.
-    pub left: CalcArgument,
+    pub left: CalcArgument<'parse>,
     /// The right-hand operand: a number, calculation, unquoted string, or operation.
-    pub right: CalcArgument,
+    pub right: CalcArgument<'parse>,
     cached_hash: Cell<Option<usize>>,
 }
 
@@ -151,7 +151,7 @@ impl fmt::Display for CalculationOperator {
 
 // ----- CalcArgument methods -----
 
-impl CalcArgument {
+impl<'parse> CalcArgument<'parse> {
     fn hash_code(&self) -> usize {
         match self {
             CalcArgument::Number(n) => n.hash_code() as usize,
@@ -162,7 +162,7 @@ impl CalcArgument {
         }
     }
 
-    fn equals(&self, other: &CalcArgument) -> bool {
+    fn equals(&self, other: &CalcArgument<'_>) -> bool {
         match (self, other) {
             (CalcArgument::Number(a), CalcArgument::Number(b)) => a.equals(b),
             (CalcArgument::Calculation(a), CalcArgument::Calculation(b)) => a.equals(b),
@@ -175,10 +175,10 @@ impl CalcArgument {
 
 // ----- SassCalculation methods -----
 
-impl SassCalculation {
+impl<'parse> SassCalculation<'parse> {
     // Creates a calculation with the given `name` and `arguments` without
     // simplifying. Internal-only in Dart (`@internal unsimplified`).
-    pub fn new_unsimplified(name: &str, arguments: Vec<CalcArgument>) -> Self {
+    pub fn new_unsimplified(name: &str, arguments: Vec<CalcArgument<'parse>>) -> Self {
         SassCalculation {
             name: name.to_string(),
             arguments,
@@ -259,10 +259,14 @@ impl SassCalculation {
 
 // ----- CalculationOperation methods -----
 
-impl CalculationOperation {
+impl<'parse> CalculationOperation<'parse> {
     /// Creates an operation without simplifying. Simplification happens in
     /// [`operate`] / [`operate_internal`] instead.
-    pub fn new(operator: CalculationOperator, left: CalcArgument, right: CalcArgument) -> Self {
+    pub fn new(
+        operator: CalculationOperator,
+        left: CalcArgument<'parse>,
+        right: CalcArgument<'parse>,
+    ) -> Self {
         CalculationOperation {
             operator,
             left,
@@ -274,11 +278,11 @@ impl CalculationOperation {
     /// Serializes this operation by wrapping it in a nameless calculation and
     /// stripping the outer parentheses.
     pub fn to_display_string(&self) -> SassResult<String> {
-        let parenthesized = SassCalculation::new_unsimplified(
-            "",
-            vec![CalcArgument::Operation(Box::new(self.clone()))],
-        )
-        .to_display_string()?;
+        // Renders without allocating: the operation is serialized directly by
+        // a nameless calculation that borrows `self`.
+        let parenthesized =
+            SassCalculation::new_unsimplified("", vec![CalcArgument::Operation(self)])
+                .to_display_string()?;
         Ok(parenthesized[1..parenthesized.len() - 1].to_string())
     }
 
@@ -321,7 +325,7 @@ impl CalculationInterpolation {
 /// known to produce invalid CSS (for example a quoted string argument).
 pub fn new_calc<'compile: 'parse, 'parse>(
     arena: &'compile Bump,
-    argument: CalcArgument,
+    argument: CalcArgument<'parse>,
 ) -> SassResult<Value<'parse>> {
     let v = simplify(argument)?;
     if let CalcArgument::Number(num) = v {
@@ -332,7 +336,7 @@ pub fn new_calc<'compile: 'parse, 'parse>(
     }
     Ok(Value::new_with_arena(
         arena,
-        ValueKind::Calculation(Box::new(SassCalculation::new_unsimplified("calc", vec![v]))),
+        ValueKind::Calculation(&*arena.alloc(SassCalculation::new_unsimplified("calc", vec![v]))),
     ))
 }
 
@@ -344,7 +348,7 @@ pub fn new_calc<'compile: 'parse, 'parse>(
 /// `Err` if the arguments are known to produce invalid CSS.
 pub fn new_min<'compile: 'parse, 'parse>(
     arena: &'compile Bump,
-    args: Vec<CalcArgument>,
+    args: Vec<CalcArgument<'parse>>,
 ) -> SassResult<Value<'parse>> {
     let simplified = simplify_arguments(args)?;
     if simplified.is_empty() {
@@ -379,9 +383,7 @@ pub fn new_min<'compile: 'parse, 'parse>(
     verify_compatible_numbers(&simplified)?;
     Ok(Value::new_with_arena(
         arena,
-        ValueKind::Calculation(Box::new(SassCalculation::new_unsimplified(
-            "min", simplified,
-        ))),
+        ValueKind::Calculation(&*arena.alloc(SassCalculation::new_unsimplified("min", simplified))),
     ))
 }
 
@@ -393,7 +395,7 @@ pub fn new_min<'compile: 'parse, 'parse>(
 /// `Err` if the arguments are known to produce invalid CSS.
 pub fn new_max<'compile: 'parse, 'parse>(
     arena: &'compile Bump,
-    args: Vec<CalcArgument>,
+    args: Vec<CalcArgument<'parse>>,
 ) -> SassResult<Value<'parse>> {
     let simplified = simplify_arguments(args)?;
     if simplified.is_empty() {
@@ -428,9 +430,7 @@ pub fn new_max<'compile: 'parse, 'parse>(
     verify_compatible_numbers(&simplified)?;
     Ok(Value::new_with_arena(
         arena,
-        ValueKind::Calculation(Box::new(SassCalculation::new_unsimplified(
-            "max", simplified,
-        ))),
+        ValueKind::Calculation(&*arena.alloc(SassCalculation::new_unsimplified("max", simplified))),
     ))
 }
 
@@ -441,7 +441,7 @@ pub fn new_max<'compile: 'parse, 'parse>(
 /// otherwise returns an unsimplified `hypot` calculation.
 pub fn new_hypot<'compile: 'parse, 'parse>(
     arena: &'compile Bump,
-    args: Vec<CalcArgument>,
+    args: Vec<CalcArgument<'parse>>,
 ) -> SassResult<Value<'parse>> {
     let simplified = simplify_arguments(args)?;
     if simplified.is_empty() {
@@ -456,18 +456,18 @@ pub fn new_hypot<'compile: 'parse, 'parse>(
         _ => {
             return Ok(Value::new_with_arena(
                 arena,
-                ValueKind::Calculation(Box::new(SassCalculation::new_unsimplified(
-                    "hypot", simplified,
-                ))),
+                ValueKind::Calculation(
+                    &*arena.alloc(SassCalculation::new_unsimplified("hypot", simplified)),
+                ),
             ));
         }
     };
     if first.has_unit("%") {
         return Ok(Value::new_with_arena(
             arena,
-            ValueKind::Calculation(Box::new(SassCalculation::new_unsimplified(
-                "hypot", simplified,
-            ))),
+            ValueKind::Calculation(
+                &*arena.alloc(SassCalculation::new_unsimplified("hypot", simplified)),
+            ),
         ));
     }
     let mut subtotal = 0.0f64;
@@ -476,9 +476,9 @@ pub fn new_hypot<'compile: 'parse, 'parse>(
             if !num.has_compatible_units(first) {
                 return Ok(Value::new_with_arena(
                     arena,
-                    ValueKind::Calculation(Box::new(SassCalculation::new_unsimplified(
-                        "hypot", simplified,
-                    ))),
+                    ValueKind::Calculation(
+                        &*arena.alloc(SassCalculation::new_unsimplified("hypot", simplified)),
+                    ),
                 ));
             }
             // Matches Dart: convertValueToMatch(first, "numbers[i+1]",
@@ -492,9 +492,9 @@ pub fn new_hypot<'compile: 'parse, 'parse>(
         } else {
             return Ok(Value::new_with_arena(
                 arena,
-                ValueKind::Calculation(Box::new(SassCalculation::new_unsimplified(
-                    "hypot", simplified,
-                ))),
+                ValueKind::Calculation(
+                    &*arena.alloc(SassCalculation::new_unsimplified("hypot", simplified)),
+                ),
             ));
         }
     }
@@ -511,7 +511,7 @@ pub fn new_hypot<'compile: 'parse, 'parse>(
 /// Creates a `sqrt()` calculation. Requires a unitless argument.
 pub fn new_sqrt<'compile: 'parse, 'parse>(
     arena: &'compile Bump,
-    argument: CalcArgument,
+    argument: CalcArgument<'parse>,
 ) -> SassResult<Value<'parse>> {
     single_argument(arena, "sqrt", argument, calc_sqrt, true)
 }
@@ -519,7 +519,7 @@ pub fn new_sqrt<'compile: 'parse, 'parse>(
 /// Creates a `sin()` calculation. Coerces an angle argument to radians.
 pub fn new_sin<'compile: 'parse, 'parse>(
     arena: &'compile Bump,
-    argument: CalcArgument,
+    argument: CalcArgument<'parse>,
 ) -> SassResult<Value<'parse>> {
     single_argument(arena, "sin", argument, calc_sin, false)
 }
@@ -527,7 +527,7 @@ pub fn new_sin<'compile: 'parse, 'parse>(
 /// Creates a `cos()` calculation. Coerces an angle argument to radians.
 pub fn new_cos<'compile: 'parse, 'parse>(
     arena: &'compile Bump,
-    argument: CalcArgument,
+    argument: CalcArgument<'parse>,
 ) -> SassResult<Value<'parse>> {
     single_argument(arena, "cos", argument, calc_cos, false)
 }
@@ -535,7 +535,7 @@ pub fn new_cos<'compile: 'parse, 'parse>(
 /// Creates a `tan()` calculation. Coerces an angle argument to radians.
 pub fn new_tan<'compile: 'parse, 'parse>(
     arena: &'compile Bump,
-    argument: CalcArgument,
+    argument: CalcArgument<'parse>,
 ) -> SassResult<Value<'parse>> {
     single_argument(arena, "tan", argument, calc_tan, false)
 }
@@ -543,7 +543,7 @@ pub fn new_tan<'compile: 'parse, 'parse>(
 /// Creates an `atan()` calculation returning degrees. Requires a unitless argument.
 pub fn new_atan<'compile: 'parse, 'parse>(
     arena: &'compile Bump,
-    argument: CalcArgument,
+    argument: CalcArgument<'parse>,
 ) -> SassResult<Value<'parse>> {
     single_argument(arena, "atan", argument, calc_atan, true)
 }
@@ -551,7 +551,7 @@ pub fn new_atan<'compile: 'parse, 'parse>(
 /// Creates an `asin()` calculation returning degrees. Requires a unitless argument.
 pub fn new_asin<'compile: 'parse, 'parse>(
     arena: &'compile Bump,
-    argument: CalcArgument,
+    argument: CalcArgument<'parse>,
 ) -> SassResult<Value<'parse>> {
     single_argument(arena, "asin", argument, calc_asin, true)
 }
@@ -559,7 +559,7 @@ pub fn new_asin<'compile: 'parse, 'parse>(
 /// Creates an `acos()` calculation returning degrees. Requires a unitless argument.
 pub fn new_acos<'compile: 'parse, 'parse>(
     arena: &'compile Bump,
-    argument: CalcArgument,
+    argument: CalcArgument<'parse>,
 ) -> SassResult<Value<'parse>> {
     single_argument(arena, "acos", argument, calc_acos, true)
 }
@@ -569,7 +569,7 @@ pub fn new_acos<'compile: 'parse, 'parse>(
 /// See [`new_abs_internal`] for the variant that warns on `%` arguments.
 pub fn new_abs<'compile: 'parse, 'parse>(
     arena: &'compile Bump,
-    argument: CalcArgument,
+    argument: CalcArgument<'parse>,
 ) -> SassResult<Value<'parse>> {
     new_abs_internal(arena, argument, &NoOpWarnLogger, None)
 }
@@ -581,7 +581,7 @@ pub fn new_abs<'compile: 'parse, 'parse>(
 /// `math.abs()` or at interpolating the argument to opt into CSS now.
 pub fn new_abs_internal<'compile: 'parse, 'parse>(
     arena: &'compile Bump,
-    argument: CalcArgument,
+    argument: CalcArgument<'parse>,
     warn: &dyn WarnLogger<'parse>,
     warn_span: Option<FileSpan<'parse>>,
 ) -> SassResult<Value<'parse>> {
@@ -613,17 +613,14 @@ pub fn new_abs_internal<'compile: 'parse, 'parse>(
     }
     Ok(Value::new_with_arena(
         arena,
-        ValueKind::Calculation(Box::new(SassCalculation::new_unsimplified(
-            "abs",
-            vec![arg],
-        ))),
+        ValueKind::Calculation(&*arena.alloc(SassCalculation::new_unsimplified("abs", vec![arg]))),
     ))
 }
 
 /// Creates an `exp()` calculation: `e` raised to the unitless `argument`.
 pub fn new_exp<'compile: 'parse, 'parse>(
     arena: &'compile Bump,
-    argument: CalcArgument,
+    argument: CalcArgument<'parse>,
 ) -> SassResult<Value<'parse>> {
     let arg = simplify(argument)?;
     if let CalcArgument::Number(ref num) = arg {
@@ -636,10 +633,7 @@ pub fn new_exp<'compile: 'parse, 'parse>(
     }
     Ok(Value::new_with_arena(
         arena,
-        ValueKind::Calculation(Box::new(SassCalculation::new_unsimplified(
-            "exp",
-            vec![arg],
-        ))),
+        ValueKind::Calculation(&*arena.alloc(SassCalculation::new_unsimplified("exp", vec![arg]))),
     ))
 }
 
@@ -649,7 +643,7 @@ pub fn new_exp<'compile: 'parse, 'parse>(
 /// `-1`/`1` coerced to the argument's units. `%` arguments stay symbolic.
 pub fn new_sign<'compile: 'parse, 'parse>(
     arena: &'compile Bump,
-    argument: CalcArgument,
+    argument: CalcArgument<'parse>,
 ) -> SassResult<Value<'parse>> {
     let arg = simplify(argument)?;
     if let CalcArgument::Number(ref n) = arg {
@@ -670,10 +664,7 @@ pub fn new_sign<'compile: 'parse, 'parse>(
     }
     Ok(Value::new_with_arena(
         arena,
-        ValueKind::Calculation(Box::new(SassCalculation::new_unsimplified(
-            "sign",
-            vec![arg],
-        ))),
+        ValueKind::Calculation(&*arena.alloc(SassCalculation::new_unsimplified("sign", vec![arg]))),
     ))
 }
 
@@ -684,9 +675,9 @@ pub fn new_sign<'compile: 'parse, 'parse>(
 /// when one of them is an unquoted `var()` string.
 pub fn new_clamp<'compile: 'parse, 'parse>(
     arena: &'compile Bump,
-    min: CalcArgument,
-    value: Option<CalcArgument>,
-    max: Option<CalcArgument>,
+    min: CalcArgument<'parse>,
+    value: Option<CalcArgument<'parse>>,
+    max: Option<CalcArgument<'parse>>,
 ) -> SassResult<Value<'parse>> {
     if value.is_none() && max.is_some() {
         return Err(Box::new(SassError::ArgumentError {
@@ -734,7 +725,7 @@ pub fn new_clamp<'compile: 'parse, 'parse>(
     verify_length(&args, 3)?;
     Ok(Value::new_with_arena(
         arena,
-        ValueKind::Calculation(Box::new(SassCalculation::new_unsimplified("clamp", args))),
+        ValueKind::Calculation(&*arena.alloc(SassCalculation::new_unsimplified("clamp", args))),
     ))
 }
 
@@ -744,8 +735,8 @@ pub fn new_clamp<'compile: 'parse, 'parse>(
 /// unquoted `var()` string.
 pub fn new_pow<'compile: 'parse, 'parse>(
     arena: &'compile Bump,
-    base: CalcArgument,
-    exponent: Option<CalcArgument>,
+    base: CalcArgument<'parse>,
+    exponent: Option<CalcArgument<'parse>>,
 ) -> SassResult<Value<'parse>> {
     let mut args = vec![base.clone()];
     if let Some(ref exp) = exponent {
@@ -766,7 +757,7 @@ pub fn new_pow<'compile: 'parse, 'parse>(
     }
     Ok(Value::new_with_arena(
         arena,
-        ValueKind::Calculation(Box::new(SassCalculation::new_unsimplified("pow", args))),
+        ValueKind::Calculation(&*arena.alloc(SassCalculation::new_unsimplified("pow", args))),
     ))
 }
 
@@ -775,8 +766,8 @@ pub fn new_pow<'compile: 'parse, 'parse>(
 /// When `base` is `None`, the natural logarithm (base `e`) is used.
 pub fn new_log<'compile: 'parse, 'parse>(
     arena: &'compile Bump,
-    number: CalcArgument,
-    base: Option<CalcArgument>,
+    number: CalcArgument<'parse>,
+    base: Option<CalcArgument<'parse>>,
 ) -> SassResult<Value<'parse>> {
     let number = simplify(number)?;
     let base = base.map(simplify).transpose()?;
@@ -806,7 +797,7 @@ pub fn new_log<'compile: 'parse, 'parse>(
     }
     Ok(Value::new_with_arena(
         arena,
-        ValueKind::Calculation(Box::new(SassCalculation::new_unsimplified("log", args))),
+        ValueKind::Calculation(&*arena.alloc(SassCalculation::new_unsimplified("log", args))),
     ))
 }
 
@@ -817,8 +808,8 @@ pub fn new_log<'compile: 'parse, 'parse>(
 /// of them is an unquoted `var()` string.
 pub fn new_atan2<'compile: 'parse, 'parse>(
     arena: &'compile Bump,
-    y: CalcArgument,
-    x: Option<CalcArgument>,
+    y: CalcArgument<'parse>,
+    x: Option<CalcArgument<'parse>>,
 ) -> SassResult<Value<'parse>> {
     let y = simplify(y)?;
     let x = x.map(simplify).transpose()?;
@@ -833,9 +824,9 @@ pub fn new_atan2<'compile: 'parse, 'parse>(
             if y_num.has_unit("%") || x_num.has_unit("%") || !y_num.has_compatible_units(x_num) {
                 return Ok(Value::new_with_arena(
                     arena,
-                    ValueKind::Calculation(Box::new(SassCalculation::new_unsimplified(
-                        "atan2", args,
-                    ))),
+                    ValueKind::Calculation(
+                        &*arena.alloc(SassCalculation::new_unsimplified("atan2", args)),
+                    ),
                 ));
             }
             return Ok(Value::new_with_arena(
@@ -846,7 +837,7 @@ pub fn new_atan2<'compile: 'parse, 'parse>(
     }
     Ok(Value::new_with_arena(
         arena,
-        ValueKind::Calculation(Box::new(SassCalculation::new_unsimplified("atan2", args))),
+        ValueKind::Calculation(&*arena.alloc(SassCalculation::new_unsimplified("atan2", args))),
     ))
 }
 
@@ -858,8 +849,8 @@ pub fn new_atan2<'compile: 'parse, 'parse>(
 /// is an unquoted `var()` string.
 pub fn new_rem<'compile: 'parse, 'parse>(
     arena: &'compile Bump,
-    dividend: CalcArgument,
-    modulus: Option<CalcArgument>,
+    dividend: CalcArgument<'parse>,
+    modulus: Option<CalcArgument<'parse>>,
 ) -> SassResult<Value<'parse>> {
     let dividend = simplify(dividend)?;
     let modulus = modulus.map(simplify).transpose()?;
@@ -874,9 +865,9 @@ pub fn new_rem<'compile: 'parse, 'parse>(
             if !div_num.has_compatible_units(mod_num) {
                 return Ok(Value::new_with_arena(
                     arena,
-                    ValueKind::Calculation(Box::new(SassCalculation::new_unsimplified(
-                        "rem", args,
-                    ))),
+                    ValueKind::Calculation(
+                        &*arena.alloc(SassCalculation::new_unsimplified("rem", args)),
+                    ),
                 ));
             }
             let result = div_num.modulo_num(mod_num)?;
@@ -905,7 +896,7 @@ pub fn new_rem<'compile: 'parse, 'parse>(
     }
     Ok(Value::new_with_arena(
         arena,
-        ValueKind::Calculation(Box::new(SassCalculation::new_unsimplified("rem", args))),
+        ValueKind::Calculation(&*arena.alloc(SassCalculation::new_unsimplified("rem", args))),
     ))
 }
 
@@ -916,8 +907,8 @@ pub fn new_rem<'compile: 'parse, 'parse>(
 /// are accepted only when one of them is an unquoted `var()` string.
 pub fn new_mod<'compile: 'parse, 'parse>(
     arena: &'compile Bump,
-    dividend: CalcArgument,
-    modulus: Option<CalcArgument>,
+    dividend: CalcArgument<'parse>,
+    modulus: Option<CalcArgument<'parse>>,
 ) -> SassResult<Value<'parse>> {
     let dividend = simplify(dividend)?;
     let modulus = modulus.map(simplify).transpose()?;
@@ -932,9 +923,9 @@ pub fn new_mod<'compile: 'parse, 'parse>(
             if !div_num.has_compatible_units(mod_num) {
                 return Ok(Value::new_with_arena(
                     arena,
-                    ValueKind::Calculation(Box::new(SassCalculation::new_unsimplified(
-                        "mod", args,
-                    ))),
+                    ValueKind::Calculation(
+                        &*arena.alloc(SassCalculation::new_unsimplified("mod", args)),
+                    ),
                 ));
             }
             return Ok(Value::new_with_arena(
@@ -945,7 +936,7 @@ pub fn new_mod<'compile: 'parse, 'parse>(
     }
     Ok(Value::new_with_arena(
         arena,
-        ValueKind::Calculation(Box::new(SassCalculation::new_unsimplified("mod", args))),
+        ValueKind::Calculation(&*arena.alloc(SassCalculation::new_unsimplified("mod", args))),
     ))
 }
 
@@ -958,9 +949,9 @@ pub fn new_mod<'compile: 'parse, 'parse>(
 /// the legacy-function compatibility variant.
 pub fn new_round<'compile: 'parse, 'parse>(
     arena: &'compile Bump,
-    strategy_or_number: CalcArgument,
-    number_or_step: Option<CalcArgument>,
-    step: Option<CalcArgument>,
+    strategy_or_number: CalcArgument<'parse>,
+    number_or_step: Option<CalcArgument<'parse>>,
+    step: Option<CalcArgument<'parse>>,
 ) -> SassResult<Value<'parse>> {
     new_round_internal(
         arena,
@@ -983,9 +974,9 @@ pub fn new_round<'compile: 'parse, 'parse>(
 // Matches Dart: `@internal roundInternal`; internal-only in Dart.
 pub fn new_round_internal<'compile: 'parse, 'parse>(
     arena: &'compile Bump,
-    strategy_or_number: CalcArgument,
-    number_or_step: Option<CalcArgument>,
-    step: Option<CalcArgument>,
+    strategy_or_number: CalcArgument<'parse>,
+    number_or_step: Option<CalcArgument<'parse>>,
+    step: Option<CalcArgument<'parse>>,
     in_legacy_sass_function: Option<&str>,
     warn: &dyn WarnLogger<'parse>,
     warn_span: Option<FileSpan<'parse>>,
@@ -1029,7 +1020,7 @@ pub fn new_round_internal<'compile: 'parse, 'parse>(
                     ])?;
                     return Ok(Value::new_with_arena(
                         arena,
-                        ValueKind::Calculation(Box::new(SassCalculation::new_unsimplified(
+                        ValueKind::Calculation(&*arena.alloc(SassCalculation::new_unsimplified(
                             "round",
                             vec![
                                 CalcArgument::Number(strat_num.clone()),
@@ -1069,14 +1060,16 @@ pub fn new_round_internal<'compile: 'parse, 'parse>(
                         ])?;
                         return Ok(Value::new_with_arena(
                             arena,
-                            ValueKind::Calculation(Box::new(SassCalculation::new_unsimplified(
-                                "round",
-                                vec![
-                                    CalcArgument::String(strat_text.clone(), false),
-                                    CalcArgument::Number(num.clone()),
-                                    CalcArgument::Number(stp.clone()),
-                                ],
-                            ))),
+                            ValueKind::Calculation(&*arena.alloc(
+                                SassCalculation::new_unsimplified(
+                                    "round",
+                                    vec![
+                                        CalcArgument::String(strat_text.clone(), false),
+                                        CalcArgument::Number(num.clone()),
+                                        CalcArgument::Number(stp.clone()),
+                                    ],
+                                ),
+                            )),
                         ));
                     }
                     verify_compatible_numbers(&[
@@ -1100,7 +1093,7 @@ pub fn new_round_internal<'compile: 'parse, 'parse>(
     {
         return Ok(Value::new_with_arena(
             arena,
-            ValueKind::Calculation(Box::new(SassCalculation::new_unsimplified(
+            ValueKind::Calculation(&*arena.alloc(SassCalculation::new_unsimplified(
                 "round",
                 vec![strategy, number.unwrap()],
             ))),
@@ -1121,17 +1114,16 @@ pub fn new_round_internal<'compile: 'parse, 'parse>(
     if !is_rounding_strategy(&strategy) && number.is_none() && step_val.is_none() {
         return Ok(Value::new_with_arena(
             arena,
-            ValueKind::Calculation(Box::new(SassCalculation::new_unsimplified(
-                "round",
-                vec![strategy],
-            ))),
+            ValueKind::Calculation(
+                &*arena.alloc(SassCalculation::new_unsimplified("round", vec![strategy])),
+            ),
         ));
     }
     if !is_rounding_strategy(&strategy) && step_val.is_none() {
         if let Some(num) = number {
             return Ok(Value::new_with_arena(
                 arena,
-                ValueKind::Calculation(Box::new(SassCalculation::new_unsimplified(
+                ValueKind::Calculation(&*arena.alloc(SassCalculation::new_unsimplified(
                     "round",
                     vec![strategy, num],
                 ))),
@@ -1149,7 +1141,7 @@ pub fn new_round_internal<'compile: 'parse, 'parse>(
         #[allow(clippy::unnecessary_unwrap)]
         return Ok(Value::new_with_arena(
             arena,
-            ValueKind::Calculation(Box::new(SassCalculation::new_unsimplified(
+            ValueKind::Calculation(&*arena.alloc(SassCalculation::new_unsimplified(
                 "round",
                 vec![strategy, number.unwrap(), step_val.unwrap()],
             ))),
@@ -1178,10 +1170,11 @@ pub fn new_round_internal<'compile: 'parse, 'parse>(
 ///
 /// Unlike the other constructors this does no numeric simplification: both
 /// arguments are kept as-is (after simplification of each side).
-pub fn new_calc_size(
-    basis: CalcArgument,
-    value: Option<CalcArgument>,
-) -> SassResult<Box<SassCalculation>> {
+pub fn new_calc_size<'parse>(
+    arena: &'parse Bump,
+    basis: CalcArgument<'parse>,
+    value: Option<CalcArgument<'parse>>,
+) -> SassResult<&'parse SassCalculation<'parse>> {
     let mut args = vec![basis.clone()];
     if let Some(ref v) = value {
         args.push(v.clone());
@@ -1193,10 +1186,7 @@ pub fn new_calc_size(
     if let Some(v) = value {
         result_args.push(v);
     }
-    Ok(Box::new(SassCalculation::new_unsimplified(
-        "calc-size",
-        result_args,
-    )))
+    Ok(arena.alloc(SassCalculation::new_unsimplified("calc-size", result_args)))
 }
 
 /// Creates and simplifies a [`CalculationOperation`] with the given
@@ -1206,12 +1196,22 @@ pub fn new_calc_size(
 /// interpolation. Automatically simplifies, so the result may be a number
 /// rather than an operation. See [`operate_internal`] for the
 /// legacy-function compatibility variant.
-pub fn operate(
+pub fn operate<'parse>(
+    arena: &'parse Bump,
     operator: CalculationOperator,
-    left: CalcArgument,
-    right: CalcArgument,
-) -> SassResult<CalcArgument> {
-    operate_internal(operator, left, right, None, true, &NoOpWarnLogger, None)
+    left: CalcArgument<'parse>,
+    right: CalcArgument<'parse>,
+) -> SassResult<CalcArgument<'parse>> {
+    operate_internal(
+        arena,
+        operator,
+        left,
+        right,
+        None,
+        true,
+        &NoOpWarnLogger,
+        None,
+    )
 }
 
 // Like [`operate`], with internal-only compatibility parameters.
@@ -1224,17 +1224,19 @@ pub fn operate(
 // `warn_span`.
 //
 // Matches Dart: `@internal operateInternal`; internal-only in Dart.
-pub fn operate_internal<'parse>(
+#[allow(clippy::too_many_arguments)] // mirrors Dart's operateInternal
+pub fn operate_internal<'compile: 'parse, 'parse>(
+    arena: &'compile Bump,
     operator: CalculationOperator,
-    left: CalcArgument,
-    right: CalcArgument,
+    left: CalcArgument<'parse>,
+    right: CalcArgument<'parse>,
     in_legacy_sass_function: Option<&str>,
     do_simplify: bool,
     warn: &dyn WarnLogger<'parse>,
     warn_span: Option<FileSpan<'parse>>,
-) -> SassResult<CalcArgument> {
+) -> SassResult<CalcArgument<'parse>> {
     if !do_simplify {
-        return Ok(CalcArgument::Operation(Box::new(CalculationOperation {
+        return Ok(CalcArgument::Operation(arena.alloc(CalculationOperation {
             operator,
             left,
             right,
@@ -1289,7 +1291,7 @@ pub fn operate_internal<'parse>(
                 };
             }
         }
-        return Ok(CalcArgument::Operation(Box::new(CalculationOperation {
+        return Ok(CalcArgument::Operation(arena.alloc(CalculationOperation {
             operator,
             left,
             right,
@@ -1304,7 +1306,7 @@ pub fn operate_internal<'parse>(
             });
         }
     }
-    Ok(CalcArgument::Operation(Box::new(CalculationOperation {
+    Ok(CalcArgument::Operation(arena.alloc(CalculationOperation {
         operator,
         left,
         right,
@@ -1338,7 +1340,7 @@ pub(crate) fn simplify(arg: CalcArgument) -> SassResult<CalcArgument> {
                 Ok(arg)
             }
         }
-        CalcArgument::Calculation(ref c) => {
+        CalcArgument::Calculation(c) => {
             if c.name == "calc" && c.arguments.len() == 1 {
                 if let CalcArgument::String(ref s, false) = c.arguments[0] {
                     if needs_parentheses(s) {
@@ -1509,8 +1511,8 @@ fn is_special_variable_string(arg: &CalcArgument) -> bool {
 fn single_argument<'compile: 'parse, 'parse>(
     arena: &'compile Bump,
     name: &str,
-    arg: CalcArgument,
-    f: fn(&SassNumber) -> SassResult<SassNumber>,
+    arg: CalcArgument<'parse>,
+    f: fn(&SassNumber<'parse>) -> SassResult<SassNumber<'parse>>,
     forbid_units: bool,
 ) -> SassResult<Value<'parse>> {
     let arg = simplify(arg)?;
@@ -1522,12 +1524,12 @@ fn single_argument<'compile: 'parse, 'parse>(
     }
     Ok(Value::new_with_arena(
         arena,
-        ValueKind::Calculation(Box::new(SassCalculation::new_unsimplified(name, vec![arg]))),
+        ValueKind::Calculation(&*arena.alloc(SassCalculation::new_unsimplified(name, vec![arg]))),
     ))
 }
 
 // Returns `value` coerced to `number`'s units. Mirrors Dart's `_matchUnits`.
-fn match_units(value: f64, number: &SassNumber) -> SassNumber {
+fn match_units<'parse>(value: f64, number: &SassNumber<'parse>) -> SassNumber<'parse> {
     SassNumber::with_units(
         value,
         number.numerator_units.clone(),
@@ -1538,11 +1540,11 @@ fn match_units(value: f64, number: &SassNumber) -> SassNumber {
 // Returns `number` rounded to the nearest integer multiple of `step` per
 // `strategy` (`nearest`, `up`, `down`, or `to-zero`), in `number`'s units.
 // Mirrors Dart's `_roundWithStep`, including the NaN/infinite edge cases.
-fn round_with_step(
+fn round_with_step<'parse>(
     strategy: &str,
-    number: &SassNumber,
-    step: &SassNumber,
-) -> SassResult<SassNumber> {
+    number: &SassNumber<'parse>,
+    step: &SassNumber<'parse>,
+) -> SassResult<SassNumber<'parse>> {
     if strategy != "nearest" && strategy != "up" && strategy != "down" && strategy != "to-zero" {
         return Err(Box::new(SassError::ArgumentError {
             name: None,
@@ -1653,47 +1655,53 @@ fn round_with_step(
 
 // ----- Calc math wrappers -----
 
-fn num_abs(n: &SassNumber) -> f64 {
+fn num_abs(n: &SassNumber<'_>) -> f64 {
     abs(n.value)
 }
 
-fn calc_sqrt(n: &SassNumber) -> SassResult<SassNumber> {
+fn calc_sqrt<'parse>(n: &SassNumber<'parse>) -> SassResult<SassNumber<'parse>> {
     Ok(SassNumber::new(sqrt(n.value), None))
 }
 
-fn calc_sin(n: &SassNumber) -> SassResult<SassNumber> {
+fn calc_sin<'parse>(n: &SassNumber<'parse>) -> SassResult<SassNumber<'parse>> {
     let val = n.coerce_value_to_unit("rad", Some("number"))?;
     Ok(SassNumber::new(sin(val), None))
 }
 
-fn calc_cos(n: &SassNumber) -> SassResult<SassNumber> {
+fn calc_cos<'parse>(n: &SassNumber<'parse>) -> SassResult<SassNumber<'parse>> {
     let val = n.coerce_value_to_unit("rad", Some("number"))?;
     Ok(SassNumber::new(cos(val), None))
 }
 
-fn calc_tan(n: &SassNumber) -> SassResult<SassNumber> {
+fn calc_tan<'parse>(n: &SassNumber<'parse>) -> SassResult<SassNumber<'parse>> {
     let val = n.coerce_value_to_unit("rad", Some("number"))?;
     Ok(SassNumber::new(tan(val), None))
 }
 
-fn calc_atan(n: &SassNumber) -> SassResult<SassNumber> {
+fn calc_atan<'parse>(n: &SassNumber<'parse>) -> SassResult<SassNumber<'parse>> {
     Ok(radians_to_degrees(n.value.atan()))
 }
 
-fn calc_asin(n: &SassNumber) -> SassResult<SassNumber> {
+fn calc_asin<'parse>(n: &SassNumber<'parse>) -> SassResult<SassNumber<'parse>> {
     Ok(radians_to_degrees(n.value.asin()))
 }
 
-fn calc_acos(n: &SassNumber) -> SassResult<SassNumber> {
+fn calc_acos<'parse>(n: &SassNumber<'parse>) -> SassResult<SassNumber<'parse>> {
     Ok(radians_to_degrees(n.value.acos()))
 }
 
-fn calc_pow(base: &SassNumber, exp: &SassNumber) -> SassResult<SassNumber> {
+fn calc_pow<'parse>(
+    base: &SassNumber<'parse>,
+    exp: &SassNumber<'parse>,
+) -> SassResult<SassNumber<'parse>> {
     let result = number_math::pow_number(base, exp)?;
     Ok(SassNumber::new(result.value, None))
 }
 
-fn calc_log(number: &SassNumber, base: Option<&SassNumber>) -> SassResult<SassNumber> {
+fn calc_log<'parse>(
+    number: &SassNumber<'parse>,
+    base: Option<&SassNumber<'parse>>,
+) -> SassResult<SassNumber<'parse>> {
     // Route through `log_number` so the units-order contract is shared; the
     // calc path pre-asserts unitlessness, so order is unobservable here.
     let result = match base {
@@ -1706,12 +1714,15 @@ fn calc_log(number: &SassNumber, base: Option<&SassNumber>) -> SassResult<SassNu
     Ok(SassNumber::new(result.value, None))
 }
 
-fn calc_atan2(y: &SassNumber, x: &SassNumber) -> SassResult<SassNumber> {
+fn calc_atan2<'parse>(
+    y: &SassNumber<'parse>,
+    x: &SassNumber<'parse>,
+) -> SassResult<SassNumber<'parse>> {
     let result = number_math::atan2_number(y, x)?;
     Ok(result)
 }
 
-fn radians_to_degrees(radians: f64) -> SassNumber {
+fn radians_to_degrees<'parse>(radians: f64) -> SassNumber<'parse> {
     SassNumber::new(radians * (180.0 / PI), Some("deg"))
 }
 

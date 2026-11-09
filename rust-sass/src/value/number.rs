@@ -21,6 +21,7 @@ use crate::value::number_util::type_by_unit;
 use crate::value::number_util::unit_string;
 use crate::value::number_util::units_are_convertible;
 use crate::value::number_util::units_by_type;
+use bumpalo::Bump;
 
 use crate::serialize::SerializeVisitor;
 use crate::value::ValueVisitor;
@@ -35,7 +36,7 @@ use crate::value::ValueVisitor;
 /// This is a single struct folding Dart's three subclasses (`Unitless`,
 /// `SingleUnit`, `Complex`): arithmetic dispatches at runtime on whether the
 /// operands have units.
-pub struct SassNumber {
+pub struct SassNumber<'parse> {
     /// The value of this number.
     ///
     /// Sass stores all numbers as [`f64`] even when `self` is an integer from
@@ -49,10 +50,13 @@ pub struct SassNumber {
     pub denominator_units: Vec<String>,
     // The representation of this number as two slash-separated numbers, if it
     // has one.
-    pub as_slash: Option<Box<(SassNumber, SassNumber)>>,
+    //
+    // Stored as arena references rather than a `Box`: values live in the
+    // compile arena, which never runs destructors, so an owned box would leak.
+    pub as_slash: Option<(&'parse SassNumber<'parse>, &'parse SassNumber<'parse>)>,
 }
 
-impl SassNumber {
+impl<'parse> SassNumber<'parse> {
     /// Creates a number, optionally with a single numerator unit.
     ///
     /// This matches the numbers that can be written as literals.
@@ -509,19 +513,25 @@ impl SassNumber {
             value: self.value,
             numerator_units: num_units,
             denominator_units: den_units,
-            as_slash: self.as_slash.clone(),
+            as_slash: self.as_slash,
         }
     }
 
     // Returns a copy of `self` with `as_slash` set to `num` and `den`.
     //
-    // Matches Dart: SassNumber.withSlash (number.dart).
-    pub fn with_slash(&self, num: SassNumber, den: SassNumber) -> Self {
+    // Both halves are allocated in the compile arena. Matches Dart:
+    // SassNumber.withSlash (number.dart).
+    pub fn with_slash(
+        &self,
+        arena: &'parse Bump,
+        num: SassNumber<'parse>,
+        den: SassNumber<'parse>,
+    ) -> Self {
         SassNumber {
             value: self.value,
             numerator_units: self.numerator_units.clone(),
             denominator_units: self.denominator_units.clone(),
-            as_slash: Some(Box::new((num, den))),
+            as_slash: Some((arena.alloc(num), arena.alloc(den))),
         }
     }
 
@@ -531,8 +541,8 @@ impl SassNumber {
     }
 
     /// The slash-separated numerator/denominator pair, if one is set.
-    pub fn slash_pair(&self) -> Option<(&SassNumber, &SassNumber)> {
-        self.as_slash.as_ref().map(|b| (&b.0, &b.1))
+    pub fn slash_pair(&self) -> Option<(&'parse SassNumber<'parse>, &'parse SassNumber<'parse>)> {
+        self.as_slash
     }
 
     // Returns a copy of `self` without `as_slash` set.
@@ -641,7 +651,7 @@ impl SassNumber {
     //
     // Matches Dart: SassNumber.plus (number.dart); color-mixing and string
     // concatenation live on the `Value` dispatch, not here.
-    pub fn plus_num(&self, other: &SassNumber) -> SassResult<SassNumber> {
+    pub fn plus_num(&self, other: &SassNumber<'parse>) -> SassResult<SassNumber<'parse>> {
         if !self.has_units() {
             if other.has_units() {
                 return Ok(other.with_value(self.value + other.value));
@@ -658,7 +668,7 @@ impl SassNumber {
     // Sass `-` between two numbers. Same unit rules as `plus_num`.
     //
     // Matches Dart: SassNumber.minus (number.dart).
-    pub fn minus_num(&self, other: &SassNumber) -> SassResult<SassNumber> {
+    pub fn minus_num(&self, other: &SassNumber<'parse>) -> SassResult<SassNumber<'parse>> {
         if !self.has_units() {
             if other.has_units() {
                 return Ok(other.with_value(self.value - other.value));
@@ -676,7 +686,7 @@ impl SassNumber {
     // units; two unitful operands multiply their unit lists.
     //
     // Matches Dart: SassNumber.times (number.dart).
-    pub fn times_num(&self, other: &SassNumber) -> SassResult<SassNumber> {
+    pub fn times_num(&self, other: &SassNumber<'parse>) -> SassResult<SassNumber<'parse>> {
         if !self.has_units() {
             if other.has_units() {
                 return Ok(other.with_value(self.value * other.value));
@@ -697,7 +707,7 @@ impl SassNumber {
     // unitful divisor inverts its units via `multiply_units`.
     //
     // Matches Dart: SassNumber.dividedBy (number.dart).
-    pub fn divided_by_num(&self, other: &SassNumber) -> SassResult<SassNumber> {
+    pub fn divided_by_num(&self, other: &SassNumber<'parse>) -> SassResult<SassNumber<'parse>> {
         if !self.has_units() {
             if other.has_units() {
                 return Ok(SassNumber::with_units(
@@ -722,7 +732,7 @@ impl SassNumber {
     // A unitless operand takes on the other's units.
     //
     // Matches Dart: SassNumber.modulo (number.dart).
-    pub fn modulo_num(&self, other: &SassNumber) -> SassResult<SassNumber> {
+    pub fn modulo_num(&self, other: &SassNumber<'parse>) -> SassResult<SassNumber<'parse>> {
         if !self.has_units() {
             let result_val = number::modulo_like_sass(self.value, other.value);
             if other.has_units() {
@@ -799,7 +809,7 @@ impl SassNumber {
     // Unary `-`, preserving units.
     //
     // Matches Dart: SassNumber.unaryMinus (number.dart).
-    pub fn unary_minus_num(&self) -> SassNumber {
+    pub fn unary_minus_num(&self) -> SassNumber<'parse> {
         self.with_value(-self.value)
     }
 
@@ -890,7 +900,7 @@ impl SassNumber {
         new_numerators: &[String],
         new_denominators: &[String],
         name: Option<&str>,
-    ) -> SassResult<SassNumber> {
+    ) -> SassResult<SassNumber<'parse>> {
         let val = self.convert_value(new_numerators, new_denominators, name)?;
         Ok(SassNumber::with_units(
             val,
@@ -914,7 +924,7 @@ impl SassNumber {
         new_numerators: &[String],
         new_denominators: &[String],
         name: Option<&str>,
-    ) -> SassResult<SassNumber> {
+    ) -> SassResult<SassNumber<'parse>> {
         if !self.has_units() {
             return Ok(SassNumber::with_units(
                 self.value,
@@ -943,10 +953,10 @@ impl SassNumber {
     /// reporting.
     pub fn coerce_to_match(
         &self,
-        other: &SassNumber,
+        other: &SassNumber<'parse>,
         name: Option<&str>,
         other_name: Option<&str>,
-    ) -> SassResult<SassNumber> {
+    ) -> SassResult<SassNumber<'parse>> {
         if !self.has_units() {
             return Ok(other.with_value(self.value));
         }
@@ -974,10 +984,10 @@ impl SassNumber {
     /// `name`/`other_name` are the Sass argument names for error reporting.
     pub fn convert_to_match(
         &self,
-        other: &SassNumber,
+        other: &SassNumber<'parse>,
         name: Option<&str>,
         other_name: Option<&str>,
-    ) -> SassResult<SassNumber> {
+    ) -> SassResult<SassNumber<'parse>> {
         if !self.has_units() && !other.has_units() {
             return Ok(self.clone());
         }
@@ -1042,7 +1052,7 @@ impl SassNumber {
         n: f64,
         other_numerators: &[String],
         other_denominators: &[String],
-    ) -> SassNumber {
+    ) -> SassNumber<'parse> {
         if other_numerators.is_empty() && other_denominators.is_empty() {
             return SassNumber::with_units(
                 n,
@@ -1268,8 +1278,12 @@ mod tests {
 
     #[test]
     fn test_slash() {
-        let n = SassNumber::new(5.0, None)
-            .with_slash(SassNumber::new(2.0, None), SassNumber::new(3.0, None));
+        let arena = Bump::new();
+        let n = SassNumber::new(5.0, None).with_slash(
+            &arena,
+            SassNumber::new(2.0, None),
+            SassNumber::new(3.0, None),
+        );
         assert!(n.has_slash());
         let (a, b) = n.slash_pair().unwrap();
         assert!(approx(a.value, 2.0));
@@ -1471,10 +1485,10 @@ mod tests {
             value: 1.0,
             numerator_units: vec![],
             denominator_units: vec![],
-            as_slash: Some(Box::new((
-                SassNumber::new(1.0, None),
-                SassNumber::new(2.0, None),
-            ))),
+            as_slash: Some((
+                arena.alloc(SassNumber::new(1.0, None)),
+                arena.alloc(SassNumber::new(2.0, None)),
+            )),
         };
         let v = Value::new_with_arena(&arena, ValueKind::Number(slash));
         assert_eq!(v.to_css_string(true).unwrap(), "1/2");

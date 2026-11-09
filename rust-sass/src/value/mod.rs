@@ -88,12 +88,12 @@ pub enum ValueKind<'parse> {
     Boolean(SassBoolean),
     Null,
     String(SassString<'parse>),
-    Number(SassNumber),
+    Number(SassNumber<'parse>),
     Color(SassColor),
     List(SassList<'parse>),
     ArgumentList(SassArgumentList<'parse>),
     Map(SassMap<'parse>),
-    Calculation(Box<SassCalculation>),
+    Calculation(&'parse SassCalculation<'parse>),
     Function(SassFunction<'parse>),
     Mixin(SassMixin<'parse>),
     Module(SassModule<'parse>),
@@ -886,7 +886,7 @@ pub fn assert_boolean<'v, 'parse>(
 pub fn assert_number<'v, 'parse>(
     v: &'v ValueKind<'parse>,
     name: Option<&str>,
-) -> SassResult<&'v SassNumber> {
+) -> SassResult<&'v SassNumber<'parse>> {
     match v {
         ValueKind::Number(n) => Ok(n),
         _ => Err(Box::new(SassError::Script {
@@ -1045,7 +1045,7 @@ pub fn assert_module<'v, 'parse>(
 pub fn assert_calculation<'v, 'parse>(
     v: &'v ValueKind<'parse>,
     name: Option<&str>,
-) -> SassResult<&'v SassCalculation> {
+) -> SassResult<&'v SassCalculation<'parse>> {
     match v {
         ValueKind::Calculation(c) => Ok(c),
         _ => Err(Box::new(SassError::Script {
@@ -2470,8 +2470,8 @@ mod tests {
         let mut v = TestVisitor {
             visited: &mut visited,
         };
-        let c = SassCalculation::new_unsimplified("calc", vec![]);
-        Value::new_with_arena(&arena, ValueKind::Calculation(Box::new(c)))
+        let c = arena.alloc(SassCalculation::new_unsimplified("calc", vec![]));
+        Value::new_with_arena(&arena, ValueKind::Calculation(c))
             .accept(&mut v)
             .unwrap();
         assert_eq!(visited, "calc");

@@ -197,7 +197,7 @@ where
 /// at the call site (`Option` wrapper there).
 ///
 /// Ports Dart's `_forcePercent` (color.dart:1913).
-pub fn force_percent(n: &SassNumber) -> SassNumber {
+pub fn force_percent<'parse>(n: &SassNumber<'parse>) -> SassNumber<'parse> {
     SassNumber::with_units(n.value, vec!["%".into()], n.denominator_units.clone())
 }
 

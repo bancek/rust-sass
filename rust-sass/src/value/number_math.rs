@@ -24,7 +24,7 @@ use crate::value::SassNumber;
 use crate::value::ValueKind;
 use std::f64::consts::PI;
 
-fn radians_to_degrees(rad: f64) -> SassNumber {
+fn radians_to_degrees<'parse>(rad: f64) -> SassNumber<'parse> {
     // Returns `rad` as a number with unit `deg`.
     // Matches Dart: _radiansToDegrees.
     // Dart `_radiansToDegrees`: `radians * (180 / math.pi)` — parenthesized
@@ -38,7 +38,7 @@ fn radians_to_degrees(rad: f64) -> SassNumber {
 /// `number` must be unitless; the result is unitless.
 ///
 /// Matches Dart: sqrt / Go: SqrtNumber
-pub fn sqrt_number(number: &SassNumber) -> SassResult<SassNumber> {
+pub fn sqrt_number<'parse>(number: &SassNumber<'parse>) -> SassResult<SassNumber<'parse>> {
     number.assert_no_units(Some("number"))?;
     Ok(SassNumber::new(sqrt(number.value), None))
 }
@@ -48,7 +48,7 @@ pub fn sqrt_number(number: &SassNumber) -> SassResult<SassNumber> {
 /// `number` is coerced to radians; the result is unitless.
 ///
 /// Matches Dart: sin / Go: SinNumber
-pub fn sin_number(number: &SassNumber) -> SassResult<SassNumber> {
+pub fn sin_number<'parse>(number: &SassNumber<'parse>) -> SassResult<SassNumber<'parse>> {
     let val = number.coerce_value_to_unit("rad", Some("number"))?;
     Ok(SassNumber::new(sin(val), None))
 }
@@ -58,7 +58,7 @@ pub fn sin_number(number: &SassNumber) -> SassResult<SassNumber> {
 /// `number` is coerced to radians; the result is unitless.
 ///
 /// Matches Dart: cos / Go: CosNumber
-pub fn cos_number(number: &SassNumber) -> SassResult<SassNumber> {
+pub fn cos_number<'parse>(number: &SassNumber<'parse>) -> SassResult<SassNumber<'parse>> {
     let val = number.coerce_value_to_unit("rad", Some("number"))?;
     Ok(SassNumber::new(cos(val), None))
 }
@@ -68,7 +68,7 @@ pub fn cos_number(number: &SassNumber) -> SassResult<SassNumber> {
 /// `number` is coerced to radians; the result is unitless.
 ///
 /// Matches Dart: tan / Go: TanNumber
-pub fn tan_number(number: &SassNumber) -> SassResult<SassNumber> {
+pub fn tan_number<'parse>(number: &SassNumber<'parse>) -> SassResult<SassNumber<'parse>> {
     let val = number.coerce_value_to_unit("rad", Some("number"))?;
     Ok(SassNumber::new(tan(val), None))
 }
@@ -78,7 +78,7 @@ pub fn tan_number(number: &SassNumber) -> SassResult<SassNumber> {
 /// `number` must be unitless.
 ///
 /// Matches Dart: atan / Go: AtanNumber
-pub fn atan_number(number: &SassNumber) -> SassResult<SassNumber> {
+pub fn atan_number<'parse>(number: &SassNumber<'parse>) -> SassResult<SassNumber<'parse>> {
     number.assert_no_units(Some("number"))?;
     Ok(radians_to_degrees(atan(number.value)))
 }
@@ -88,7 +88,7 @@ pub fn atan_number(number: &SassNumber) -> SassResult<SassNumber> {
 /// `number` must be unitless.
 ///
 /// Matches Dart: asin / Go: AsinNumber
-pub fn asin_number(number: &SassNumber) -> SassResult<SassNumber> {
+pub fn asin_number<'parse>(number: &SassNumber<'parse>) -> SassResult<SassNumber<'parse>> {
     number.assert_no_units(Some("number"))?;
     Ok(radians_to_degrees(asin(number.value)))
 }
@@ -98,7 +98,7 @@ pub fn asin_number(number: &SassNumber) -> SassResult<SassNumber> {
 /// `number` must be unitless.
 ///
 /// Matches Dart: acos / Go: AcosNumber
-pub fn acos_number(number: &SassNumber) -> SassResult<SassNumber> {
+pub fn acos_number<'parse>(number: &SassNumber<'parse>) -> SassResult<SassNumber<'parse>> {
     number.assert_no_units(Some("number"))?;
     Ok(radians_to_degrees(acos(number.value)))
 }
@@ -106,7 +106,7 @@ pub fn acos_number(number: &SassNumber) -> SassResult<SassNumber> {
 /// Returns the absolute value of `number`, preserving units.
 ///
 /// Matches Dart: abs / Go: AbsNumber
-pub fn abs_number(number: &SassNumber) -> SassResult<SassNumber> {
+pub fn abs_number<'parse>(number: &SassNumber<'parse>) -> SassResult<SassNumber<'parse>> {
     Ok(SassNumber::with_units(
         abs(number.value),
         number.numerator_units.clone(),
@@ -122,10 +122,10 @@ pub fn abs_number(number: &SassNumber) -> SassResult<SassNumber> {
 /// Dart checks `$number` units before asserting `$base` is a number
 /// (math.dart:154-168), so `base` arrives unasserted and is checked here —
 /// only after the units check — preserving Dart's error precedence.
-pub fn log_number<'a, 'parse>(
-    number: &SassNumber,
-    base: Option<&'a ValueKind<'parse>>,
-) -> SassResult<SassNumber> {
+pub fn log_number<'parse>(
+    number: &SassNumber<'parse>,
+    base: Option<&ValueKind<'parse>>,
+) -> SassResult<SassNumber<'parse>> {
     if number.has_units() {
         let s = number.to_display_string()?;
         return Err(Box::new(SassError::Script {
@@ -152,7 +152,10 @@ pub fn log_number<'a, 'parse>(
 /// Returns `base` raised to the power of `exponent`.
 ///
 /// Matches Dart: pow / Go: PowNumber
-pub fn pow_number(base: &SassNumber, exponent: &SassNumber) -> SassResult<SassNumber> {
+pub fn pow_number<'parse>(
+    base: &SassNumber<'parse>,
+    exponent: &SassNumber<'parse>,
+) -> SassResult<SassNumber<'parse>> {
     base.assert_no_units(Some("base"))?;
     exponent.assert_no_units(Some("exponent"))?;
     Ok(SassNumber::new(pow(base.value, exponent.value), None))
@@ -161,7 +164,10 @@ pub fn pow_number(base: &SassNumber, exponent: &SassNumber) -> SassResult<SassNu
 /// Returns the arctangent of `y`/`x` in degrees.
 ///
 /// Matches Dart: atan2 / Go: Atan2Number
-pub fn atan2_number(y: &SassNumber, x: &SassNumber) -> SassResult<SassNumber> {
+pub fn atan2_number<'parse>(
+    y: &SassNumber<'parse>,
+    x: &SassNumber<'parse>,
+) -> SassResult<SassNumber<'parse>> {
     let x_val = x.convert_value_to_match(y, Some("x"), Some("y"))?;
     Ok(radians_to_degrees(atan2(y.value, x_val)))
 }

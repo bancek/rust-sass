@@ -85,7 +85,7 @@ pub(crate) async fn expression_to_calc_argument<'compile, 'parse>(
     expr: &Expression<'parse>,
     in_legacy_sass_function: Option<&str>,
     warn: &dyn WarnLogger<'parse>,
-) -> SassResult<CalcArgument>
+) -> SassResult<CalcArgument<'parse>>
 where
     'compile: 'parse,
 {
@@ -186,6 +186,7 @@ where
             let span = b.span()?;
             let result = add_exception_span(config, state, span, None, async |_config, state| {
                 operate_internal(
+                    arena,
                     calc_op,
                     left,
                     right,
@@ -256,7 +257,7 @@ where
             let val = evaluate_expression(config, state, arena, expr).await?;
             match &*val {
                 ValueKind::Number(n) => Ok(CalcArgument::Number(n.clone())),
-                ValueKind::Calculation(c) => Ok(CalcArgument::Calculation(c.clone())),
+                ValueKind::Calculation(c) => Ok(CalcArgument::Calculation(c)),
                 ValueKind::String(s) if !s.has_quotes => {
                     Ok(CalcArgument::String(s.text.to_string(), false))
                 }
@@ -275,7 +276,7 @@ where
             let val = evaluate_expression(config, state, arena, expr).await?;
             match &*val {
                 ValueKind::Number(n) => Ok(CalcArgument::Number(n.clone())),
-                ValueKind::Calculation(c) => Ok(CalcArgument::Calculation(c.clone())),
+                ValueKind::Calculation(c) => Ok(CalcArgument::Calculation(c)),
                 ValueKind::String(s) if !s.has_quotes => {
                     Ok(CalcArgument::String(s.text.to_string(), false))
                 }
@@ -483,9 +484,9 @@ where
     if state.in_supports_declaration {
         return Ok(Value::new_with_arena(
             arena,
-            ValueKind::Calculation(Box::new(SassCalculation::new_unsimplified(
-                &name, evaluated,
-            ))),
+            ValueKind::Calculation(
+                &*arena.alloc(SassCalculation::new_unsimplified(&name, evaluated)),
+            ),
         ));
     }
 
@@ -540,7 +541,7 @@ where
             )
         }
         "sign" => new_sign(arena, first()),
-        "calc-size" => new_calc_size(first(), evaluated.get(1).cloned())
+        "calc-size" => new_calc_size(arena, first(), evaluated.get(1).cloned())
             .map(|calc| Value::new_with_arena(arena, ValueKind::Calculation(calc))),
         _ => {
             let span = expr.span()?;

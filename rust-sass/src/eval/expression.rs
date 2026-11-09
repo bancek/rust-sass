@@ -627,9 +627,11 @@ where
                 if let ValueKind::Number(result_num) = &*result {
                     return Ok(Value::new_with_arena(
                         arena,
-                        ValueKind::Number(
-                            result_num.with_slash(left_num.clone(), right_num.clone()),
-                        ),
+                        ValueKind::Number(result_num.with_slash(
+                            arena,
+                            left_num.clone(),
+                            right_num.clone(),
+                        )),
                     ));
                 }
             }

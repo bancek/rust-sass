@@ -381,7 +381,10 @@ impl<'compile: 'parse, 'parse: 'compile> Protofier<'compile, 'parse> {
         Ok(static_value)
     }
 
-    fn deprotofy_calculation_value(&self, cv: &ProtoCalculationValue) -> SassResult<CalcArgument> {
+    fn deprotofy_calculation_value(
+        &self,
+        cv: &ProtoCalculationValue,
+    ) -> SassResult<CalcArgument<'parse>> {
         match cv
             .value
             .as_ref()
@@ -409,14 +412,14 @@ impl<'compile: 'parse, 'parse: 'compile> Protofier<'compile, 'parse> {
                 // Matches Dart `_deprotofyCalculationValue`'s operation arm,
                 // which calls `SassCalculation.operate` (protofier.dart): this
                 // simplifies numeric operands (`1 + 2` -> `3`).
-                rust_sass::value::calculation::operate(operator, left, right)
+                rust_sass::value::calculation::operate(self.ctx.arena, operator, left, right)
             }
             calculation_value::Value::Calculation(c) => {
                 // Matches Dart: `_deprotofyCalculation` may simplify to a
                 // number (e.g. `min(3, 4)` -> `3`); the result is used directly
                 // as a calculation operand.
                 match self.deprotofy_calculation(c)?.kind() {
-                    ValueKind::Calculation(b) => Ok(CalcArgument::Calculation(b.clone())),
+                    ValueKind::Calculation(b) => Ok(CalcArgument::Calculation(b)),
                     ValueKind::Number(n) => Ok(CalcArgument::Number(n.clone())),
                     _ => Err(script("Internal error: expected a calculation")),
                 }
@@ -900,7 +903,7 @@ mod tests {
             ctx,
             SassValue::new_with_arena(
                 &arena,
-                ValueKind::Calculation(Box::new(SassCalculation::new_unsimplified(
+                ValueKind::Calculation(&*arena.alloc(SassCalculation::new_unsimplified(
                     "calc",
                     vec![CalcArgument::String("var(--x)".into(), false)],
                 ))),
@@ -910,7 +913,7 @@ mod tests {
             ctx,
             SassValue::new_with_arena(
                 &arena,
-                ValueKind::Calculation(Box::new(SassCalculation::new_unsimplified(
+                ValueKind::Calculation(&*arena.alloc(SassCalculation::new_unsimplified(
                     "min",
                     vec![
                         CalcArgument::Number(SassNumber::new(1.0, Some("px"))),

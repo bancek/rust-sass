@@ -1213,7 +1213,7 @@ pub(crate) fn parse_number_impl<'b>(
     scanner: &mut SpanScanner<'b>,
     state: &mut ParserState<'b>,
     arena: &'b Bump,
-) -> ParseResult<'b, SassNumber> {
+) -> ParseResult<'b, SassNumber<'b>> {
     let mut st = make_temp_stylesheet(state, arena);
     parse_single_production_impl(scanner, state, |scanner, _state| {
         let expr = _expression_impl(

@@ -546,7 +546,7 @@ fn de_operator(op: &str) -> SassResult<CalculationOperator> {
     })
 }
 
-fn get_number(value: &JsValue) -> SassResult<SassNumber> {
+fn get_number(value: &JsValue) -> SassResult<SassNumber<'static>> {
     Ok(SassNumber::with_units(
         get_f64_required(value, "value")?,
         get_string_array(value, "numeratorUnits")?,
@@ -601,7 +601,7 @@ fn get_calc_args<'compile: 'parse, 'parse: 'compile>(
     arena: &'compile Bump,
     obj: &JsValue,
     host_function: &HostFunctionBuilder<'compile, 'parse>,
-) -> SassResult<Vec<CalcArgument>> {
+) -> SassResult<Vec<CalcArgument<'parse>>> {
     let arr = Array::from(&get(obj, "arguments")?);
     let mut out = Vec::with_capacity(arr.length() as usize);
     for i in 0..arr.length() {
@@ -615,7 +615,7 @@ fn js_calc_arg_to_rust<'compile: 'parse, 'parse: 'compile>(
     arena: &'compile Bump,
     cv: &JsValue,
     host_function: &HostFunctionBuilder<'compile, 'parse>,
-) -> SassResult<CalcArgument> {
+) -> SassResult<CalcArgument<'parse>> {
     let ty = get_str(cv, "type")?;
     Ok(match ty.as_str() {
         "number" => CalcArgument::Number(get_number(cv)?),
@@ -625,13 +625,13 @@ fn js_calc_arg_to_rust<'compile: 'parse, 'parse: 'compile>(
             let operator = de_operator(&get_str(cv, "operator")?)?;
             let left = js_calc_arg_to_rust(ctx, arena, &get(cv, "left")?, host_function)?;
             let right = js_calc_arg_to_rust(ctx, arena, &get(cv, "right")?, host_function)?;
-            rust_sass::value::calculation::operate(operator, left, right)?
+            rust_sass::value::calculation::operate(arena, operator, left, right)?
         }
         "calculation" => {
             let name = get_str(cv, "name")?;
             let args = get_calc_args(ctx, arena, cv, host_function)?;
             match de_calculation(arena, &name, args)?.kind() {
-                ValueKind::Calculation(b) => CalcArgument::Calculation(b.clone()),
+                ValueKind::Calculation(b) => CalcArgument::Calculation(b),
                 ValueKind::Number(n) => CalcArgument::Number(n.clone()),
                 _ => return Err(script("Internal error: expected a calculation")),
             }
@@ -643,7 +643,7 @@ fn js_calc_arg_to_rust<'compile: 'parse, 'parse: 'compile>(
 fn de_calculation<'compile: 'parse, 'parse: 'compile>(
     arena: &'compile Bump,
     name: &str,
-    args: Vec<CalcArgument>,
+    args: Vec<CalcArgument<'parse>>,
 ) -> SassResult<SassValue<'parse>> {
     match name {
         "calc" => {
@@ -1012,7 +1012,7 @@ mod tests {
             &arena,
             SassValue::new_with_arena(
                 &arena,
-                ValueKind::Calculation(Box::new(SassCalculation::new_unsimplified(
+                ValueKind::Calculation(&*arena.alloc(SassCalculation::new_unsimplified(
                     "calc",
                     vec![CalcArgument::String("var(--x)".into(), false)],
                 ))),
@@ -1023,7 +1023,7 @@ mod tests {
             &arena,
             SassValue::new_with_arena(
                 &arena,
-                ValueKind::Calculation(Box::new(SassCalculation::new_unsimplified(
+                ValueKind::Calculation(&*arena.alloc(SassCalculation::new_unsimplified(
                     "min",
                     vec![
                         CalcArgument::Number(SassNumber::new(1.0, Some("px"))),

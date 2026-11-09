@@ -340,9 +340,7 @@ where
         // stringified (Go: fmt "%v" via String(), Dart: argument.toString()).
         result.push(match arg {
             CalcArgument::Number(n) => Value::new_with_arena(arena, ValueKind::Number(n.clone())),
-            CalcArgument::Calculation(c) => {
-                Value::new_with_arena(arena, ValueKind::Calculation(c.clone()))
-            }
+            CalcArgument::Calculation(c) => Value::new_with_arena(arena, ValueKind::Calculation(c)),
             CalcArgument::String(s, has_quotes) => Value::new_with_arena(
                 arena,
                 ValueKind::String(SassString::new(arena.alloc_str(s), *has_quotes)),
@@ -516,11 +514,11 @@ mod tests {
     fn mk_calc<'compile: 'parse, 'parse>(
         arena: &'compile Bump,
         name: &str,
-        args: Vec<CalcArgument>,
+        args: Vec<CalcArgument<'parse>>,
     ) -> Value<'parse> {
         Value::new_with_arena(
             arena,
-            ValueKind::Calculation(Box::new(SassCalculation::new_unsimplified(name, args))),
+            ValueKind::Calculation(&*arena.alloc(SassCalculation::new_unsimplified(name, args))),
         )
     }
 
@@ -1185,7 +1183,11 @@ mod tests {
             CalcArgument::Number(SassNumber::new(1.0, Some("px"))),
             CalcArgument::Number(SassNumber::new(2.0, Some("px"))),
         );
-        let calc = mk_calc(&arena, "calc", vec![CalcArgument::Operation(Box::new(op))]);
+        let calc = mk_calc(
+            &arena,
+            "calc",
+            vec![CalcArgument::Operation(&*arena.alloc(op))],
+        );
         let got = eval_ok(&arena, &calc_args_function(&arena), &[calc]).await;
         assert_eq!(got.length_as_list(), 1);
         let items = got.as_list(&arena).unwrap();
@@ -1231,7 +1233,7 @@ mod tests {
             &arena,
             "max",
             vec![
-                CalcArgument::Calculation(Box::new(inner)),
+                CalcArgument::Calculation(&*arena.alloc(inner)),
                 CalcArgument::Number(SassNumber::new(2.0, Some("px"))),
             ],
         );

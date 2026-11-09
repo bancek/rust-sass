@@ -3484,6 +3484,7 @@ mod tests {
         let span = make_span(&arena, "test");
         let (config, mut state) = test_visitor(&arena);
         let num = SassNumber::new(42.0, None).with_slash(
+            &arena,
             SassNumber::new(1.0, Some("px")),
             SassNumber::new(2.0, Some("px")),
         );
@@ -3538,19 +3539,26 @@ mod tests {
 
     #[rust_sass_macros::maybe_test]
     async fn test_slash_division_recommendation_simple() {
-        let num = SassNumber::new(1.0, Some("px"))
-            .with_slash(SassNumber::new(1.0, None), SassNumber::new(2.0, None));
+        let arena = Bump::new();
+        let num = SassNumber::new(1.0, Some("px")).with_slash(
+            &arena,
+            SassNumber::new(1.0, None),
+            SassNumber::new(2.0, None),
+        );
         let got = slash_division_recommendation(&num).unwrap();
         assert_eq!(got, "math.div(1, 2)");
     }
 
     #[rust_sass_macros::maybe_test]
     async fn test_slash_division_recommendation_nested() {
+        let arena = Bump::new();
         let inner = SassNumber::new(1.0, Some("px")).with_slash(
+            &arena,
             SassNumber::new(1.0, Some("px")),
             SassNumber::new(2.0, Some("px")),
         );
-        let outer = SassNumber::new(42.0, None).with_slash(inner, SassNumber::new(3.0, Some("px")));
+        let outer =
+            SassNumber::new(42.0, None).with_slash(&arena, inner, SassNumber::new(3.0, Some("px")));
         let got = slash_division_recommendation(&outer).unwrap();
         assert_eq!(got, "math.div(math.div(1px, 2px), 3px)");
     }
