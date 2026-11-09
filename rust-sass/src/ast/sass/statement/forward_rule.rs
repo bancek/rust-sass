@@ -65,7 +65,7 @@ pub struct ForwardRule<'parse> {
     /// module, or `None` when member names are used as-is.
     pub prefix: Option<&'parse str>,
     /// The variable assignments used to configure the forwarded module.
-    pub configuration: Vec<ConfiguredVariable<'parse>>,
+    pub configuration: &'parse [ConfiguredVariable<'parse>],
     pub span: FileSpan<'parse>,
 }
 
@@ -76,7 +76,7 @@ impl<'parse> ForwardRule<'parse> {
         url: ArenaUrl<'parse>,
         span: FileSpan<'parse>,
         prefix: Option<&str>,
-        configuration: Vec<ConfiguredVariable<'parse>>,
+        configuration: &'parse [ConfiguredVariable<'parse>],
     ) -> Self {
         ForwardRule {
             url,
@@ -101,7 +101,7 @@ impl<'parse> ForwardRule<'parse> {
         shown_variables: ArenaHashSet<'parse, String>,
         span: FileSpan<'parse>,
         prefix: Option<&str>,
-        configuration: Vec<ConfiguredVariable<'parse>>,
+        configuration: &'parse [ConfiguredVariable<'parse>],
     ) -> Self {
         Self::show_ordered(
             arena,
@@ -130,7 +130,7 @@ impl<'parse> ForwardRule<'parse> {
         shown_order_vars: Vec<String>,
         span: FileSpan<'parse>,
         prefix: Option<&str>,
-        configuration: Vec<ConfiguredVariable<'parse>>,
+        configuration: &'parse [ConfiguredVariable<'parse>],
     ) -> Self {
         ForwardRule {
             url,
@@ -155,7 +155,7 @@ impl<'parse> ForwardRule<'parse> {
         hidden_variables: ArenaHashSet<'parse, String>,
         span: FileSpan<'parse>,
         prefix: Option<&str>,
-        configuration: Vec<ConfiguredVariable<'parse>>,
+        configuration: &'parse [ConfiguredVariable<'parse>],
     ) -> Self {
         ForwardRule {
             url,
@@ -256,7 +256,7 @@ mod tests {
         let arena = Bump::new();
         let span = make_span(&arena, "@forward 'mod';");
         let url = ArenaUrl::parse(&arena, "https://example.com/module").unwrap();
-        let fr = ForwardRule::new(&arena, url, span, None, vec![]);
+        let fr = ForwardRule::new(&arena, url, span, None, &[]);
         assert_eq!(fr.url, url);
     }
 
@@ -265,7 +265,7 @@ mod tests {
         let arena = Bump::new();
         let span = make_span(&arena, "@forward 'mod';");
         let url = ArenaUrl::parse(&arena, "https://example.com/module").unwrap();
-        let fr = ForwardRule::new(&arena, url, span, None, vec![]);
+        let fr = ForwardRule::new(&arena, url, span, None, &[]);
         let s = format!("{fr}");
         assert!(s.starts_with("@forward "), "got {s:?}");
     }

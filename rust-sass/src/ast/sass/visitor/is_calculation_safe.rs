@@ -224,7 +224,7 @@ mod tests {
         let arena = Bump::new();
         let span = test_span(&arena, "calc()", 0, 6);
         let args = ArgumentList::empty(span);
-        let expr = Expression::Function(FunctionExpression::new("calc".into(), args, span, None));
+        let expr = Expression::Function(FunctionExpression::new(&arena, "calc", args, span, None));
         let mut v = IsCalculationSafeVisitor::new();
         assert!(expr.accept(&mut v).unwrap());
     }
@@ -261,7 +261,7 @@ mod tests {
         let arena = Bump::new();
         let span = test_span(&arena, "red", 0, 3);
         let color = SassColor::rgb(1.0, 2.0, 3.0, 1.0);
-        let expr = Expression::Color(ColorExpression::new(color, span));
+        let expr = Expression::Color(ColorExpression::new(&arena, color, span));
         let mut v = IsCalculationSafeVisitor::new();
         assert!(!expr.accept(&mut v).unwrap());
     }

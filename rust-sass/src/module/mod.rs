@@ -792,7 +792,7 @@ mod tests {
             ArenaUrl::parse(&arena, "file:///test").unwrap(),
             test_span(),
             Some("ns-"),
-            vec![],
+            &[],
         );
         let fv = ForwardedModuleView::new(&arena, inner_mod, &rule);
         // Go PrefixedMapView ADDS prefix: inner "a" → visible as "ns-a"
@@ -810,7 +810,7 @@ mod tests {
             ArenaUrl::parse(&arena, "file:///test").unwrap(),
             test_span(),
             None,
-            vec![],
+            &[],
         );
         let result = ForwardedModuleView::if_necessary(&arena, inner_mod, &rule);
         assert!(result == inner_mod);
@@ -826,7 +826,7 @@ mod tests {
             ArenaUrl::parse(&arena, "file:///test").unwrap(),
             test_span(),
             Some("ns-"),
-            vec![],
+            &[],
         );
         let result = ForwardedModuleView::if_necessary(&arena, inner_mod, &rule);
         assert!(result != inner_mod);
@@ -842,7 +842,7 @@ mod tests {
             ArenaUrl::parse(&arena, "file:///test").unwrap(),
             test_span(),
             None,
-            vec![],
+            &[],
         );
         let fv = ForwardedModuleView::new(&arena, inner_mod, &rule);
         let fv_mod = Module::new(&arena, ModuleKind::Forwarded(fv));
@@ -1001,7 +1001,7 @@ mod tests {
             ArenaUrl::parse(&arena, "file:///test").unwrap(),
             span,
             Some("ns-"),
-            vec![],
+            &[],
         );
         let first = ForwardedModuleView::if_necessary(&arena, inner_mod, &rule);
         let second = ForwardedModuleView::if_necessary(&arena, inner_mod, &rule);
@@ -1013,7 +1013,7 @@ mod tests {
             ArenaUrl::parse(&arena, "file:///test").unwrap(),
             FileSpan::new(None, 21, 40),
             Some("ns-"),
-            vec![],
+            &[],
         );
         let different = ForwardedModuleView::if_necessary(&arena, inner_mod, &other_rule);
         assert_ne!(first, different);

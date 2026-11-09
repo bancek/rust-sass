@@ -222,7 +222,7 @@ impl<'parse> StatementVisitor<'parse> for RecursiveAstVisitor {
     }
 
     fn visit_forward_rule(&mut self, node: &ForwardRule<'parse>) -> SassResult<()> {
-        for var in &node.configuration {
+        for var in node.configuration {
             self.visit_expression(&var.expression)?;
         }
         Ok(())
@@ -307,7 +307,7 @@ impl<'parse> StatementVisitor<'parse> for RecursiveAstVisitor {
     }
 
     fn visit_use_rule(&mut self, node: &UseRule<'parse>) -> SassResult<()> {
-        for var in &node.configuration {
+        for var in node.configuration {
             self.visit_expression(&var.expression)?;
         }
         Ok(())
@@ -789,7 +789,7 @@ mod tests {
         let arena = Bump::new();
         let mut v = RecursiveAstVisitor::new();
         let args = ArgumentList::empty(test_span(&arena, ""));
-        let fe = FunctionExpression::new("foo".into(), args, test_span(&arena, "foo()"), None);
+        let fe = FunctionExpression::new(&arena, "foo", args, test_span(&arena, "foo()"), None);
         Expression::Function(fe).accept(&mut v).unwrap();
     }
 
@@ -827,8 +827,8 @@ mod tests {
         let span = test_span(&arena, "@forward 'foo' with ($x: 1)");
         let u = ArenaUrl::parse(&arena, "sass:foo").unwrap();
         let expr = Expression::Number(NumberExpression::new(1.0, test_span(&arena, "1"), None));
-        let cv = ConfiguredVariable::new("x".into(), expr, span, false);
-        let fr = ForwardRule::new(&arena, u, span, None, vec![cv]);
+        let cv = ConfiguredVariable::new("x", expr, span, false);
+        let fr = ForwardRule::new(&arena, u, span, None, arena_slice(&arena, vec![cv]));
         Statement::ForwardRule(fr).accept(&mut v).unwrap();
     }
 
@@ -839,8 +839,8 @@ mod tests {
         let span = test_span(&arena, "@use 'foo' with ($x: 1)");
         let u = ArenaUrl::parse(&arena, "sass:foo").unwrap();
         let expr = Expression::Number(NumberExpression::new(1.0, test_span(&arena, "1"), None));
-        let cv = ConfiguredVariable::new("x".into(), expr, span, false);
-        let ur = UseRule::new(&arena, u, None, span, vec![cv]).unwrap();
+        let cv = ConfiguredVariable::new("x", expr, span, false);
+        let ur = UseRule::new(&arena, u, None, span, arena_slice(&arena, vec![cv])).unwrap();
         Statement::UseRule(ur).accept(&mut v).unwrap();
     }
 

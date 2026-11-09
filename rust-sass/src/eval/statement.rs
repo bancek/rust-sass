@@ -3540,12 +3540,12 @@ where
 {
     let configuration = if !node.configuration.is_empty() {
         let mut values: IndexMap<String, ConfiguredValue<'parse>> = IndexMap::new();
-        for cv in &node.configuration {
+        for cv in node.configuration {
             let val = evaluate_expression(config, state, arena, &cv.expression).await?;
             let val = without_slash(config, state, arena, val, cv.expression.span()?)?;
             let assignment_node = expression_node(config, state, &cv.expression)?;
             values.insert(
-                cv.name.clone(),
+                cv.name.to_string(),
                 ConfiguredValue::explicit(val, cv.span, assignment_node),
             );
         }
@@ -3705,11 +3705,11 @@ where
     let existing = adjusted_config.values();
     let mut new_values: IndexMap<String, ConfiguredValue<'parse>> = existing.into_iter().collect();
 
-    for cv in &node.configuration {
+    for cv in node.configuration {
         if cv.is_guarded {
-            if let Some(old_val) = adjusted_config.remove(&cv.name) {
+            if let Some(old_val) = adjusted_config.remove(cv.name) {
                 if old_val.value != Value::new_with_arena(arena, ValueKind::Null) {
-                    new_values.insert(cv.name.clone(), old_val);
+                    new_values.insert(cv.name.to_string(), old_val);
                     continue;
                 }
             }
@@ -3719,7 +3719,7 @@ where
         let expr_node = expression_node(config, state, &cv.expression)?;
         let val = without_slash(config, state, arena, val, expr_node)?;
         new_values.insert(
-            cv.name.clone(),
+            cv.name.to_string(),
             ConfiguredValue::explicit(val, cv.span, expr_node),
         );
     }
@@ -3869,14 +3869,14 @@ where
                         .configuration
                         .iter()
                         .filter(|cv| !cv.is_guarded)
-                        .map(|cv| cv.name.clone())
+                        .map(|cv| cv.name.to_string())
                         .collect();
                     remove_used_configuration(&adjusted, &*new_config, &except);
 
                     let configured: HashSet<String> = node
                         .configuration
                         .iter()
-                        .map(|cv| cv.name.clone())
+                        .map(|cv| cv.name.to_string())
                         .collect();
                     for name in new_config.keys() {
                         if !configured.contains(&name) {

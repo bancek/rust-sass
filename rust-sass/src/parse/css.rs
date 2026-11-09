@@ -356,7 +356,8 @@ pub(crate) fn css_identifier_like_impl<'b>(
     );
     let span = span_from_impl(scanner, &state.parser_state, start)?.file_span()?;
     Ok(Expression::Function(FunctionExpression::new(
-        plain.to_string(),
+        state.arena,
+        &plain,
         arg_list,
         span,
         None,

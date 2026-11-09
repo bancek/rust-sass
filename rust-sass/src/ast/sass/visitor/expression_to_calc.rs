@@ -51,7 +51,8 @@ pub fn expression_to_calc<'parse>(
     let mut visitor = MakeExpressionCalculationSafe::new(arena);
     let expr = expression.accept(&mut visitor)?;
     Ok(FunctionExpression::new(
-        "calc".into(),
+        arena,
+        "calc",
         ArgumentList::new(
             arena,
             vec![expr],
@@ -99,7 +100,8 @@ impl<'parse> ExpressionVisitor<'parse> for MakeExpressionCalculationSafe<'parse>
         if node.operator == BinaryOperator::Modulo {
             let span = node.span()?;
             Ok(Expression::Function(FunctionExpression::new(
-                "max".into(),
+                self.arena,
+                "max",
                 ArgumentList::new(
                     self.arena,
                     vec![Expression::BinaryOperation(node.clone())],
@@ -110,7 +112,7 @@ impl<'parse> ExpressionVisitor<'parse> for MakeExpressionCalculationSafe<'parse>
                     None,
                 ),
                 span,
-                Some("math".into()),
+                Some("math"),
             )))
         } else {
             let left = node.left.accept(self)?;
@@ -142,10 +144,11 @@ impl<'parse> ExpressionVisitor<'parse> for MakeExpressionCalculationSafe<'parse>
         let args =
             ReplaceExpressionVisitor::replace_argument_list(self.arena, self, &node.arguments)?;
         Ok(Expression::Function(FunctionExpression::new(
-            node.original_name.clone(),
+            self.arena,
+            node.original_name,
             args,
             node.span,
-            node.namespace.clone(),
+            node.namespace,
         )))
     }
 
@@ -323,7 +326,7 @@ mod tests {
         match result {
             Expression::Function(fe) => {
                 assert_eq!(fe.original_name, "max");
-                assert_eq!(fe.namespace.as_deref(), Some("math"));
+                assert_eq!(fe.namespace, Some("math"));
             }
             _ => panic!("expected FunctionExpression"),
         }

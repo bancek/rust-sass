@@ -38,7 +38,7 @@ impl<'parse> SassDeclaration<'parse> {
     pub fn name(&self) -> &str {
         match self {
             SassDeclaration::Parameter(p) => p.name,
-            SassDeclaration::ConfiguredVariable(cv) => &cv.name,
+            SassDeclaration::ConfiguredVariable(cv) => cv.name,
             SassDeclaration::VariableDeclaration(vd) => vd.name,
             SassDeclaration::FunctionRule(fr) => fr.name,
             SassDeclaration::MixinRule(mr) => mr.name,

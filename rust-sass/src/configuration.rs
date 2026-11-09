@@ -476,7 +476,7 @@ mod tests {
             ArenaUrl::parse(arena, "file:///test").unwrap(),
             bogus_span(),
             None,
-            vec![],
+            &[],
         )
     }
 

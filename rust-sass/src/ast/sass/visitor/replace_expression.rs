@@ -221,10 +221,11 @@ impl<'parse> ExpressionVisitor<'parse> for ReplaceExpressionVisitor<'parse> {
     ) -> SassResult<Expression<'parse>> {
         let args = Self::replace_argument_list(self.arena, self, &node.arguments)?;
         Ok(Expression::Function(FunctionExpression::new(
-            node.original_name.clone(),
+            self.arena,
+            node.original_name,
             args,
             node.span,
-            node.namespace.clone(),
+            node.namespace,
         )))
     }
 
@@ -533,7 +534,7 @@ mod tests {
             None,
             None,
         );
-        let node = FunctionExpression::new("fn".into(), args, span, None);
+        let node = FunctionExpression::new(&arena, "fn", args, span, None);
         let result = Expression::Function(node).accept(&mut v).unwrap();
         match result {
             Expression::Function(fe) => {

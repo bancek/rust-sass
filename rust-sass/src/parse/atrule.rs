@@ -611,8 +611,14 @@ pub(crate) fn use_rule_impl<'b>(
         )));
     }
     expect_statement_separator_impl(scanner, state, "@use rule")?;
-    UseRule::new(state.arena, url, namespace.as_deref(), span, configuration)
-        .map_err(|e| Box::new(ParseError::Sass(e)))
+    UseRule::new(
+        state.arena,
+        url,
+        namespace.as_deref(),
+        span,
+        arena_config(state.arena, configuration),
+    )
+    .map_err(|e| Box::new(ParseError::Sass(e)))
 }
 
 // ======================================================================
@@ -677,7 +683,7 @@ fn forward_rule_impl<'b>(
             shown_order_vars.unwrap_or_default(),
             span,
             prefix.as_deref(),
-            configuration,
+            arena_config(state.arena, configuration),
         ));
     }
     if let Some(hm) = hidden_mf {
@@ -688,7 +694,7 @@ fn forward_rule_impl<'b>(
             hidden_vars.unwrap_or_else(|| arena_set(state.arena, HashSet::new())),
             span,
             prefix.as_deref(),
-            configuration,
+            arena_config(state.arena, configuration),
         ));
     }
     Ok(ForwardRule::new(
@@ -696,7 +702,7 @@ fn forward_rule_impl<'b>(
         url,
         span,
         prefix.as_deref(),
-        configuration,
+        arena_config(state.arena, configuration),
     ))
 }
 
@@ -762,6 +768,14 @@ fn arena_set<'parse>(arena: &'parse Bump, set: HashSet<String>) -> ArenaHashSet<
     out
 }
 
+/// Moves a parsed `@use`/`@forward` configuration list into the arena.
+fn arena_config<'parse>(
+    arena: &'parse Bump,
+    configuration: Vec<ConfiguredVariable<'parse>>,
+) -> &'parse [ConfiguredVariable<'parse>] {
+    arena.alloc_slice_fill_iter(configuration)
+}
+
 // ======================================================================
 // configuration
 // ======================================================================
@@ -821,6 +835,7 @@ fn configuration_impl<'b>(
             )));
         }
         variable_names.insert(name.clone(), ());
+        let name = &*state.arena.alloc_str(&name);
         configuration.push(ConfiguredVariable::new(name, expression, span, guarded));
         if !scanner.scan_char(',') {
             break;

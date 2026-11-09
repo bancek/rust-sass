@@ -249,7 +249,7 @@ mod tests {
         let arena = Bump::new();
         let span = test_span(&arena, "green", 0, 5);
         let color = SassColor::rgb(1.0, 2.0, 3.0, 1.0);
-        let expr = Expression::Color(ColorExpression::new(color, span));
+        let expr = Expression::Color(ColorExpression::new(&arena, color, span));
         let mut v = IsPlainCssVisitor::new(false);
         assert!(expr.accept(&mut v).unwrap());
     }
@@ -351,7 +351,7 @@ mod tests {
         let arena = Bump::new();
         let span = test_span(&arena, "rgb()", 0, 5);
         let args = ArgumentList::empty(span);
-        let expr = Expression::Function(FunctionExpression::new("rgb".into(), args, span, None));
+        let expr = Expression::Function(FunctionExpression::new(&arena, "rgb", args, span, None));
         let mut v = IsPlainCssVisitor::new(false);
         assert!(expr.accept(&mut v).unwrap());
     }
@@ -362,10 +362,11 @@ mod tests {
         let span = test_span(&arena, "ns.rgb()", 0, 8);
         let args = ArgumentList::empty(span);
         let expr = Expression::Function(FunctionExpression::new(
-            "rgb".into(),
+            &arena,
+            "rgb",
             args,
             span,
-            Some("ns".into()),
+            Some("ns"),
         ));
         let mut v = IsPlainCssVisitor::new(false);
         assert!(!expr.accept(&mut v).unwrap());
@@ -394,7 +395,7 @@ mod tests {
         let span = test_span(&arena, "(red)", 0, 5);
         let inner_span = test_span(&arena, "red", 1, 4);
         let color = SassColor::rgb(1.0, 2.0, 3.0, 1.0);
-        let inner = Expression::Color(ColorExpression::new(color, inner_span));
+        let inner = Expression::Color(ColorExpression::new(&arena, color, inner_span));
         let expr = Expression::Parenthesized(ParenthesizedExpression::new(&arena, inner, span));
         let mut v = IsPlainCssVisitor::new(false);
         assert!(expr.accept(&mut v).unwrap());

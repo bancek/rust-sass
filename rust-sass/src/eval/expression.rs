@@ -679,11 +679,11 @@ where
             }
             if !CALC_FUNCTION_NAMES
                 .iter()
-                .any(|n| n.eq_ignore_ascii_case(&fe.name))
+                .any(|n| n.eq_ignore_ascii_case(fe.name))
             {
                 return Ok(false);
             }
-            let declared = state.env.get_function(&fe.name, None)?;
+            let declared = state.env.get_function(fe.name, None)?;
             Ok(declared.is_none())
         }
         _ => Ok(true),
@@ -783,7 +783,7 @@ where
     let fn_from_env = if !is_plain_css {
         let span = expr.span()?;
         add_exception_span(config, state, span, None, async |_cfg, st| {
-            st.env.get_function(&expr.name, expr.namespace.as_deref())
+            st.env.get_function(expr.name, expr.namespace)
         })
         .await?
     } else {
@@ -808,7 +808,7 @@ where
             // Sass built-in (which would reject incompatible units).
             if CSS_MATH_FUNCTION_NAMES
                 .iter()
-                .any(|n| n.eq_ignore_ascii_case(&expr.name))
+                .any(|n| n.eq_ignore_ascii_case(expr.name))
             {
                 let lower = expr.name.to_lowercase();
                 if lower == "min" || lower == "max" || lower == "round" || lower == "abs" {
@@ -841,12 +841,12 @@ where
                 Callable::new(
                     arena,
                     CallableKind::PlainCss(PlainCssCallable {
-                        name: arena.alloc_str(&expr.original_name),
+                        name: arena.alloc_str(expr.original_name),
                     }),
                 )
             } else {
                 let bf = config.built_in_functions.borrow();
-                if let Some(c) = bf.get(expr.name.as_str()) {
+                if let Some(c) = bf.get(expr.name) {
                     *c
                 } else {
                     // Check global functions
@@ -858,7 +858,7 @@ where
                             Callable::new(
                                 arena,
                                 CallableKind::PlainCss(PlainCssCallable {
-                                    name: arena.alloc_str(&expr.original_name),
+                                    name: arena.alloc_str(expr.original_name),
                                 }),
                             )
                         })
@@ -889,7 +889,7 @@ where
         && matches!(fn_callable.kind(), CallableKind::PlainCss(_))
         && CSS_MATH_FUNCTION_NAMES
             .iter()
-            .any(|n| n.eq_ignore_ascii_case(&expr.name))
+            .any(|n| n.eq_ignore_ascii_case(expr.name))
     {
         let lower = expr.name.to_lowercase();
         if lower == "min" || lower == "max" || lower == "round" || lower == "abs" {

@@ -31,7 +31,7 @@ pub struct UseRule<'parse> {
     /// namespace-less access.
     pub namespace: Option<&'parse str>,
     /// Variable assignments configuring the loaded module.
-    pub configuration: Vec<ConfiguredVariable<'parse>>,
+    pub configuration: &'parse [ConfiguredVariable<'parse>],
     pub span: FileSpan<'parse>,
 }
 
@@ -41,9 +41,9 @@ impl<'parse> UseRule<'parse> {
         url: ArenaUrl<'parse>,
         namespace: Option<&str>,
         span: FileSpan<'parse>,
-        configuration: Vec<ConfiguredVariable<'parse>>,
+        configuration: &'parse [ConfiguredVariable<'parse>],
     ) -> SassResult<Self> {
-        for var in &configuration {
+        for var in configuration {
             if var.is_guarded {
                 return Err(Box::new(SassError::from(ArgumentError {
                     name: Some("configured variable".into()),
@@ -142,7 +142,7 @@ mod tests {
         let arena = Bump::new();
         let span = make_span(&arena, "@use 'mod';");
         let url = ArenaUrl::parse(&arena, "https://example.com/module").unwrap();
-        let ur = UseRule::new(&arena, url, None, span, vec![]).unwrap();
+        let ur = UseRule::new(&arena, url, None, span, &[]).unwrap();
         assert_eq!(ur.url, url);
     }
 
@@ -151,7 +151,7 @@ mod tests {
         let arena = Bump::new();
         let span = make_span(&arena, "@use 'mod';");
         let url = ArenaUrl::parse(&arena, "https://example.com/module").unwrap();
-        let ur = UseRule::new(&arena, url, None, span, vec![]).unwrap();
+        let ur = UseRule::new(&arena, url, None, span, &[]).unwrap();
         let s = format!("{ur}");
         assert!(s.starts_with("@use "), "got {s:?}");
     }

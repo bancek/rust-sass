@@ -872,6 +872,7 @@ fn hash_expression_impl<'parse>(
     if character::is_digit(scanner.peek_char(0) as u8 as char) {
         let color = hex_color_contents(scanner, start)?;
         return Ok(Expression::Color(ColorExpression::new(
+            state.arena,
             color,
             scanner.span_from(start),
         )));
@@ -882,6 +883,7 @@ fn hash_expression_impl<'parse>(
         scanner.set_state(after_hash);
         let color = hex_color_contents(scanner, start)?;
         return Ok(Expression::Color(ColorExpression::new(
+            state.arena,
             color,
             scanner.span_from(start),
         )));
@@ -1191,7 +1193,11 @@ fn ident_like<'parse>(
                     .substring(start.position, Some(scanner.pos()))
                     .to_string();
                 color.set_format(Some(ColorFormat::Preserved(original_text)));
-                return Ok(Expression::Color(ColorExpression::new(color, span)));
+                return Ok(Expression::Color(ColorExpression::new(
+                    state.arena,
+                    color,
+                    span,
+                )));
             }
         }
         let lower = p.to_lowercase();
@@ -1221,7 +1227,11 @@ fn ident_like<'parse>(
             let invocation = argument_invocation(scanner, state, false, allow_empty)?;
             let func_span = span_from_impl(scanner, &state.parser_state, start)?.file_span()?;
             Ok(Expression::Function(FunctionExpression::new(
-                p, invocation, func_span, None,
+                state.arena,
+                &p,
+                invocation,
+                func_span,
+                None,
             )))
         }
         _ if scanner.peek_char(0) == '(' as i32 => {
@@ -2096,10 +2106,11 @@ pub(crate) fn namespaced<'parse>(
     let invocation = argument_invocation(scanner, state, false, false)?;
     let ns_func_span = span_from_impl(scanner, &state.parser_state, start)?.file_span()?;
     Ok(Expression::Function(FunctionExpression::new(
-        ident,
+        state.arena,
+        &ident,
         invocation,
         ns_func_span,
-        Some(namespace.to_string()),
+        Some(namespace),
     )))
 }
 
@@ -5409,7 +5420,7 @@ mod tests {
         match _expression_impl(&mut s, &mut st, o).unwrap() {
             Expression::Function(fe) => {
                 assert_eq!(fe.original_name, "func");
-                assert_eq!(fe.namespace.as_deref(), Some("ns"));
+                assert_eq!(fe.namespace, Some("ns"));
             }
             _ => {
                 panic!();
