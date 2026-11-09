@@ -171,27 +171,29 @@ static COLOR_NAME_PAIRS: &[(&str, (u8, u8, u8, f64))] = &[
     ("aliceblue", (240u8, 248u8, 255u8, 1f64)),
 ];
 
-static NAME_BY_RGB: LazyLock<HashMap<(u8, u8, u8), &'static str>> = LazyLock::new(|| {
-    let mut map = HashMap::with_capacity(149);
-    for (name, (r, g, b, alpha)) in COLOR_NAME_PAIRS {
-        if *alpha == 0.0 {
-            continue;
+pub(crate) static NAME_BY_RGB: LazyLock<HashMap<(u8, u8, u8), &'static str>> =
+    LazyLock::new(|| {
+        let mut map = HashMap::with_capacity(149);
+        for (name, (r, g, b, alpha)) in COLOR_NAME_PAIRS {
+            if *alpha == 0.0 {
+                continue;
+            }
+            map.insert((*r, *g, *b), *name);
         }
-        map.insert((*r, *g, *b), *name);
-    }
-    map
-});
+        map
+    });
 
 // Single derived reverse-lookup map; a named alias would be single-use.
 #[allow(clippy::type_complexity)]
-static NAME_BY_NAME: LazyLock<HashMap<&'static str, (u8, u8, u8, f64)>> = LazyLock::new(|| {
-    let mut map = HashMap::with_capacity(COLOR_NAME_PAIRS.len());
-    for (name, val) in COLOR_NAME_PAIRS {
-        let name_slice: &'static str = name;
-        map.entry(name_slice).or_insert(*val);
-    }
-    map
-});
+pub(crate) static NAME_BY_NAME: LazyLock<HashMap<&'static str, (u8, u8, u8, f64)>> =
+    LazyLock::new(|| {
+        let mut map = HashMap::with_capacity(COLOR_NAME_PAIRS.len());
+        for (name, val) in COLOR_NAME_PAIRS {
+            let name_slice: &'static str = name;
+            map.entry(name_slice).or_insert(*val);
+        }
+        map
+    });
 
 /// Looks up a named color by (lowercase) name.
 pub fn lookup_name(name: &str) -> Option<SassColor> {

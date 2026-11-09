@@ -37,6 +37,13 @@ static RE_INPUT_PATH: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"[-_/a-zA-Z0-9]+(input\.s[ca]ss)").unwrap());
 static RE_CONSECUTIVE_NEWLINES: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\n+").unwrap());
 
+/// Forces the normalizers' regexes (and the engines' automata behind them) to
+/// be built, so a later measured run does not pay for them.
+pub fn warm_up() {
+    LazyLock::force(&RE_INPUT_PATH);
+    LazyLock::force(&RE_CONSECUTIVE_NEWLINES);
+}
+
 pub struct RunnerStats {
     pub total: AtomicUsize,
     pub passed: AtomicUsize,

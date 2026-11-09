@@ -116,16 +116,23 @@ fn report_and_assert(failures: Vec<String>, stats: &RunnerStats) {
     assert_corpus(c);
 }
 
-/// Runs the suite twice: an untracked warm-up (fills process-lifetime caches)
-/// and a measured pass. Asserts that the measured pass retains no bytes.
+/// Runs the suite twice: an untracked warm-up pass, then every
+/// process-lifetime cache forced explicitly, then a measured pass. Asserts
+/// that the measured pass retains no bytes.
 ///
-/// `LEAK_GATE_ALLOW` sets a byte allowance for a known baseline while the leak
-/// fixes land; it defaults to 0, i.e. any retention fails.
+/// `LEAK_GATE_ALLOW` is a debugging knob for reading the number while a leak
+/// is being fixed; it defaults to 0, i.e. any retention fails.
 #[cfg(feature = "leak-gate")]
 fn leak_gate_run(spec_path: &str, spec_root: &str) {
     let (failures, stats) = rust_sass_spec::run_specs(spec_path, spec_root);
     report_and_assert(failures, &stats);
     drop(stats);
+
+    // Tables the warm-up pass may not have touched (a focused `SASS_SPEC`
+    // subset exercises only some of them) would otherwise be charged to the
+    // measured pass.
+    rust_sass::warm_up();
+    rust_sass_spec::warm_up();
 
     rust_sass_spec::leak_gate::start();
     let (failures, stats) = rust_sass_spec::run_specs(spec_path, spec_root);

@@ -36,3 +36,24 @@ pub mod util;
 pub mod value;
 
 pub use bumpalo::Bump;
+
+/// Forces every process-lifetime cache to be allocated.
+///
+/// The compiler lazily builds a handful of static tables (named colors, unit
+/// conversion factors, the D50 white point, the VLQ decode table) on first
+/// use, and keeps them for the life of the process. A harness that measures
+/// allocations across compilations — the spec runner's counting allocator —
+/// calls this before the measured region so that building them is not
+/// attributed to that region.
+///
+/// Not needed by normal callers: the tables are built on demand.
+pub fn warm_up() {
+    use std::sync::LazyLock;
+
+    LazyLock::force(&value::color_names::NAME_BY_RGB);
+    LazyLock::force(&value::color_names::NAME_BY_NAME);
+    LazyLock::force(&value::number_util::CONVERSION_FACTORS);
+    LazyLock::force(&value::number_util::KNOWN_COMPATIBILITY_SETS);
+    LazyLock::force(&value::color_conversions::D50);
+    LazyLock::force(&sourcemap::vlq::BASE64_DECODE);
+}

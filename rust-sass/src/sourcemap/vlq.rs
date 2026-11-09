@@ -27,7 +27,7 @@ const VLQ_CONTINUATION_BIT: i32 = 1 << 5;
 const MAX_I32: i32 = i32::MAX;
 const MIN_I32: i32 = i32::MIN;
 
-static BASE64_DECODE: LazyLock<[i8; 256]> = LazyLock::new(|| {
+pub(crate) static BASE64_DECODE: LazyLock<[i8; 256]> = LazyLock::new(|| {
     let mut table = [-1i8; 256];
     for (i, &c) in BASE64_CHARS.iter().enumerate() {
         table[c as usize] = i as i8;
