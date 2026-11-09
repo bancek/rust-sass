@@ -3427,7 +3427,7 @@ mod tests {
             &arena,
             vec![
                 InterpolationPart::Text("prefix:"),
-                InterpolationPart::Expression(Box::new(expr)),
+                InterpolationPart::expression(&arena, expr),
                 InterpolationPart::Text("suffix"),
             ],
             vec![None, Some(span), None],
@@ -3454,7 +3454,7 @@ mod tests {
         });
         let interp = Interpolation::new(
             &arena,
-            vec![InterpolationPart::Expression(Box::new(expr))],
+            vec![InterpolationPart::expression(&arena, expr)],
             vec![Some(span)],
             Span::File(span),
         )

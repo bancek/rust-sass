@@ -965,7 +965,7 @@ pub(crate) fn import_argument_impl<'b>(
             let expr_span = url_expr.span()?;
             Interpolation::new(
                 state.arena,
-                vec![InterpolationPart::Expression(Box::new(url_expr.clone()))],
+                vec![InterpolationPart::expression(state.arena, url_expr.clone())],
                 vec![Some(expr_span)],
                 Span::File(expr_span),
             )

@@ -29,7 +29,7 @@ enum Part<'parse> {
     /// Pending/serialized text (owned) or text borrowed from an existing
     /// interpolation (no copy; converted when the buffer is finalized).
     Text(Cow<'parse, str>),
-    Expression(Box<Expression<'parse>>),
+    Expression(Expression<'parse>),
 }
 
 pub struct InterpolationBuffer<'parse> {
@@ -110,7 +110,7 @@ impl<'parse> InterpolationBuffer<'parse> {
     /// The `span` should cover from the beginning of `#{` through `}`.
     pub fn add(&mut self, expression: Expression<'parse>, span: FileSpan<'parse>) {
         self.flush_text();
-        self.contents.push(Part::Expression(Box::new(expression)));
+        self.contents.push(Part::Expression(expression));
         self.spans.push(Some(span));
     }
 
@@ -140,7 +140,7 @@ impl<'parse> InterpolationBuffer<'parse> {
                     self.contents.push(Part::Text(Cow::Borrowed(*s)));
                 }
                 InterpolationPart::Expression(expr) => {
-                    self.contents.push(Part::Expression(expr.clone()));
+                    self.contents.push(Part::Expression((*expr).clone()));
                 }
             }
         }
@@ -184,7 +184,7 @@ impl<'parse> InterpolationBuffer<'parse> {
             .map(|part| match part {
                 Part::Text(Cow::Borrowed(s)) => InterpolationPart::Text(s),
                 Part::Text(Cow::Owned(s)) => InterpolationPart::text(arena, s),
-                Part::Expression(expr) => InterpolationPart::Expression(expr.clone()),
+                Part::Expression(expr) => InterpolationPart::expression(arena, expr.clone()),
             })
             .collect();
         let mut spans = self.spans.clone();
@@ -335,7 +335,7 @@ mod tests {
         let expr = Expression::Variable(VariableExpression::new("expr".into(), var_span, None));
         let interp = Interpolation::new(
             &arena,
-            vec![InterpolationPart::Expression(Box::new(expr))],
+            vec![InterpolationPart::expression(&arena, expr)],
             vec![Some(expr_span)],
             interp_span,
         )

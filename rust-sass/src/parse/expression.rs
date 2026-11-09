@@ -300,17 +300,23 @@ fn resolve_one<'parse>(
     if acc.allow_slash && !state.in_parentheses && op == BinaryOperator::DividedBy {
         if is_slash_operand_impl(&left) && is_slash_operand_impl(&right) {
             acc.single = Some(Expression::BinaryOperation(
-                BinaryOperationExpression::new_slash(left, right),
+                BinaryOperationExpression::new_slash(state.arena, left, right),
             ));
         } else {
             acc.single = Some(Expression::BinaryOperation(BinaryOperationExpression::new(
-                op, left, right,
+                state.arena,
+                op,
+                left,
+                right,
             )));
             acc.allow_slash = false;
         }
     } else {
         acc.single = Some(Expression::BinaryOperation(BinaryOperationExpression::new(
-            op, left, right,
+            state.arena,
+            op,
+            left,
+            right,
         )));
         acc.allow_slash = false;
     }
@@ -560,7 +566,12 @@ fn unary<'parse>(
     whitespace_impl(scanner, &mut state.parser_state, true)?;
     let operand = parse_single(scanner, state)?;
     let span = scanner.span_from(start);
-    Ok(UnaryOperationExpression::new(op, operand, span))
+    Ok(UnaryOperationExpression::new(
+        state.arena,
+        op,
+        operand,
+        span,
+    ))
 }
 
 // Whether the parser runs in plain-CSS mode (Dart's `plainCss`).
@@ -683,7 +694,9 @@ pub(crate) fn parentheses_impl<'parse>(
         let paren_span = span_from_impl(scanner, &state.parser_state, start)?.file_span()?;
         state.in_parentheses = was_in_parentheses;
         return Ok(Expression::Parenthesized(ParenthesizedExpression::new(
-            first, paren_span,
+            state.arena,
+            first,
+            paren_span,
         )));
     }
     whitespace_impl(scanner, &mut state.parser_state, true)?;
@@ -719,6 +732,7 @@ pub(crate) fn parentheses_impl<'parse>(
     let close_span = span_from_impl(scanner, &state.parser_state, start)?.file_span()?;
     state.in_parentheses = was_in_parentheses;
     Ok(Expression::Parenthesized(ParenthesizedExpression::new(
+        state.arena,
         Expression::List(list),
         close_span,
     )))
@@ -1146,6 +1160,7 @@ fn ident_like<'parse>(
             let expr = parse_single(scanner, state)?;
             let not_span = span_from_impl(scanner, &state.parser_state, start)?.file_span()?;
             return Ok(Expression::UnaryOperation(UnaryOperationExpression::new(
+                state.arena,
                 UnaryOperator::Not,
                 expr,
                 not_span,
@@ -3522,7 +3537,7 @@ mod tests {
             until: None,
         };
         match _expression_impl(&mut s, &mut st, o).unwrap() {
-            Expression::Parenthesized(pe) => match &*pe.expression {
+            Expression::Parenthesized(pe) => match pe.expression {
                 Expression::Number(n) => {
                     assert_eq!(n.value, 42.0);
                 }
@@ -4124,7 +4139,7 @@ mod tests {
         match _expression_impl(&mut s, &mut st, o).unwrap() {
             Expression::BinaryOperation(be) => {
                 assert_eq!(be.operator, BinaryOperator::Plus);
-                match &*be.right {
+                match be.right {
                     Expression::BinaryOperation(right) => {
                         assert_eq!(right.operator, BinaryOperator::Times);
                     }
@@ -4152,7 +4167,7 @@ mod tests {
         match _expression_impl(&mut s, &mut st, o).unwrap() {
             Expression::BinaryOperation(be) => {
                 assert_eq!(be.operator, BinaryOperator::Times);
-                match &*be.left {
+                match be.left {
                     Expression::Parenthesized(_) => {}
                     _ => {
                         panic!();

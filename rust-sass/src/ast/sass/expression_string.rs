@@ -89,7 +89,7 @@ impl<'parse> StringExpression<'parse> {
             match part {
                 InterpolationPart::Expression(expr) => {
                     let sp = self.text.span_for_element(i)?;
-                    buf.add(*expr.clone(), sp);
+                    buf.add((*expr).clone(), sp);
                 }
                 InterpolationPart::Text(s) => {
                     let mut sb = String::new();

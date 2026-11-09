@@ -27,14 +27,19 @@ use crate::ast::sass::expression::Expression;
 pub enum InterpolationPart<'parse> {
     /// Plain text (never adjacent to another `Text`).
     Text(&'parse str),
-    /// An interpolated expression (boxed: the recursive position).
-    Expression(Box<Expression<'parse>>),
+    /// An interpolated expression, allocated in the compile arena.
+    Expression(&'parse Expression<'parse>),
 }
 
 impl<'parse> InterpolationPart<'parse> {
     /// Creates a plain-text part allocated in `arena`.
     pub fn text(arena: &'parse Bump, text: impl AsRef<str>) -> Self {
         InterpolationPart::Text(arena.alloc_str(text.as_ref()))
+    }
+
+    /// Creates an expression part allocated in `arena`.
+    pub fn expression(arena: &'parse Bump, expression: Expression<'parse>) -> Self {
+        InterpolationPart::Expression(arena.alloc(expression))
     }
 }
 
@@ -300,7 +305,7 @@ mod tests {
             &arena,
             vec![
                 InterpolationPart::Text("a."),
-                InterpolationPart::Expression(Box::new(expr)),
+                InterpolationPart::expression(&arena, expr),
                 InterpolationPart::Text(".b"),
             ],
             vec![None, Some(interp_expr_span), None],
@@ -354,7 +359,7 @@ mod tests {
             &arena,
             vec![
                 InterpolationPart::Text("a."),
-                InterpolationPart::Expression(Box::new(expr)),
+                InterpolationPart::expression(&arena, expr),
                 InterpolationPart::Text(".b"),
             ],
             vec![None, None, None],
@@ -391,7 +396,7 @@ mod tests {
             &arena,
             vec![
                 InterpolationPart::Text("a."),
-                InterpolationPart::Expression(Box::new(expr)),
+                InterpolationPart::expression(&arena, expr),
                 InterpolationPart::Text(".b"),
             ],
             vec![None, Some(interp_expr_span), None],
@@ -417,7 +422,7 @@ mod tests {
             &arena,
             vec![
                 InterpolationPart::Text("a."),
-                InterpolationPart::Expression(Box::new(expr)),
+                InterpolationPart::expression(&arena, expr),
                 InterpolationPart::Text(".b"),
             ],
             vec![None, Some(interp_expr_span), None],

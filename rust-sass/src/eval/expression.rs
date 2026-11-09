@@ -523,31 +523,31 @@ where
     }
 
     add_exception_span(config, state, span, None, async |cfg, st| {
-        let left = evaluate_expression(cfg, st, arena, &expr.left).await?;
+        let left = evaluate_expression(cfg, st, arena, expr.left).await?;
 
         match expr.operator {
             BinaryOperator::SingleEquals => {
-                let right = evaluate_expression(cfg, st, arena, &expr.right).await?;
+                let right = evaluate_expression(cfg, st, arena, expr.right).await?;
                 left.single_equals(arena, &right)
             }
             BinaryOperator::Or => {
                 if left.is_truthy() {
                     return Ok(left);
                 }
-                evaluate_expression(cfg, st, arena, &expr.right).await
+                evaluate_expression(cfg, st, arena, expr.right).await
             }
             BinaryOperator::And => {
                 if !left.is_truthy() {
                     return Ok(left);
                 }
-                evaluate_expression(cfg, st, arena, &expr.right).await
+                evaluate_expression(cfg, st, arena, expr.right).await
             }
             BinaryOperator::DividedBy => {
-                let right = evaluate_expression(cfg, st, arena, &expr.right).await?;
+                let right = evaluate_expression(cfg, st, arena, expr.right).await?;
                 slash_divide(cfg, st, arena, expr, left, right)
             }
             _ => {
-                let right = evaluate_expression(cfg, st, arena, &expr.right).await?;
+                let right = evaluate_expression(cfg, st, arena, expr.right).await?;
                 evaluate_binary_op(arena, expr, left, right)
             }
         }
@@ -623,8 +623,8 @@ where
 
     if let (ValueKind::Number(left_num), ValueKind::Number(right_num)) = (&*left, &*right) {
         if expr.allows_slash() {
-            let left_allows_slash = operand_allows_slash(&expr.left, state)?;
-            let right_allows_slash = operand_allows_slash(&expr.right, state)?;
+            let left_allows_slash = operand_allows_slash(expr.left, state)?;
+            let right_allows_slash = operand_allows_slash(expr.right, state)?;
             if left_allows_slash && right_allows_slash {
                 if let ValueKind::Number(result_num) = &*result {
                     return Ok(Value::new_with_arena(
@@ -702,8 +702,8 @@ where
 fn slash_division_recommendation_expr(expr: &Expression<'_>) -> SassResult<String> {
     match expr {
         Expression::BinaryOperation(be) if be.operator == BinaryOperator::DividedBy => {
-            let left = slash_division_recommendation_expr(&be.left)?;
-            let right = slash_division_recommendation_expr(&be.right)?;
+            let left = slash_division_recommendation_expr(be.left)?;
+            let right = slash_division_recommendation_expr(be.right)?;
             Ok(format!("math.div({}, {})", left, right))
         }
         Expression::Parenthesized(pe) => pe.expression.to_display_string(),
@@ -730,7 +730,7 @@ pub(crate) async fn evaluate_unary_operation<'compile, 'parse>(
 where
     'compile: 'parse,
 {
-    let operand = evaluate_expression(config, state, arena, &expr.operand).await?;
+    let operand = evaluate_expression(config, state, arena, expr.operand).await?;
     let result = match expr.operator {
         UnaryOperator::Not => Ok(Value::new_with_arena(
             arena,
@@ -952,7 +952,7 @@ where
             Some(span),
         )));
     }
-    evaluate_expression(config, state, arena, &expr.expression).await
+    evaluate_expression(config, state, arena, expr.expression).await
 }
 
 // ===========================================================================
@@ -1894,7 +1894,7 @@ mod tests {
         let (config, mut state) = test_visitor(&arena);
         let expr = UnaryOperationExpression {
             operator: UnaryOperator::Not,
-            operand: Box::new(Expression::Boolean(BooleanExpression { value: true, span })),
+            operand: arena.alloc(Expression::Boolean(BooleanExpression { value: true, span })),
             span,
         };
         let result = evaluate_unary_operation(&config, &mut state, &arena, &expr)
@@ -1910,8 +1910,8 @@ mod tests {
         let (config, mut state) = test_visitor(&arena);
         let expr = BinaryOperationExpression {
             operator: BinaryOperator::Or,
-            left: Box::new(Expression::Boolean(BooleanExpression { value: true, span })),
-            right: Box::new(Expression::Null(NullExpression { span })),
+            left: arena.alloc(Expression::Boolean(BooleanExpression { value: true, span })),
+            right: arena.alloc(Expression::Null(NullExpression { span })),
             allows_slash: false,
         };
         let result = evaluate_binary_operation(&config, &mut state, &arena, &expr)
@@ -1927,11 +1927,11 @@ mod tests {
         let (config, mut state) = test_visitor(&arena);
         let expr = BinaryOperationExpression {
             operator: BinaryOperator::And,
-            left: Box::new(Expression::Boolean(BooleanExpression {
+            left: arena.alloc(Expression::Boolean(BooleanExpression {
                 value: false,
                 span,
             })),
-            right: Box::new(Expression::Null(NullExpression { span })),
+            right: arena.alloc(Expression::Null(NullExpression { span })),
             allows_slash: false,
         };
         let result = evaluate_binary_operation(&config, &mut state, &arena, &expr)
@@ -1947,12 +1947,12 @@ mod tests {
         let (config, mut state) = test_visitor(&arena);
         let expr = BinaryOperationExpression {
             operator: BinaryOperator::Plus,
-            left: Box::new(Expression::Number(NumberExpression {
+            left: arena.alloc(Expression::Number(NumberExpression {
                 value: 1.0,
                 unit: None,
                 span,
             })),
-            right: Box::new(Expression::Number(NumberExpression {
+            right: arena.alloc(Expression::Number(NumberExpression {
                 value: 2.0,
                 unit: None,
                 span,

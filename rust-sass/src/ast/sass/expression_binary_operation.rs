@@ -7,6 +7,8 @@
 // dart-source: lib/src/ast/sass/expression/binary_operation.dart
 // go-source: go/value/sass_expression_binary_operation.go
 
+use bumpalo::Bump;
+
 use crate::common::exception::SassError;
 use crate::common::source_span_file_source::FileSource;
 use crate::common::span_error::SpanError;
@@ -28,9 +30,9 @@ pub struct BinaryOperationExpression<'parse> {
     /// The operator being invoked.
     pub operator: BinaryOperator,
     /// The left-hand operand.
-    pub left: Box<Expression<'parse>>,
+    pub left: &'parse Expression<'parse>,
     /// The right-hand operand.
-    pub right: Box<Expression<'parse>>,
+    pub right: &'parse Expression<'parse>,
     /// Whether this is a [`BinaryOperator::DividedBy`] operation that may be
     /// interpreted as slash-separated numbers.
     pub allows_slash: bool,
@@ -38,14 +40,15 @@ pub struct BinaryOperationExpression<'parse> {
 
 impl<'parse> BinaryOperationExpression<'parse> {
     pub fn new(
+        arena: &'parse Bump,
         operator: BinaryOperator,
         left: Expression<'parse>,
         right: Expression<'parse>,
     ) -> Self {
         BinaryOperationExpression {
             operator,
-            left: Box::new(left),
-            right: Box::new(right),
+            left: arena.alloc(left),
+            right: arena.alloc(right),
             allows_slash: false,
         }
     }
@@ -54,11 +57,15 @@ impl<'parse> BinaryOperationExpression<'parse> {
     // interpreted as slash-separated numbers.
     //
     // Matches Dart: `BinaryOperationExpression.slash` (@nodoc/@internal).
-    pub fn new_slash(left: Expression<'parse>, right: Expression<'parse>) -> Self {
+    pub fn new_slash(
+        arena: &'parse Bump,
+        left: Expression<'parse>,
+        right: Expression<'parse>,
+    ) -> Self {
         BinaryOperationExpression {
             operator: BinaryOperator::DividedBy,
-            left: Box::new(left),
-            right: Box::new(right),
+            left: arena.alloc(left),
+            right: arena.alloc(right),
             allows_slash: true,
         }
     }
@@ -109,13 +116,13 @@ impl<'parse> BinaryOperationExpression<'parse> {
 
 impl<'parse> AstNode<'parse> for BinaryOperationExpression<'parse> {
     fn span(&self) -> SassResult<FileSpan<'parse>> {
-        let mut left: &Expression = self.left.as_ref();
+        let mut left: &Expression = self.left;
         while let Expression::BinaryOperation(bin) = left {
-            left = bin.left.as_ref();
+            left = bin.left;
         }
-        let mut right: &Expression = self.right.as_ref();
+        let mut right: &Expression = self.right;
         while let Expression::BinaryOperation(bin) = right {
-            right = bin.right.as_ref();
+            right = bin.right;
         }
 
         let left_span = left.span()?;
@@ -136,35 +143,35 @@ impl<'parse> AstNode<'parse> for BinaryOperationExpression<'parse> {
 impl<'parse> BinaryOperationExpression<'parse> {
     pub fn to_display_string(&self) -> SassResult<String> {
         let mut buf = String::new();
-        let left_needs_parens = if let Expression::BinaryOperation(bin) = self.left.as_ref() {
+        let left_needs_parens = if let Expression::BinaryOperation(bin) = self.left {
             bin.operator.precedence() < self.operator.precedence()
-        } else if let Expression::List(list) = self.left.as_ref() {
+        } else if let Expression::List(list) = self.left {
             !list.has_brackets && list.contents.len() >= 2
         } else {
             false
         };
 
         if left_needs_parens {
-            write!(buf, "({})", Expression::to_display_string(&self.left)?).unwrap();
+            write!(buf, "({})", Expression::to_display_string(self.left)?).unwrap();
         } else {
-            write!(buf, "{}", Expression::to_display_string(&self.left)?).unwrap();
+            write!(buf, "{}", Expression::to_display_string(self.left)?).unwrap();
         }
 
         write!(buf, " {} ", self.operator.operator_syntax()).unwrap();
 
-        let right_needs_parens = if let Expression::BinaryOperation(bin) = self.right.as_ref() {
+        let right_needs_parens = if let Expression::BinaryOperation(bin) = self.right {
             bin.operator.precedence() <= self.operator.precedence()
                 && !(bin.operator == self.operator && bin.operator.is_associative())
-        } else if let Expression::List(list) = self.right.as_ref() {
+        } else if let Expression::List(list) = self.right {
             !list.has_brackets && list.contents.len() >= 2
         } else {
             false
         };
 
         if right_needs_parens {
-            write!(buf, "({})", Expression::to_display_string(&self.right)?).unwrap();
+            write!(buf, "({})", Expression::to_display_string(self.right)?).unwrap();
         } else {
-            write!(buf, "{}", Expression::to_display_string(&self.right)?).unwrap();
+            write!(buf, "{}", Expression::to_display_string(self.right)?).unwrap();
         }
 
         Ok(buf)
@@ -207,6 +214,7 @@ mod tests {
         let left = NumberExpression::new(1.0, test_span(&arena, "1 + 2", 0, 1), None);
         let right = NumberExpression::new(2.0, test_span(&arena, "1 + 2", 4, 5), None);
         let expr = BinaryOperationExpression::new(
+            &arena,
             BinaryOperator::Plus,
             Expression::Number(left),
             Expression::Number(right),
@@ -221,6 +229,7 @@ mod tests {
         let left = NumberExpression::new(1.0, test_span(&arena, "1 / 2", 0, 1), None);
         let right = NumberExpression::new(2.0, test_span(&arena, "1 / 2", 4, 5), None);
         let expr = BinaryOperationExpression::new_slash(
+            &arena,
             Expression::Number(left),
             Expression::Number(right),
         );
@@ -235,7 +244,7 @@ mod tests {
         let span = FileSpan::new(Some(fs), 0, 5);
         let left = Expression::Number(NumberExpression::new(1.0, span, None));
         let right = Expression::Number(NumberExpression::new(2.0, span, None));
-        let expr = BinaryOperationExpression::new(BinaryOperator::Plus, left, right);
+        let expr = BinaryOperationExpression::new(&arena, BinaryOperator::Plus, left, right);
         assert_eq!(format!("{}", expr), "1 + 2");
     }
 
@@ -249,6 +258,7 @@ mod tests {
         let left = NumberExpression::new(1.0, FileSpan::new(Some(fs), 0, 1), None);
         let right = NumberExpression::new(2.0, FileSpan::new(Some(fs), 4, 5), None);
         let expr = BinaryOperationExpression::new(
+            &arena,
             BinaryOperator::Plus,
             Expression::Number(left),
             Expression::Number(right),
@@ -279,6 +289,7 @@ mod tests {
             "setup: allocations must not be identical"
         );
         let expr = BinaryOperationExpression::new(
+            &arena,
             BinaryOperator::Plus,
             Expression::Number(left),
             Expression::Number(right),
@@ -295,6 +306,7 @@ mod tests {
         let left = NumberExpression::new(1.0, test_span(&arena, "1 + 2", 0, 1), None);
         let right = NumberExpression::new(2.0, test_span(&arena, "1 + 2", 4, 5), None);
         let expr = BinaryOperationExpression::new(
+            &arena,
             BinaryOperator::Plus,
             Expression::Number(left),
             Expression::Number(right),
@@ -308,6 +320,7 @@ mod tests {
         let left = NumberExpression::new(1.0, test_span(&arena, "1 + 2", 0, 1), None);
         let right = NumberExpression::new(2.0, test_span(&arena, "1 + 2", 4, 5), None);
         let expr = BinaryOperationExpression::new(
+            &arena,
             BinaryOperator::Plus,
             Expression::Number(left),
             Expression::Number(right),

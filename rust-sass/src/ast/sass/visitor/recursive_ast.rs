@@ -623,6 +623,7 @@ mod tests {
         let left = Expression::Number(NumberExpression::new(1.0, test_span(&arena, "1"), None));
         let right = Expression::Number(NumberExpression::new(2.0, test_span(&arena, "2"), None));
         let bin = Expression::BinaryOperation(BinaryOperationExpression::new(
+            &arena,
             BinaryOperator::Plus,
             left,
             right,
@@ -708,6 +709,7 @@ mod tests {
         let left = Expression::Number(NumberExpression::new(1.0, test_span(&arena, "1"), None));
         let right = Expression::Number(NumberExpression::new(2.0, test_span(&arena, "2"), None));
         let bin = Expression::BinaryOperation(BinaryOperationExpression::new(
+            &arena,
             BinaryOperator::Plus,
             left,
             right,
@@ -764,7 +766,7 @@ mod tests {
         let arena = Bump::new();
         let mut v = RecursiveAstVisitor::new();
         let inner = Expression::Number(NumberExpression::new(1.0, test_span(&arena, "1"), None));
-        let pe = ParenthesizedExpression::new(inner, test_span(&arena, "(1)"));
+        let pe = ParenthesizedExpression::new(&arena, inner, test_span(&arena, "(1)"));
         Expression::Parenthesized(pe).accept(&mut v).unwrap();
     }
 
@@ -773,8 +775,12 @@ mod tests {
         let arena = Bump::new();
         let mut v = RecursiveAstVisitor::new();
         let operand = Expression::Number(NumberExpression::new(1.0, test_span(&arena, "1"), None));
-        let ue =
-            UnaryOperationExpression::new(UnaryOperator::Minus, operand, test_span(&arena, "-1"));
+        let ue = UnaryOperationExpression::new(
+            &arena,
+            UnaryOperator::Minus,
+            operand,
+            test_span(&arena, "-1"),
+        );
         Expression::UnaryOperation(ue).accept(&mut v).unwrap();
     }
 

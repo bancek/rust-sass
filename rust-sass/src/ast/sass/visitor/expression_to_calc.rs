@@ -116,6 +116,7 @@ impl<'parse> ExpressionVisitor<'parse> for MakeExpressionCalculationSafe<'parse>
             let left = node.left.accept(self)?;
             let right = node.right.accept(self)?;
             Ok(Expression::BinaryOperation(BinaryOperationExpression::new(
+                self.arena,
                 node.operator,
                 left,
                 right,
@@ -208,7 +209,7 @@ impl<'parse> ExpressionVisitor<'parse> for MakeExpressionCalculationSafe<'parse>
     ) -> SassResult<Expression<'parse>> {
         let expr = node.expression.accept(self)?;
         Ok(Expression::Parenthesized(ParenthesizedExpression::new(
-            expr, node.span,
+            self.arena, expr, node.span,
         )))
     }
 
@@ -244,6 +245,7 @@ impl<'parse> ExpressionVisitor<'parse> for MakeExpressionCalculationSafe<'parse>
             UnaryOperator::Plus => Ok((*node.operand).clone()),
             UnaryOperator::Minus => {
                 Ok(Expression::BinaryOperation(BinaryOperationExpression::new(
+                    self.arena,
                     BinaryOperator::Times,
                     Expression::Number(NumberExpression::new(-1.0, node.span, None)),
                     (*node.operand).clone(),
@@ -252,6 +254,7 @@ impl<'parse> ExpressionVisitor<'parse> for MakeExpressionCalculationSafe<'parse>
             _ => {
                 let operand = node.operand.accept(self)?;
                 Ok(Expression::UnaryOperation(UnaryOperationExpression::new(
+                    self.arena,
                     node.operator,
                     operand,
                     node.span,
@@ -314,7 +317,7 @@ mod tests {
         let span = test_span(&arena, "5 % 3");
         let left = Expression::Number(NumberExpression::new(5.0, span, None));
         let right = Expression::Number(NumberExpression::new(3.0, span, None));
-        let node = BinaryOperationExpression::new(BinaryOperator::Modulo, left, right);
+        let node = BinaryOperationExpression::new(&arena, BinaryOperator::Modulo, left, right);
         let mut visitor = MakeExpressionCalculationSafe::new(&arena);
         let result = visitor.visit_binary_operation(&node).unwrap();
         match result {
@@ -332,7 +335,7 @@ mod tests {
         let span = test_span(&arena, "5 + 3");
         let left = Expression::Number(NumberExpression::new(5.0, span, None));
         let right = Expression::Number(NumberExpression::new(3.0, span, None));
-        let node = BinaryOperationExpression::new(BinaryOperator::Plus, left, right);
+        let node = BinaryOperationExpression::new(&arena, BinaryOperator::Plus, left, right);
         let mut visitor = MakeExpressionCalculationSafe::new(&arena);
         let result = visitor.visit_binary_operation(&node).unwrap();
         assert!(matches!(result, Expression::BinaryOperation(_)));
@@ -386,7 +389,7 @@ mod tests {
         let arena = Bump::new();
         let span = test_span(&arena, "+5");
         let operand = Expression::Number(NumberExpression::new(5.0, span, None));
-        let node = UnaryOperationExpression::new(UnaryOperator::Plus, operand, span);
+        let node = UnaryOperationExpression::new(&arena, UnaryOperator::Plus, operand, span);
         let mut visitor = MakeExpressionCalculationSafe::new(&arena);
         let result = visitor.visit_unary_operation(&node).unwrap();
         match result {
@@ -400,13 +403,13 @@ mod tests {
         let arena = Bump::new();
         let span = test_span(&arena, "-5");
         let operand = Expression::Number(NumberExpression::new(5.0, span, None));
-        let node = UnaryOperationExpression::new(UnaryOperator::Minus, operand, span);
+        let node = UnaryOperationExpression::new(&arena, UnaryOperator::Minus, operand, span);
         let mut visitor = MakeExpressionCalculationSafe::new(&arena);
         let result = visitor.visit_unary_operation(&node).unwrap();
         match result {
             Expression::BinaryOperation(bin) => {
                 assert_eq!(bin.operator, BinaryOperator::Times);
-                match &*bin.left {
+                match bin.left {
                     Expression::Number(n) => assert_eq!(n.value, -1.0),
                     _ => panic!("expected NumberExpression for left"),
                 }
@@ -420,7 +423,7 @@ mod tests {
         let arena = Bump::new();
         let span = test_span(&arena, "/5");
         let operand = Expression::Number(NumberExpression::new(5.0, span, None));
-        let node = UnaryOperationExpression::new(UnaryOperator::Divide, operand, span);
+        let node = UnaryOperationExpression::new(&arena, UnaryOperator::Divide, operand, span);
         let mut visitor = MakeExpressionCalculationSafe::new(&arena);
         let result = visitor.visit_unary_operation(&node).unwrap();
         assert!(matches!(result, Expression::UnaryOperation(_)));

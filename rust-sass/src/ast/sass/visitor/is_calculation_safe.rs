@@ -274,6 +274,7 @@ mod tests {
         let left = Expression::Number(NumberExpression::new(1.0, left_span, None));
         let right = Expression::Number(NumberExpression::new(2.0, right_span, None));
         let expr = Expression::BinaryOperation(BinaryOperationExpression::new(
+            &arena,
             BinaryOperator::Plus,
             left,
             right,
@@ -290,6 +291,7 @@ mod tests {
         let left = Expression::Number(NumberExpression::new(1.0, left_span, None));
         let right = Expression::Number(NumberExpression::new(2.0, right_span, None));
         let expr = Expression::BinaryOperation(BinaryOperationExpression::new(
+            &arena,
             BinaryOperator::Equals,
             left,
             right,
@@ -404,6 +406,7 @@ mod tests {
         let inner_span = test_span(&arena, "-1", 1, 2);
         let inner = Expression::Number(NumberExpression::new(1.0, inner_span, None));
         let expr = Expression::UnaryOperation(UnaryOperationExpression::new(
+            &arena,
             UnaryOperator::Minus,
             inner,
             span,

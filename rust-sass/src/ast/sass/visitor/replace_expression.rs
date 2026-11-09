@@ -170,7 +170,7 @@ impl<'parse> ReplaceExpressionVisitor<'parse> {
             match part {
                 InterpolationPart::Expression(expr) => {
                     let replaced = expr.accept(visitor)?;
-                    new_contents.push(InterpolationPart::Expression(Box::new(replaced)));
+                    new_contents.push(InterpolationPart::expression(arena, replaced));
                 }
                 InterpolationPart::Text(s) => {
                     new_contents.push(InterpolationPart::Text(s));
@@ -197,6 +197,7 @@ impl<'parse> ExpressionVisitor<'parse> for ReplaceExpressionVisitor<'parse> {
         let left = node.left.accept(self)?;
         let right = node.right.accept(self)?;
         Ok(Expression::BinaryOperation(BinaryOperationExpression::new(
+            self.arena,
             node.operator,
             left,
             right,
@@ -306,7 +307,7 @@ impl<'parse> ExpressionVisitor<'parse> for ReplaceExpressionVisitor<'parse> {
     ) -> SassResult<Expression<'parse>> {
         let expr = node.expression.accept(self)?;
         Ok(Expression::Parenthesized(ParenthesizedExpression::new(
-            expr, node.span,
+            self.arena, expr, node.span,
         )))
     }
 
@@ -340,6 +341,7 @@ impl<'parse> ExpressionVisitor<'parse> for ReplaceExpressionVisitor<'parse> {
     ) -> SassResult<Expression<'parse>> {
         let operand = node.operand.accept(self)?;
         Ok(Expression::UnaryOperation(UnaryOperationExpression::new(
+            self.arena,
             node.operator,
             operand,
             node.span,
@@ -472,7 +474,7 @@ mod tests {
         let mut v = ReplaceExpressionVisitor::new(&arena);
         let left = Expression::Boolean(BooleanExpression::new(true, test_span(&arena, "true")));
         let right = Expression::Boolean(BooleanExpression::new(false, test_span(&arena, "false")));
-        let node = BinaryOperationExpression::new(BinaryOperator::And, left, right);
+        let node = BinaryOperationExpression::new(&arena, BinaryOperator::And, left, right);
         let result = Expression::BinaryOperation(node).accept(&mut v).unwrap();
         assert!(matches!(result, Expression::BinaryOperation(_)));
     }
@@ -620,7 +622,7 @@ mod tests {
         let arena = Bump::new();
         let mut v = ReplaceExpressionVisitor::new(&arena);
         let inner = Expression::Number(NumberExpression::new(1.0, test_span(&arena, "1"), None));
-        let node = ParenthesizedExpression::new(inner, test_span(&arena, "(1)"));
+        let node = ParenthesizedExpression::new(&arena, inner, test_span(&arena, "(1)"));
         let result = Expression::Parenthesized(node).accept(&mut v).unwrap();
         assert!(matches!(result, Expression::Parenthesized(_)));
     }
@@ -731,9 +733,14 @@ mod tests {
             &arena,
             vec![
                 InterpolationPart::Text("a "),
-                InterpolationPart::Expression(Box::new(Expression::Variable(
-                    VariableExpression::new("x".into(), test_span(&arena, "$x"), None),
-                ))),
+                InterpolationPart::expression(
+                    &arena,
+                    Expression::Variable(VariableExpression::new(
+                        "x".into(),
+                        test_span(&arena, "$x"),
+                        None,
+                    )),
+                ),
                 InterpolationPart::Text(" b"),
             ],
             vec![None, Some(expr_span), None],

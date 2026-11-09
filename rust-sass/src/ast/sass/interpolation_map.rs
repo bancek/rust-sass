@@ -586,7 +586,7 @@ mod tests {
             &arena,
             vec![
                 InterpolationPart::Text("a."),
-                InterpolationPart::Expression(Box::new(expr)),
+                InterpolationPart::expression(&arena, expr),
                 InterpolationPart::Text(".b"),
             ],
             vec![None, Some(hash_span), None],
@@ -738,7 +738,7 @@ mod tests {
             &arena,
             vec![
                 InterpolationPart::Text("a."),
-                InterpolationPart::Expression(Box::new(expr)),
+                InterpolationPart::expression(&arena, expr),
                 InterpolationPart::Text(".b"),
             ],
             vec![None, Some(hash_span), None],

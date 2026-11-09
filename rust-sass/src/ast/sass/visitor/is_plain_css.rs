@@ -379,6 +379,7 @@ mod tests {
         let left = Expression::Number(NumberExpression::new(1.0, left_span, None));
         let right = Expression::Number(NumberExpression::new(2.0, right_span, None));
         let expr = Expression::BinaryOperation(BinaryOperationExpression::new(
+            &arena,
             BinaryOperator::Plus,
             left,
             right,
@@ -394,7 +395,7 @@ mod tests {
         let inner_span = test_span(&arena, "red", 1, 4);
         let color = SassColor::rgb(1.0, 2.0, 3.0, 1.0);
         let inner = Expression::Color(ColorExpression::new(color, inner_span));
-        let expr = Expression::Parenthesized(ParenthesizedExpression::new(inner, span));
+        let expr = Expression::Parenthesized(ParenthesizedExpression::new(&arena, inner, span));
         let mut v = IsPlainCssVisitor::new(false);
         assert!(expr.accept(&mut v).unwrap());
     }

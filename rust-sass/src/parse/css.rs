@@ -170,7 +170,7 @@ fn css_import_rule_impl<'b>(
                 let expr_span = url_expr.span()?;
                 Interpolation::new(
                     state.arena,
-                    vec![InterpolationPart::Expression(Box::new(url_expr))],
+                    vec![InterpolationPart::expression(state.arena, url_expr)],
                     vec![Some(expr_span)],
                     Span::File(expr_span),
                 )
@@ -238,7 +238,7 @@ pub(crate) fn css_parentheses_impl<'b>(
     let expression = expression_until_comma(scanner, state, false)?;
     scanner.expect_char(')')?;
     let span = span_from_impl(scanner, &state.parser_state, start)?.file_span()?;
-    Ok(ParenthesizedExpression::new(expression, span))
+    Ok(ParenthesizedExpression::new(state.arena, expression, span))
 }
 
 // ======================================================================

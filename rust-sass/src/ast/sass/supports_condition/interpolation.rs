@@ -39,9 +39,10 @@ impl<'parse> SupportsInterpolation<'parse> {
     pub fn to_interpolation(&self, arena: &'parse Bump) -> SassResult<Interpolation<'parse>> {
         Interpolation::new(
             arena,
-            vec![InterpolationPart::Expression(Box::new(
+            vec![InterpolationPart::expression(
+                arena,
                 self.expression.clone(),
-            ))],
+            )],
             vec![Some(self.span)],
             self.span,
         )
