@@ -24,7 +24,7 @@ use crate::ast::sass::static_import::StaticImport;
 use crate::common::span_scanner::SpanScanner;
 use crate::parse::atrule::import_argument_impl;
 use crate::parse::stylesheet::at_end_of_statement_impl;
-use crate::url::OwnedUrl;
+use crate::url::ArenaUrl;
 use crate::util::character;
 
 use crate::parse::anyvalue::almost_any_value_impl;
@@ -811,9 +811,13 @@ pub(crate) fn sass_import_argument_impl<'b>(
         // Matches Dart: DynamicImport(parseImportUrl(url), urlSpan) — the URL
         // is passed through unchanged; Uri.parse(url) only validates (throwing
         // a FormatException caught as "Invalid URL").
-        let url = OwnedUrl::parse(&parsed)
+        let url = ArenaUrl::parse(state.arena, &parsed)
             .map_err(|e| error_impl(&format!("Invalid URL: {e}"), &span))?;
-        Ok(Import::Dynamic(DynamicImport::new(parsed, url, span)))
+        Ok(Import::Dynamic(DynamicImport::new(
+            state.arena.alloc_str(&parsed),
+            url,
+            span,
+        )))
     }
 }
 

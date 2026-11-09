@@ -176,7 +176,7 @@ impl<'parse> StatementVisitor<'parse> for FindDependenciesVisitor<'parse> {
 
     fn visit_forward_rule(&mut self, node: &ForwardRule<'parse>) -> SassResult<()> {
         if node.url.scheme() != "sass" {
-            self.forwards.insert(node.url.clone());
+            self.forwards.insert(node.url.to_owned_url());
         }
         Ok(())
     }
@@ -192,7 +192,7 @@ impl<'parse> StatementVisitor<'parse> for FindDependenciesVisitor<'parse> {
     fn visit_import_rule(&mut self, node: &ImportRule<'parse>) -> SassResult<()> {
         for imp in &node.imports {
             if let Import::Dynamic(d) = imp {
-                self.imports.insert(d.url());
+                self.imports.insert(d.url().to_owned_url());
             }
         }
         Ok(())
@@ -261,7 +261,7 @@ impl<'parse> StatementVisitor<'parse> for FindDependenciesVisitor<'parse> {
 
     fn visit_use_rule(&mut self, node: &UseRule<'parse>) -> SassResult<()> {
         if node.url.scheme() != "sass" {
-            self.uses.insert(node.url.clone());
+            self.uses.insert(node.url.to_owned_url());
         } else if node.url.as_str() == "sass:meta" {
             let ns = node.namespace.unwrap_or_default();
             self.meta_namespaces.insert(ns.to_string());
@@ -298,7 +298,7 @@ mod tests {
     use crate::ast::sass::statement::arena_statements;
     use crate::common::file_span::FileSpan;
     use crate::common::source_span_file_source::FileSource;
-    use crate::url::OwnedUrl;
+    use crate::url::ArenaUrl;
     use bumpalo::Bump;
 
     fn test_span<'compile, 'parse>(arena: &'compile Bump, text: &str) -> FileSpan<'parse>
@@ -314,8 +314,8 @@ mod tests {
     fn test_find_dependencies_use_rule() {
         let arena = Bump::new();
         let span = test_span(&arena, "@use 'foo';");
-        let u = OwnedUrl::parse("file:///foo").unwrap();
-        let ur = UseRule::new(&arena, u.clone(), None, span, vec![]).unwrap();
+        let u = ArenaUrl::parse(&arena, "file:///foo").unwrap();
+        let ur = UseRule::new(&arena, u, None, span, vec![]).unwrap();
         let ss = Stylesheet::new(
             &arena,
             arena_statements(&arena, vec![Statement::UseRule(ur)]),
@@ -323,15 +323,15 @@ mod tests {
         );
         let report = find_dependencies(&ss).unwrap();
 
-        assert!(report.uses.contains(&u));
+        assert!(report.uses.contains(&u.to_owned_url()));
     }
 
     #[test]
     fn test_find_dependencies_forward_rule() {
         let arena = Bump::new();
         let span = test_span(&arena, "@forward 'bar';");
-        let u = OwnedUrl::parse("file:///bar").unwrap();
-        let fr = ForwardRule::new(&arena, u.clone(), span, None, vec![]);
+        let u = ArenaUrl::parse(&arena, "file:///bar").unwrap();
+        let fr = ForwardRule::new(&arena, u, span, None, vec![]);
         let ss = Stylesheet::new(
             &arena,
             arena_statements(&arena, vec![Statement::ForwardRule(fr)]),
@@ -339,14 +339,14 @@ mod tests {
         );
         let report = find_dependencies(&ss).unwrap();
 
-        assert!(report.forwards.contains(&u));
+        assert!(report.forwards.contains(&u.to_owned_url()));
     }
 
     #[test]
     fn test_find_dependencies_built_in_excluded() {
         let arena = Bump::new();
         let span = test_span(&arena, "@use 'sass:color';");
-        let u = OwnedUrl::parse("sass:color").unwrap();
+        let u = ArenaUrl::parse(&arena, "sass:color").unwrap();
         let ur = UseRule::new(&arena, u, None, span, vec![]).unwrap();
         let ss = Stylesheet::new(
             &arena,
@@ -362,7 +362,7 @@ mod tests {
     fn test_find_dependencies_meta_load_css() {
         let arena = Bump::new();
         let span = test_span(&arena, "@use 'sass:meta';");
-        let meta_url = OwnedUrl::parse("sass:meta").unwrap();
+        let meta_url = ArenaUrl::parse(&arena, "sass:meta").unwrap();
         let meta_use = UseRule::new(&arena, meta_url, Some("meta"), span, vec![]).unwrap();
 
         let include_span = test_span(&arena, "@include meta.load-css('baz');");
@@ -399,18 +399,18 @@ mod tests {
         );
         let report = find_dependencies(&ss).unwrap();
 
-        let expected = OwnedUrl::parse("file:///baz").unwrap();
-        assert!(report.meta_load_css.contains(&expected));
+        let expected = ArenaUrl::parse(&arena, "file:///baz").unwrap();
+        assert!(report.meta_load_css.contains(&expected.to_owned_url()));
     }
 
     #[test]
     fn test_find_dependencies_import_rule() {
         let arena = Bump::new();
         let span = test_span(&arena, "@import 'file';");
-        let u = OwnedUrl::parse("file:///file").unwrap();
+        let u = ArenaUrl::parse(&arena, "file:///file").unwrap();
         let di = Import::Dynamic(DynamicImport::new(
-            u.to_string(),
-            u.clone(),
+            arena.alloc_str(&u.to_string()),
+            u,
             test_span(&arena, "'file'"),
         ));
         let ir = ImportRule::new(vec![di], span);
@@ -421,15 +421,15 @@ mod tests {
         );
         let report = find_dependencies(&ss).unwrap();
 
-        assert!(report.imports.contains(&u));
+        assert!(report.imports.contains(&u.to_owned_url()));
     }
 
     #[test]
     fn test_find_dependencies_modules_method() {
         let arena = Bump::new();
         let span = test_span(&arena, "@use 'mod';");
-        let u = OwnedUrl::parse("file:///mod").unwrap();
-        let ur = UseRule::new(&arena, u.clone(), None, span, vec![]).unwrap();
+        let u = ArenaUrl::parse(&arena, "file:///mod").unwrap();
+        let ur = UseRule::new(&arena, u, None, span, vec![]).unwrap();
         let ss = Stylesheet::new(
             &arena,
             arena_statements(&arena, vec![Statement::UseRule(ur)]),
@@ -438,18 +438,18 @@ mod tests {
         let report = find_dependencies(&ss).unwrap();
 
         let modules = report.modules();
-        assert!(modules.contains(&u));
+        assert!(modules.contains(&u.to_owned_url()));
     }
 
     #[test]
     fn test_find_dependencies_all_method() {
         let arena = Bump::new();
         let span = test_span(&arena, "@use 'mod'; @import 'imp';");
-        let u = OwnedUrl::parse("file:///mod").unwrap();
-        let ur = UseRule::new(&arena, u.clone(), None, span, vec![]).unwrap();
+        let u = ArenaUrl::parse(&arena, "file:///mod").unwrap();
+        let ur = UseRule::new(&arena, u, None, span, vec![]).unwrap();
         let di = Import::Dynamic(DynamicImport::new(
-            "file:///imp".into(),
-            OwnedUrl::parse("file:///imp").unwrap(),
+            arena.alloc_str("file:///imp"),
+            ArenaUrl::parse(&arena, "file:///imp").unwrap(),
             test_span(&arena, "'imp'"),
         ));
         let ir = ImportRule::new(vec![di], span);
@@ -464,8 +464,12 @@ mod tests {
         let report = find_dependencies(&ss).unwrap();
 
         let all = report.all();
-        assert!(all.contains(&u));
-        assert!(all.contains(&OwnedUrl::parse("file:///imp").unwrap()));
+        assert!(all.contains(&u.to_owned_url()));
+        assert!(all.contains(
+            &ArenaUrl::parse(&arena, "file:///imp")
+                .unwrap()
+                .to_owned_url()
+        ));
     }
 
     #[test]

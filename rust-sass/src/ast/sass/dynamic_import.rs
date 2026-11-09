@@ -10,7 +10,7 @@
 use std::fmt;
 use std::fmt::Write;
 
-use crate::url::OwnedUrl;
+use crate::url::ArenaUrl;
 
 use crate::common::ast_node::AstNode;
 use crate::common::exception::SassResult;
@@ -26,16 +26,16 @@ pub struct DynamicImport<'parse> {
     //
     // Dart marks `urlString` `@internal`: it exists so the raw text (with any
     // leading `./`) survives for Node Sass compatibility.
-    pub url_string: String,
+    pub url_string: &'parse str,
     /// The parsed URL, fixed at construction (Dart re-parses lazily, but the
     /// parser has already validated it and Rust avoids fallible getters).
-    pub url: OwnedUrl,
+    pub url: ArenaUrl<'parse>,
     pub span: FileSpan<'parse>,
 }
 
 impl<'parse> DynamicImport<'parse> {
     /// Creates a dynamic import of the file at `url_string`.
-    pub fn new(url_string: String, url: OwnedUrl, span: FileSpan<'parse>) -> Self {
+    pub fn new(url_string: &'parse str, url: ArenaUrl<'parse>, span: FileSpan<'parse>) -> Self {
         DynamicImport {
             url_string,
             url,
@@ -47,8 +47,8 @@ impl<'parse> DynamicImport<'parse> {
     ///
     /// Matches Dart: `DynamicImport.url`. The URL is parsed once by the
     /// parser (`parseImportUrl` validates it via `OwnedUrl::parse`).
-    pub fn url(&self) -> OwnedUrl {
-        self.url.clone()
+    pub fn url(&self) -> ArenaUrl<'parse> {
+        self.url
     }
 
     /// The span of the URL, including the quotes.
@@ -101,8 +101,8 @@ mod tests {
         let arena = Bump::new();
         let span = make_span(&arena, "'foo.scss'");
         let di = DynamicImport::new(
-            "foo.scss".into(),
-            OwnedUrl::parse("foo.scss").unwrap(),
+            arena.alloc_str("foo.scss"),
+            ArenaUrl::parse(&arena, "foo.scss").unwrap(),
             span,
         );
         assert_eq!(di.url_string, "foo.scss");
@@ -113,8 +113,8 @@ mod tests {
         let arena = Bump::new();
         let span = make_span(&arena, "'foo.scss'");
         let di = DynamicImport::new(
-            "http://example.com/foo.scss".into(),
-            OwnedUrl::parse("http://example.com/foo.scss").unwrap(),
+            arena.alloc_str("http://example.com/foo.scss"),
+            ArenaUrl::parse(&arena, "http://example.com/foo.scss").unwrap(),
             span,
         );
         let url = di.url();
@@ -126,8 +126,8 @@ mod tests {
         let arena = Bump::new();
         let span = make_span(&arena, "'foo.scss'");
         let di = DynamicImport::new(
-            "foo.scss".into(),
-            OwnedUrl::parse("foo.scss").unwrap(),
+            arena.alloc_str("foo.scss"),
+            ArenaUrl::parse(&arena, "foo.scss").unwrap(),
             span,
         );
         assert!(di.url_span().is_ok());
@@ -138,8 +138,8 @@ mod tests {
         let arena = Bump::new();
         let span = make_span(&arena, "'foo.scss'");
         let di = DynamicImport::new(
-            "foo.scss".into(),
-            OwnedUrl::parse("foo.scss").unwrap(),
+            arena.alloc_str("foo.scss"),
+            ArenaUrl::parse(&arena, "foo.scss").unwrap(),
             span,
         );
         let s = format!("{di}");
@@ -152,8 +152,8 @@ mod tests {
         let arena = Bump::new();
         let span = make_span(&arena, "'foo.scss'");
         let di = DynamicImport::new(
-            "foo.scss".into(),
-            OwnedUrl::parse("foo.scss").unwrap(),
+            arena.alloc_str("foo.scss"),
+            ArenaUrl::parse(&arena, "foo.scss").unwrap(),
             span,
         );
         assert_eq!(di.span().unwrap(), span);
@@ -163,8 +163,8 @@ mod tests {
     fn test_url_round_trip() {
         let arena = Bump::new();
         let span = make_span(&arena, "'foo.scss'");
-        let url = OwnedUrl::parse("foo.scss").unwrap();
-        let di = DynamicImport::new("foo.scss".into(), url, span);
+        let url = ArenaUrl::parse(&arena, "foo.scss").unwrap();
+        let di = DynamicImport::new(arena.alloc_str("foo.scss"), url, span);
         assert_eq!(di.url().to_string(), "foo.scss");
         assert_eq!(di.url_string, "foo.scss");
     }

@@ -23,7 +23,7 @@ use crate::parse::sass::sass_import_argument_impl;
 use crate::parse::stylesheet::StylesheetParser;
 use std::collections::{HashMap, HashSet};
 
-use crate::url::OwnedUrl;
+use crate::url::ArenaUrl;
 use crate::util::utils::{default_namespace, DefaultNamespaceResult};
 
 use crate::ast::sass::argument_list::ArgumentList;
@@ -556,7 +556,7 @@ fn return_rule_impl<'b>(
 fn use_namespace_impl<'b>(
     scanner: &mut SpanScanner<'b>,
     state: &mut StylesheetState<'b>,
-    url: &OwnedUrl,
+    url: &ArenaUrl<'b>,
     start: LineScannerState,
 ) -> ParseResult<'b, Option<String>> {
     let ok = scan_identifier_impl(scanner, "as", false)?;
@@ -595,6 +595,7 @@ pub(crate) fn use_rule_impl<'b>(
 ) -> ParseResult<'b, UseRule<'b>> {
     whitespace_impl(scanner, &mut state.parser_state, true)?;
     let url = url_string_impl(scanner, &state.parser_state)?;
+    let url = ArenaUrl::from_owned(state.arena, &url);
     whitespace_impl(scanner, &mut state.parser_state, false)?;
     let namespace = use_namespace_impl(scanner, state, &url, start)?;
     whitespace_impl(scanner, &mut state.parser_state, false)?;
@@ -627,6 +628,7 @@ fn forward_rule_impl<'b>(
 ) -> ParseResult<'b, ForwardRule<'b>> {
     whitespace_impl(scanner, &mut state.parser_state, true)?;
     let url = url_string_impl(scanner, &state.parser_state)?;
+    let url = ArenaUrl::from_owned(state.arena, &url);
     whitespace_impl(scanner, &mut state.parser_state, false)?;
     let mut prefix: Option<String> = None;
     if scan_identifier_impl(scanner, "as", false)? {
@@ -988,10 +990,12 @@ pub(crate) fn import_argument_impl<'b>(
     let parsed_str = parse_import_url(&url_str);
     // Matches Dart: DynamicImport(parseImportUrl(url), urlSpan) — the URL is
     // passed through unchanged; Uri.parse(url) only validates.
-    let url = OwnedUrl::parse(&parsed_str)
+    let url = ArenaUrl::parse(state.arena, &parsed_str)
         .map_err(|e| error_impl(&format!("Invalid URL: {e}"), &url_span))?;
     Ok(Import::Dynamic(DynamicImport::new(
-        parsed_str, url, url_span,
+        state.arena.alloc_str(&parsed_str),
+        url,
+        url_span,
     )))
 }
 

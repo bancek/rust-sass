@@ -56,7 +56,7 @@ impl<'parse> fmt::Display for ImportRule<'parse> {
 
 #[cfg(test)]
 mod tests {
-    use crate::url::OwnedUrl;
+    use crate::url::ArenaUrl;
 
     use super::*;
     use crate::ast::sass::dynamic_import::DynamicImport;
@@ -78,8 +78,8 @@ mod tests {
         let arena = Bump::new();
         let span = make_span(&arena, "@import 'foo';");
         let di = DynamicImport::new(
-            "foo.scss".into(),
-            OwnedUrl::parse("foo.scss").unwrap(),
+            arena.alloc_str("foo.scss"),
+            ArenaUrl::parse(&arena, "foo.scss").unwrap(),
             span,
         );
         let ir = ImportRule::new(vec![Import::Dynamic(di)], span);
@@ -91,8 +91,8 @@ mod tests {
         let arena = Bump::new();
         let span = make_span(&arena, "@import 'foo';");
         let di = DynamicImport::new(
-            "foo.scss".into(),
-            OwnedUrl::parse("foo.scss").unwrap(),
+            arena.alloc_str("foo.scss"),
+            ArenaUrl::parse(&arena, "foo.scss").unwrap(),
             span,
         );
         let ir = ImportRule::new(vec![Import::Dynamic(di)], span);
@@ -104,8 +104,8 @@ mod tests {
         let arena = Bump::new();
         let span = make_span(&arena, "@import 'foo';");
         let di = DynamicImport::new(
-            "foo.scss".into(),
-            OwnedUrl::parse("foo.scss").unwrap(),
+            arena.alloc_str("foo.scss"),
+            ArenaUrl::parse(&arena, "foo.scss").unwrap(),
             span,
         );
         let ir = ImportRule::new(vec![Import::Dynamic(di)], span);

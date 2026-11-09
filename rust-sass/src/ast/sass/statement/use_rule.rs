@@ -12,7 +12,7 @@ use std::fmt::Write;
 
 use bumpalo::Bump;
 
-use crate::url::OwnedUrl;
+use crate::url::{ArenaUrl, Url};
 
 use crate::common::ast_node::AstNode;
 use crate::common::core_errors::ArgumentError;
@@ -26,7 +26,7 @@ use crate::ast::sass::configured_variable::ConfiguredVariable;
 /// A `@use` rule.
 pub struct UseRule<'parse> {
     /// The URI of the module to load, relative to the containing file.
-    pub url: OwnedUrl,
+    pub url: ArenaUrl<'parse>,
     /// The namespace for the loaded module's members, or `None` for
     /// namespace-less access.
     pub namespace: Option<&'parse str>,
@@ -38,7 +38,7 @@ pub struct UseRule<'parse> {
 impl<'parse> UseRule<'parse> {
     pub fn new(
         arena: &'parse Bump,
-        url: OwnedUrl,
+        url: ArenaUrl<'parse>,
         namespace: Option<&str>,
         span: FileSpan<'parse>,
         configuration: Vec<ConfiguredVariable<'parse>>,
@@ -110,7 +110,7 @@ impl<'parse> fmt::Display for UseRule<'parse> {
     }
 }
 
-fn url_basename(url: &OwnedUrl) -> &str {
+fn url_basename(url: &impl Url) -> &str {
     let path = url.path();
     let path = match path.rfind('/') {
         Some(idx) => &path[idx + 1..],
@@ -141,8 +141,8 @@ mod tests {
     fn test_new() {
         let arena = Bump::new();
         let span = make_span(&arena, "@use 'mod';");
-        let url = OwnedUrl::parse("https://example.com/module").unwrap();
-        let ur = UseRule::new(&arena, url.clone(), None, span, vec![]).unwrap();
+        let url = ArenaUrl::parse(&arena, "https://example.com/module").unwrap();
+        let ur = UseRule::new(&arena, url, None, span, vec![]).unwrap();
         assert_eq!(ur.url, url);
     }
 
@@ -150,7 +150,7 @@ mod tests {
     fn test_display() {
         let arena = Bump::new();
         let span = make_span(&arena, "@use 'mod';");
-        let url = OwnedUrl::parse("https://example.com/module").unwrap();
+        let url = ArenaUrl::parse(&arena, "https://example.com/module").unwrap();
         let ur = UseRule::new(&arena, url, None, span, vec![]).unwrap();
         let s = format!("{ur}");
         assert!(s.starts_with("@use "), "got {s:?}");

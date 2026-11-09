@@ -613,12 +613,12 @@ mod tests {
     use crate::callable::CallableKind;
     use crate::callable::SyncBuiltInCallback;
     use crate::environment::Environment;
+    use crate::url::ArenaUrl;
     use crate::value::SassNumber;
 
     use crate::ast::css::comment::ModifiableCssComment;
     use crate::ast::css::modifiable_node::{ModifiableCssNode, ModifiableCssNodeKind};
     use crate::ast::css::stylesheet::ModifiableCssStylesheet;
-    use crate::url::OwnedUrl;
     use crate::value::{Value, ValueKind};
 
     use super::*;
@@ -777,7 +777,7 @@ mod tests {
 
         let rule = ForwardRule::new(
             &arena,
-            OwnedUrl::parse("file:///test").unwrap(),
+            ArenaUrl::parse(&arena, "file:///test").unwrap(),
             test_span(),
             Some("ns-"),
             vec![],
@@ -795,7 +795,7 @@ mod tests {
         let inner_mod = Module::new(&arena, ModuleKind::BuiltIn(inner));
         let rule = ForwardRule::new(
             &arena,
-            OwnedUrl::parse("file:///test").unwrap(),
+            ArenaUrl::parse(&arena, "file:///test").unwrap(),
             test_span(),
             None,
             vec![],
@@ -811,7 +811,7 @@ mod tests {
         let inner_mod = Module::new(&arena, ModuleKind::BuiltIn(inner));
         let rule = ForwardRule::new(
             &arena,
-            OwnedUrl::parse("file:///test").unwrap(),
+            ArenaUrl::parse(&arena, "file:///test").unwrap(),
             test_span(),
             Some("ns-"),
             vec![],
@@ -827,7 +827,7 @@ mod tests {
         let inner_mod = Module::new(&arena, ModuleKind::BuiltIn(inner));
         let rule = ForwardRule::new(
             &arena,
-            OwnedUrl::parse("file:///test").unwrap(),
+            ArenaUrl::parse(&arena, "file:///test").unwrap(),
             test_span(),
             None,
             vec![],
@@ -986,7 +986,7 @@ mod tests {
         let span = FileSpan::new(None, 4, 20);
         let rule = ForwardRule::new(
             &arena,
-            OwnedUrl::parse("file:///test").unwrap(),
+            ArenaUrl::parse(&arena, "file:///test").unwrap(),
             span,
             Some("ns-"),
             vec![],
@@ -998,7 +998,7 @@ mod tests {
 
         let other_rule = ForwardRule::new(
             &arena,
-            OwnedUrl::parse("file:///test").unwrap(),
+            ArenaUrl::parse(&arena, "file:///test").unwrap(),
             FileSpan::new(None, 21, 40),
             Some("ns-"),
             vec![],

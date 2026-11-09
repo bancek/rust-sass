@@ -35,9 +35,9 @@ impl<'parse> SassDependency<'parse> {
     /// The URL of the dependency this rule loads.
     pub fn url(&self) -> OwnedUrl {
         match self {
-            SassDependency::DynamicImport(di) => di.url(),
-            SassDependency::UseRule(ur) => ur.url.clone(),
-            SassDependency::ForwardRule(fr) => fr.url.clone(),
+            SassDependency::DynamicImport(di) => di.url().to_owned_url(),
+            SassDependency::UseRule(ur) => ur.url.to_owned_url(),
+            SassDependency::ForwardRule(fr) => fr.url.to_owned_url(),
         }
     }
 

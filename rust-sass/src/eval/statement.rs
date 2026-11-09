@@ -1413,7 +1413,7 @@ where
             }
 
             Import::Dynamic(d) => {
-                let url = d.url();
+                let url = d.url().to_owned_url();
                 let import_span = d.span;
 
                 // Dart `_visitDynamicImport` wraps the whole load+evaluate in
@@ -3578,7 +3578,16 @@ where
             // error at the `@use` rule with a stack-frame-only trace.
             let loaded = add_exception_span(c, s, node.span, Some(false), async |c2, s2| {
                 add_exception_trace(s2, async |s3| {
-                    load_stylesheet(c2, s3, arena, &node.url, node.span, None, false).await
+                    load_stylesheet(
+                        c2,
+                        s3,
+                        arena,
+                        &node.url.to_owned_url(),
+                        node.span,
+                        None,
+                        false,
+                    )
+                    .await
                 })
                 .await
             })
@@ -3808,7 +3817,16 @@ where
         None,
         async |c, s| -> SassResult<Option<Value<'parse>>> {
             let loaded = add_exception_span(c, s, node.span, None, async |c2, s2| {
-                load_stylesheet(c2, s2, arena, &node.url, node.span, None, false).await
+                load_stylesheet(
+                    c2,
+                    s2,
+                    arena,
+                    &node.url.to_owned_url(),
+                    node.span,
+                    None,
+                    false,
+                )
+                .await
             })
             .await?;
 
@@ -4247,6 +4265,7 @@ where
 #[cfg(test)]
 mod tests {
     use crate::ast::sass::statement::arena_statements;
+    use crate::url::ArenaUrl;
 
     use crate::ast::sass::dynamic_import::DynamicImport;
     use crate::ast::sass::expression_string::StringExpression;
@@ -5654,8 +5673,8 @@ mod tests {
         let span = make_span(&arena, "@import \"nonexistent-file\"");
         let (config, mut state) = test_visitor_with_root_stylesheet_and_cache(&arena);
         let dynamic_import = DynamicImport::new(
-            "nonexistent-file.scss".into(),
-            OwnedUrl::parse("nonexistent-file.scss").unwrap(),
+            arena.alloc_str("nonexistent-file.scss"),
+            ArenaUrl::parse(&arena, "nonexistent-file.scss").unwrap(),
             span,
         );
         let imports = vec![Import::Dynamic(dynamic_import)];

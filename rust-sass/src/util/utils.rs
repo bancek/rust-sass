@@ -24,7 +24,7 @@
 use percent_encoding::percent_decode_str;
 
 use crate::parse::parser::parse_identifier;
-use crate::url::OwnedUrl;
+use crate::url::Url;
 
 /// The result of [`default_namespace`].
 ///
@@ -40,7 +40,7 @@ pub enum DefaultNamespaceResult {
 /// Returns the default Sass namespace of the given stylesheet URL.
 ///
 /// Matches Dart: `defaultNamespace` (`utils.dart`).
-pub fn default_namespace(url: &OwnedUrl) -> DefaultNamespaceResult {
+pub fn default_namespace(url: &impl Url) -> DefaultNamespaceResult {
     let path = url.path();
     let raw_basename = match path.rfind('/') {
         Some(idx) => &path[idx + 1..],

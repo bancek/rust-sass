@@ -402,7 +402,7 @@ use Configuration::{Explicit, Implicit};
 mod tests {
     use super::*;
     use crate::common::source_span_file_source::FileSource;
-    use crate::url::OwnedUrl;
+    use crate::url::ArenaUrl;
     use crate::value::SassNumber;
     use crate::value::SASS_FALSE;
     use crate::value::SASS_TRUE;
@@ -455,7 +455,7 @@ mod tests {
     fn empty_forward_rule<'p>(arena: &'p Bump) -> ForwardRule<'p> {
         ForwardRule::new(
             arena,
-            OwnedUrl::parse("file:///test").unwrap(),
+            ArenaUrl::parse(arena, "file:///test").unwrap(),
             bogus_span(),
             None,
             vec![],
