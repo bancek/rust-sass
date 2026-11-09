@@ -170,11 +170,11 @@ fn visit_css_comment_impl<'parse>(
             return Ok(());
         }
         if matches!(state.style, OutputStyle::Compact) && node.text.contains('\n') {
-            write!(buf, "{}", comment_to_compact_string(&node.text)).unwrap();
-        } else if let Some(min_indent) = minimum_indentation(&node.text) {
+            write!(buf, "{}", comment_to_compact_string(node.text)).unwrap();
+        } else if let Some(min_indent) = minimum_indentation(node.text) {
             let min_indent = std::cmp::min(min_indent, node.span.start_location().column as i32);
             state.write_indentation(buf);
-            write_with_indent(buf, state, &node.text, min_indent);
+            write_with_indent(buf, state, node.text, min_indent);
         } else {
             state.write_indentation(buf);
             write!(buf, "{}", node.text).unwrap();

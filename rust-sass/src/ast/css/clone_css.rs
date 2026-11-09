@@ -92,7 +92,7 @@ impl<'parse> CloneCssVisitor<'parse> for CloneCssVisitorWithExt<'parse> {
         arena: &'compile Bump,
         node: &ModifiableCssComment<'parse>,
     ) -> SassResult<ModifiableCssNode<'parse>> {
-        let c = ModifiableCssComment::new(node.text.clone(), node.span);
+        let c = ModifiableCssComment::new(node.text, node.span);
         Ok(ModifiableCssNode::new(
             arena,
             ModifiableCssNodeKind::Comment(c),
@@ -238,7 +238,7 @@ impl<'parse> CloneCssVisitor<'parse> for CloneCssVisitorNoExt {
         arena: &'compile Bump,
         node: &ModifiableCssComment<'parse>,
     ) -> SassResult<ModifiableCssNode<'parse>> {
-        let c = ModifiableCssComment::new(node.text.clone(), node.span);
+        let c = ModifiableCssComment::new(node.text, node.span);
         Ok(ModifiableCssNode::new(
             arena,
             ModifiableCssNodeKind::Comment(c),
@@ -471,7 +471,7 @@ mod tests {
         let span = make_span(&arena, "/* hello */");
         let comment = ModifiableCssNode::new(
             &arena,
-            ModifiableCssNodeKind::Comment(ModifiableCssComment::new("/* hello */".into(), span)),
+            ModifiableCssNodeKind::Comment(ModifiableCssComment::new("/* hello */", span)),
         );
         sheet.add_child(&comment).unwrap();
         let store = ExtensionStore::new(&arena);
@@ -580,7 +580,7 @@ mod tests {
         );
         let comment = ModifiableCssNode::new(
             &arena,
-            ModifiableCssNodeKind::Comment(ModifiableCssComment::new("/* nested */".into(), span)),
+            ModifiableCssNodeKind::Comment(ModifiableCssComment::new("/* nested */", span)),
         );
         at_rule.add_child(&comment).unwrap();
         sheet.add_child(&at_rule).unwrap();
@@ -637,7 +637,7 @@ mod tests {
         );
         let comment = ModifiableCssNode::new(
             &arena,
-            ModifiableCssNodeKind::Comment(ModifiableCssComment::new("/* inside */".into(), span)),
+            ModifiableCssNodeKind::Comment(ModifiableCssComment::new("/* inside */", span)),
         );
         media.add_child(&comment).unwrap();
         sheet.add_child(&media).unwrap();
@@ -667,7 +667,7 @@ mod tests {
         );
         let comment = ModifiableCssNode::new(
             &arena,
-            ModifiableCssNodeKind::Comment(ModifiableCssComment::new("/* inside */".into(), span)),
+            ModifiableCssNodeKind::Comment(ModifiableCssComment::new("/* inside */", span)),
         );
         supports.add_child(&comment).unwrap();
         sheet.add_child(&supports).unwrap();
@@ -700,7 +700,7 @@ mod tests {
         );
         let comment = ModifiableCssNode::new(
             &arena,
-            ModifiableCssNodeKind::Comment(ModifiableCssComment::new("/* inside */".into(), span)),
+            ModifiableCssNodeKind::Comment(ModifiableCssComment::new("/* inside */", span)),
         );
         block.add_child(&comment).unwrap();
         sheet.add_child(&block).unwrap();
@@ -756,7 +756,7 @@ mod tests {
         );
         let comment = ModifiableCssNode::new(
             &arena,
-            ModifiableCssNodeKind::Comment(ModifiableCssComment::new("/* deep */".into(), span)),
+            ModifiableCssNodeKind::Comment(ModifiableCssComment::new("/* deep */", span)),
         );
         inner.add_child(&comment).unwrap();
         media.add_child(&inner).unwrap();
@@ -775,7 +775,7 @@ mod tests {
         let span = make_span(&arena, "test");
         let comment = ModifiableCssNode::new(
             &arena,
-            ModifiableCssNodeKind::Comment(ModifiableCssComment::new("/* test */".into(), span)),
+            ModifiableCssNodeKind::Comment(ModifiableCssComment::new("/* test */", span)),
         );
         comment.set_is_group_end(true);
         sheet.add_child(&comment).unwrap();
@@ -793,10 +793,7 @@ mod tests {
         let span = make_span(&arena, "test");
         let comment = ModifiableCssNode::new(
             &arena,
-            ModifiableCssNodeKind::Comment(ModifiableCssComment::new(
-                "/* original */".into(),
-                span,
-            )),
+            ModifiableCssNodeKind::Comment(ModifiableCssComment::new("/* original */", span)),
         );
         sheet.add_child(&comment).unwrap();
         let store = ExtensionStore::new(&arena);
@@ -806,7 +803,7 @@ mod tests {
         // Add a child to original — should not affect clone
         let new_comment = ModifiableCssNode::new(
             &arena,
-            ModifiableCssNodeKind::Comment(ModifiableCssComment::new("/* new */".into(), span)),
+            ModifiableCssNodeKind::Comment(ModifiableCssComment::new("/* new */", span)),
         );
         sheet.add_child(&new_comment).unwrap();
         assert_eq!(sheet.children().unwrap().len(), 2);
@@ -857,7 +854,7 @@ mod tests {
         );
         let comment = ModifiableCssNode::new(
             &arena,
-            ModifiableCssNodeKind::Comment(ModifiableCssComment::new("/* inside */".into(), span)),
+            ModifiableCssNodeKind::Comment(ModifiableCssComment::new("/* inside */", span)),
         );
         media.add_child(&comment).unwrap();
 
@@ -893,7 +890,7 @@ mod tests {
         );
         let comment = ModifiableCssNode::new(
             &arena,
-            ModifiableCssNodeKind::Comment(ModifiableCssComment::new("/* deep */".into(), span)),
+            ModifiableCssNodeKind::Comment(ModifiableCssComment::new("/* deep */", span)),
         );
         inner.add_child(&comment).unwrap();
         outer.add_child(&inner).unwrap();
@@ -922,10 +919,7 @@ mod tests {
         );
         let comment = ModifiableCssNode::new(
             &arena,
-            ModifiableCssNodeKind::Comment(ModifiableCssComment::new(
-                "/* original */".into(),
-                span,
-            )),
+            ModifiableCssNodeKind::Comment(ModifiableCssComment::new("/* original */", span)),
         );
         rule.add_child(&comment).unwrap();
 
@@ -934,7 +928,7 @@ mod tests {
         // Add child to original — should not affect clone
         let new_comment = ModifiableCssNode::new(
             &arena,
-            ModifiableCssNodeKind::Comment(ModifiableCssComment::new("/* new */".into(), span)),
+            ModifiableCssNodeKind::Comment(ModifiableCssComment::new("/* new */", span)),
         );
         rule.add_child(&new_comment).unwrap();
         assert_eq!(rule.children().unwrap().len(), 2);

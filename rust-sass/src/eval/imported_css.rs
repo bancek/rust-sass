@@ -117,7 +117,7 @@ where
 {
     let mod_node = ModifiableCssNode::new(
         arena,
-        ModifiableCssNodeKind::Comment(ModifiableCssComment::new(node.text.clone(), node.span)),
+        ModifiableCssNodeKind::Comment(ModifiableCssComment::new(node.text, node.span)),
     );
     helpers::add_child(arena, state, &mod_node, None)
 }
@@ -548,7 +548,7 @@ mod tests {
     async fn test_imported_css_comment() {
         let arena = Bump::new();
         let (config, mut state) = test_state(&arena);
-        let c = CssComment::new("/* imported */".into(), make_span(&arena, "/* imported */"));
+        let c = CssComment::new("/* imported */", make_span(&arena, "/* imported */"));
         evaluate_imported_css_comment(&config, &mut state, &arena, &c).unwrap();
     }
 
@@ -688,7 +688,7 @@ mod tests {
     async fn test_imported_css_stylesheet() {
         let arena = Bump::new();
         let (config, mut state) = test_state(&arena);
-        let c = CssComment::new("/* imported */".into(), make_span(&arena, "/* imported */"));
+        let c = CssComment::new("/* imported */", make_span(&arena, "/* imported */"));
         let ss = CssStylesheet::new(vec![CssNode::Comment(c)], make_span(&arena, ""));
         evaluate_imported_css_stylesheet(&config, &mut state, &arena, &ss)
             .await

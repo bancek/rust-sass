@@ -150,7 +150,7 @@ where
     helpers::copy_parent_after_sibling(arena, state)?;
     let comment = ModifiableCssNode::new(
         arena,
-        ModifiableCssNodeKind::Comment(ModifiableCssComment::new(node.text.clone(), node.span)),
+        ModifiableCssNodeKind::Comment(ModifiableCssComment::new(node.text, node.span)),
     );
     helpers::add_child(arena, state, &comment, None)
 }
@@ -902,7 +902,7 @@ mod tests {
     async fn test_evaluate_css_comment_adds_child() {
         let arena = Bump::new();
         let (config, mut state) = test_state(&arena);
-        let c = CssComment::new("/* hello */".into(), make_span(&arena, "/* hello */"));
+        let c = CssComment::new("/* hello */", make_span(&arena, "/* hello */"));
         evaluate_css_comment(&config, &mut state, &arena, &c).unwrap();
         assert_eq!(state.root.unwrap().children().unwrap().len(), 1);
     }
@@ -913,7 +913,7 @@ mod tests {
         let arena = Bump::new();
         let (config, mut state) = test_state(&arena);
         state.end_of_imports = 0;
-        let c = CssComment::new("/* hello */".into(), make_span(&arena, "/* hello */"));
+        let c = CssComment::new("/* hello */", make_span(&arena, "/* hello */"));
         evaluate_css_comment(&config, &mut state, &arena, &c).unwrap();
         assert_eq!(state.end_of_imports, 1);
     }
@@ -1222,7 +1222,7 @@ mod tests {
     async fn test_evaluate_css_stylesheet_with_children() {
         let arena = Bump::new();
         let (config, mut state) = test_state(&arena);
-        let comment = CssComment::new("/* hello */".into(), make_span(&arena, "/* hello */"));
+        let comment = CssComment::new("/* hello */", make_span(&arena, "/* hello */"));
         let ss = CssStylesheet::new(vec![CssNode::Comment(comment)], make_span(&arena, ""));
         evaluate_css_stylesheet(&config, &mut state, &arena, &ss)
             .await
@@ -1247,7 +1247,7 @@ mod tests {
             )),
         );
         state.parent = Some(at_rule);
-        let c = CssComment::new("/* hello */".into(), make_span(&arena, "/* hello */"));
+        let c = CssComment::new("/* hello */", make_span(&arena, "/* hello */"));
         evaluate_css_comment(&config, &mut state, &arena, &c).unwrap();
         assert_eq!(state.end_of_imports, 0);
     }
@@ -1288,7 +1288,7 @@ mod tests {
         let comment = ModifiableCssNode::new(
             &arena,
             ModifiableCssNodeKind::Comment(ModifiableCssComment::new(
-                "/* hello */".into(),
+                "/* hello */",
                 make_span(&arena, "/* hello */"),
             )),
         );

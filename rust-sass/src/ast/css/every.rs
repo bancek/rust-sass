@@ -142,7 +142,7 @@ mod tests {
     fn test_every_comment_returns_false() {
         let arena = Bump::new();
         let span = make_span(&arena, "/* test */");
-        let c = CssNode::Comment(CssComment::new("/* test */".into(), span));
+        let c = CssNode::Comment(CssComment::new("/* test */", span));
         let mut v = EveryCssVisitor;
         let result = c.accept(&mut v).unwrap();
         assert!(!result);

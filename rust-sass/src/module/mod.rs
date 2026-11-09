@@ -1041,7 +1041,7 @@ mod tests {
         let env = Environment::new(arena);
         let mut children: Vec<ModifiableCssNode<'parse>> = Vec::new();
         if has_content {
-            let comment = ModifiableCssComment::new("/* test */".into(), test_span());
+            let comment = ModifiableCssComment::new("/* test */", test_span());
             children.push(ModifiableCssNode::new(
                 arena,
                 ModifiableCssNodeKind::Comment(comment),

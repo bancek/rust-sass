@@ -281,7 +281,7 @@ mod tests {
     fn test_css_node_accept_dispatch() {
         let arena = Bump::new();
         let span = make_span(&arena, "test");
-        let c = CssNode::Comment(CssComment::new("/* test */".into(), span));
+        let c = CssNode::Comment(CssComment::new("/* test */", span));
         let mut vis = MockCssVisitor {
             visited: String::new(),
         };
@@ -303,7 +303,7 @@ mod tests {
     fn test_css_node_is_invisible_comment() {
         let arena = Bump::new();
         let span = make_span(&arena, "/* test */");
-        let c = CssNode::Comment(CssComment::new("/* test */".into(), span));
+        let c = CssNode::Comment(CssComment::new("/* test */", span));
         assert!(!c.is_invisible());
     }
 
@@ -311,7 +311,7 @@ mod tests {
     fn test_css_node_is_invisible_hiding_comments_preserved() {
         let arena = Bump::new();
         let span = make_span(&arena, "/*! test */");
-        let c = CssNode::Comment(CssComment::new("/*! test */".into(), span));
+        let c = CssNode::Comment(CssComment::new("/*! test */", span));
         assert!(!c.is_invisible_hiding_comments());
     }
 
@@ -319,7 +319,7 @@ mod tests {
     fn test_css_node_is_invisible_hiding_comments_unpreserved() {
         let arena = Bump::new();
         let span = make_span(&arena, "/* test */");
-        let c = CssNode::Comment(CssComment::new("/* test */".into(), span));
+        let c = CssNode::Comment(CssComment::new("/* test */", span));
         assert!(c.is_invisible_hiding_comments());
     }
 

@@ -779,14 +779,14 @@ mod tests {
         CssStylesheet::new(vec![], BOGUS_SPAN)
     }
 
-    fn stylesheet_with_comment(comment: &str) -> CssStylesheet<'static> {
-        let comment_node = CssNode::Comment(CssComment::new(comment.to_string(), BOGUS_SPAN));
+    fn stylesheet_with_comment(comment: &'static str) -> CssStylesheet<'static> {
+        let comment_node = CssNode::Comment(CssComment::new(comment, BOGUS_SPAN));
         CssStylesheet::new(vec![comment_node], BOGUS_SPAN)
     }
 
-    fn preserved_comment(text: &str) -> CssNode<'static> {
+    fn preserved_comment(text: &'static str) -> CssNode<'static> {
         CssNode::Comment(CssComment {
-            text: text.to_string(),
+            text,
             is_preserved: true,
             span: BOGUS_SPAN,
             is_group_end: false,
@@ -829,7 +829,7 @@ mod tests {
             Some(&OwnedUrl::parse("file:///input.scss").unwrap()),
         );
         let span = FileSpan::new(Some(fs), 0, text.len());
-        let comment = CssNode::Comment(CssComment::new(text.to_string(), span));
+        let comment = CssNode::Comment(CssComment::new(text, span));
         let stylesheet = CssStylesheet::new(vec![comment], span);
 
         let with = SerializeOptions {

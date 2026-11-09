@@ -135,7 +135,7 @@ impl<'parse> ModifiableCssNodeKind<'parse> {
                 CssNode::AtRule(css_r)
             }
             Self::Comment(c) => {
-                let mut css = CssComment::new(c.text.clone(), c.span);
+                let mut css = CssComment::new(c.text, c.span);
                 css.is_group_end = is_group_end;
                 CssNode::Comment(css)
             }
@@ -811,7 +811,7 @@ mod tests {
     fn test_to_css_node_comment() {
         let arena = Bump::new();
         let span = make_span(&arena, "/* test */");
-        let mc = ModifiableCssComment::new("/* test */".into(), span);
+        let mc = ModifiableCssComment::new("/* test */", span);
         let node = ModifiableCssNodeKind::Comment(mc);
         let css = node.to_css_node(false, 0);
         match css {
@@ -827,7 +827,7 @@ mod tests {
     fn test_to_css_node_preserved_comment() {
         let arena = Bump::new();
         let span = make_span(&arena, "/*! test */");
-        let mc = ModifiableCssComment::new("/*! test */".into(), span);
+        let mc = ModifiableCssComment::new("/*! test */", span);
         let node = ModifiableCssNodeKind::Comment(mc);
         let css = node.to_css_node(false, 0);
         match css {

@@ -1135,8 +1135,7 @@ where
                             ModifiableCssNode::new(
                                 arena,
                                 ModifiableCssNodeKind::Comment(ModifiableCssComment::new(
-                                    c.text.clone(),
-                                    c.span,
+                                    c.text, c.span,
                                 )),
                             )
                         })
@@ -2512,7 +2511,10 @@ where
     copy_parent_after_sibling(arena, state)?;
     let comment = ModifiableCssNode::new(
         arena,
-        ModifiableCssNodeKind::Comment(ModifiableCssComment::new(text, node.span()?)),
+        ModifiableCssNodeKind::Comment(ModifiableCssComment::new(
+            arena.alloc_str(&text),
+            node.span()?,
+        )),
     );
     add_child(arena, state, &comment, None)?;
     Ok(None)
@@ -3102,7 +3104,7 @@ where
             let kind = c.kind();
             match &*kind {
                 ModifiableCssNodeKind::Comment(comment) => {
-                    Some(CssComment::new(comment.text.clone(), comment.span))
+                    Some(CssComment::new(comment.text, comment.span))
                 }
                 _ => None,
             }
