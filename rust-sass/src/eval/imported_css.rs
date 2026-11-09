@@ -261,7 +261,7 @@ where
         arena,
         ModifiableCssNodeKind::MediaRule(ModifiableCssMediaRule::new(
             arena,
-            node.queries.clone(),
+            node.queries.to_vec(),
             node.span,
         )?),
     );
@@ -270,7 +270,7 @@ where
     // Dart: hasBeenMerged = mediaQueries == null || _mergeMediaQueries(mediaQueries, node.queries) != null
     let has_been_merged = match &state.media_queries {
         None => true,
-        Some(mq) => helpers::merge_media_queries(arena, mq, &node.queries).is_some(),
+        Some(mq) => helpers::merge_media_queries(arena, mq, node.queries).is_some(),
     };
 
     let through: &dyn Fn(&ModifiableCssNode<'parse>) -> bool =
@@ -634,11 +634,11 @@ mod tests {
         let arena = Bump::new();
         let (config, mut state) = test_state(&arena);
         let mr = CssMediaRule::new(
-            vec![CssMediaQuery::test_type(
+            &*arena.alloc_slice_fill_iter(vec![CssMediaQuery::test_type(
                 Some("screen".into()),
                 None,
                 vec![],
-            )],
+            )]),
             make_span(&arena, "@media screen {}"),
         )
         .unwrap();

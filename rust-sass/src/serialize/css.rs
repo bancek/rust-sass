@@ -283,7 +283,7 @@ fn visit_css_media_rule_impl<'parse>(
             buf.write_char(' ').unwrap();
         }
         let sep = state.comma_sep();
-        write_between(buf, &node.queries, sep, |buf, q| {
+        write_between(buf, node.queries, sep, |buf, q| {
             visit_media_query(buf, state, q)
         })?;
         Ok(())

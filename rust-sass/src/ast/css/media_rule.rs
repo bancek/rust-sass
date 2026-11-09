@@ -24,7 +24,7 @@ use crate::ast::css::node::CssNode;
 #[derive(Clone, Debug)]
 pub struct CssMediaRule<'parse> {
     /// The queries for this rule. This is never empty.
-    pub queries: Vec<CssMediaQuery<'parse>>,
+    pub queries: &'parse [CssMediaQuery<'parse>],
     /// The child statements of this rule.
     pub children: Vec<CssNode<'parse>>,
     /// The source span for this rule.
@@ -39,7 +39,10 @@ pub struct CssMediaRule<'parse> {
 
 impl<'parse> CssMediaRule<'parse> {
     /// Creates a media rule. Fails when `queries` is empty.
-    pub fn new(queries: Vec<CssMediaQuery<'parse>>, span: FileSpan<'parse>) -> SassResult<Self> {
+    pub fn new(
+        queries: &'parse [CssMediaQuery<'parse>],
+        span: FileSpan<'parse>,
+    ) -> SassResult<Self> {
         if queries.is_empty() {
             return Err(Box::new(SassError::Script {
                 message: "queries may not be empty.".into(),
@@ -88,7 +91,7 @@ impl<'parse> fmt::Display for CssMediaRule<'parse> {
 #[derive(Clone, Debug)]
 pub struct ModifiableCssMediaRule<'parse> {
     /// The queries for this rule. This is never empty.
-    pub queries: Vec<CssMediaQuery<'parse>>,
+    pub queries: &'parse [CssMediaQuery<'parse>],
     /// The source span for this rule.
     pub span: FileSpan<'parse>,
     /// The child statements of this rule.
@@ -109,7 +112,7 @@ impl<'parse> ModifiableCssMediaRule<'parse> {
             }));
         }
         Ok(ModifiableCssMediaRule {
-            queries,
+            queries: &*arena.alloc_slice_fill_iter(queries),
             span,
             children: ArenaVec::new_in(arena),
         })

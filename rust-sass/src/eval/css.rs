@@ -692,7 +692,7 @@ where
             arena,
             ModifiableCssNodeKind::MediaRule(ModifiableCssMediaRule::new(
                 arena,
-                node.queries.clone(),
+                node.queries.to_vec(),
                 node.span,
             )?),
         );
@@ -714,10 +714,10 @@ where
     }
 
     let (merged_queries, merged_sources) = if let Some(ref mq) = state.media_queries {
-        match helpers::merge_media_queries(arena, mq, &node.queries) {
+        match helpers::merge_media_queries(arena, mq, node.queries) {
             None => {
                 // Unrepresentable — use original queries, empty sources
-                (Some(node.queries.clone()), Some(vec![]))
+                (Some(node.queries.to_vec()), Some(vec![]))
             }
             Some(m) if m.is_empty() => {
                 // All merged away — skip
@@ -727,18 +727,18 @@ where
                 // Build mergedSources = sources ∪ mediaQueries ∪ node.queries
                 let mut sources = state.media_query_sources.clone().unwrap_or_default();
                 sources.extend(mq.clone());
-                sources.extend(node.queries.clone());
+                sources.extend_from_slice(node.queries);
                 (Some(m), Some(sources))
             }
         }
     } else {
         // Not in media context
-        (Some(node.queries.clone()), Some(vec![]))
+        (Some(node.queries.to_vec()), Some(vec![]))
     };
 
     let queries_for_rule = merged_queries
         .clone()
-        .unwrap_or_else(|| node.queries.clone());
+        .unwrap_or_else(|| node.queries.to_vec());
     let rule_node = ModifiableCssNode::new(
         arena,
         ModifiableCssNodeKind::MediaRule(ModifiableCssMediaRule::new(
@@ -1199,11 +1199,11 @@ mod tests {
         let (config, mut state) = test_state(&arena);
         state.declaration_name = Some("color".into());
         let mr = CssMediaRule::new(
-            vec![CssMediaQuery::test_type(
+            &*arena.alloc_slice_fill_iter(vec![CssMediaQuery::test_type(
                 Some("screen".into()),
                 None,
                 vec![],
-            )],
+            )]),
             make_span(&arena, "@media screen {}"),
         )
         .unwrap();

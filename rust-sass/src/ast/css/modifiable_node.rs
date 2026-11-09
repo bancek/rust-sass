@@ -171,7 +171,7 @@ impl<'parse> ModifiableCssNodeKind<'parse> {
                 // `CssMediaRule::new` only fails on empty queries — `m` was
                 // validated at construction and queries are never cleared, so
                 // re-freezing is infallible (see Declaration arm above).
-                let mut css = CssMediaRule::new(m.queries.clone(), m.span)
+                let mut css = CssMediaRule::new(m.queries, m.span)
                     .expect("re-freezing a validated media rule must succeed");
                 css.children = m.children.iter().map(|c| c.to_css_node()).collect();
                 css.is_group_end = is_group_end;
@@ -661,7 +661,7 @@ impl<'parse> ModifiableCssNode<'parse> {
             ModifiableCssNodeKind::MediaRule(m) => ModifiableCssNodeKind::MediaRule(
                 // Infallible: `m` was validated at construction and queries
                 // are never cleared (see the `to_css_node` MediaRule arm).
-                ModifiableCssMediaRule::new(arena, m.queries.clone(), m.span)
+                ModifiableCssMediaRule::new(arena, m.queries.to_vec(), m.span)
                     .expect("copying a validated media rule must succeed"),
             ),
             ModifiableCssNodeKind::SupportsRule(sr) => ModifiableCssNodeKind::SupportsRule(

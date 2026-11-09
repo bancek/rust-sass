@@ -208,7 +208,7 @@ mod tests {
         let fs = FileSource::new_in(&arena, "(color)", None);
         let span = FileSpan::new(Some(fs), 0, 7);
         let mq = parse_list(&arena, "(color)").unwrap();
-        let mr = CssMediaRule::new(mq, span).unwrap();
+        let mr = CssMediaRule::new(&*arena.alloc_slice_fill_iter(mq), span).unwrap();
         let node = CssParentNode::MediaRule(mr);
 
         let mut names = HashSet::new();

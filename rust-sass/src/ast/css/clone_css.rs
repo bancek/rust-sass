@@ -148,7 +148,7 @@ impl<'parse> CloneCssVisitor<'parse> for CloneCssVisitorWithExt<'parse> {
         arena: &'compile Bump,
         node: &ModifiableCssMediaRule<'parse>,
     ) -> SassResult<ModifiableCssNode<'parse>> {
-        let r = ModifiableCssMediaRule::new(arena, node.queries.clone(), node.span)?;
+        let r = ModifiableCssMediaRule::new(arena, node.queries.to_vec(), node.span)?;
         let new_node = ModifiableCssNode::new(arena, ModifiableCssNodeKind::MediaRule(r));
         visit_children(arena, &new_node, &node.children, self)
     }
@@ -294,7 +294,7 @@ impl<'parse> CloneCssVisitor<'parse> for CloneCssVisitorNoExt {
         arena: &'compile Bump,
         node: &ModifiableCssMediaRule<'parse>,
     ) -> SassResult<ModifiableCssNode<'parse>> {
-        let r = ModifiableCssMediaRule::new(arena, node.queries.clone(), node.span)?;
+        let r = ModifiableCssMediaRule::new(arena, node.queries.to_vec(), node.span)?;
         let new_node = ModifiableCssNode::new(arena, ModifiableCssNodeKind::MediaRule(r));
         visit_children(arena, &new_node, &node.children, self)
     }
