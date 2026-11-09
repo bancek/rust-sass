@@ -72,7 +72,7 @@ impl<'compile: 'parse, 'parse> ShadowedModuleView<'compile, 'parse> {
         if blocklist.is_empty() || !member_map::needs_blocklist(inner_view, blocklist) {
             return inner_view;
         }
-        arena.alloc(LimitedMapView::new_blocklist(inner_view, blocklist))
+        arena.alloc(LimitedMapView::new_blocklist(arena, inner_view, blocklist))
     }
 
     /// Sets the variable named `name` to `val`. Throws "Undefined variable."

@@ -34,33 +34,33 @@ pub struct ForwardRule<'parse> {
     /// Empty means no mixins or functions may be accessed; `None` imposes
     /// no restriction. When non-`None`, the hidden sets are both `None`
     /// and [`ForwardRule::shown_variables`] is non-`None`.
-    pub shown_mixins_and_functions: Option<HashSet<String>>,
+    pub shown_mixins_and_functions: Option<&'parse HashSet<String>>,
     /// The variable names (without `$`) accessible from the forwarded
     /// module.
     ///
     /// Empty means no variables may be accessed; `None` imposes no
     /// restriction. When non-`None`, the hidden sets are both `None` and
     /// [`ForwardRule::shown_mixins_and_functions`] is non-`None`.
-    pub shown_variables: Option<HashSet<String>>,
+    pub shown_variables: Option<&'parse HashSet<String>>,
     /// Source-order `@forward show` lists (Dart `LinkedHashSet` iteration
     /// drives `LimitedMapView` key order, observed via
     /// `meta.module-variables`). `None` unless this is a show-rule.
-    pub shown_order_mf: Option<Vec<String>>,
-    pub shown_order_vars: Option<Vec<String>>,
+    pub shown_order_mf: Option<&'parse [String]>,
+    pub shown_order_vars: Option<&'parse [String]>,
     /// The mixin and function names that may not be accessed from the
     /// forwarded module.
     ///
     /// Empty means any mixins or functions may be accessed; `None` imposes
     /// no restriction. When non-`None`, the shown sets are both `None` and
     /// [`ForwardRule::hidden_variables`] is non-`None`.
-    pub hidden_mixins_and_functions: Option<HashSet<String>>,
+    pub hidden_mixins_and_functions: Option<&'parse HashSet<String>>,
     /// The variable names (without `$`) that may not be accessed from the
     /// forwarded module.
     ///
     /// Empty means any variables may be accessed; `None` imposes no
     /// restriction. When non-`None`, the shown sets are both `None` and
     /// [`ForwardRule::hidden_mixins_and_functions`] is non-`None`.
-    pub hidden_variables: Option<HashSet<String>>,
+    pub hidden_variables: Option<&'parse HashSet<String>>,
     /// The prefix added to the front of member names from the forwarded
     /// module, or `None` when member names are used as-is.
     pub prefix: Option<&'parse str>,
@@ -134,10 +134,10 @@ impl<'parse> ForwardRule<'parse> {
     ) -> Self {
         ForwardRule {
             url,
-            shown_mixins_and_functions: Some(shown_mixins_and_functions),
-            shown_variables: Some(shown_variables),
-            shown_order_mf: Some(shown_order_mf),
-            shown_order_vars: Some(shown_order_vars),
+            shown_mixins_and_functions: Some(arena.alloc(shown_mixins_and_functions)),
+            shown_variables: Some(arena.alloc(shown_variables)),
+            shown_order_mf: Some(arena.alloc_slice_fill_iter(shown_order_mf)),
+            shown_order_vars: Some(arena.alloc_slice_fill_iter(shown_order_vars)),
             hidden_mixins_and_functions: None,
             hidden_variables: None,
             prefix: prefix.map(|p| &*arena.alloc_str(p)),
@@ -163,8 +163,8 @@ impl<'parse> ForwardRule<'parse> {
             shown_variables: None,
             shown_order_mf: None,
             shown_order_vars: None,
-            hidden_mixins_and_functions: Some(hidden_mixins_and_functions),
-            hidden_variables: Some(hidden_variables),
+            hidden_mixins_and_functions: Some(arena.alloc(hidden_mixins_and_functions)),
+            hidden_variables: Some(arena.alloc(hidden_variables)),
             prefix: prefix.map(|p| &*arena.alloc_str(p)),
             configuration,
             span,
@@ -190,21 +190,11 @@ impl<'parse> ForwardRule<'parse> {
     pub fn to_display_string(&self) -> SassResult<String> {
         let mut buf = String::new();
         write!(buf, "@forward \"{}\"", self.url).unwrap();
-        if let Some(ref shown) = self.shown_mixins_and_functions {
-            write!(
-                buf,
-                " show {}",
-                member_list(shown, self.shown_variables.as_ref())?
-            )
-            .unwrap();
-        } else if let Some(ref hidden) = self.hidden_mixins_and_functions {
+        if let Some(shown) = self.shown_mixins_and_functions {
+            write!(buf, " show {}", member_list(shown, self.shown_variables)?).unwrap();
+        } else if let Some(hidden) = self.hidden_mixins_and_functions {
             if !hidden.is_empty() {
-                write!(
-                    buf,
-                    " hide {}",
-                    member_list(hidden, self.hidden_variables.as_ref())?
-                )
-                .unwrap();
+                write!(buf, " hide {}", member_list(hidden, self.hidden_variables)?).unwrap();
             }
         }
         if let Some(ref prefix) = self.prefix {

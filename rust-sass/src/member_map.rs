@@ -256,16 +256,18 @@ impl<'s, V: Clone> MemberMap<V> for PrefixedMapView<'s, V> {
 /// the key set is frozen at construction.
 ///
 /// Dart: `LimitedMapView` (`util/limited_map_view.dart`).
-pub struct LimitedMapView<'s, V: Clone> {
+pub struct LimitedMapView<'s, 'a, V: Clone> {
     inner: &'s dyn MemberMap<V>,
-    allowed: HashSet<String>,
+    /// Arena-backed, so the view owns no heap data (the view itself lives in
+    /// the arena for `@forward` show/hide rules).
+    allowed: &'a HashSet<String>,
     /// Safelist order (Dart `LimitedMapView.safelist` iterates the safelist).
     /// `None` for blocklist views (inner order). Stored because `HashSet`
     /// iteration is nondeterministic — `keys`/`entries` must follow it.
-    safelist_order: Option<Vec<String>>,
+    safelist_order: Option<&'a [String]>,
 }
 
-impl<'s, V: Clone> Debug for LimitedMapView<'s, V> {
+impl<'s, 'a, V: Clone> Debug for LimitedMapView<'s, 'a, V> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("LimitedMapView")
             .field("allowed", &self.allowed)
@@ -274,10 +276,14 @@ impl<'s, V: Clone> Debug for LimitedMapView<'s, V> {
     }
 }
 
-impl<'s, V: Clone + Debug> LimitedMapView<'s, V> {
+impl<'s, 'a, V: Clone + Debug> LimitedMapView<'s, 'a, V> {
     /// Returns a view allowing only keys in `safelist` (Dart:
     /// `LimitedMapView.safelist`).
-    pub fn new_safelist(inner: &'s dyn MemberMap<V>, safelist: &HashSet<String>) -> Self {
+    pub fn new_safelist(
+        arena: &'a Bump,
+        inner: &'s dyn MemberMap<V>,
+        safelist: &HashSet<String>,
+    ) -> Self {
         // Dart `LimitedMapView.safelist`: `safelist.intersection(MapKeySet(_map))`
         // — iteration follows the SAFEList order, not the inner map's. But the
         // safelist here is a `HashSet` (order lost at parse); the ordered
@@ -290,14 +296,18 @@ impl<'s, V: Clone + Debug> LimitedMapView<'s, V> {
             .collect();
         Self {
             inner,
-            allowed,
+            allowed: arena.alloc(allowed),
             safelist_order: None,
         }
     }
 
     /// Ordered variant: `safelist` in source order (Dart `LinkedHashSet`
     /// iteration). `keys`/`entries` follow it; membership as above.
-    pub fn new_safelist_ordered(inner: &'s dyn MemberMap<V>, safelist: &[String]) -> Self {
+    pub fn new_safelist_ordered(
+        arena: &'a Bump,
+        inner: &'s dyn MemberMap<V>,
+        safelist: &[String],
+    ) -> Self {
         let allowed: HashSet<String> = safelist
             .iter()
             .filter(|k| inner.has(k.as_str()))
@@ -310,14 +320,18 @@ impl<'s, V: Clone + Debug> LimitedMapView<'s, V> {
             .collect();
         Self {
             inner,
-            allowed,
-            safelist_order: Some(order),
+            allowed: arena.alloc(allowed),
+            safelist_order: Some(arena.alloc_slice_fill_iter(order)),
         }
     }
 
     /// Returns a view excluding keys in `blocklist` (Dart:
     /// `LimitedMapView.blocklist`).
-    pub fn new_blocklist(inner: &'s dyn MemberMap<V>, blocklist: &HashSet<String>) -> Self {
+    pub fn new_blocklist(
+        arena: &'a Bump,
+        inner: &'s dyn MemberMap<V>,
+        blocklist: &HashSet<String>,
+    ) -> Self {
         let allowed: HashSet<String> = inner
             .keys()
             .into_iter()
@@ -325,13 +339,13 @@ impl<'s, V: Clone + Debug> LimitedMapView<'s, V> {
             .collect();
         Self {
             inner,
-            allowed,
+            allowed: arena.alloc(allowed),
             safelist_order: None,
         }
     }
 }
 
-impl<'s, V: Clone> MemberMap<V> for LimitedMapView<'s, V> {
+impl<'s, 'a, V: Clone> MemberMap<V> for LimitedMapView<'s, 'a, V> {
     fn get(&self, key: &str) -> Option<V> {
         if !self.allowed.contains(key) {
             return None;
@@ -348,8 +362,8 @@ impl<'s, V: Clone> MemberMap<V> for LimitedMapView<'s, V> {
     }
 
     fn keys(&self) -> Vec<String> {
-        if let Some(ref order) = self.safelist_order {
-            return order.clone();
+        if let Some(order) = self.safelist_order {
+            return order.to_vec();
         }
         self.inner
             .keys()
@@ -359,7 +373,7 @@ impl<'s, V: Clone> MemberMap<V> for LimitedMapView<'s, V> {
     }
 
     fn entries(&self) -> Vec<(String, V)> {
-        if let Some(ref order) = self.safelist_order {
+        if let Some(order) = self.safelist_order {
             return order
                 .iter()
                 .filter_map(|k| self.inner.get(k).map(|v| (k.clone(), v)))
@@ -550,12 +564,12 @@ pub fn forwarded_map_ordered<'a, V: Clone + Debug>(
         });
     }
     if let Some(order) = safelist_order {
-        result = arena.alloc(LimitedMapView::new_safelist_ordered(result, order));
+        result = arena.alloc(LimitedMapView::new_safelist_ordered(arena, result, order));
     } else if let Some(s) = safelist {
-        result = arena.alloc(LimitedMapView::new_safelist(result, s));
+        result = arena.alloc(LimitedMapView::new_safelist(arena, result, s));
     } else if let Some(b) = blocklist {
         if !b.is_empty() {
-            result = arena.alloc(LimitedMapView::new_blocklist(result, b));
+            result = arena.alloc(LimitedMapView::new_blocklist(arena, result, b));
         }
     }
     result
@@ -670,7 +684,7 @@ mod tests {
         let inner: &dyn MemberMap<i32> = arena.alloc(IndexMapView { map: inner_map });
         let order = vec!["a".to_string(), "b".to_string()];
         let limited: &dyn MemberMap<i32> =
-            arena.alloc(LimitedMapView::new_safelist_ordered(inner, &order));
+            arena.alloc(LimitedMapView::new_safelist_ordered(&arena, inner, &order));
         assert_eq!(limited.keys(), vec!["a".to_string(), "b".to_string()]);
         assert_eq!(
             limited.entries(),
@@ -848,8 +862,11 @@ mod tests {
     fn test_limited_safelist_allows_safelisted_key() {
         let arena = Bump::new();
         let safelist: HashSet<String> = ["a".into(), "c".into()].into();
-        let limited: &dyn MemberMap<i32> =
-            arena.alloc(LimitedMapView::new_safelist(make_v(&arena), &safelist));
+        let limited: &dyn MemberMap<i32> = arena.alloc(LimitedMapView::new_safelist(
+            &arena,
+            make_v(&arena),
+            &safelist,
+        ));
         assert_eq!(limited.get("a"), Some(1));
         assert_eq!(limited.get("c"), Some(3));
         assert_eq!(limited.get("b"), None);
@@ -859,8 +876,11 @@ mod tests {
     fn test_limited_safelist_has() {
         let arena = Bump::new();
         let safelist: HashSet<String> = ["a".into()].into();
-        let limited: &dyn MemberMap<i32> =
-            arena.alloc(LimitedMapView::new_safelist(make_v(&arena), &safelist));
+        let limited: &dyn MemberMap<i32> = arena.alloc(LimitedMapView::new_safelist(
+            &arena,
+            make_v(&arena),
+            &safelist,
+        ));
         assert!(limited.has("a"));
         assert!(!limited.has("b"));
     }
@@ -869,8 +889,11 @@ mod tests {
     fn test_limited_safelist_len() {
         let arena = Bump::new();
         let safelist: HashSet<String> = ["a".into(), "c".into()].into();
-        let limited: &dyn MemberMap<i32> =
-            arena.alloc(LimitedMapView::new_safelist(make_v(&arena), &safelist));
+        let limited: &dyn MemberMap<i32> = arena.alloc(LimitedMapView::new_safelist(
+            &arena,
+            make_v(&arena),
+            &safelist,
+        ));
         assert_eq!(limited.len(), 2);
     }
 
@@ -881,7 +904,7 @@ mod tests {
         let inner = make_refcell_view(&arena, inner_map);
         let safelist: HashSet<String> = ["a".into()].into();
         let limited: &dyn MemberMap<i32> =
-            arena.alloc(LimitedMapView::new_safelist(inner, &safelist));
+            arena.alloc(LimitedMapView::new_safelist(&arena, inner, &safelist));
         assert_eq!(limited.get("a"), Some(1));
         // Mutate the underlying value
         inner_map.borrow_mut().insert("a", 99);
@@ -896,7 +919,7 @@ mod tests {
         let inner = make_refcell_view(&arena, inner_map);
         let safelist: HashSet<String> = ["a".into(), "new".into()].into();
         let limited: &dyn MemberMap<i32> =
-            arena.alloc(LimitedMapView::new_safelist(inner, &safelist));
+            arena.alloc(LimitedMapView::new_safelist(&arena, inner, &safelist));
         assert_eq!(limited.len(), 1); // "a" exists, but "new" was not in inner at construction
                                       // Add "new" key to inner AFTER construction
         inner_map.borrow_mut().insert("new", 777);
@@ -911,8 +934,11 @@ mod tests {
     fn test_limited_blocklist_blocks_key() {
         let arena = Bump::new();
         let blocklist: HashSet<String> = ["b".into()].into();
-        let limited: &dyn MemberMap<i32> =
-            arena.alloc(LimitedMapView::new_blocklist(make_v(&arena), &blocklist));
+        let limited: &dyn MemberMap<i32> = arena.alloc(LimitedMapView::new_blocklist(
+            &arena,
+            make_v(&arena),
+            &blocklist,
+        ));
         assert_eq!(limited.get("a"), Some(1));
         assert_eq!(limited.get("b"), None);
         assert_eq!(limited.get("c"), Some(3));
@@ -922,8 +948,11 @@ mod tests {
     fn test_limited_blocklist_len() {
         let arena = Bump::new();
         let blocklist: HashSet<String> = ["b".into()].into();
-        let limited: &dyn MemberMap<i32> =
-            arena.alloc(LimitedMapView::new_blocklist(make_v(&arena), &blocklist));
+        let limited: &dyn MemberMap<i32> = arena.alloc(LimitedMapView::new_blocklist(
+            &arena,
+            make_v(&arena),
+            &blocklist,
+        ));
         assert_eq!(limited.len(), 4); // 5 total - 1 blocked = 4
     }
 
@@ -931,8 +960,11 @@ mod tests {
     fn test_limited_empty_blocklist_passes_all() {
         let arena = Bump::new();
         let blocklist: HashSet<String> = HashSet::new();
-        let limited: &dyn MemberMap<i32> =
-            arena.alloc(LimitedMapView::new_blocklist(make_v(&arena), &blocklist));
+        let limited: &dyn MemberMap<i32> = arena.alloc(LimitedMapView::new_blocklist(
+            &arena,
+            make_v(&arena),
+            &blocklist,
+        ));
         assert_eq!(limited.len(), 5);
         assert_eq!(limited.get("a"), Some(1));
     }

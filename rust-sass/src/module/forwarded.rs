@@ -76,33 +76,33 @@ impl<'compile: 'parse, 'parse> ForwardedModuleView<'compile, 'parse> {
                 arena,
                 inner.variables_view(arena),
                 rule.prefix,
-                rule.shown_order_vars.as_deref(),
-                rule.shown_variables.as_ref(),
-                rule.hidden_variables.as_ref(),
+                rule.shown_order_vars,
+                rule.shown_variables,
+                rule.hidden_variables,
             ),
             variable_nodes: member_map::forwarded_map_ordered(
                 arena,
                 inner.variable_nodes_view(arena),
                 rule.prefix,
-                rule.shown_order_vars.as_deref(),
-                rule.shown_variables.as_ref(),
-                rule.hidden_variables.as_ref(),
+                rule.shown_order_vars,
+                rule.shown_variables,
+                rule.hidden_variables,
             ),
             functions: member_map::forwarded_map_ordered(
                 arena,
                 inner.functions_view(arena),
                 rule.prefix,
-                rule.shown_order_mf.as_deref(),
-                rule.shown_mixins_and_functions.as_ref(),
-                rule.hidden_mixins_and_functions.as_ref(),
+                rule.shown_order_mf,
+                rule.shown_mixins_and_functions,
+                rule.hidden_mixins_and_functions,
             ),
             mixins: member_map::forwarded_map_ordered(
                 arena,
                 inner.mixins_view(arena),
                 rule.prefix,
-                rule.shown_order_mf.as_deref(),
-                rule.shown_mixins_and_functions.as_ref(),
-                rule.hidden_mixins_and_functions.as_ref(),
+                rule.shown_order_mf,
+                rule.shown_mixins_and_functions,
+                rule.hidden_mixins_and_functions,
             ),
             inner,
             rule: rule.clone(),
@@ -119,14 +119,14 @@ impl<'compile: 'parse, 'parse> ForwardedModuleView<'compile, 'parse> {
         val: Value<'parse>,
         node_span: FileSpan<'parse>,
     ) -> SassResult<()> {
-        if let Some(ref shown) = self.rule.shown_variables {
+        if let Some(shown) = self.rule.shown_variables {
             if !shown.contains(name) {
                 return Err(Box::new(SassError::Script {
                     message: "Undefined variable.".into(),
                     argument_name: None,
                 }));
             }
-        } else if let Some(ref hidden) = self.rule.hidden_variables {
+        } else if let Some(hidden) = self.rule.hidden_variables {
             if hidden.contains(name) {
                 return Err(Box::new(SassError::Script {
                     message: "Undefined variable.".into(),
@@ -197,9 +197,9 @@ impl<'compile: 'parse, 'parse> ForwardedModuleView<'compile, 'parse> {
                 .collect();
         }
 
-        if let Some(ref safelist) = self.rule.shown_variables {
+        if let Some(safelist) = self.rule.shown_variables {
             filtered = filtered.intersection(safelist).cloned().collect();
-        } else if let Some(ref blocklist) = self.rule.hidden_variables {
+        } else if let Some(blocklist) = self.rule.hidden_variables {
             if !blocklist.is_empty() {
                 filtered = filtered.difference(blocklist).cloned().collect();
             }

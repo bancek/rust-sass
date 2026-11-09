@@ -353,9 +353,9 @@ impl<'parse> Configuration<'parse> {
             new_filters.insert(0, Filter::Prefix(prefix.to_string()));
         }
 
-        if let Some(ref shown) = rule.shown_variables {
+        if let Some(shown) = rule.shown_variables {
             new_filters.insert(0, Filter::Safelist(shown.clone()));
-        } else if let Some(ref hidden) = rule.hidden_variables {
+        } else if let Some(hidden) = rule.hidden_variables {
             if !hidden.is_empty() {
                 new_filters.insert(0, Filter::Blocklist(hidden.clone()));
             }
@@ -470,13 +470,13 @@ mod tests {
 
     fn forward_with_shown<'p>(arena: &'p Bump, names: &[&str]) -> ForwardRule<'p> {
         let mut rule = empty_forward_rule(arena);
-        rule.shown_variables = Some(names.iter().map(|s| s.to_string()).collect());
+        rule.shown_variables = Some(arena.alloc(names.iter().map(|s| s.to_string()).collect()));
         rule
     }
 
     fn forward_with_hidden<'p>(arena: &'p Bump, names: &[&str]) -> ForwardRule<'p> {
         let mut rule = empty_forward_rule(arena);
-        rule.hidden_variables = Some(names.iter().map(|s| s.to_string()).collect());
+        rule.hidden_variables = Some(arena.alloc(names.iter().map(|s| s.to_string()).collect()));
         rule
     }
 
@@ -759,7 +759,7 @@ mod tests {
 
         let mut rule = empty_forward_rule(&arena);
         rule.prefix = Some("ns-");
-        rule.shown_variables = Some(HashSet::from_iter(["a".into()]));
+        rule.shown_variables = Some(arena.alloc(HashSet::from_iter(["a".into()])));
         let derived = cfg.through_forward(&rule);
 
         assert!(derived.get("a").is_some());
