@@ -28,7 +28,7 @@ pub struct UniversalSelector<'parse> {
     /// The source span covering this selector.
     pub span: FileSpan<'parse>,
     /// The selector namespace.
-    pub namespace: SelectorNamespace,
+    pub namespace: SelectorNamespace<'parse>,
 }
 
 // Matches Dart: structural equality over the namespace; the span is
@@ -43,7 +43,7 @@ impl<'parse> Eq for UniversalSelector<'parse> {}
 
 impl<'parse> UniversalSelector<'parse> {
     /// Creates a universal selector with the given namespace.
-    pub fn new(span: FileSpan<'parse>, namespace: SelectorNamespace) -> Self {
+    pub fn new(span: FileSpan<'parse>, namespace: SelectorNamespace<'parse>) -> Self {
         UniversalSelector { span, namespace }
     }
 
@@ -228,8 +228,8 @@ mod tests {
 
     #[test]
     fn test_new_universal_selector_with_namespace() {
-        let s = UniversalSelector::new(BOGUS_SPAN, SelectorNamespace::named("svg".into()));
-        assert_eq!(s.namespace, SelectorNamespace::named("svg".into()));
+        let s = UniversalSelector::new(BOGUS_SPAN, SelectorNamespace::named("svg"));
+        assert_eq!(s.namespace, SelectorNamespace::named("svg"));
     }
 
     #[test]
@@ -263,20 +263,17 @@ mod tests {
         let s2 = UniversalSelector::new(BOGUS_SPAN, SelectorNamespace::Default);
         assert_eq!(s1, s2);
 
-        let s3 = UniversalSelector::new(BOGUS_SPAN, SelectorNamespace::named("svg".into()));
+        let s3 = UniversalSelector::new(BOGUS_SPAN, SelectorNamespace::named("svg"));
         assert_ne!(s1, s3);
 
-        let s4 = UniversalSelector::new(BOGUS_SPAN, SelectorNamespace::named("svg".into()));
+        let s4 = UniversalSelector::new(BOGUS_SPAN, SelectorNamespace::named("svg"));
         assert_eq!(s3, s4);
     }
 
     #[test]
     fn test_universal_selector_is_superselector_wildcard_ns() {
         let s = UniversalSelector::new(BOGUS_SPAN, SelectorNamespace::Any);
-        let target = SimpleSelector::Type(TypeSelector::new(
-            QualifiedName::new("div".into()),
-            BOGUS_SPAN,
-        ));
+        let target = SimpleSelector::Type(TypeSelector::new(QualifiedName::new("div"), BOGUS_SPAN));
         assert!(s.is_superselector_variant(&target).unwrap());
     }
 
@@ -295,7 +292,7 @@ mod tests {
 
     #[test]
     fn test_universal_selector_to_css_string_with_ns() {
-        let s = UniversalSelector::new(BOGUS_SPAN, SelectorNamespace::named("svg".into()));
+        let s = UniversalSelector::new(BOGUS_SPAN, SelectorNamespace::named("svg"));
         assert_eq!(s.to_css_string(true).unwrap(), "svg|*");
     }
 

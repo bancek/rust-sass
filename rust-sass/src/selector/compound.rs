@@ -309,11 +309,7 @@ mod tests {
         assert!(!c.has_complicated_superselector_semantics());
 
         let pe = SimpleSelector::Pseudo(PseudoSelector::new(
-            "before".into(),
-            BOGUS_SPAN,
-            true,
-            None,
-            None,
+            &arena, "before", BOGUS_SPAN, true, None, None,
         ));
         let c2 = CompoundSelector::new(&arena, vec![pe], BOGUS_SPAN).unwrap();
         assert!(c2.has_complicated_superselector_semantics());

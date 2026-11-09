@@ -447,7 +447,7 @@ impl<'parse> SelectorList<'parse> {
                                     }))
                                 }
                             };
-                            let psel = ps.with_selector(&nested).map_err(|e| {
+                            let psel = ps.with_selector(arena, &nested).map_err(|e| {
                                 e.with_additional_span(
                                     SourceSpanWithContext::from_file_span(&first_simple_span)
                                         .unwrap(),

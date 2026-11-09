@@ -30,7 +30,7 @@ pub struct TypeSelector<'parse> {
     /// The source span covering this selector.
     pub span: FileSpan<'parse>,
     /// The element name being selected.
-    pub name: QualifiedName,
+    pub name: QualifiedName<'parse>,
 }
 
 // Matches Dart: structural equality over the name; the span is excluded.
@@ -44,7 +44,7 @@ impl<'parse> Eq for TypeSelector<'parse> {}
 
 impl<'parse> TypeSelector<'parse> {
     /// Creates a type selector for `name`.
-    pub fn new(name: QualifiedName, span: FileSpan<'parse>) -> Self {
+    pub fn new(name: QualifiedName<'parse>, span: FileSpan<'parse>) -> Self {
         TypeSelector { span, name }
     }
 
@@ -124,14 +124,14 @@ impl<'parse> TypeSelector<'parse> {
     // (`@internal`); kept public here.
     pub fn add_suffix(
         &self,
-        _arena: &'parse Bump,
+        arena: &'parse Bump,
         suffix: &str,
     ) -> SassResult<SimpleSelector<'parse>> {
         Ok(SimpleSelector::Type(TypeSelector {
             span: self.span,
             name: QualifiedName::new_with_namespace(
-                format!("{}{}", self.name.name, suffix),
-                self.name.namespace.clone(),
+                arena.alloc_str(&format!("{}{}", self.name.name, suffix)),
+                self.name.namespace,
             ),
         }))
     }
@@ -199,32 +199,32 @@ mod tests {
 
     #[test]
     fn test_new_type_selector() {
-        let name = QualifiedName::new("div".into());
+        let name = QualifiedName::new("div");
         let s = TypeSelector::new(name, BOGUS_SPAN);
         assert_eq!(s.name.name, "div");
     }
 
     #[test]
     fn test_type_selector_is_invisible() {
-        let s = TypeSelector::new(QualifiedName::new("div".into()), BOGUS_SPAN);
+        let s = TypeSelector::new(QualifiedName::new("div"), BOGUS_SPAN);
         assert!(!s.is_invisible());
     }
 
     #[test]
     fn test_type_selector_is_bogus() {
-        let s = TypeSelector::new(QualifiedName::new("div".into()), BOGUS_SPAN);
+        let s = TypeSelector::new(QualifiedName::new("div"), BOGUS_SPAN);
         assert!(!s.is_bogus());
     }
 
     #[test]
     fn test_type_selector_specificity() {
-        let s = TypeSelector::new(QualifiedName::new("div".into()), BOGUS_SPAN);
+        let s = TypeSelector::new(QualifiedName::new("div"), BOGUS_SPAN);
         assert_eq!(s.specificity(), 1);
     }
 
     #[test]
     fn test_type_selector_add_suffix() {
-        let s = TypeSelector::new(QualifiedName::new("div".into()), BOGUS_SPAN);
+        let s = TypeSelector::new(QualifiedName::new("div"), BOGUS_SPAN);
         let arena = bumpalo::Bump::new();
         let result = s.add_suffix(&arena, "bar").unwrap();
         if let SimpleSelector::Type(ref ts) = result {
@@ -236,26 +236,26 @@ mod tests {
 
     #[test]
     fn test_type_selector_partial_eq() {
-        let s1 = TypeSelector::new(QualifiedName::new("div".into()), BOGUS_SPAN);
-        let s2 = TypeSelector::new(QualifiedName::new("div".into()), BOGUS_SPAN);
+        let s1 = TypeSelector::new(QualifiedName::new("div"), BOGUS_SPAN);
+        let s2 = TypeSelector::new(QualifiedName::new("div"), BOGUS_SPAN);
         assert_eq!(s1, s2);
-        let s3 = TypeSelector::new(QualifiedName::new("span".into()), BOGUS_SPAN);
+        let s3 = TypeSelector::new(QualifiedName::new("span"), BOGUS_SPAN);
         assert_ne!(s1, s3);
     }
 
     #[test]
     fn test_type_selector_hash_code() {
-        let s1 = TypeSelector::new(QualifiedName::new("div".into()), BOGUS_SPAN);
-        let s2 = TypeSelector::new(QualifiedName::new("div".into()), BOGUS_SPAN);
+        let s1 = TypeSelector::new(QualifiedName::new("div"), BOGUS_SPAN);
+        let s2 = TypeSelector::new(QualifiedName::new("div"), BOGUS_SPAN);
         assert_eq!(s1.hash_code(), s2.hash_code());
     }
 
     #[test]
     fn test_type_selector_is_superselector_wildcard_ns() {
         let ns = crate::selector::qualified_name::SelectorNamespace::Any;
-        let name = QualifiedName::new_with_namespace("div".into(), ns);
+        let name = QualifiedName::new_with_namespace("div", ns);
         let s = TypeSelector::new(name, BOGUS_SPAN);
-        let target = TypeSelector::new(QualifiedName::new("div".into()), BOGUS_SPAN);
+        let target = TypeSelector::new(QualifiedName::new("div"), BOGUS_SPAN);
         assert!(s
             .is_superselector_variant(&SimpleSelector::Type(target))
             .unwrap());
@@ -263,13 +263,13 @@ mod tests {
 
     #[test]
     fn test_type_selector_to_css_string() {
-        let s = TypeSelector::new(QualifiedName::new("div".into()), BOGUS_SPAN);
+        let s = TypeSelector::new(QualifiedName::new("div"), BOGUS_SPAN);
         assert_eq!(s.to_css_string(true).unwrap(), "div");
     }
 
     #[test]
     fn test_type_selector_assert_not_bogus() {
-        let s = TypeSelector::new(QualifiedName::new("div".into()), BOGUS_SPAN);
+        let s = TypeSelector::new(QualifiedName::new("div"), BOGUS_SPAN);
         assert!(s.assert_not_bogus(None, None).is_ok());
     }
 }

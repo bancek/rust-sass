@@ -410,7 +410,7 @@ fn prepend_parent<'compile: 'parse, 'parse>(
             comps.push(SimpleSelector::Parent(ParentSelector::new(
                 arena,
                 span,
-                Some(t.name.name.clone()),
+                Some(t.name.name),
             )));
             comps.extend_from_slice(rest);
             Ok(Some(CompoundSelector::new(arena, comps, span)?))

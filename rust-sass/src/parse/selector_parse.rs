@@ -552,7 +552,7 @@ fn simple_selector_impl<'compile: 'parse, 'parse>(
     let start = scanner.state();
 
     match scanner.peek_char(0) {
-        _ if scanner.peek_char(0) == '[' as i32 => attribute_selector_impl(scanner, state),
+        _ if scanner.peek_char(0) == '[' as i32 => attribute_selector_impl(arena, scanner, state),
         _ if scanner.peek_char(0) == '.' as i32 => class_selector_impl(arena, scanner, state),
         _ if scanner.peek_char(0) == '#' as i32 => id_selector_impl(arena, scanner, state),
         _ if scanner.peek_char(0) == '%' as i32 => {
@@ -580,13 +580,14 @@ fn simple_selector_impl<'compile: 'parse, 'parse>(
             }
             Ok(sel)
         }
-        _ => type_or_universal_selector_impl(scanner, state),
+        _ => type_or_universal_selector_impl(arena, scanner, state),
     }
 }
 
 // Consumes an attribute selector: `[name]`, `[name op value]`, and the
 // optional single-letter case modifier (`[foo=bar i]`).
 fn attribute_selector_impl<'parse>(
+    arena: &'parse Bump,
     scanner: &mut SpanScanner<'parse>,
     state: &mut ParserState<'parse>,
 ) -> ParseResult<'parse, SimpleSelector<'parse>> {
@@ -594,7 +595,7 @@ fn attribute_selector_impl<'parse>(
     scanner.expect_char('[')?;
     whitespace_impl(scanner, state, true)?;
 
-    let name = attribute_name_impl(scanner, state)?;
+    let name = attribute_name_impl(arena, scanner, state)?;
 
     whitespace_impl(scanner, state, true)?;
     if scanner.scan_char(']') {
@@ -613,12 +614,13 @@ fn attribute_selector_impl<'parse>(
     } else {
         identifier_impl(scanner, state, false, false)?
     };
+    let value = &*arena.alloc_str(&value);
     whitespace_impl(scanner, state, true)?;
 
     let next = scanner.peek_char(0);
     let modifier = if next >= 0 && character::is_alphabetic(next as u8 as char) {
         let ch = scanner.read_char()?;
-        Some(ch.to_string())
+        Some(&*arena.alloc_str(&ch.to_string()))
     } else {
         None
     };
@@ -634,14 +636,15 @@ fn attribute_selector_impl<'parse>(
 // `|name`, `ns|name`, or a bare name. A `|` followed by `=` is an
 // operator, not a namespace separator.
 fn attribute_name_impl<'parse>(
+    arena: &'parse Bump,
     scanner: &mut SpanScanner<'parse>,
     state: &mut ParserState<'parse>,
-) -> ParseResult<'parse, QualifiedName> {
+) -> ParseResult<'parse, QualifiedName<'parse>> {
     if scanner.scan_char('*') {
         scanner.expect_char('|')?;
         let name = identifier_impl(scanner, state, false, false)?;
         return Ok(QualifiedName::new_with_namespace(
-            name,
+            &*arena.alloc_str(&name),
             SelectorNamespace::Any,
         ));
     }
@@ -649,21 +652,21 @@ fn attribute_name_impl<'parse>(
     if scanner.scan_char('|') {
         let name = identifier_impl(scanner, state, false, false)?;
         return Ok(QualifiedName::new_with_namespace(
-            name,
+            &*arena.alloc_str(&name),
             SelectorNamespace::None,
         ));
     }
 
     let name_or_namespace = identifier_impl(scanner, state, false, false)?;
     if scanner.peek_char(0) != '|' as i32 || scanner.peek_char(1) == '=' as i32 {
-        return Ok(QualifiedName::new(name_or_namespace));
+        return Ok(QualifiedName::new(&*arena.alloc_str(&name_or_namespace)));
     }
 
     scanner.read_char()?; // consume '|'
     let name = identifier_impl(scanner, state, false, false)?;
     Ok(QualifiedName::new_with_namespace(
-        name,
-        SelectorNamespace::named(name_or_namespace),
+        &*arena.alloc_str(&name),
+        SelectorNamespace::named(&*arena.alloc_str(&name_or_namespace)),
     ))
 }
 
@@ -782,7 +785,9 @@ fn parent_selector_impl<'compile: 'parse, 'parse>(
 
     let span = span_from_impl(scanner, state, start)?.file_span()?;
     Ok(SimpleSelector::Parent(ParentSelector::new(
-        arena, span, suffix,
+        arena,
+        span,
+        suffix.as_deref(),
     )))
 }
 
@@ -808,7 +813,7 @@ fn pseudo_selector_impl<'compile: 'parse, 'parse>(
     if !scanner.scan_char('(') {
         let span = span_from_impl(scanner, state, start)?.file_span()?;
         return Ok(SimpleSelector::Pseudo(PseudoSelector::new(
-            name, span, element, None, None,
+            arena, &name, span, element, None, None,
         )));
     }
     whitespace_impl(scanner, state, true)?;
@@ -858,7 +863,12 @@ fn pseudo_selector_impl<'compile: 'parse, 'parse>(
     scanner.expect_char(')')?;
     let span = span_from_impl(scanner, state, start)?.file_span()?;
     Ok(SimpleSelector::Pseudo(PseudoSelector::new(
-        name, span, element, argument, selector,
+        arena,
+        &name,
+        span,
+        element,
+        argument.as_deref(),
+        selector,
     )))
 }
 
@@ -932,6 +942,7 @@ fn a_n_plus_b_impl<'parse>(
 // These are combined because either one could start with `*`
 // (`*`, `*|*`, `*|name`, `|*`, `|name`, `ns|*`, `ns|name`).
 fn type_or_universal_selector_impl<'parse>(
+    arena: &'parse Bump,
     scanner: &mut SpanScanner<'parse>,
     state: &mut ParserState<'parse>,
 ) -> ParseResult<'parse, SimpleSelector<'parse>> {
@@ -955,7 +966,7 @@ fn type_or_universal_selector_impl<'parse>(
         let name = identifier_impl(scanner, state, false, false)?;
         let span = span_from_impl(scanner, state, start)?.file_span()?;
         return Ok(SimpleSelector::Type(TypeSelector::new(
-            QualifiedName::new_with_namespace(name, wildcard),
+            QualifiedName::new_with_namespace(&*arena.alloc_str(&name), wildcard),
             span,
         )));
     }
@@ -971,7 +982,7 @@ fn type_or_universal_selector_impl<'parse>(
         let name = identifier_impl(scanner, state, false, false)?;
         let span = span_from_impl(scanner, state, start)?.file_span()?;
         return Ok(SimpleSelector::Type(TypeSelector::new(
-            QualifiedName::new_with_namespace(name, empty),
+            QualifiedName::new_with_namespace(&*arena.alloc_str(&name), empty),
             span,
         )));
     }
@@ -980,20 +991,23 @@ fn type_or_universal_selector_impl<'parse>(
     if !scanner.scan_char('|') {
         let span = span_from_impl(scanner, state, start)?.file_span()?;
         Ok(SimpleSelector::Type(TypeSelector::new(
-            QualifiedName::new(name_or_namespace),
+            QualifiedName::new(&*arena.alloc_str(&name_or_namespace)),
             span,
         )))
     } else if scanner.scan_char('*') {
         let span = span_from_impl(scanner, state, start)?.file_span()?;
         Ok(SimpleSelector::Universal(UniversalSelector::new(
             span,
-            SelectorNamespace::named(name_or_namespace),
+            SelectorNamespace::named(&*arena.alloc_str(&name_or_namespace)),
         )))
     } else {
         let name = identifier_impl(scanner, state, false, false)?;
         let span = span_from_impl(scanner, state, start)?.file_span()?;
         Ok(SimpleSelector::Type(TypeSelector::new(
-            QualifiedName::new_with_namespace(name, SelectorNamespace::named(name_or_namespace)),
+            QualifiedName::new_with_namespace(
+                &*arena.alloc_str(&name),
+                SelectorNamespace::named(&*arena.alloc_str(&name_or_namespace)),
+            ),
             span,
         )))
     }
@@ -1379,7 +1393,7 @@ mod tests {
         match sel {
             SimpleSelector::Attribute(a) => {
                 assert_eq!(a.name.name, "foo");
-                assert_eq!(a.value.as_deref(), Some("bar"));
+                assert_eq!(a.value, Some("bar"));
             }
             _ => panic!("expected AttributeSelector"),
         }
@@ -1392,7 +1406,7 @@ mod tests {
         let sel = parser.parse_simple_selector().unwrap();
         match sel {
             SimpleSelector::Attribute(a) => {
-                assert_eq!(a.value.as_deref(), Some("bar"));
+                assert_eq!(a.value, Some("bar"));
             }
             _ => panic!("expected AttributeSelector"),
         }
@@ -1427,7 +1441,7 @@ mod tests {
         let sel = parser.parse_simple_selector().unwrap();
         match sel {
             SimpleSelector::Attribute(a) => {
-                assert_eq!(a.modifier.as_deref(), Some("i"));
+                assert_eq!(a.modifier, Some("i"));
             }
             _ => panic!("expected AttributeSelector"),
         }
@@ -1494,7 +1508,7 @@ mod tests {
         match sel {
             SimpleSelector::Type(t) => {
                 assert_eq!(t.name.name, "div");
-                assert_eq!(t.name.namespace, SelectorNamespace::named("ns".into()));
+                assert_eq!(t.name.namespace, SelectorNamespace::named("ns"));
             }
             _ => panic!("expected TypeSelector"),
         }
@@ -1657,7 +1671,7 @@ mod tests {
         let sel = parser.parse_simple_selector().unwrap();
         match sel {
             SimpleSelector::Pseudo(p) => {
-                assert_eq!(p.argument.as_deref(), Some("even"));
+                assert_eq!(p.argument, Some("even"));
             }
             _ => panic!("expected PseudoSelector"),
         }
@@ -1670,7 +1684,7 @@ mod tests {
         let sel = parser.parse_simple_selector().unwrap();
         match sel {
             SimpleSelector::Pseudo(p) => {
-                assert_eq!(p.argument.as_deref(), Some("odd"));
+                assert_eq!(p.argument, Some("odd"));
             }
             _ => panic!("expected PseudoSelector"),
         }
@@ -1683,7 +1697,7 @@ mod tests {
         let sel = parser.parse_simple_selector().unwrap();
         match sel {
             SimpleSelector::Pseudo(p) => {
-                assert_eq!(p.argument.as_deref(), Some("+n"));
+                assert_eq!(p.argument, Some("+n"));
             }
             _ => panic!("expected PseudoSelector"),
         }
@@ -1696,7 +1710,7 @@ mod tests {
         let sel = parser.parse_simple_selector().unwrap();
         match sel {
             SimpleSelector::Pseudo(p) => {
-                assert_eq!(p.argument.as_deref(), Some("-n"));
+                assert_eq!(p.argument, Some("-n"));
             }
             _ => panic!("expected PseudoSelector"),
         }
@@ -1709,7 +1723,7 @@ mod tests {
         let sel = parser.parse_simple_selector().unwrap();
         match sel {
             SimpleSelector::Pseudo(p) => {
-                assert_eq!(p.argument.as_deref(), Some("2n"));
+                assert_eq!(p.argument, Some("2n"));
             }
             _ => panic!("expected PseudoSelector"),
         }
@@ -1722,7 +1736,7 @@ mod tests {
         let sel = parser.parse_simple_selector().unwrap();
         match sel {
             SimpleSelector::Pseudo(p) => {
-                assert_eq!(p.argument.as_deref(), Some("2n+1"));
+                assert_eq!(p.argument, Some("2n+1"));
             }
             _ => panic!("expected PseudoSelector"),
         }
@@ -1735,7 +1749,7 @@ mod tests {
         let sel = parser.parse_simple_selector().unwrap();
         match sel {
             SimpleSelector::Pseudo(p) => {
-                assert_eq!(p.argument.as_deref(), Some("5"));
+                assert_eq!(p.argument, Some("5"));
             }
             _ => panic!("expected PseudoSelector"),
         }
@@ -1748,7 +1762,7 @@ mod tests {
         let sel = parser.parse_simple_selector().unwrap();
         match sel {
             SimpleSelector::Pseudo(p) => {
-                assert_eq!(p.argument.as_deref(), Some("n+3"));
+                assert_eq!(p.argument, Some("n+3"));
             }
             _ => panic!("expected PseudoSelector"),
         }
@@ -1853,7 +1867,7 @@ mod tests {
         let sel = parser.parse_simple_selector().unwrap();
         match sel {
             SimpleSelector::Pseudo(p) => {
-                assert_eq!(p.argument.as_deref(), Some("even"));
+                assert_eq!(p.argument, Some("even"));
             }
             _ => panic!("expected PseudoSelector"),
         }
@@ -1866,7 +1880,7 @@ mod tests {
         let sel = parser.parse_simple_selector().unwrap();
         match sel {
             SimpleSelector::Pseudo(p) => {
-                assert_eq!(p.argument.as_deref(), Some("en-us"));
+                assert_eq!(p.argument, Some("en-us"));
                 assert!(p.selector.is_none());
             }
             _ => panic!("expected PseudoSelector"),

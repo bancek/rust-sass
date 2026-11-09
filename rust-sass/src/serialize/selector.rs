@@ -190,8 +190,8 @@ pub(crate) fn visit_attribute_selector_impl(
     if let Some(ref op) = attr.op {
         write!(buf, "{}", op).unwrap();
         if let Some(ref value) = attr.value {
-            let is_ident = try_css_identifier(value).as_deref() == Some(value.as_str())
-                && !value.starts_with("--");
+            let is_ident =
+                try_css_identifier(value).as_deref() == Some(*value) && !value.starts_with("--");
             if is_ident {
                 write!(buf, "{}", value).unwrap();
                 if attr.modifier.is_some() {
@@ -263,7 +263,7 @@ pub(crate) fn visit_pseudo_selector_impl(
     if !pseudo.is_syntactic_class {
         buf.write_char(':').unwrap();
     }
-    write!(buf, "{}", to_css_identifier(&pseudo.name)?).unwrap();
+    write!(buf, "{}", to_css_identifier(pseudo.name)?).unwrap();
     if pseudo.argument.is_none() && pseudo.selector.is_none() {
         return Ok(());
     }
@@ -366,9 +366,9 @@ mod tests {
     #[rust_sass_macros::maybe_test]
     async fn test_attribute_selector_empty_value_is_quoted() {
         let attr = AttributeSelector::new_with_operator(
-            QualifiedName::new("a".into()),
+            QualifiedName::new("a"),
             AttributeOperator::Equal,
-            String::new(),
+            "",
             BOGUS_SPAN,
             None,
         );

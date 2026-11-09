@@ -366,7 +366,7 @@ impl<'parse> SimpleSelector<'parse> {
             if p.is_class {
                 if let Some(ref sel) = p.selector {
                     if let Selector::List(ref list) = sel.as_ref() {
-                        let n = &p.normalized_name;
+                        let n = p.normalized_name;
                         if n == "is"
                             || n == "matches"
                             || n == "where"

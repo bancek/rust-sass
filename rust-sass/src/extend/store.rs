@@ -1475,7 +1475,7 @@ fn extend_pseudo<'compile: 'parse, 'parse>(
                     continue;
                 }
             };
-            match pseudo.normalized_name.as_str() {
+            match pseudo.normalized_name {
                 "not" => {
                     if ip.normalized_name == "is"
                         || ip.normalized_name == "matches"
@@ -1503,7 +1503,7 @@ fn extend_pseudo<'compile: 'parse, 'parse>(
         let mut r: Vec<SimpleSelector<'parse>> = Vec::new();
         for c in &result_comps {
             let lst = SelectorList::new(arena, vec![c.clone()], sel_span)?;
-            r.push(SimpleSelector::Pseudo(pseudo.with_selector(&lst)?));
+            r.push(SimpleSelector::Pseudo(pseudo.with_selector(arena, &lst)?));
         }
         if r.is_empty() {
             Ok(None)
@@ -1513,7 +1513,7 @@ fn extend_pseudo<'compile: 'parse, 'parse>(
     } else {
         let lst = SelectorList::new(arena, result_comps, sel_span)?;
         Ok(Some(vec![SimpleSelector::Pseudo(
-            pseudo.with_selector(&lst)?,
+            pseudo.with_selector(arena, &lst)?,
         )]))
     }
 }

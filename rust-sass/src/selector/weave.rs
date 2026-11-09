@@ -433,7 +433,7 @@ fn first_if_rootish<'parse>(
     if let Some(first) = q.front() {
         for s in first.selector.components {
             if let SimpleSelector::Pseudo(ref ps) = s {
-                if ps.is_class && ROOTISH_PSEUDO_CLASSES.contains(&ps.normalized_name.as_str()) {
+                if ps.is_class && ROOTISH_PSEUDO_CLASSES.contains(&ps.normalized_name) {
                     return q.pop_front();
                 }
             }
@@ -1217,9 +1217,9 @@ pub fn selector_pseudo_is_superselector<'parse>(
         _ => return Ok(false),
     };
 
-    match p.normalized_name.as_str() {
+    match p.normalized_name {
         "is" | "matches" | "any" | "where" => {
-            for arg in selector_pseudo_args(c2, p.name.as_str(), true) {
+            for arg in selector_pseudo_args(c2, p.name, true) {
                 if l1.is_superselector(arg)? {
                     return Ok(true);
                 }
@@ -1248,7 +1248,7 @@ pub fn selector_pseudo_is_superselector<'parse>(
         }
 
         "has" | "host" | "host-context" => {
-            for arg in selector_pseudo_args(c2, p.name.as_str(), true) {
+            for arg in selector_pseudo_args(c2, p.name, true) {
                 if l1.is_superselector(arg)? {
                     return Ok(true);
                 }
@@ -1257,7 +1257,7 @@ pub fn selector_pseudo_is_superselector<'parse>(
         }
 
         "slotted" => {
-            for arg in selector_pseudo_args(c2, &p.name, false) {
+            for arg in selector_pseudo_args(c2, p.name, false) {
                 if l1.is_superselector(arg)? {
                     return Ok(true);
                 }
@@ -1326,7 +1326,7 @@ pub fn selector_pseudo_is_superselector<'parse>(
         }
 
         "current" => {
-            for arg in selector_pseudo_args(c2, p.name.as_str(), true) {
+            for arg in selector_pseudo_args(c2, p.name, true) {
                 if arg == l1 {
                     return Ok(true);
                 }
