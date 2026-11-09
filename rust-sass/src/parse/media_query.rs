@@ -15,6 +15,8 @@
 //! query shape should be mirrored there and vice versa. Newline handling
 //! is irrelevant here (`consume_newlines` is always true).
 
+use bumpalo::Bump;
+
 use crate::ast::css::media_query::CssMediaQuery;
 use crate::ast::sass::interpolation_map::InterpolationMap;
 use crate::common::source_span_file_source::FileSource;
@@ -35,12 +37,14 @@ use crate::parse::stylesheet::Syntax;
 /// interpolation site.
 pub struct CssMediaQueryParser<'parse> {
     parser: Parser<'parse>,
+    arena: &'parse Bump,
 }
 
 impl<'parse> CssMediaQueryParser<'parse> {
-    pub fn new(source: &'parse FileSource<'parse>) -> Self {
+    pub fn new(arena: &'parse Bump, source: &'parse FileSource<'parse>) -> Self {
         CssMediaQueryParser {
             parser: Parser::new(source, Syntax::Scss, None),
+            arena,
         }
     }
 
@@ -49,11 +53,13 @@ impl<'parse> CssMediaQueryParser<'parse> {
     /// interpolation point back at the interpolation site (with the
     /// "error in interpolated output" secondary span).
     pub fn new_with_map(
+        arena: &'parse Bump,
         source: &'parse FileSource<'parse>,
         interpolation_map: Option<&'parse InterpolationMap<'parse>>,
     ) -> Self {
         CssMediaQueryParser {
             parser: Parser::new(source, Syntax::Scss, interpolation_map),
+            arena,
         }
     }
 
@@ -70,7 +76,7 @@ impl<'parse> CssMediaQueryParser<'parse> {
                 let mut queries = Vec::new();
                 loop {
                     whitespace_impl(scanner, state, true)?;
-                    let q = _media_query_impl(scanner, state)?;
+                    let q = _media_query_impl(scanner, state, self.arena)?;
                     queries.push(q);
                     whitespace_impl(scanner, state, true)?;
                     if !scanner.scan_char(',') {
@@ -92,6 +98,7 @@ impl<'parse> CssMediaQueryParser<'parse> {
 fn _media_query_impl<'parse>(
     scanner: &mut SpanScanner<'parse>,
     state: &mut ParserState<'parse>,
+    arena: &'parse Bump,
 ) -> ParseResult<'parse, CssMediaQuery<'parse>> {
     let start = scanner.state();
     macro_rules! span {
@@ -122,7 +129,9 @@ fn _media_query_impl<'parse>(
             conditions.extend(seq);
         }
 
-        return Ok(CssMediaQuery::new_condition(conditions, span!(), Some(conjunction)).unwrap());
+        return Ok(
+            CssMediaQuery::new_condition(arena, conditions, span!(), Some(conjunction)).unwrap(),
+        );
     }
 
     let identifier1 = identifier_impl(scanner, state, false, false)?;
@@ -131,15 +140,20 @@ fn _media_query_impl<'parse>(
         expect_whitespace_impl(scanner, state, false)?;
         if !looking_at_identifier(scanner, None) {
             let cond = _media_in_parens_impl(scanner, state)?;
-            return Ok(
-                CssMediaQuery::new_condition(vec![format!("(not {cond})")], span!(), None).unwrap(),
-            );
+            return Ok(CssMediaQuery::new_condition(
+                arena,
+                vec![format!("(not {cond})")],
+                span!(),
+                None,
+            )
+            .unwrap());
         }
     }
 
     whitespace_impl(scanner, state, true)?;
     if !looking_at_identifier(scanner, None) {
         return Ok(CssMediaQuery::new_type(
+            arena,
             Some(identifier1),
             span!(),
             None,
@@ -156,6 +170,7 @@ fn _media_query_impl<'parse>(
             expect_whitespace_impl(scanner, state, false)?;
             let cond = _media_in_parens_impl(scanner, state)?;
             return Ok(CssMediaQuery::new_type(
+                arena,
                 Some(identifier1),
                 span!(),
                 None,
@@ -164,6 +179,7 @@ fn _media_query_impl<'parse>(
         }
         let seq = _media_logic_sequence_impl(scanner, state, "and")?;
         return Ok(CssMediaQuery::new_type(
+            arena,
             Some(identifier1),
             span!(),
             None,
@@ -175,6 +191,7 @@ fn _media_query_impl<'parse>(
     // identifier1 is modifier, identifier2 is type
     if !scan_identifier_impl(scanner, "and", false)? {
         return Ok(CssMediaQuery::new_type(
+            arena,
             Some(identifier2),
             span!(),
             Some(identifier1),
@@ -187,6 +204,7 @@ fn _media_query_impl<'parse>(
         expect_whitespace_impl(scanner, state, false)?;
         let cond = _media_in_parens_impl(scanner, state)?;
         return Ok(CssMediaQuery::new_type(
+            arena,
             Some(identifier2),
             span!(),
             Some(identifier1),
@@ -196,6 +214,7 @@ fn _media_query_impl<'parse>(
 
     let seq = _media_logic_sequence_impl(scanner, state, "and")?;
     Ok(CssMediaQuery::new_type(
+        arena,
         Some(identifier2),
         span!(),
         Some(identifier1),
@@ -263,7 +282,7 @@ mod tests {
         'parse: 'compile,
     {
         let fs = FileSource::new_in(arena, text, None);
-        CssMediaQueryParser::new(fs)
+        CssMediaQueryParser::new(arena, fs)
     }
 
     #[test]
@@ -272,7 +291,7 @@ mod tests {
         let mut parser = make_parser(&arena, "screen");
         let queries = parser.parse().unwrap();
         assert_eq!(queries.len(), 1);
-        assert_eq!(queries[0].media_type.as_deref(), Some("screen"));
+        assert_eq!(queries[0].media_type, Some("screen"));
     }
 
     #[test]
@@ -280,8 +299,8 @@ mod tests {
         let arena = Bump::new();
         let mut parser = make_parser(&arena, "only screen");
         let queries = parser.parse().unwrap();
-        assert_eq!(queries[0].modifier.as_deref(), Some("only"));
-        assert_eq!(queries[0].media_type.as_deref(), Some("screen"));
+        assert_eq!(queries[0].modifier, Some("only"));
+        assert_eq!(queries[0].media_type, Some("screen"));
     }
 
     #[test]
@@ -305,7 +324,7 @@ mod tests {
         let arena = Bump::new();
         let mut parser = make_parser(&arena, "screen and (color)");
         let queries = parser.parse().unwrap();
-        assert_eq!(queries[0].media_type.as_deref(), Some("screen"));
+        assert_eq!(queries[0].media_type, Some("screen"));
         assert_eq!(queries[0].conditions, vec!["(color)"]);
     }
 
@@ -340,8 +359,8 @@ mod tests {
         let arena = Bump::new();
         let mut parser = make_parser(&arena, "only screen and not (color)");
         let queries = parser.parse().unwrap();
-        assert_eq!(queries[0].modifier.as_deref(), Some("only"));
-        assert_eq!(queries[0].media_type.as_deref(), Some("screen"));
+        assert_eq!(queries[0].modifier, Some("only"));
+        assert_eq!(queries[0].media_type, Some("screen"));
         assert_eq!(queries[0].conditions, vec!["(not (color))"]);
     }
 
@@ -359,8 +378,8 @@ mod tests {
         let mut parser = make_parser(&arena, "not screen");
         let queries = parser.parse().unwrap();
         assert_eq!(queries.len(), 1);
-        assert_eq!(queries[0].modifier.as_deref(), Some("not"));
-        assert_eq!(queries[0].media_type.as_deref(), Some("screen"));
+        assert_eq!(queries[0].modifier, Some("not"));
+        assert_eq!(queries[0].media_type, Some("screen"));
     }
 
     #[test]
@@ -368,8 +387,8 @@ mod tests {
         let arena = Bump::new();
         let mut parser = make_parser(&arena, "only screen");
         let queries = parser.parse().unwrap();
-        assert_eq!(queries[0].modifier.as_deref(), Some("only"));
-        assert_eq!(queries[0].media_type.as_deref(), Some("screen"));
+        assert_eq!(queries[0].modifier, Some("only"));
+        assert_eq!(queries[0].media_type, Some("screen"));
     }
 
     #[test]
@@ -427,8 +446,8 @@ mod tests {
         let arena = Bump::new();
         let mut parser = make_parser(&arena, "only screen and (color)");
         let queries = parser.parse().unwrap();
-        assert_eq!(queries[0].modifier.as_deref(), Some("only"));
-        assert_eq!(queries[0].media_type.as_deref(), Some("screen"));
+        assert_eq!(queries[0].modifier, Some("only"));
+        assert_eq!(queries[0].media_type, Some("screen"));
         assert_eq!(queries[0].conditions.len(), 1);
     }
 
@@ -437,7 +456,7 @@ mod tests {
         let arena = Bump::new();
         let mut parser = make_parser(&arena, "screen and not (color)");
         let queries = parser.parse().unwrap();
-        assert_eq!(queries[0].media_type.as_deref(), Some("screen"));
+        assert_eq!(queries[0].media_type, Some("screen"));
         assert_eq!(queries[0].modifier, None);
         assert_eq!(queries[0].conditions, vec!["(not (color))"]);
     }

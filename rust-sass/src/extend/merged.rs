@@ -251,12 +251,14 @@ mod tests {
         let extender = make_complex("a");
         let target = class("b");
         let mc1 = vec![CssMediaQuery::new_type(
+            &arena,
             Some("screen".into()),
             left_media_span,
             None,
             vec![],
         )];
         let mc2 = vec![CssMediaQuery::new_type(
+            &arena,
             Some("print".into()),
             right_media_span,
             None,

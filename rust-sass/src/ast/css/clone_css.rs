@@ -432,8 +432,8 @@ mod tests {
         SelectorList::new(arena, vec![complex], span).unwrap()
     }
 
-    fn make_css_media_query<'parse>(cond: &str) -> CssMediaQuery<'parse> {
-        CssMediaQuery::new_condition(vec![cond.into()], BOGUS_SPAN, None).unwrap()
+    fn make_css_media_query<'parse>(arena: &'parse Bump, cond: &str) -> CssMediaQuery<'parse> {
+        CssMediaQuery::new_condition(arena, vec![cond.into()], BOGUS_SPAN, None).unwrap()
     }
 
     fn make_stylesheet<'compile, 'parse>(arena: &'compile Bump) -> ModifiableCssNode<'parse>
@@ -631,8 +631,12 @@ mod tests {
         let media = ModifiableCssNode::new(
             &arena,
             ModifiableCssNodeKind::MediaRule(
-                ModifiableCssMediaRule::new(&arena, vec![make_css_media_query("(color)")], span)
-                    .unwrap(),
+                ModifiableCssMediaRule::new(
+                    &arena,
+                    vec![make_css_media_query(&arena, "(color)")],
+                    span,
+                )
+                .unwrap(),
             ),
         );
         let comment = ModifiableCssNode::new(
@@ -738,8 +742,12 @@ mod tests {
         let media = ModifiableCssNode::new(
             &arena,
             ModifiableCssNodeKind::MediaRule(
-                ModifiableCssMediaRule::new(&arena, vec![make_css_media_query("(color)")], span)
-                    .unwrap(),
+                ModifiableCssMediaRule::new(
+                    &arena,
+                    vec![make_css_media_query(&arena, "(color)")],
+                    span,
+                )
+                .unwrap(),
             ),
         );
         let sel_inner = make_selector_list(&arena, ".inner");
@@ -846,7 +854,7 @@ mod tests {
             ModifiableCssNodeKind::MediaRule(
                 ModifiableCssMediaRule::new(
                     &arena,
-                    vec![make_css_media_query("(min-width: 1px)")],
+                    vec![make_css_media_query(&arena, "(min-width: 1px)")],
                     span,
                 )
                 .unwrap(),

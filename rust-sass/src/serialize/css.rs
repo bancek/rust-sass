@@ -480,7 +480,7 @@ fn visit_media_query(
         write!(buf, "{}", modifier).unwrap();
         buf.write_char(' ').unwrap();
     }
-    if let Some(ref media_type) = query.media_type {
+    if let Some(media_type) = query.media_type {
         write!(buf, "{}", to_css_identifier(media_type)?).unwrap();
         if !query.conditions.is_empty() {
             buf.write_str(" and ").unwrap();

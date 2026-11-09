@@ -572,6 +572,7 @@ mod tests {
 
     #[test]
     fn test_assert_compatible_media_context_extender_has_no_media_context() {
+        let _arena = Bump::new();
         let extender = make_complex("a");
         let ex = Extender::new(extender, None, false);
         let mc = vec![CssMediaQuery::test_type(
@@ -585,6 +586,7 @@ mod tests {
 
     #[test]
     fn test_assert_compatible_media_context_matching() {
+        let _arena = Bump::new();
         let extender = make_complex("a");
         let mc = vec![CssMediaQuery::test_type(
             Some("screen".into()),
@@ -611,12 +613,14 @@ mod tests {
 
         let extender = make_complex("a");
         let mc1 = vec![CssMediaQuery::new_type(
+            &arena,
             Some("screen".into()),
             extension_media_span,
             None,
             vec![],
         )];
         let mc2 = vec![CssMediaQuery::new_type(
+            &arena,
             Some("print".into()),
             extended_span,
             None,

@@ -1686,7 +1686,7 @@ where
 
     // Merge queries with parent media context if present.
     let (rule_queries, merged_sources) = if let Some(ref mq) = state.media_queries {
-        match merge_media_queries(mq, &css_queries) {
+        match merge_media_queries(arena, mq, &css_queries) {
             None => (css_queries, vec![]),
             Some(m) if m.is_empty() => {
                 return Ok(None);

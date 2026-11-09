@@ -714,7 +714,7 @@ where
     }
 
     let (merged_queries, merged_sources) = if let Some(ref mq) = state.media_queries {
-        match helpers::merge_media_queries(mq, &node.queries) {
+        match helpers::merge_media_queries(arena, mq, &node.queries) {
             None => {
                 // Unrepresentable — use original queries, empty sources
                 (Some(node.queries.clone()), Some(vec![]))

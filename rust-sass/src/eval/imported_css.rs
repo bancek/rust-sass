@@ -270,7 +270,7 @@ where
     // Dart: hasBeenMerged = mediaQueries == null || _mergeMediaQueries(mediaQueries, node.queries) != null
     let has_been_merged = match &state.media_queries {
         None => true,
-        Some(mq) => helpers::merge_media_queries(mq, &node.queries).is_some(),
+        Some(mq) => helpers::merge_media_queries(arena, mq, &node.queries).is_some(),
     };
 
     let through: &dyn Fn(&ModifiableCssNode<'parse>) -> bool =
