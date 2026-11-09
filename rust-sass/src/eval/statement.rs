@@ -703,8 +703,10 @@ where
         let mut kp = KeyframeSelectorParser::new_with_map(source, Some(selector_map));
         let parsed = kp.parse()?;
         let selector_span = selector.span()?;
-        let rule =
-            ModifiableCssKeyframeBlock::new(arena, CssValue::new(parsed, selector_span), node.span);
+        let selector: Vec<&'parse str> = parsed.iter().map(|s| &*arena.alloc_str(s)).collect();
+        let selector: &'parse [&'parse str] = &*arena.alloc_slice_fill_iter(selector);
+        let selector = CssValue::new(selector, selector_span);
+        let rule = ModifiableCssKeyframeBlock::new(arena, selector, node.span);
         let rule_node = ModifiableCssNode::new(arena, ModifiableCssNodeKind::KeyframeBlock(rule));
         let through: Option<&dyn Fn(&ModifiableCssNode<'parse>) -> bool> =
             Some(&|n| n.is_style_rule());
@@ -1380,12 +1382,12 @@ where
             Import::Static(s) => {
                 let url_str = perform_interpolation(config, state, arena, &s.url, false).await?;
                 let url_span = s.url.span()?;
-                let url_val = CssValue::new(url_str, url_span);
+                let url_val = CssValue::new(&*arena.alloc_str(&url_str), url_span);
                 let modifiers = if let Some(ref mod_interp) = s.modifiers {
                     let mod_str =
                         perform_interpolation(config, state, arena, mod_interp, false).await?;
                     let mod_span = mod_interp.span()?;
-                    Some(CssValue::new(mod_str, mod_span))
+                    Some(CssValue::new(&*arena.alloc_str(&mod_str), mod_span))
                 } else {
                     None
                 };
@@ -2263,15 +2265,18 @@ where
     }
 
     let name_text = perform_interpolation(config, state, arena, &node.name, true).await?;
-    let name = CssValue::new(name_text, node.span);
+    let name = CssValue::new(&*arena.alloc_str(&name_text), node.span);
 
     let full_name = if let Some(ref prefix) = state.declaration_name {
-        CssValue::new(format!("{prefix}-{}", name.value), node.span)
+        CssValue::new(
+            &*arena.alloc_str(&format!("{prefix}-{}", name.value)),
+            node.span,
+        )
     } else {
         name
     };
 
-    let decl_name_text = full_name.value.clone();
+    let decl_name_text = full_name.value;
 
     if let Some(ref value_expr) = node.value {
         let val = evaluate_expression(config, state, arena, value_expr).await?;
@@ -2307,7 +2312,7 @@ where
     if let Some(children) = node.children {
         if !children.is_empty() {
             let old_declaration_name = state.declaration_name.clone();
-            state.declaration_name = Some(decl_name_text);
+            state.declaration_name = Some(decl_name_text.to_string());
 
             let env = state.env;
             env.scope(
@@ -2704,13 +2709,13 @@ where
 
     // Evaluate the name interpolation
     let name_text = perform_interpolation(config, state, arena, &node.name, false).await?;
-    let name = CssValue::new(name_text, node.name.span()?);
+    let name = CssValue::new(&*arena.alloc_str(&name_text), node.name.span()?);
 
     // Evaluate value interpolation if present
     let value = if let Some(ref v) = node.value {
         let text = perform_interpolation(config, state, arena, v, true).await?;
         let trimmed = trim_ascii(&text, true);
-        Some(CssValue::new(trimmed, v.span()?))
+        Some(CssValue::new(&*arena.alloc_str(&trimmed), v.span()?))
     } else {
         None
     };
@@ -2731,8 +2736,8 @@ where
 
     let old_in_unknown = state.in_unknown_at_rule;
     let old_in_keyframes = state.in_keyframes;
-    let name_value = name.value.clone();
-    if unvendor(&name_value) == "keyframes" {
+    let name_value = name.value;
+    if unvendor(name_value) == "keyframes" {
         state.in_keyframes = true;
     } else {
         state.in_unknown_at_rule = true;
@@ -3977,7 +3982,7 @@ where
 
     let condition_text = visit_supports_condition(config, state, arena, &node.condition).await?;
     let cond_span = node.condition.span()?;
-    let condition = CssValue::new(condition_text, cond_span);
+    let condition = CssValue::new(&*arena.alloc_str(&condition_text), cond_span);
     let rule = ModifiableCssNode::new(
         arena,
         ModifiableCssNodeKind::SupportsRule(ModifiableCssSupportsRule::new(
@@ -4921,8 +4926,7 @@ mod tests {
         let span = make_span(&arena, ".bar");
         let (config, mut state) = test_visitor_with_root_and_stylesheet(&arena, false);
         state.in_keyframes = true;
-        let kfb =
-            ModifiableCssKeyframeBlock::new(&arena, CssValue::new(vec!["from".into()], span), span);
+        let kfb = ModifiableCssKeyframeBlock::new(&arena, CssValue::new(&["from"][..], span), span);
         state.parent = Some(ModifiableCssNode::new(
             &arena,
             ModifiableCssNodeKind::KeyframeBlock(kfb),

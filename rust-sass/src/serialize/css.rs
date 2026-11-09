@@ -248,7 +248,7 @@ fn visit_css_at_rule_impl<'parse>(
         // except `@font-face` (declarations stay space-joined like style
         // rules); in COMPACT that is the special linefeed, elsewhere both
         // helpers emit the same LF.
-        if node.name.value.as_str() == "font-face" {
+        if node.name.value == "font-face" {
             visit_children(buf, state, &node.children, node.span)?;
         } else {
             visit_children_special(buf, state, &node.children, node.span)?;
@@ -305,7 +305,7 @@ fn visit_css_import_impl<'parse>(
         buf.write_str("@import").unwrap();
         state.write_optional_space(buf);
         for_node(buf, state, &node.url, |buf, state| {
-            write_import_url(buf, state, &node.url.value);
+            write_import_url(buf, state, node.url.value);
             Ok(())
         })?;
         if let Some(ref modifiers) = node.modifiers {
@@ -327,7 +327,7 @@ fn visit_css_keyframe_block_impl<'parse>(
     state.write_indentation(buf);
     for_node(buf, state, &node.selector, |buf, state| {
         let sep = state.comma_sep();
-        write_between(buf, node.selector.value.as_slice(), sep, |buf, s| {
+        write_between(buf, node.selector.value, sep, |buf, s| {
             write!(buf, "{}", s).unwrap();
             Ok(())
         })

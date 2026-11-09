@@ -18,9 +18,9 @@ use crate::common::file_span::FileSpan;
 #[derive(Clone, Debug)]
 pub struct CssImport<'parse> {
     /// The URL being imported, including quotes.
-    pub url: CssValue<'parse, String>,
+    pub url: CssValue<'parse, &'parse str>,
     /// The modifiers (such as media or supports queries) attached to this import.
-    pub modifiers: Option<CssValue<'parse, String>>,
+    pub modifiers: Option<CssValue<'parse, &'parse str>>,
     /// The source span for this import.
     pub span: FileSpan<'parse>,
     /// Whether this node was the last in a nested Sass tree flattened during
@@ -31,9 +31,9 @@ pub struct CssImport<'parse> {
 impl<'parse> CssImport<'parse> {
     /// Creates an `@import` with optional modifiers.
     pub fn new(
-        url: CssValue<'parse, String>,
+        url: CssValue<'parse, &'parse str>,
         span: FileSpan<'parse>,
-        modifiers: Option<CssValue<'parse, String>>,
+        modifiers: Option<CssValue<'parse, &'parse str>>,
     ) -> Self {
         CssImport {
             url,
@@ -69,9 +69,9 @@ impl<'parse> fmt::Display for CssImport<'parse> {
 #[derive(Clone, Debug)]
 pub struct ModifiableCssImport<'parse> {
     /// The URL being imported, including quotes.
-    pub url: CssValue<'parse, String>,
+    pub url: CssValue<'parse, &'parse str>,
     /// The modifiers (such as media or supports queries) attached to this import.
-    pub modifiers: Option<CssValue<'parse, String>>,
+    pub modifiers: Option<CssValue<'parse, &'parse str>>,
     /// The source span for this import.
     pub span: FileSpan<'parse>,
 }
@@ -118,12 +118,12 @@ mod tests {
         FileSpan::new(Some(fs), 0, text.len())
     }
 
-    fn make_val<'compile, 'parse>(arena: &'compile Bump, s: &str) -> CssValue<'parse, String>
+    fn make_val<'compile, 'parse>(arena: &'compile Bump, s: &str) -> CssValue<'parse, &'parse str>
     where
         'compile: 'parse,
         'parse: 'compile,
     {
-        CssValue::new(s.into(), make_span(arena, s))
+        CssValue::new(&*arena.alloc_str(s), make_span(arena, s))
     }
 
     #[test]

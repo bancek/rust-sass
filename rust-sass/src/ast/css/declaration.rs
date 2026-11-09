@@ -19,7 +19,7 @@ use crate::value::{Value, ValueKind};
 #[derive(Clone, Debug)]
 pub struct CssDeclaration<'parse> {
     /// The name of this declaration.
-    pub name: CssValue<'parse, String>,
+    pub name: CssValue<'parse, &'parse str>,
     /// The value of this declaration.
     pub value: CssValue<'parse, Value<'parse>>,
     /// Whether this property's value was originally parsed as SassScript, as
@@ -52,7 +52,7 @@ impl<'parse> CssDeclaration<'parse> {
     /// span. Fails when `parsed_as_sass_script` is `false` but `value` does
     /// not hold a SassString.
     pub fn new(
-        name: CssValue<'parse, String>,
+        name: CssValue<'parse, &'parse str>,
         value: CssValue<'parse, Value<'parse>>,
         span: FileSpan<'parse>,
         parsed_as_sass_script: bool,
@@ -109,7 +109,7 @@ impl<'parse> fmt::Display for CssDeclaration<'parse> {
 #[derive(Clone, Debug)]
 pub struct ModifiableCssDeclaration<'parse> {
     /// The name of this declaration.
-    pub name: CssValue<'parse, String>,
+    pub name: CssValue<'parse, &'parse str>,
     /// The value of this declaration.
     pub value: CssValue<'parse, Value<'parse>>,
     /// Whether this property's value was originally parsed as SassScript.
@@ -127,7 +127,7 @@ impl<'parse> ModifiableCssDeclaration<'parse> {
     /// Creates a modifiable declaration, with the same SassString requirement
     /// and span fallback as [`CssDeclaration::new`].
     pub fn new(
-        name: CssValue<'parse, String>,
+        name: CssValue<'parse, &'parse str>,
         value: CssValue<'parse, Value<'parse>>,
         span: FileSpan<'parse>,
         parsed_as_sass_script: bool,
@@ -194,12 +194,12 @@ mod tests {
         FileSpan::new(Some(fs), 0, text.len())
     }
 
-    fn make_val<'compile, 'parse>(arena: &'compile Bump, s: &str) -> CssValue<'parse, String>
+    fn make_val<'compile, 'parse>(arena: &'compile Bump, s: &str) -> CssValue<'parse, &'parse str>
     where
         'compile: 'parse,
         'parse: 'compile,
     {
-        CssValue::new(s.into(), make_span(arena, s))
+        CssValue::new(&*arena.alloc_str(s), make_span(arena, s))
     }
 
     #[test]

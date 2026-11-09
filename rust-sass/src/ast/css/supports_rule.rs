@@ -24,7 +24,7 @@ use crate::ast::css::node::CssNode;
 #[derive(Clone, Debug)]
 pub struct CssSupportsRule<'parse> {
     /// The supports condition.
-    pub condition: CssValue<'parse, String>,
+    pub condition: CssValue<'parse, &'parse str>,
     /// The child statements of this rule.
     pub children: Vec<CssNode<'parse>>,
     /// The source span for this rule.
@@ -39,7 +39,7 @@ pub struct CssSupportsRule<'parse> {
 
 impl<'parse> CssSupportsRule<'parse> {
     /// Creates a supports rule with no children yet.
-    pub fn new(condition: CssValue<'parse, String>, span: FileSpan<'parse>) -> Self {
+    pub fn new(condition: CssValue<'parse, &'parse str>, span: FileSpan<'parse>) -> Self {
         CssSupportsRule {
             condition,
             children: Vec::new(),
@@ -76,7 +76,7 @@ impl<'parse> fmt::Display for CssSupportsRule<'parse> {
 #[derive(Clone, Debug)]
 pub struct ModifiableCssSupportsRule<'parse> {
     /// The supports condition.
-    pub condition: CssValue<'parse, String>,
+    pub condition: CssValue<'parse, &'parse str>,
     /// The source span for this rule.
     pub span: FileSpan<'parse>,
     /// The child statements of this rule.
@@ -87,7 +87,7 @@ impl<'parse> ModifiableCssSupportsRule<'parse> {
     /// Creates a modifiable supports rule with no children yet.
     pub fn new(
         arena: &'parse Bump,
-        condition: CssValue<'parse, String>,
+        condition: CssValue<'parse, &'parse str>,
         span: FileSpan<'parse>,
     ) -> Self {
         ModifiableCssSupportsRule {
@@ -135,7 +135,7 @@ mod tests {
         let arena = Bump::new();
         let span = make_span(&arena, "test");
         let cond_span = make_span(&arena, "display: grid");
-        let cond = CssValue::new("display: grid".into(), cond_span);
+        let cond = CssValue::new("display: grid", cond_span);
         let r = ModifiableCssSupportsRule::new(&arena, cond, span);
         assert_eq!(r.condition.value, "display: grid");
     }

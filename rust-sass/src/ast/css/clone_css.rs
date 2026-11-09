@@ -407,12 +407,12 @@ mod tests {
         FileSpan::new(Some(fs), 0, text.len())
     }
 
-    fn make_val<'compile, 'parse>(arena: &'compile Bump, s: &str) -> CssValue<'parse, String>
+    fn make_val<'compile, 'parse>(arena: &'compile Bump, s: &str) -> CssValue<'parse, &'parse str>
     where
         'compile: 'parse,
         'parse: 'compile,
     {
-        CssValue::new(s.into(), make_span(arena, s))
+        CssValue::new(&*arena.alloc_str(s), make_span(arena, s))
     }
 
     fn make_selector_list<'compile, 'parse>(
@@ -691,7 +691,7 @@ mod tests {
         let sheet = make_stylesheet(&arena);
         let span = make_span(&arena, "test");
         let sel_span = make_span(&arena, "10%");
-        let sel = CssValue::new(vec!["10%".into()], sel_span);
+        let sel = CssValue::new(&["10%"][..], sel_span);
         let block = ModifiableCssNode::new(
             &arena,
             ModifiableCssNodeKind::KeyframeBlock(ModifiableCssKeyframeBlock::new(

@@ -24,9 +24,9 @@ use crate::ast::css::node::CssNode;
 #[derive(Clone, Debug)]
 pub struct CssAtRule<'parse> {
     /// The name of this rule.
-    pub name: CssValue<'parse, String>,
+    pub name: CssValue<'parse, &'parse str>,
     /// The value of this rule, if it has one.
-    pub value: Option<CssValue<'parse, String>>,
+    pub value: Option<CssValue<'parse, &'parse str>>,
     /// The child statements of this rule.
     pub children: Vec<CssNode<'parse>>,
     /// Whether the rule has no children and is emitted without curly braces.
@@ -49,10 +49,10 @@ impl<'parse> CssAtRule<'parse> {
     /// (such as `@import "foo.css";`); `@foo {}` gets `childless: false`
     /// with an empty [`children`](CssAtRule::children) list.
     pub fn new(
-        name: CssValue<'parse, String>,
+        name: CssValue<'parse, &'parse str>,
         span: FileSpan<'parse>,
         childless: bool,
-        value: Option<CssValue<'parse, String>>,
+        value: Option<CssValue<'parse, &'parse str>>,
     ) -> Self {
         CssAtRule {
             name,
@@ -98,9 +98,9 @@ impl<'parse> fmt::Display for CssAtRule<'parse> {
 #[derive(Clone, Debug)]
 pub struct ModifiableCssAtRule<'parse> {
     /// The name of this rule.
-    pub name: CssValue<'parse, String>,
+    pub name: CssValue<'parse, &'parse str>,
     /// The value of this rule, if it has one.
-    pub value: Option<CssValue<'parse, String>>,
+    pub value: Option<CssValue<'parse, &'parse str>>,
     /// Whether the rule has no children; childless rules reject `add_child`.
     pub childless: bool,
     /// The source span for this rule.
@@ -113,10 +113,10 @@ impl<'parse> ModifiableCssAtRule<'parse> {
     /// Creates an at-rule with no children yet attached.
     pub fn new(
         arena: &'parse Bump,
-        name: CssValue<'parse, String>,
+        name: CssValue<'parse, &'parse str>,
         span: FileSpan<'parse>,
         childless: bool,
-        value: Option<CssValue<'parse, String>>,
+        value: Option<CssValue<'parse, &'parse str>>,
     ) -> Self {
         ModifiableCssAtRule {
             name,
@@ -167,12 +167,12 @@ mod tests {
         FileSpan::new(Some(fs), 0, text.len())
     }
 
-    fn make_val<'compile, 'parse>(arena: &'compile Bump, s: &str) -> CssValue<'parse, String>
+    fn make_val<'compile, 'parse>(arena: &'compile Bump, s: &str) -> CssValue<'parse, &'parse str>
     where
         'compile: 'parse,
         'parse: 'compile,
     {
-        CssValue::new(s.into(), make_span(arena, s))
+        CssValue::new(&*arena.alloc_str(s), make_span(arena, s))
     }
 
     #[test]

@@ -351,7 +351,7 @@ where
     // Dart `visitCssAtRule`: `unvendor(node.name.value) == 'keyframes'` —
     // vendor-prefixed keyframes take the keyframes path, like the
     // statement-path check.
-    if unvendor(&node.name.value) == "keyframes" {
+    if unvendor(node.name.value) == "keyframes" {
         state.in_keyframes = true;
     } else {
         state.in_unknown_at_rule = true;
@@ -848,12 +848,12 @@ mod tests {
         FileSpan::new(Some(fs), 0, text.len())
     }
 
-    fn make_val<'compile, 'parse>(arena: &'compile Bump, s: &str) -> CssValue<'parse, String>
+    fn make_val<'compile, 'parse>(arena: &'compile Bump, s: &str) -> CssValue<'parse, &'parse str>
     where
         'compile: 'parse,
         'parse: 'compile,
     {
-        CssValue::new(s.into(), make_span(arena, s))
+        CssValue::new(&*arena.alloc_str(s), make_span(arena, s))
     }
 
     fn test_state<'compile, 'parse>(
@@ -965,7 +965,7 @@ mod tests {
         let arena = Bump::new();
         let (config, mut state) = test_state(&arena);
         let kb = CssKeyframeBlock::new(
-            CssValue::new(vec!["10%".into()], make_span(&arena, "10%")),
+            CssValue::new(&["10%"][..], make_span(&arena, "10%")),
             make_span(&arena, "10% {}"),
         );
         evaluate_css_keyframe_block(&config, &mut state, &arena, &kb)
@@ -1023,7 +1023,7 @@ mod tests {
         let sel_clone = sel;
         let sr = CssStyleRule::new(sel, make_span(&arena, ".foo {}"), sel_clone, false);
         let mut kb = CssKeyframeBlock::new(
-            CssValue::new(vec!["10%".into()], make_span(&arena, "10%")),
+            CssValue::new(&["10%"][..], make_span(&arena, "10%")),
             make_span(&arena, "10% {}"),
         );
         kb.children.push(CssNode::StyleRule(sr));
@@ -1144,7 +1144,7 @@ mod tests {
         let (config, mut state) = test_state(&arena);
         state.in_keyframes = true;
         let kb = CssKeyframeBlock::new(
-            CssValue::new(vec!["10%".into()], make_span(&arena, "10%")),
+            CssValue::new(&["10%"][..], make_span(&arena, "10%")),
             make_span(&arena, "10% {}"),
         );
         state.parent = Some(ModifiableCssNode::new(
