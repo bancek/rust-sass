@@ -482,7 +482,7 @@ impl<'parse> SelectorList<'parse> {
                 vec![],
                 vec![ComplexSelectorComponent::new(
                     arena,
-                    Box::new(compound),
+                    compound,
                     component.combinators.to_vec(),
                     component.span,
                 )],
@@ -561,7 +561,7 @@ impl<'parse> SelectorList<'parse> {
             comps.extend_from_slice(&complex.components[..complex.components.len() - 1]);
             comps.push(ComplexSelectorComponent::new(
                 arena,
-                Box::new(last),
+                last,
                 component.combinators.to_vec(),
                 component.span,
             ));
@@ -828,7 +828,7 @@ mod tests {
 
     fn make_complex<'p>(arena: &'p Bump, name: &'static str) -> ComplexSelector<'p> {
         let s = SimpleSelector::Class(ClassSelector::new(name, BOGUS_SPAN));
-        let compound = Box::new(CompoundSelector::new(arena, vec![s], BOGUS_SPAN).unwrap());
+        let compound = CompoundSelector::new(arena, vec![s], BOGUS_SPAN).unwrap();
         let component = ComplexSelectorComponent::new(arena, compound, vec![], BOGUS_SPAN);
         ComplexSelector::new(arena, vec![], vec![component], BOGUS_SPAN, false).unwrap()
     }
@@ -879,7 +879,7 @@ mod tests {
         assert!(!list.contains_parent_selector().unwrap());
 
         let parent = SimpleSelector::Parent(ParentSelector::new(&arena, BOGUS_SPAN, None));
-        let compound = Box::new(CompoundSelector::new(&arena, vec![parent], BOGUS_SPAN).unwrap());
+        let compound = CompoundSelector::new(&arena, vec![parent], BOGUS_SPAN).unwrap();
         let comp = ComplexSelectorComponent::new(&arena, compound, vec![], BOGUS_SPAN);
         let complex = ComplexSelector::new(&arena, vec![], vec![comp], BOGUS_SPAN, false).unwrap();
         let list2 = SelectorList::new(&arena, vec![complex], BOGUS_SPAN).unwrap();

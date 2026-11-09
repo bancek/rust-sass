@@ -71,13 +71,9 @@ pub fn unify_complex<'compile: 'parse, 'parse>(
             trailing_combinator = Some(tc.clone());
         }
         if unified_base.is_none() {
-            unified_base = Some(base.selector.as_ref().clone());
+            unified_base = Some((*base.selector).clone());
         } else {
-            let result = unify_compound(
-                arena,
-                unified_base.as_ref().unwrap(),
-                base.selector.as_ref(),
-            )?;
+            let result = unify_compound(arena, unified_base.as_ref().unwrap(), base.selector)?;
             if result.is_none() {
                 return Ok(None);
             }
@@ -111,7 +107,7 @@ pub fn unify_complex<'compile: 'parse, 'parse>(
         vec![]
     };
     let base_component =
-        ComplexSelectorComponent::new(arena, Box::new(unified_base.unwrap()), base_tcs, span);
+        ComplexSelectorComponent::new(arena, unified_base.unwrap(), base_tcs, span);
     let mut base = ComplexSelector::new(arena, base_lcs, vec![base_component], span, false)?;
     for c in complexes {
         if c.line_break {
@@ -280,20 +276,20 @@ fn weave_parents<'compile: 'parse, 'parse>(
 
     match (first_if_rootish(&mut q1), first_if_rootish(&mut q2)) {
         (Some(r1), Some(r2)) => {
-            let rootish = unify_compound(arena, r1.selector.as_ref(), r2.selector.as_ref())?;
+            let rootish = unify_compound(arena, r1.selector, r2.selector)?;
             if rootish.is_none() {
                 return Ok(None);
             }
             let rootish = rootish.unwrap();
             q1.push_front(ComplexSelectorComponent::new(
                 arena,
-                Box::new(rootish.clone()),
+                rootish.clone(),
                 r1.combinators.to_vec(),
                 r1.span,
             ));
             q2.push_front(ComplexSelectorComponent::new(
                 arena,
-                Box::new(rootish),
+                rootish,
                 r2.combinators.to_vec(),
                 r1.span,
             ));
@@ -521,11 +517,11 @@ fn merge_trailing_combinators<'compile: 'parse, 'parse>(
             ) => {
                 let comp1 = c1.pop_back().unwrap();
                 let comp2 = c2.pop_back().unwrap();
-                let ok = comp1.selector.is_superselector(comp2.selector.as_ref())?;
+                let ok = comp1.selector.is_superselector(comp2.selector)?;
                 if ok {
                     stack.push(vec![vec![comp2]]);
                 } else {
-                    let ok = comp2.selector.is_superselector(comp1.selector.as_ref())?;
+                    let ok = comp2.selector.is_superselector(comp1.selector)?;
                     if ok {
                         stack.push(vec![vec![comp1]]);
                     } else {
@@ -533,15 +529,11 @@ fn merge_trailing_combinators<'compile: 'parse, 'parse>(
                             vec![comp1.clone(), comp2.clone()],
                             vec![comp2.clone(), comp1.clone()],
                         ];
-                        let unified = unify_compound(
-                            arena,
-                            comp1.selector.as_ref(),
-                            comp2.selector.as_ref(),
-                        )?;
+                        let unified = unify_compound(arena, comp1.selector, comp2.selector)?;
                         if let Some(u) = unified {
                             choices.push(vec![ComplexSelectorComponent::new(
                                 arena,
-                                Box::new(u),
+                                u,
                                 comb1.clone(),
                                 span,
                             )]);
@@ -561,19 +553,16 @@ fn merge_trailing_combinators<'compile: 'parse, 'parse>(
                 };
                 let next = nc.pop_back().unwrap();
                 let following = fc.pop_back().unwrap();
-                let ok = following
-                    .selector
-                    .is_superselector(next.selector.as_ref())?;
+                let ok = following.selector.is_superselector(next.selector)?;
                 if ok {
                     stack.push(vec![vec![next]]);
                 } else {
                     let mut choices = vec![vec![following.clone(), next.clone()]];
-                    let unified =
-                        unify_compound(arena, following.selector.as_ref(), next.selector.as_ref())?;
+                    let unified = unify_compound(arena, following.selector, next.selector)?;
                     if let Some(u) = unified {
                         choices.push(vec![ComplexSelectorComponent::new(
                             arena,
-                            Box::new(u),
+                            u,
                             next.combinators.to_vec(),
                             span,
                         )]);
@@ -598,15 +587,15 @@ fn merge_trailing_combinators<'compile: 'parse, 'parse>(
             (true, Some(a), true, Some(b)) if a == b => {
                 let unified = unify_compound(
                     arena,
-                    c1.pop_back().unwrap().selector.as_ref(),
-                    c2.pop_back().unwrap().selector.as_ref(),
+                    c1.pop_back().unwrap().selector,
+                    c2.pop_back().unwrap().selector,
                 )?;
                 if unified.is_none() {
                     return Ok(None);
                 }
                 stack.push(vec![vec![ComplexSelectorComponent::new(
                     arena,
-                    Box::new(unified.unwrap()),
+                    unified.unwrap(),
                     comb1,
                     span,
                 )]]);
@@ -620,7 +609,7 @@ fn merge_trailing_combinators<'compile: 'parse, 'parse>(
                         .back()
                         .unwrap()
                         .selector
-                        .is_superselector(c1.back().unwrap().selector.as_ref())?;
+                        .is_superselector(c1.back().unwrap().selector)?;
                     if ok {
                         c2.pop_back();
                     }
@@ -636,7 +625,7 @@ fn merge_trailing_combinators<'compile: 'parse, 'parse>(
                         .back()
                         .unwrap()
                         .selector
-                        .is_superselector(c2.back().unwrap().selector.as_ref())?;
+                        .is_superselector(c2.back().unwrap().selector)?;
                     if ok {
                         c1.pop_back();
                     }
@@ -764,7 +753,7 @@ fn complex_is_parent_superselector<'parse>(
         ))],
         BOGUS_SPAN,
     )?;
-    let base = ComplexSelectorComponent::new(&local, Box::new(temp_compound), vec![], BOGUS_SPAN);
+    let base = ComplexSelectorComponent::new(&local, temp_compound, vec![], BOGUS_SPAN);
     let mut x: Vec<ComplexSelectorComponent<'_>> = a.to_vec();
     x.push(base.clone());
     let mut y: Vec<ComplexSelectorComponent<'_>> = b.to_vec();
@@ -1208,11 +1197,11 @@ pub fn selector_pseudo_is_superselector<'parse>(
     c2_span: FileSpan<'parse>,
     parents: Option<&[ComplexSelectorComponent<'parse>]>,
 ) -> SassResult<bool> {
-    let sel = p.selector.as_ref().ok_or_else(|| SassError::Script {
+    let sel = p.selector.as_deref().ok_or_else(|| SassError::Script {
         message: format!("Selector {p:?} must have a selector argument"),
         argument_name: None,
     })?;
-    let l1 = match sel.as_ref() {
+    let l1 = match sel {
         Selector::List(ref list) => list,
         _ => return Ok(false),
     };
@@ -1235,7 +1224,7 @@ pub fn selector_pseudo_is_superselector<'parse>(
                     }
                     comps.push(ComplexSelectorComponent::new(
                         &local,
-                        Box::new(copied),
+                        copied,
                         vec![],
                         c2_span,
                     ));

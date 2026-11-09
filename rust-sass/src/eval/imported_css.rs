@@ -708,7 +708,7 @@ mod tests {
             crate::selector::qualified_name::SelectorNamespace::Default,
         ));
         let compound = CompoundSelector::new(&arena, vec![simple], span).unwrap();
-        let comp = ComplexSelectorComponent::new(&arena, Box::new(compound), vec![], span);
+        let comp = ComplexSelectorComponent::new(&arena, compound, vec![], span);
         let complex = ComplexSelector::new(&arena, vec![], vec![comp], span, false).unwrap();
         let sel_list = SelectorList::new(&arena, vec![complex], span).unwrap();
         let span_rule = make_span(&arena, ".foo {}");

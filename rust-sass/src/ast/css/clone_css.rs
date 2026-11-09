@@ -427,7 +427,7 @@ mod tests {
         let class = ClassSelector::new(name, span);
         let simple = SimpleSelector::Class(class);
         let compound = CompoundSelector::new(arena, vec![simple], span).unwrap();
-        let comp = ComplexSelectorComponent::new(arena, Box::new(compound), Vec::new(), span);
+        let comp = ComplexSelectorComponent::new(arena, compound, Vec::new(), span);
         let complex = ComplexSelector::new(arena, Vec::new(), vec![comp], span, false).unwrap();
         SelectorList::new(arena, vec![complex], span).unwrap()
     }

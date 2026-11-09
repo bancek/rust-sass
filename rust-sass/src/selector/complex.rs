@@ -209,7 +209,7 @@ impl<'parse> ComplexSelector<'parse> {
         if self.components.len() == 1 {
             let comp = &self.components[0];
             if comp.combinators.is_empty() {
-                return Some(&comp.selector);
+                return Some(comp.selector);
             }
         }
         None
@@ -419,9 +419,9 @@ mod tests {
     use crate::selector::SimpleSelector;
     use bumpalo::Bump;
 
-    fn make_compound<'p>(arena: &'p Bump, name: &'static str) -> Box<CompoundSelector<'p>> {
+    fn make_compound<'p>(arena: &'p Bump, name: &'static str) -> CompoundSelector<'p> {
         let s = SimpleSelector::Class(ClassSelector::new(name, BOGUS_SPAN));
-        Box::new(CompoundSelector::new(arena, vec![s], BOGUS_SPAN).unwrap())
+        CompoundSelector::new(arena, vec![s], BOGUS_SPAN).unwrap()
     }
 
     fn make_component<'p>(arena: &'p Bump, name: &'static str) -> ComplexSelectorComponent<'p> {

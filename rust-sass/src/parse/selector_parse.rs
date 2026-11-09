@@ -426,7 +426,7 @@ fn complex_selector_impl<'compile: 'parse, 'parse>(
                     let comp_span = trimmed_span(scanner, state, component_start)?;
                     let comp = ComplexSelectorComponent::new(
                         arena,
-                        Box::new(lc.clone()),
+                        lc.clone(),
                         std::mem::take(&mut combinators),
                         comp_span,
                     );
@@ -481,12 +481,8 @@ fn complex_selector_impl<'compile: 'parse, 'parse>(
         ));
     } else if let Some(lc) = last_compound {
         let comp_span = trimmed_span(scanner, state, component_start)?;
-        let comp = ComplexSelectorComponent::new(
-            arena,
-            Box::new(lc),
-            std::mem::take(&mut combinators),
-            comp_span,
-        );
+        let comp =
+            ComplexSelectorComponent::new(arena, lc, std::mem::take(&mut combinators), comp_span);
         components.push(comp);
     } else if !combinators.is_empty() {
         initial_combinators = std::mem::take(&mut combinators);

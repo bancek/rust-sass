@@ -128,7 +128,7 @@ pub(crate) fn visit_complex_selector_impl(
         state.write_optional_space(buf);
     }
     for (i, comp) in complex.components.iter().enumerate() {
-        visit_compound_selector_impl(buf, state, &comp.selector)?;
+        visit_compound_selector_impl(buf, state, comp.selector)?;
         if !comp.combinators.is_empty() {
             state.write_optional_space(buf);
         }

@@ -3762,7 +3762,7 @@ mod tests {
         let class = ClassSelector::new(".foo", span);
         let compound =
             CompoundSelector::new(arena, vec![SimpleSelector::Class(class)], span).unwrap();
-        let comp = ComplexSelectorComponent::new(arena, Box::new(compound), vec![], span);
+        let comp = ComplexSelectorComponent::new(arena, compound, vec![], span);
         let complex = ComplexSelector::new(arena, vec![], vec![comp], span, false).unwrap();
         let selector = SelectorList::new(arena, vec![complex], span).unwrap();
         let rule = ModifiableCssStyleRule::new(

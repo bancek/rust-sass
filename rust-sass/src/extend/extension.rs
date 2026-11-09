@@ -397,7 +397,7 @@ mod tests {
     fn make_complex<'p>(arena: &'p Bump, name: &'static str) -> ComplexSelector<'p> {
         let s = class(name);
         let compound = CompoundSelector::new(arena, vec![s], BOGUS_SPAN).unwrap();
-        let comp = ComplexSelectorComponent::new(arena, Box::new(compound), vec![], BOGUS_SPAN);
+        let comp = ComplexSelectorComponent::new(arena, compound, vec![], BOGUS_SPAN);
         ComplexSelector::new(arena, vec![], vec![comp.clone()], BOGUS_SPAN, false).unwrap()
     }
 

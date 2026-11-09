@@ -1258,7 +1258,7 @@ fn extend_compound<'compile: 'parse, 'parse>(
             vec![],
             vec![ComplexSelectorComponent::new(
                 arena,
-                Box::new(fc),
+                fc,
                 component.combinators.to_vec(),
                 component.span,
             )],
@@ -1303,12 +1303,7 @@ fn extender_for_compound<'compile: 'parse, 'parse>(
     let cs = ComplexSelector::new(
         arena,
         vec![],
-        vec![ComplexSelectorComponent::new(
-            arena,
-            Box::new(compound),
-            vec![],
-            span,
-        )],
+        vec![ComplexSelectorComponent::new(arena, compound, vec![], span)],
         span,
         false,
     )?;
@@ -1326,12 +1321,7 @@ fn extender_for_simple<'compile: 'parse, 'parse>(
     let cs = ComplexSelector::new(
         arena,
         vec![],
-        vec![ComplexSelectorComponent::new(
-            arena,
-            Box::new(compound),
-            vec![],
-            ss,
-        )],
+        vec![ComplexSelectorComponent::new(arena, compound, vec![], ss)],
         ss,
         false,
     )?;
@@ -1546,12 +1536,7 @@ fn unify_extenders<'compile: 'parse, 'parse>(
             ComplexSelector::new(
                 arena,
                 vec![],
-                vec![ComplexSelectorComponent::new(
-                    arena,
-                    Box::new(c),
-                    vec![],
-                    span,
-                )],
+                vec![ComplexSelectorComponent::new(arena, c, vec![], span)],
                 span,
                 olb,
             )?,
@@ -1589,7 +1574,7 @@ fn trim<'parse>(
         }
         let mut ms = 0;
         for comp in c1.components {
-            ms = ms.max(source_specificity_for(&comp.selector, source_specificity));
+            ms = ms.max(source_specificity_for(comp.selector, source_specificity));
         }
         let mut found = false;
         for c2 in &result {
@@ -1921,7 +1906,7 @@ mod tests {
     ) -> ComplexSelector<'parse> {
         let s = class(name);
         let compound = CompoundSelector::new(arena, vec![s], BOGUS_SPAN).unwrap();
-        let comp = ComplexSelectorComponent::new(arena, Box::new(compound), vec![], BOGUS_SPAN);
+        let comp = ComplexSelectorComponent::new(arena, compound, vec![], BOGUS_SPAN);
         ComplexSelector::new(arena, vec![], vec![comp], BOGUS_SPAN, false).unwrap()
     }
 
@@ -1934,9 +1919,9 @@ mod tests {
         let s2 = class(second);
         let c1 = CompoundSelector::new(arena, vec![s1], BOGUS_SPAN).unwrap();
         let c2 = CompoundSelector::new(arena, vec![s2], BOGUS_SPAN).unwrap();
-        let comp1 = ComplexSelectorComponent::new(arena, Box::new(c1), vec![], BOGUS_SPAN);
+        let comp1 = ComplexSelectorComponent::new(arena, c1, vec![], BOGUS_SPAN);
         let comb = CssValue::new(Combinator::Child, BOGUS_SPAN);
-        let comp2 = ComplexSelectorComponent::new(arena, Box::new(c2), vec![comb], BOGUS_SPAN);
+        let comp2 = ComplexSelectorComponent::new(arena, c2, vec![comb], BOGUS_SPAN);
         ComplexSelector::new(arena, vec![], vec![comp1, comp2], BOGUS_SPAN, false).unwrap()
     }
 
@@ -2134,7 +2119,7 @@ mod tests {
 
         // Useless: >1 leading combinator
         let c1 = CompoundSelector::new(&arena, vec![class("a")], BOGUS_SPAN).unwrap();
-        let cc = ComplexSelectorComponent::new(&arena, Box::new(c1), vec![], BOGUS_SPAN);
+        let cc = ComplexSelectorComponent::new(&arena, c1, vec![], BOGUS_SPAN);
         let comb1 = CssValue::new(Combinator::Child, BOGUS_SPAN);
         let comb2 = CssValue::new(Combinator::Child, BOGUS_SPAN);
         let useless =

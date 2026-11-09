@@ -24,7 +24,7 @@ use bumpalo::Bump;
 #[derive(Clone, Debug)]
 pub struct ComplexSelectorComponent<'parse> {
     /// This component's compound selector.
-    pub selector: Box<CompoundSelector<'parse>>,
+    pub selector: &'parse CompoundSelector<'parse>,
     /// This component's combinators.
     ///
     /// An empty list indicates an implicit descendant combinator. More than
@@ -38,12 +38,12 @@ impl<'parse> ComplexSelectorComponent<'parse> {
     /// Creates a component from a compound selector and trailing combinators.
     pub fn new(
         arena: &'parse Bump,
-        selector: Box<CompoundSelector<'parse>>,
+        selector: CompoundSelector<'parse>,
         combinators: Vec<CssValue<'parse, Combinator>>,
         span: FileSpan<'parse>,
     ) -> Self {
         ComplexSelectorComponent {
-            selector,
+            selector: arena.alloc(selector),
             combinators: &*arena.alloc_slice_fill_iter(combinators),
             span,
         }
@@ -70,7 +70,7 @@ impl<'parse> ComplexSelectorComponent<'parse> {
         let mut new_combinators = self.combinators.to_vec();
         new_combinators.extend_from_slice(combinators);
         ComplexSelectorComponent {
-            selector: self.selector.clone(),
+            selector: self.selector,
             combinators: &*arena.alloc_slice_fill_iter(new_combinators),
             span: self.span,
         }
@@ -107,9 +107,9 @@ mod tests {
     use crate::selector::SimpleSelector;
     use bumpalo::Bump;
 
-    fn make_compound<'p>(arena: &'p Bump, name: &'static str) -> Box<CompoundSelector<'p>> {
+    fn make_compound<'p>(arena: &'p Bump, name: &'static str) -> CompoundSelector<'p> {
         let simple = SimpleSelector::Class(ClassSelector::new(name, BOGUS_SPAN));
-        Box::new(CompoundSelector::new(arena, vec![simple], BOGUS_SPAN).unwrap())
+        CompoundSelector::new(arena, vec![simple], BOGUS_SPAN).unwrap()
     }
 
     #[test]
@@ -117,7 +117,7 @@ mod tests {
         let arena = Bump::new();
         let compound = make_compound(&arena, "foo");
         let c = ComplexSelectorComponent::new(&arena, compound.clone(), vec![], BOGUS_SPAN);
-        assert_eq!(c.selector, compound);
+        assert_eq!(*c.selector, compound);
     }
 
     #[test]

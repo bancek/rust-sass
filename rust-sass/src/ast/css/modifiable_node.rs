@@ -768,7 +768,7 @@ mod tests {
             vec![],
             vec![ComplexSelectorComponent::new(
                 arena,
-                std::boxed::Box::new(compound),
+                compound,
                 vec![],
                 BOGUS_SPAN,
             )],

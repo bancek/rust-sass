@@ -704,7 +704,7 @@ where
             }
             let first_comp = &complex.components[0];
             let rest = &complex.components[1..];
-            let new_compound = match prepend_parent(arena, &first_comp.selector, span)? {
+            let new_compound = match prepend_parent(arena, first_comp.selector, span)? {
                 Some(c) => c,
                 None => {
                     let s = selector_list_to_string(&result)?;
@@ -719,7 +719,7 @@ where
                 Vec::with_capacity(1 + rest.len());
             new_comps.push(ComplexSelectorComponent::new(
                 arena,
-                Box::new(new_compound),
+                new_compound,
                 first_comp.combinators.to_vec(),
                 span,
             ));
