@@ -100,7 +100,7 @@ impl<'parse> StatementVisitor<'parse> for RecursiveStatementVisitor {
     }
 
     fn visit_if_rule(&mut self, node: &IfRule<'parse>) -> SassResult<()> {
-        for clause in &node.clauses {
+        for clause in node.clauses {
             for child in clause.children {
                 child.accept(self)?;
             }
@@ -339,7 +339,12 @@ mod tests {
             expression: bool_expr(&arena, true),
             children: arena_statements(&arena, vec![child]),
         };
-        let if_rule = IfRule::new(vec![clause], test_span(&arena, "@if true { }"), None);
+        let if_rule = IfRule::new(
+            &arena,
+            vec![clause],
+            test_span(&arena, "@if true { }"),
+            None,
+        );
         Statement::IfRule(if_rule).accept(&mut v).unwrap();
     }
 
@@ -353,6 +358,7 @@ mod tests {
             children: arena_statements(&arena, vec![child.clone()]),
         };
         let if_rule = IfRule::new(
+            &arena,
             vec![clause],
             test_span(&arena, "@if true { } @else { }"),
             Some(arena_statements(&arena, vec![child])),

@@ -234,7 +234,7 @@ impl<'parse> StatementVisitor<'parse> for RecursiveAstVisitor {
     }
 
     fn visit_if_rule(&mut self, node: &IfRule<'parse>) -> SassResult<()> {
-        for clause in &node.clauses {
+        for clause in node.clauses {
             self.visit_expression(&clause.expression)?;
             for child in clause.children {
                 child.accept(self)?;

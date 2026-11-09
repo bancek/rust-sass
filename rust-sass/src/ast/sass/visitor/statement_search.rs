@@ -118,7 +118,7 @@ impl<'parse> StatementVisitor<'parse> for StatementSearchVisitor<'_> {
     }
 
     fn visit_if_rule(&mut self, node: &IfRule<'parse>) -> SassResult<bool> {
-        for clause in &node.clauses {
+        for clause in node.clauses {
             for child in clause.children {
                 if child.accept(self)? {
                     return Ok(true);

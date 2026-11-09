@@ -250,6 +250,7 @@ mod tests {
         let cond = Expression::Boolean(BooleanExpression::new(true, make_span(&arena, "true")));
         let clause = IfClause::new(cond, arena_statements(&arena, vec![content_rule(&arena)]));
         let if_rule = Statement::IfRule(IfRule::new(
+            &arena,
             vec![clause],
             make_span(&arena, "@if true { @content; }"),
             None,

@@ -7,6 +7,7 @@
 // dart-source: lib/src/ast/sass/statement/if_rule.dart
 // go-source: go/value/sass_statement_if_rule.go
 
+use bumpalo::Bump;
 use std::fmt;
 use std::fmt::Write;
 
@@ -27,7 +28,7 @@ pub struct IfRule<'parse> {
     /// The first clause whose expression evaluates to true has its
     /// statements executed. If none matches, [`IfRule::last_clause`] runs
     /// when present.
-    pub clauses: Vec<IfClause<'parse>>,
+    pub clauses: &'parse [IfClause<'parse>],
     /// The final, unconditional `@else` clause.
     ///
     /// `None` when there is no unconditional `@else`.
@@ -51,12 +52,13 @@ pub struct IfClause<'parse> {
 
 impl<'parse> IfRule<'parse> {
     pub fn new(
+        arena: &'parse Bump,
         clauses: Vec<IfClause<'parse>>,
         span: FileSpan<'parse>,
         last_clause: Option<&'parse [Statement<'parse>]>,
     ) -> Self {
         IfRule {
-            clauses,
+            clauses: arena.alloc_slice_fill_iter(clauses),
             last_clause,
             span,
         }
@@ -143,7 +145,7 @@ mod tests {
         let span = make_span(&arena, "@if true { }");
         let cond = Expression::Boolean(BooleanExpression::new(true, span));
         let clause = IfClause::new(cond, &[]);
-        let ir = IfRule::new(vec![clause], span, None);
+        let ir = IfRule::new(&arena, vec![clause], span, None);
         assert_eq!(ir.clauses.len(), 1);
     }
 
@@ -153,7 +155,7 @@ mod tests {
         let span = make_span(&arena, "@if true { } @else { }");
         let cond = Expression::Boolean(BooleanExpression::new(true, span));
         let clause = IfClause::new(cond, &[]);
-        let ir = IfRule::new(vec![clause], span, Some(&[]));
+        let ir = IfRule::new(&arena, vec![clause], span, Some(&[]));
         assert!(ir.last_clause.is_some());
     }
 
@@ -163,7 +165,7 @@ mod tests {
         let span = make_span(&arena, "@if true { }");
         let cond = Expression::Boolean(BooleanExpression::new(true, span));
         let clause = IfClause::new(cond, &[]);
-        let ir = IfRule::new(vec![clause], span, None);
+        let ir = IfRule::new(&arena, vec![clause], span, None);
         let s = format!("{ir}");
         assert!(s.contains("@if"), "got {s:?}");
     }

@@ -4112,7 +4112,7 @@ where
     'compile: 'parse,
 {
     let mut chosen: Option<&[Statement<'parse>]> = node.last_clause;
-    for clause in &node.clauses {
+    for clause in node.clauses {
         let cond = evaluate_expression(config, state, arena, &clause.expression).await?;
         if cond.is_truthy() {
             chosen = Some(clause.children);
@@ -4487,7 +4487,7 @@ mod tests {
             children: arena_statements(&arena, vec![return_stmt]),
         };
         let rule = IfRule {
-            clauses: vec![clause],
+            clauses: arena.alloc_slice_fill_iter(vec![clause]),
             last_clause: None,
             span,
         };

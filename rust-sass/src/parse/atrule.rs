@@ -1497,6 +1497,7 @@ fn if_rule_impl<'b>(
     let span = span_from_impl(scanner, &state.parser_state, start)?.file_span()?;
     whitespace_without_comments_impl(scanner, &state.parser_state, false)?;
     Ok(IfRule::new(
+        arena,
         clauses,
         span,
         arena_statements_opt(arena, last_clause),
