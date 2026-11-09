@@ -190,7 +190,7 @@ impl<'parse> StatementVisitor<'parse> for FindDependenciesVisitor<'parse> {
     }
 
     fn visit_import_rule(&mut self, node: &ImportRule<'parse>) -> SassResult<()> {
-        for imp in &node.imports {
+        for imp in node.imports {
             if let Import::Dynamic(d) = imp {
                 self.imports.insert(d.url().to_owned_url());
             }
@@ -413,7 +413,7 @@ mod tests {
             u,
             test_span(&arena, "'file'"),
         ));
-        let ir = ImportRule::new(vec![di], span);
+        let ir = ImportRule::new(&arena, vec![di], span);
         let ss = Stylesheet::new(
             &arena,
             arena_statements(&arena, vec![Statement::ImportRule(ir)]),
@@ -452,7 +452,7 @@ mod tests {
             ArenaUrl::parse(&arena, "file:///imp").unwrap(),
             test_span(&arena, "'imp'"),
         ));
-        let ir = ImportRule::new(vec![di], span);
+        let ir = ImportRule::new(&arena, vec![di], span);
         let ss = Stylesheet::new(
             &arena,
             arena_statements(

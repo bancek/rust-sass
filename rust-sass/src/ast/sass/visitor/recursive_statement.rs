@@ -442,7 +442,7 @@ mod tests {
             Statement::WarnRule(WarnRule::new(null.clone(), base_span)),
             Statement::ReturnRule(ReturnRule::new(null.clone(), base_span)),
             Statement::ExtendRule(ExtendRule::new(plain, base_span, false)),
-            Statement::ImportRule(ImportRule::new(vec![], base_span)),
+            Statement::ImportRule(ImportRule::new(&arena, vec![], base_span)),
             Statement::LoudComment(LoudComment::new(Interpolation::plain(
                 &arena,
                 "/* */".into(),

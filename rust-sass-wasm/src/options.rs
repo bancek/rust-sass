@@ -177,7 +177,7 @@ pub fn parse_options<'compile: 'parse, 'parse>(
     if let Some(importers) = get_array_opt(options, "importers")? {
         for i in 0..importers.length() {
             let importer = importers.get(i);
-            let kind = parse_one_importer(&importer, io.clone())?;
+            let kind = parse_one_importer(arena, &importer, io.clone())?;
             opts.importers.push(Importer::new(arena, kind));
         }
     }
@@ -186,7 +186,7 @@ pub fn parse_options<'compile: 'parse, 'parse>(
     // `options?.importer.andThen(_parseImporter)`). Absent/null → keep the
     // core default (NoOp when no url).
     if let Some(importer) = get_opt(options, "importer")? {
-        let kind = parse_one_importer(&importer, io.clone())?;
+        let kind = parse_one_importer(arena, &importer, io.clone())?;
         opts.importer = Importer::new(arena, kind);
     }
 
@@ -198,12 +198,16 @@ pub fn parse_options<'compile: 'parse, 'parse>(
 /// `_parseAsyncImporter` (compile.dart:331-364) exactly, including the
 /// validation messages. Does NOT handle `undefined`/absent (the caller skips
 /// those); a `null` importer is an error.
-fn parse_one_importer(importer: &JsValue, io: Rc<dyn Io>) -> SassResult<ImporterKind> {
+fn parse_one_importer<'parse>(
+    arena: &'parse Bump,
+    importer: &JsValue,
+    io: Rc<dyn Io>,
+) -> SassResult<ImporterKind<'parse>> {
     // NodePackageImporter instances are tagged by the shim
     // (`{__sassNodePackageImporter: "<entryPointDirectory>"}`).
     if let Some(dir) = get(importer, "__sassNodePackageImporter").as_string() {
         return Ok(ImporterKind::NodePackage(NodePackageImporter::new(
-            &dir, io,
+            arena, &dir, io,
         )));
     }
 

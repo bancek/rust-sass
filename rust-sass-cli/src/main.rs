@@ -54,7 +54,8 @@ fn main() {
     // Post-parse validation (positionals, source maps, deprecations). Mirror
     // Dart's `UsageException` handler (bin/sass.dart:69-75): print the message,
     // a blank line, then the full usage, and exit 64.
-    let opts = match CliOptions::from_matches(io.clone(), &matches) {
+    let arena = Bump::new();
+    let opts = match CliOptions::from_matches(&arena, io.clone(), &matches) {
         Ok(o) => o,
         Err(usage) => {
             println!("{}\n", usage.0);
@@ -64,7 +65,6 @@ fn main() {
         }
     };
 
-    let arena = Bump::new();
     #[cfg(feature = "async")]
     let exit_code = futures::executor::block_on(compile::compile_all(io, &arena, &opts));
     #[cfg(not(feature = "async"))]

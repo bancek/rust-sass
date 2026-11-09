@@ -249,7 +249,7 @@ impl<'parse> StatementVisitor<'parse> for RecursiveAstVisitor {
     }
 
     fn visit_import_rule(&mut self, node: &ImportRule<'parse>) -> SassResult<()> {
-        for imp in &node.imports {
+        for imp in node.imports {
             if let Import::Static(s) = imp {
                 self.visit_interpolation(&s.url)?;
                 if let Some(ref modifiers) = s.modifiers {
@@ -851,7 +851,7 @@ mod tests {
         let span = test_span(&arena, "@import 'foo';");
         let url = Interpolation::plain(&arena, "foo".into(), test_span(&arena, "foo"));
         let si = Import::Static(StaticImport::new(url, test_span(&arena, "'foo'"), None));
-        let ir = ImportRule::new(vec![si], span);
+        let ir = ImportRule::new(&arena, vec![si], span);
         Statement::ImportRule(ir).accept(&mut v).unwrap();
     }
 

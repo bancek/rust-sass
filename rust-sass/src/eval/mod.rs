@@ -232,7 +232,7 @@ pub struct EvalConfig<'compile, 'parse> {
     /// Matches Dart: `_EvaluateVisitor._nodeImporter`. Stored as a presence
     /// flag: when set, `stdin` URLs are not recorded in `loaded_urls` and the
     /// legacy `NodeImporter` path applies (Dart: `_EvaluateVisitor._asNodeSass`).
-    pub node_importer: Option<&'parse NodePackageImporter>,
+    pub node_importer: Option<&'parse NodePackageImporter<'parse>>,
     /// Host filesystem seam, threaded through config rather than per function.
     pub io: Rc<dyn Io>,
     /// `--unicode` from the CLI; drives the glyph set for embedded error text
@@ -619,7 +619,7 @@ use crate::extend::store::{DefaultExtensionStore, ExtensionStore};
 pub async fn evaluate<'compile, 'parse>(
     stylesheet: &'parse Stylesheet<'parse>,
     import_cache: Option<ImportCache<'compile, 'parse>>,
-    node_importer: Option<&'parse NodePackageImporter>,
+    node_importer: Option<&'parse NodePackageImporter<'parse>>,
     importer: Importer<'parse>,
     functions: Vec<Callable<'compile, 'parse>>,
     logger: Rc<dyn Logger>,
@@ -862,7 +862,7 @@ impl<'compile: 'parse, 'parse> Evaluator<'compile, 'parse> {
         import_cache: Option<ImportCache<'compile, 'parse>>,
         importer: Importer<'parse>,
         functions: Vec<Callable<'compile, 'parse>>,
-        node_importer: Option<&'parse NodePackageImporter>,
+        node_importer: Option<&'parse NodePackageImporter<'parse>>,
         logger: Rc<dyn Logger>,
         quiet_deps: bool,
         source_map: bool,

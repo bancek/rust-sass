@@ -55,7 +55,7 @@ pub struct CompileOptions<'compile, 'parse> {
     pub package_config: Option<Rc<dyn PackageConfig>>,
     /// When set, legacy Node.js-style resolution applies and the
     /// `LEGACY_JS_API` deprecation fires.
-    pub node_package_importer: Option<&'parse NodePackageImporter>,
+    pub node_package_importer: Option<&'parse NodePackageImporter<'parse>>,
     /// Host-provided custom functions, registered before the built-ins so
     /// they take precedence on name conflicts.
     pub functions: Vec<Callable<'compile, 'parse>>,

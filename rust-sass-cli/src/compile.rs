@@ -73,7 +73,11 @@ fn highlight_options(unicode: bool, color: bool) -> HighlightOptions {
 
 /// Compiles every source in [opts]. Returns the max exit code (0 on success).
 #[rust_sass_macros::maybe_async]
-pub async fn compile_all(io: Rc<dyn IoExt>, arena: &Bump, opts: &CliOptions) -> i32 {
+pub async fn compile_all<'parse>(
+    io: Rc<dyn IoExt>,
+    arena: &'parse Bump,
+    opts: &CliOptions<'parse>,
+) -> i32 {
     let mut exit_code = 0;
     let sources = opts.sources().clone();
     for (source, dest) in &sources {
@@ -104,10 +108,10 @@ pub async fn compile_all(io: Rc<dyn IoExt>, arena: &Bump, opts: &CliOptions) -> 
 
 /// Compiles a single source (stdin or file) to a destination (stdout or file).
 #[rust_sass_macros::maybe_async]
-pub async fn compile_one(
+pub async fn compile_one<'parse>(
     io: Rc<dyn IoExt>,
-    arena: &Bump,
-    opts: &CliOptions,
+    arena: &'parse Bump,
+    opts: &CliOptions<'parse>,
     source: Option<&str>,
     dest: Option<&str>,
 ) -> Result<(), CompileError> {
@@ -129,7 +133,7 @@ pub async fn compile_one(
         // imports resolve against the current directory.
         c_opts.importer = Importer::new(
             arena,
-            ImporterKind::Filesystem(FilesystemImporter::new_cwd(io.clone())),
+            ImporterKind::Filesystem(FilesystemImporter::new_cwd(arena, io.clone())),
         );
     }
 
@@ -183,7 +187,7 @@ pub async fn compile_one(
 }
 
 /// Determines the syntax for a compilation, mirroring Dart's `compileStylesheet`.
-fn syntax_for(source: Option<&str>, opts: &CliOptions) -> Syntax {
+fn syntax_for(source: Option<&str>, opts: &CliOptions<'_>) -> Syntax {
     if opts.indented() {
         Syntax::Sass(SassIndentState {
             current_indentation: 0,
@@ -240,7 +244,7 @@ async fn write_file(io: &dyn IoExt, dest: &str, contents: &[u8]) -> Result<(), C
 #[rust_sass_macros::maybe_async]
 async fn write_source_map(
     io: &dyn IoExt,
-    opts: &CliOptions,
+    opts: &CliOptions<'_>,
     result: CompileResult<'_, '_>,
     dest: Option<&str>,
 ) -> Result<String, CompileError> {

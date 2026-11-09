@@ -1377,7 +1377,7 @@ pub(crate) async fn evaluate_import_rule<'compile, 'parse>(
 where
     'compile: 'parse,
 {
-    for imp in &node.imports {
+    for imp in node.imports {
         match imp {
             Import::Static(s) => {
                 let url_str = perform_interpolation(config, state, arena, &s.url, false).await?;
@@ -4083,7 +4083,7 @@ fn has_declarations<'parse>(children: &[Statement<'parse>]) -> bool {
             | Statement::FunctionRule(_)
             | Statement::MixinRule(_) => return true,
             Statement::ImportRule(import) => {
-                for imp in &import.imports {
+                for imp in import.imports {
                     if matches!(imp, Import::Dynamic(_)) {
                         return true;
                     }
@@ -5118,7 +5118,7 @@ mod tests {
         let url = Interpolation::plain(&arena, "foo.css".into(), Span::File(span));
         let static_import = StaticImport::new(url, span, None);
         let imports = vec![Import::Static(static_import)];
-        let rule = ImportRule::new(imports, span);
+        let rule = ImportRule::new(&arena, imports, span);
 
         let result = evaluate_import_rule(&config, &mut state, &arena, &rule).await;
         assert!(result.is_ok());
@@ -5141,7 +5141,7 @@ mod tests {
         let modifiers = Interpolation::plain(&arena, "screen".into(), Span::File(span));
         let static_import = StaticImport::new(url, span, Some(modifiers));
         let imports = vec![Import::Static(static_import)];
-        let rule = ImportRule::new(imports, span);
+        let rule = ImportRule::new(&arena, imports, span);
 
         let result = evaluate_import_rule(&config, &mut state, &arena, &rule).await;
         assert!(result.is_ok());
@@ -5669,7 +5669,7 @@ mod tests {
             span,
         );
         let imports = vec![Import::Dynamic(dynamic_import)];
-        let rule = ImportRule::new(imports, span);
+        let rule = ImportRule::new(&arena, imports, span);
 
         let err = evaluate_import_rule(&config, &mut state, &arena, &rule)
             .await

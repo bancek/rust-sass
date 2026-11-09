@@ -457,7 +457,7 @@ where
             check_no_non_canonical_scheme(imp)?;
             Ok(Some(Importer::new(
                 arena,
-                ImporterKind::Filesystem(FilesystemImporter::new(p, ctx.io.clone())),
+                ImporterKind::Filesystem(FilesystemImporter::new(arena, p, ctx.io.clone())),
             )))
         }
         Some(compile_request::importer::Importer::ImporterId(id)) => Ok(Some(Importer::new(
@@ -478,6 +478,7 @@ where
             Ok(Some(Importer::new(
                 arena,
                 ImporterKind::NodePackage(NodePackageImporter::new(
+                    arena,
                     &npi.entry_point_directory,
                     ctx.io.clone(),
                 )),

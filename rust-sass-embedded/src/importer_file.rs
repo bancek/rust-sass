@@ -34,7 +34,7 @@ use crate::importer_host::parse_absolute_url;
 pub struct FileImporter {
     ctx: Rc<HostContext>,
     importer_id: u32,
-    fs: FilesystemImporter,
+    fs: FilesystemImporter<'static>,
 }
 
 impl FileImporter {

@@ -148,7 +148,7 @@ impl<'compile: 'parse, 'parse> ImportCache<'compile, 'parse> {
         for path in load_paths {
             result.push(Importer::new(
                 arena,
-                ImporterKind::Filesystem(FilesystemImporter::new(&path, Rc::clone(&io))),
+                ImporterKind::Filesystem(FilesystemImporter::new(arena, &path, Rc::clone(&io))),
             ));
         }
         if !sass_path.is_empty() {
@@ -161,7 +161,11 @@ impl<'compile: 'parse, 'parse> ImportCache<'compile, 'parse> {
                 if !path.is_empty() {
                     result.push(Importer::new(
                         arena,
-                        ImporterKind::Filesystem(FilesystemImporter::new(path, Rc::clone(&io))),
+                        ImporterKind::Filesystem(FilesystemImporter::new(
+                            arena,
+                            path,
+                            Rc::clone(&io),
+                        )),
                     ));
                 }
             }
@@ -169,7 +173,7 @@ impl<'compile: 'parse, 'parse> ImportCache<'compile, 'parse> {
         if let Some(pc) = package_config {
             result.push(Importer::new(
                 arena,
-                ImporterKind::Package(PackageImporter::new(pc, Rc::clone(&io))),
+                ImporterKind::Package(PackageImporter::new(arena, pc, Rc::clone(&io))),
             ));
         }
         result
@@ -824,8 +828,8 @@ mod tests {
     /// sass/dart-sass#2208 — a relative URL resolved from different base URLs
     /// must not be globally cached.
     #[derive(Debug)]
-    struct ContainingUrlProbeImporter {
-        fs: FilesystemImporter,
+    struct ContainingUrlProbeImporter<'parse> {
+        fs: FilesystemImporter<'parse>,
         io: Rc<dyn Io>,
         // Test-probe call log; a named alias would be single-use test noise.
         #[allow(clippy::type_complexity)]
@@ -833,7 +837,7 @@ mod tests {
     }
 
     #[rust_sass_macros::maybe_async]
-    impl UserImporter for ContainingUrlProbeImporter {
+    impl<'parse> UserImporter for ContainingUrlProbeImporter<'parse> {
         fn canonicalize<'a>(
             &'a self,
             url: &'a OwnedUrl,

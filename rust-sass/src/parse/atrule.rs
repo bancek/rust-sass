@@ -941,7 +941,7 @@ fn import_rule_impl<'b>(
     }
     expect_statement_separator_impl(scanner, state, "@import rule")?;
     let span = span_from_impl(scanner, &state.parser_state, start)?.file_span()?;
-    Ok(ImportRule::new(imports, span))
+    Ok(ImportRule::new(state.arena, imports, span))
 }
 
 /// Consumes an argument to an `@import` rule.

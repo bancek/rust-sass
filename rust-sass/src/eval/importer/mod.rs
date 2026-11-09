@@ -120,12 +120,12 @@ pub trait UserImporter: fmt::Debug {
 /// of Dart's interface (usable from both sync and async compiles) is what the
 /// dual build targets; genuinely async hosts implement [`UserImporter`].
 #[derive(Clone, Debug)]
-pub enum ImporterKind {
-    Filesystem(FilesystemImporter),
+pub enum ImporterKind<'parse> {
+    Filesystem(FilesystemImporter<'parse>),
     NoOp,
     User(Rc<dyn UserImporter>),
-    Package(PackageImporter),
-    NodePackage(NodePackageImporter),
+    Package(PackageImporter<'parse>),
+    NodePackage(NodePackageImporter<'parse>),
 }
 
 /// Copyable arena handle to an [`ImporterKind`].
@@ -135,14 +135,14 @@ pub enum ImporterKind {
 /// singleton). Matches Dart: `Importer.noOp` for stylesheets without relative
 /// imports.
 #[derive(Clone, Copy, Debug)]
-pub struct Importer<'parse>(&'parse ImporterKind);
+pub struct Importer<'parse>(&'parse ImporterKind<'parse>);
 
 impl<'parse> Importer<'parse> {
-    pub fn new<'compile: 'parse>(arena: &'compile Bump, kind: ImporterKind) -> Self {
+    pub fn new<'compile: 'parse>(arena: &'compile Bump, kind: ImporterKind<'parse>) -> Self {
         Importer(arena.alloc(kind))
     }
 
-    pub fn kind(&self) -> &ImporterKind {
+    pub fn kind(&self) -> &ImporterKind<'parse> {
         self.0
     }
 

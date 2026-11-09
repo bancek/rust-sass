@@ -204,7 +204,7 @@ where
 async fn compile_stylesheet_inner<'compile, 'parse>(
     stylesheet: &'parse Stylesheet<'parse>,
     import_cache: ImportCache<'compile, 'parse>,
-    node_importer: Option<&'parse NodePackageImporter>,
+    node_importer: Option<&'parse NodePackageImporter<'parse>>,
     importer: Importer<'parse>,
     functions: Vec<Callable<'compile, 'parse>>,
     logger: Rc<dyn Logger>,

@@ -9,6 +9,7 @@
 
 use crate::deprecation::FS_IMPORTER_CWD;
 use crate::url::OwnedUrl;
+use bumpalo::Bump;
 use std::fmt;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
@@ -28,12 +29,13 @@ use crate::logger::WarnLogger;
 /// Use [`FilesystemImporter::new_no_load_path`] to only load absolute `file:`
 /// URLs and URLs relative to the current file.
 #[derive(Clone)]
-pub struct FilesystemImporter {
-    pub load_path: Option<String>,
+pub struct FilesystemImporter<'parse> {
+    /// The absolute load path, allocated in the compile arena.
+    pub load_path: Option<&'parse str>,
     pub load_path_deprecated: bool,
 }
 
-impl fmt::Debug for FilesystemImporter {
+impl fmt::Debug for FilesystemImporter<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("FilesystemImporter")
             .field("load_path", &self.load_path)
@@ -42,14 +44,14 @@ impl fmt::Debug for FilesystemImporter {
     }
 }
 
-impl FilesystemImporter {
+impl<'parse> FilesystemImporter<'parse> {
     /// Creates an importer that loads files relative to `load_path`.
     ///
     /// Matches Dart: `FilesystemImporter(loadPath)`.
-    pub fn new(load_path: &str, io: Rc<dyn Io>) -> Self {
+    pub fn new(arena: &'parse Bump, load_path: &str, io: Rc<dyn Io>) -> Self {
         let abs = PathBuf::from(io.current_dir()).join(load_path);
         FilesystemImporter {
-            load_path: Some(abs.to_string_lossy().into_owned()),
+            load_path: Some(&*arena.alloc_str(&abs.to_string_lossy())),
             load_path_deprecated: false,
         }
     }
@@ -60,10 +62,9 @@ impl FilesystemImporter {
     /// Rewritten from Dart's `FilesystemImporter.cwd` (deprecated): prefer
     /// [`FilesystemImporter::new_no_load_path`] when the load path does not
     /// matter, or `new(".")` to preserve the old behavior explicitly.
-    pub fn new_cwd(io: Rc<dyn Io>) -> Self {
-        let abs = io.current_dir();
+    pub fn new_cwd(arena: &'parse Bump, io: Rc<dyn Io>) -> Self {
         FilesystemImporter {
-            load_path: Some(abs),
+            load_path: Some(&*arena.alloc_str(&io.current_dir())),
             load_path_deprecated: true,
         }
     }
@@ -117,12 +118,12 @@ impl FilesystemImporter {
     ///
     /// Matches Dart: `FilesystemImporter.canonicalize`.
     #[rust_sass_macros::maybe_async]
-    pub async fn canonicalize<'parse>(
+    pub async fn canonicalize<'a>(
         &self,
         io: &dyn Io,
         url: &OwnedUrl,
         ctx: &mut CanonicalizeContext,
-        warn_logger: &dyn WarnLogger<'parse>,
+        warn_logger: &dyn WarnLogger<'a>,
     ) -> SassResult<Option<OwnedUrl>> {
         let resolved = if url.is_file() {
             // `file:` URLs resolve directly only; the import cache separately
@@ -239,7 +240,7 @@ impl FilesystemImporter {
     }
 }
 
-impl fmt::Display for FilesystemImporter {
+impl fmt::Display for FilesystemImporter<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self.load_path {
             Some(ref lp) => write!(f, "{}", lp),
@@ -263,16 +264,18 @@ mod tests {
 
     #[test]
     fn new_constructor_sets_load_path() {
+        let arena = Bump::new();
         let io = make_io();
-        let imp = FilesystemImporter::new("/tmp/sass", Rc::clone(&io));
+        let imp = FilesystemImporter::new(&arena, "/tmp/sass", Rc::clone(&io));
         assert!(imp.load_path.unwrap().ends_with("sass"));
         assert!(!imp.load_path_deprecated);
     }
 
     #[test]
     fn new_cwd_sets_deprecated() {
+        let arena = Bump::new();
         let io = make_io();
-        let imp = FilesystemImporter::new_cwd(Rc::clone(&io));
+        let imp = FilesystemImporter::new_cwd(&arena, Rc::clone(&io));
         assert!(imp.load_path_deprecated);
     }
 
@@ -333,6 +336,7 @@ mod tests {
     // scheme-less relative URL is joined onto the load path.
     #[rust_sass_macros::maybe_test]
     async fn test_absolute_file_url_no_load_path_fallback() {
+        let arena = Bump::new();
         let _arena = Bump::new();
         // `/lp/real.scss` exists ONLY under the load path; `/abs/real.scss`
         // exists ONLY at its absolute location.
@@ -342,7 +346,7 @@ mod tests {
         let io: Rc<dyn Io> = Rc::new(VirtualIo::with_files(files));
         // `FilesystemImporter::new` joins the load path onto the CWD
         // (`VirtualIo` CWD is `/`), so pass the absolute path through.
-        let imp = FilesystemImporter::new("lp", Rc::clone(&io));
+        let imp = FilesystemImporter::new(&arena, "lp", Rc::clone(&io));
         let ctx_url = OwnedUrl::parse("file:///ctx/main.scss").unwrap();
 
         // Scheme-less relative URL: resolves under the load path.

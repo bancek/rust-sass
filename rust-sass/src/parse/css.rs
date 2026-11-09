@@ -187,6 +187,7 @@ fn css_import_rule_impl<'b>(
     let span = span_from_impl(scanner, &state.parser_state, start)?.file_span()?;
     let import_span = span_from_impl(scanner, &state.parser_state, url_start)?.file_span()?;
     Ok(ImportRule::new(
+        state.arena,
         vec![Import::Static(StaticImport::new(
             url,
             import_span,

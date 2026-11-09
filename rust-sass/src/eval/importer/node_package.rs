@@ -10,6 +10,7 @@
 use crate::common::time::SassTime;
 use crate::io::clean_path;
 use crate::url::OwnedUrl;
+use bumpalo::Bump;
 #[cfg(feature = "async")]
 use futures::future::LocalBoxFuture;
 use percent_encoding::percent_decode_str;
@@ -57,12 +58,12 @@ fn canonicalize_lexical(io: &dyn Io, path: &str) -> String {
 /// visible during canonicalization and resolution starts from the containing
 /// file's directory, falling back to the entry-point directory.
 #[derive(Clone)]
-pub struct NodePackageImporter {
-    pub entry_point_directory: String,
-    cwd: FilesystemImporter,
+pub struct NodePackageImporter<'parse> {
+    pub entry_point_directory: &'parse str,
+    cwd: FilesystemImporter<'parse>,
 }
 
-impl fmt::Debug for NodePackageImporter {
+impl fmt::Debug for NodePackageImporter<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("NodePackageImporter")
             .field("entry_point_directory", &self.entry_point_directory)
@@ -71,15 +72,15 @@ impl fmt::Debug for NodePackageImporter {
     }
 }
 
-impl NodePackageImporter {
+impl<'parse> NodePackageImporter<'parse> {
     /// Creates a Node package importer with the associated entry point.
     ///
     /// Matches Dart: `NodePackageImporter(entryPointDirectory)`.
-    pub fn new(entry_point_directory: &str, io: Rc<dyn Io>) -> Self {
+    pub fn new(arena: &'parse Bump, entry_point_directory: &str, io: Rc<dyn Io>) -> Self {
         let abs = Path::new(&io.current_dir()).join(entry_point_directory);
         NodePackageImporter {
-            entry_point_directory: abs.to_string_lossy().into_owned(),
-            cwd: FilesystemImporter::new_cwd(io),
+            entry_point_directory: &*arena.alloc_str(&abs.to_string_lossy()),
+            cwd: FilesystemImporter::new_cwd(arena, io),
         }
     }
 
@@ -95,12 +96,12 @@ impl NodePackageImporter {
     ///
     /// Matches Dart: `NodePackageImporter.canonicalize`.
     #[rust_sass_macros::maybe_async]
-    pub async fn canonicalize<'parse>(
+    pub async fn canonicalize<'a>(
         &self,
         io: &dyn Io,
         url: &OwnedUrl,
         ctx: &mut CanonicalizeContext,
-        warn_logger: &dyn WarnLogger<'parse>,
+        warn_logger: &dyn WarnLogger<'a>,
     ) -> SassResult<Option<OwnedUrl>> {
         if url.is_file_like() {
             return self.cwd.canonicalize(io, url, ctx, warn_logger).await;
@@ -147,9 +148,9 @@ impl NodePackageImporter {
             Path::new(&path)
                 .parent()
                 .map(|p| p.to_string_lossy().to_string())
-                .unwrap_or_else(|| self.entry_point_directory.clone())
+                .unwrap_or_else(|| self.entry_point_directory.to_string())
         } else {
-            self.entry_point_directory.clone()
+            self.entry_point_directory.to_string()
         };
 
         // Dart's `Uri.path` is percent-decoded and `_packageNameAndSubpath`
@@ -291,7 +292,7 @@ impl NodePackageImporter {
     }
 }
 
-impl NodePackageImporter {
+impl<'parse> NodePackageImporter<'parse> {
     fn url_extension(path: &str) -> Option<&str> {
         path.rfind('/')
             .map(|i| &path[i + 1..])
@@ -841,6 +842,7 @@ mod tests {
     // with entry `/app` (base dir) so `resolve_package_root` finds it.
     #[rust_sass_macros::maybe_test]
     async fn test_non_relative_export_throws() {
+        let arena = Bump::new();
         let _arena = Bump::new();
         let mut files = HashMap::new();
         files.insert(
@@ -852,7 +854,7 @@ mod tests {
             "a { b: 1; }".to_string(),
         );
         let io = make_io(files);
-        let imp = NodePackageImporter::new("/app", Rc::clone(&io));
+        let imp = NodePackageImporter::new(&arena, "/app", Rc::clone(&io));
         let url = OwnedUrl::parse("pkg:p/a").unwrap();
         let mut ctx = make_ctx();
         let err = imp
@@ -889,7 +891,7 @@ mod tests {
             "a { b: 2; }".to_string(),
         );
         let io = make_io(files);
-        let imp = NodePackageImporter::new("/app", Rc::clone(&io));
+        let imp = NodePackageImporter::new(&arena, "/app", Rc::clone(&io));
         let url = OwnedUrl::parse("pkg:p/a").unwrap();
         let mut ctx = make_ctx();
         let result = imp
@@ -911,7 +913,7 @@ mod tests {
             r#"{"name": "p", "exports": {"./a": 42}}"#.to_string(),
         );
         let io = make_io(files);
-        let imp = NodePackageImporter::new("/app", Rc::clone(&io));
+        let imp = NodePackageImporter::new(&arena, "/app", Rc::clone(&io));
         let url = OwnedUrl::parse("pkg:p/a").unwrap();
         let mut ctx = make_ctx();
         let err = imp
@@ -935,6 +937,7 @@ mod tests {
     // Layout: `/app/node_modules/p/…` with entry `/app`.
     #[rust_sass_macros::maybe_test]
     async fn test_exports_import_only_for_import() {
+        let arena = Bump::new();
         let _arena = Bump::new();
         let mut files = HashMap::new();
         files.insert(
@@ -950,7 +953,7 @@ mod tests {
             "a { b: 2; }".to_string(),
         );
         let io = make_io(files);
-        let imp = NodePackageImporter::new("/app", Rc::clone(&io));
+        let imp = NodePackageImporter::new(&arena, "/app", Rc::clone(&io));
         let url = OwnedUrl::parse("pkg:p").unwrap();
 
         let mut import_ctx = make_import_ctx();
@@ -977,6 +980,7 @@ mod tests {
     // file (node_package.dart `_resolveImportOnly`, #2772).
     #[rust_sass_macros::maybe_test]
     async fn test_exports_missing_import_only_falls_back() {
+        let arena = Bump::new();
         let _arena = Bump::new();
         let mut files = HashMap::new();
         files.insert(
@@ -988,7 +992,7 @@ mod tests {
             "a { b: 1; }".to_string(),
         );
         let io = make_io(files);
-        let imp = NodePackageImporter::new("/app", Rc::clone(&io));
+        let imp = NodePackageImporter::new(&arena, "/app", Rc::clone(&io));
         let url = OwnedUrl::parse("pkg:p").unwrap();
         let mut ctx = make_import_ctx();
         let result = imp
@@ -1005,6 +1009,7 @@ mod tests {
     // manifest, so neither `exports` nor `sass`/`style` applies.
     #[rust_sass_macros::maybe_test]
     async fn test_index_fallback_import_only_for_import() {
+        let arena = Bump::new();
         let _arena = Bump::new();
         for (index, import_only) in [
             ("index.scss", "index.import.scss"),
@@ -1024,7 +1029,7 @@ mod tests {
                 "a { b: 2; }".to_string(),
             );
             let io = make_io(files);
-            let imp = NodePackageImporter::new("/app", Rc::clone(&io));
+            let imp = NodePackageImporter::new(&arena, "/app", Rc::clone(&io));
             let url = OwnedUrl::parse("pkg:p").unwrap();
 
             let mut import_ctx = make_import_ctx();
@@ -1057,6 +1062,7 @@ mod tests {
     // `@import` but not for `@use` (node_package.dart:150, #2772).
     #[rust_sass_macros::maybe_test]
     async fn test_sass_key_import_only_for_import() {
+        let arena = Bump::new();
         let _arena = Bump::new();
         let mut files = HashMap::new();
         files.insert(
@@ -1072,7 +1078,7 @@ mod tests {
             "a { b: 2; }".to_string(),
         );
         let io = make_io(files);
-        let imp = NodePackageImporter::new("/app", Rc::clone(&io));
+        let imp = NodePackageImporter::new(&arena, "/app", Rc::clone(&io));
         let url = OwnedUrl::parse("pkg:p").unwrap();
 
         let mut import_ctx = make_import_ctx();

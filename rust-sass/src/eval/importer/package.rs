@@ -8,6 +8,7 @@
 // go-source: go/eval/importer_package.go
 
 use crate::url::OwnedUrl;
+use bumpalo::Bump;
 use std::fmt;
 use std::rc::Rc;
 
@@ -33,12 +34,12 @@ pub trait PackageConfig: fmt::Debug {
 /// unresolvable, `"Unsupported URL …."` for non-file resolutions), and all
 /// other schemes return `None`. Displays as `"package:..."`.
 #[derive(Clone)]
-pub struct PackageImporter {
+pub struct PackageImporter<'parse> {
     config: Rc<dyn PackageConfig>,
-    cwd: FilesystemImporter,
+    cwd: FilesystemImporter<'parse>,
 }
 
-impl fmt::Debug for PackageImporter {
+impl fmt::Debug for PackageImporter<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("PackageImporter")
             .field("config", &self.config)
@@ -47,14 +48,14 @@ impl fmt::Debug for PackageImporter {
     }
 }
 
-impl PackageImporter {
+impl<'parse> PackageImporter<'parse> {
     /// Creates an importer resolving `package:` URLs via `config`.
     ///
     /// Matches Dart: `PackageImporter(packageConfig)`.
-    pub fn new(config: Rc<dyn PackageConfig>, io: Rc<dyn Io>) -> Self {
+    pub fn new(arena: &'parse Bump, config: Rc<dyn PackageConfig>, io: Rc<dyn Io>) -> Self {
         PackageImporter {
             config,
-            cwd: FilesystemImporter::new_cwd(io),
+            cwd: FilesystemImporter::new_cwd(arena, io),
         }
     }
 
@@ -62,12 +63,12 @@ impl PackageImporter {
     ///
     /// Matches Dart: `PackageImporter.canonicalize`.
     #[rust_sass_macros::maybe_async]
-    pub async fn canonicalize<'parse>(
+    pub async fn canonicalize<'a>(
         &self,
         io: &dyn Io,
         url: &OwnedUrl,
         ctx: &mut CanonicalizeContext,
-        warn_logger: &dyn WarnLogger<'parse>,
+        warn_logger: &dyn WarnLogger<'a>,
     ) -> SassResult<Option<OwnedUrl>> {
         if url.is_file_like() {
             return self.cwd.canonicalize(io, url, ctx, warn_logger).await;
@@ -118,7 +119,7 @@ impl PackageImporter {
     }
 }
 
-impl fmt::Display for PackageImporter {
+impl fmt::Display for PackageImporter<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "package:...")
     }
@@ -157,7 +158,7 @@ mod tests {
         let config = TestConfig {
             mapping: Default::default(),
         };
-        let imp = PackageImporter::new(Rc::new(config), Rc::clone(&io));
+        let imp = PackageImporter::new(&arena, Rc::new(config), Rc::clone(&io));
         let url = OwnedUrl::parse("http://example.com/style.scss").unwrap();
         let mut ctx = CanonicalizeContext::new(None, false);
         let result = imp
@@ -176,7 +177,7 @@ mod tests {
         let io = make_io();
         let mut mapping = HashMap::new();
         mapping.insert("foo".to_string(), "/resolved/foo.scss".to_string());
-        let imp = PackageImporter::new(Rc::new(TestConfig { mapping }), Rc::clone(&io));
+        let imp = PackageImporter::new(&arena, Rc::new(TestConfig { mapping }), Rc::clone(&io));
         let url = OwnedUrl::parse("foo").unwrap();
         assert!(url.is_relative());
         let mut ctx = CanonicalizeContext::new(None, false);
@@ -194,7 +195,7 @@ mod tests {
         let config = TestConfig {
             mapping: Default::default(),
         };
-        let imp = PackageImporter::new(Rc::new(config), Rc::clone(&io));
+        let imp = PackageImporter::new(&arena, Rc::new(config), Rc::clone(&io));
         let url = OwnedUrl::parse("package:unknown").unwrap();
         let mut ctx = CanonicalizeContext::new(None, false);
         let err = imp
@@ -211,21 +212,23 @@ mod tests {
 
     #[test]
     fn is_non_canonical_scheme_returns_false() {
+        let arena = Bump::new();
         let io = make_io();
         let config = TestConfig {
             mapping: Default::default(),
         };
-        let imp = PackageImporter::new(Rc::new(config), Rc::clone(&io));
+        let imp = PackageImporter::new(&arena, Rc::new(config), Rc::clone(&io));
         assert!(!imp.is_non_canonical_scheme("package"));
     }
 
     #[test]
     fn could_canonicalize_checks_scheme() {
+        let arena = Bump::new();
         let io = make_io();
         let config = TestConfig {
             mapping: Default::default(),
         };
-        let imp = PackageImporter::new(Rc::new(config), Rc::clone(&io));
+        let imp = PackageImporter::new(&arena, Rc::new(config), Rc::clone(&io));
         let url = OwnedUrl::parse("http://example.com/style").unwrap();
         let canonical = OwnedUrl::parse("file:///style.scss").unwrap();
         assert!(!imp.could_canonicalize(&url, &canonical));

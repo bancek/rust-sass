@@ -394,7 +394,7 @@ impl UserImporter for JsImporter {
 /// back as `file:` URLs.
 pub struct JsFileImporter {
     find_file_url: js_sys::Function,
-    fs: FilesystemImporter,
+    fs: FilesystemImporter<'static>,
     io: Rc<dyn rust_sass::io::Io>,
 }
 
@@ -498,7 +498,7 @@ impl UserImporter for JsFileImporter {
 async fn parse_file_url_result(
     result: &JsValue,
     original_url: &OwnedUrl,
-    fs: &FilesystemImporter,
+    fs: &FilesystemImporter<'_>,
     io: &dyn rust_sass::io::Io,
     context: &mut CanonicalizeContext,
 ) -> SassResult<Option<OwnedUrl>> {
