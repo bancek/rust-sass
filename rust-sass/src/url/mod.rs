@@ -128,6 +128,15 @@ pub trait Url: Display {
     fn as_str(&self) -> &str;
     fn to_file_path_string(&self) -> Option<String>;
 
+    /// The owned form, when this URL already is owned — lets callers cache a
+    /// URL without copying it when it is arena-backed.
+    fn as_owned(&self) -> Option<&OwnedUrl> {
+        None
+    }
+
+    /// A heap-owned copy of this URL, without reparsing.
+    fn to_owned_url(&self) -> OwnedUrl;
+
     fn has_scheme(&self) -> bool {
         !self.scheme().is_empty()
     }
@@ -493,6 +502,14 @@ impl Hash for OwnedUrl {
 }
 
 impl Url for OwnedUrl {
+    fn as_owned(&self) -> Option<&OwnedUrl> {
+        Some(self)
+    }
+
+    fn to_owned_url(&self) -> OwnedUrl {
+        self.clone()
+    }
+
     fn scheme(&self) -> &str {
         OwnedUrl::scheme(self)
     }
@@ -759,6 +776,10 @@ impl Hash for ArenaUrl<'_> {
 }
 
 impl Url for ArenaUrl<'_> {
+    fn to_owned_url(&self) -> OwnedUrl {
+        ArenaUrl::to_owned_url(self)
+    }
+
     fn scheme(&self) -> &str {
         ArenaUrl::scheme(self)
     }

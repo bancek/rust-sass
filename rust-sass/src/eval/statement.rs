@@ -45,7 +45,7 @@ use crate::extend::{ExtendMode, Extension, StoreBox};
 use crate::parse::keyframe_selector::KeyframeSelectorParser;
 use crate::parse::selector_parse::SelectorParser;
 use crate::unvendor::unvendor;
-use crate::url::OwnedUrl;
+use crate::url::{OwnedUrl, Url};
 use crate::util::trim_ascii::trim_ascii;
 use crate::util::utils::{pluralize, to_sentence};
 use bumpalo::Bump;
@@ -1213,7 +1213,7 @@ pub(crate) async fn load_stylesheet<'compile, 'parse>(
     config: &EvalConfig<'compile, 'parse>,
     state: &mut EvalState<'compile, 'parse>,
     arena: &'compile Bump,
-    parsed_url: &OwnedUrl,
+    parsed_url: &impl Url,
     span: FileSpan<'parse>,
     base_url: Option<&OwnedUrl>,
     for_import: bool,
@@ -1413,7 +1413,7 @@ where
             }
 
             Import::Dynamic(d) => {
-                let url = d.url().to_owned_url();
+                let url = d.url();
                 let import_span = d.span;
 
                 // Dart `_visitDynamicImport` wraps the whole load+evaluate in
@@ -3204,7 +3204,16 @@ where
             let loaded =
                 add_exception_span(config, state, node_with_span, Some(false), async |c, s| {
                     add_exception_trace(s, async |s2| {
-                        load_stylesheet(c, s2, arena, url, node_with_span, base_url, false).await
+                        load_stylesheet(
+                            c,
+                            s2,
+                            arena,
+                            &url.to_owned_url(),
+                            node_with_span,
+                            base_url,
+                            false,
+                        )
+                        .await
                     })
                     .await
                 })
@@ -3578,16 +3587,7 @@ where
             // error at the `@use` rule with a stack-frame-only trace.
             let loaded = add_exception_span(c, s, node.span, Some(false), async |c2, s2| {
                 add_exception_trace(s2, async |s3| {
-                    load_stylesheet(
-                        c2,
-                        s3,
-                        arena,
-                        &node.url.to_owned_url(),
-                        node.span,
-                        None,
-                        false,
-                    )
-                    .await
+                    load_stylesheet(c2, s3, arena, &node.url, node.span, None, false).await
                 })
                 .await
             })
@@ -3817,16 +3817,7 @@ where
         None,
         async |c, s| -> SassResult<Option<Value<'parse>>> {
             let loaded = add_exception_span(c, s, node.span, None, async |c2, s2| {
-                load_stylesheet(
-                    c2,
-                    s2,
-                    arena,
-                    &node.url.to_owned_url(),
-                    node.span,
-                    None,
-                    false,
-                )
-                .await
+                load_stylesheet(c2, s2, arena, &node.url, node.span, None, false).await
             })
             .await?;
 

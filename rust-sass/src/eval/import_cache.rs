@@ -9,8 +9,8 @@
 
 use crate::common::time::SassTime;
 use crate::parse::stylesheet::Syntax;
-use crate::url::resolve_file_path;
 use crate::url::OwnedUrl;
+use crate::url::{resolve_file_path, Url};
 use std::collections::hash_map;
 use std::collections::HashMap;
 use std::path::Path;
@@ -191,7 +191,7 @@ impl<'compile: 'parse, 'parse> ImportCache<'compile, 'parse> {
     #[rust_sass_macros::maybe_async]
     pub async fn canonicalize(
         &mut self,
-        url: &OwnedUrl,
+        url: &impl Url,
         base_importer: Option<&Importer<'parse>>,
         base_url: Option<&OwnedUrl>,
         for_import: bool,
@@ -208,6 +208,16 @@ impl<'compile: 'parse, 'parse> ImportCache<'compile, 'parse> {
         // no URLs, containing rules, or cache keys change for them).
         // No cache write here: upstream has no import cache, and a result
         // may vary by containing URL while the global keys omit it.
+        // Only materialized when a cache key or an importer call needs the
+        // owned form (a cache hit allocates nothing).
+        let owned;
+        let url: &OwnedUrl = match url.as_owned() {
+            Some(url) => url,
+            None => {
+                owned = url.to_owned_url();
+                &owned
+            }
+        };
         if for_import && url.scheme().is_empty() && base_url.is_some() {
             let any_opt_in = self.importers.iter().any(|i| match i.kind() {
                 ImporterKind::User(u) => u.prefers_raw_load_paths(),
