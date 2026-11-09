@@ -285,7 +285,7 @@ mod tests {
     fn test_variable() {
         let arena = Bump::new();
         let span = test_span(&arena, "$x", 0, 2);
-        let expr = Expression::Variable(VariableExpression::new("x".into(), span, None));
+        let expr = Expression::Variable(VariableExpression::new(&arena, "x", span, None));
         let mut v = IsPlainCssVisitor::new(false);
         assert!(!expr.accept(&mut v).unwrap());
     }
@@ -323,7 +323,7 @@ mod tests {
         let arena = Bump::new();
         let s = test_span(&arena, "#{$x}", 0, 5);
         let expr_span = test_span(&arena, "#{$x}", 2, 4);
-        let var_expr = Expression::Variable(VariableExpression::new("x".into(), expr_span, None));
+        let var_expr = Expression::Variable(VariableExpression::new(&arena, "x", expr_span, None));
         let mut buf = InterpolationBuffer::new();
         buf.add(var_expr, expr_span);
         let text = buf.interpolation(&arena, s).unwrap();
@@ -337,7 +337,7 @@ mod tests {
         let arena = Bump::new();
         let s = test_span(&arena, "#{$x}", 0, 5);
         let expr_span = test_span(&arena, "#{$x}", 2, 4);
-        let var_expr = Expression::Variable(VariableExpression::new("x".into(), expr_span, None));
+        let var_expr = Expression::Variable(VariableExpression::new(&arena, "x", expr_span, None));
         let mut buf = InterpolationBuffer::new();
         buf.add(var_expr, expr_span);
         let text = buf.interpolation(&arena, s).unwrap();
@@ -439,7 +439,7 @@ mod tests {
         let span = test_span(&arena, "1 $x", 0, 4);
         let contents = vec![
             Expression::Number(NumberExpression::new(1.0, span, None)),
-            Expression::Variable(VariableExpression::new("x".into(), span, None)),
+            Expression::Variable(VariableExpression::new(&arena, "x", span, None)),
         ];
         let expr = Expression::List(ListExpression::new(
             arena_slice(&arena, contents),

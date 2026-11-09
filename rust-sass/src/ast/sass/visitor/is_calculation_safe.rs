@@ -233,7 +233,7 @@ mod tests {
     fn test_variable() {
         let arena = Bump::new();
         let span = test_span(&arena, "$x", 0, 2);
-        let expr = Expression::Variable(VariableExpression::new("x".into(), span, None));
+        let expr = Expression::Variable(VariableExpression::new(&arena, "x", span, None));
         let mut v = IsCalculationSafeVisitor::new();
         assert!(expr.accept(&mut v).unwrap());
     }

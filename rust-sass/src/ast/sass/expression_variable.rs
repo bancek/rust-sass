@@ -8,6 +8,7 @@
 // go-source: go/value/sass_expression_variable.go
 
 use crate::common::exception::SassError;
+use bumpalo::Bump;
 use std::fmt;
 
 use crate::common::ast_node::AstNode;
@@ -18,19 +19,24 @@ use crate::common::file_span::FileSpan;
 #[derive(Clone, Debug)]
 pub struct VariableExpression<'parse> {
     /// The name of this variable, with underscores converted to hyphens.
-    pub name: String,
+    pub name: &'parse str,
     pub span: FileSpan<'parse>,
     /// The namespace of the variable being referenced, or [`None`] if it's
     /// referenced without a namespace.
-    pub namespace: Option<String>,
+    pub namespace: Option<&'parse str>,
 }
 
 impl<'parse> VariableExpression<'parse> {
-    pub fn new(name: String, span: FileSpan<'parse>, namespace: Option<String>) -> Self {
+    pub fn new(
+        arena: &'parse Bump,
+        name: &str,
+        span: FileSpan<'parse>,
+        namespace: Option<&str>,
+    ) -> Self {
         VariableExpression {
-            name,
+            name: arena.alloc_str(name),
             span,
-            namespace,
+            namespace: namespace.map(|ns| &*arena.alloc_str(ns)),
         }
     }
 
@@ -88,7 +94,7 @@ mod tests {
         let arena = Bump::new();
         let fs = FileSource::new_in(&arena, "$var", None);
         let span = FileSpan::new(Some(fs), 0, 4);
-        let expr = VariableExpression::new("var".into(), span, None);
+        let expr = VariableExpression::new(&arena, "var", span, None);
 
         assert_eq!(expr.name, "var");
         assert!(expr.namespace.is_none());
@@ -101,7 +107,7 @@ mod tests {
         let arena = Bump::new();
         let fs = FileSource::new_in(&arena, "$var", None);
         let span = FileSpan::new(Some(fs), 0, 4);
-        let expr = VariableExpression::new("var".into(), span, None);
+        let expr = VariableExpression::new(&arena, "var", span, None);
         assert_eq!(format!("{expr}"), "$var");
     }
 
@@ -110,7 +116,7 @@ mod tests {
         let arena = Bump::new();
         let fs = FileSource::new_in(&arena, "a.#{$expr}.b", None);
         let span = FileSpan::new(Some(fs), 4, 9);
-        let expr = VariableExpression::new("expr".into(), span, None);
+        let expr = VariableExpression::new(&arena, "expr", span, None);
         assert_eq!(format!("{expr}"), "$expr");
     }
 }

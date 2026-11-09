@@ -511,7 +511,7 @@ mod tests {
     fn test_replace_variable_identity() {
         let arena = Bump::new();
         let mut v = ReplaceExpressionVisitor::new(&arena);
-        let node = VariableExpression::new("x".into(), test_span(&arena, "$x"), None);
+        let node = VariableExpression::new(&arena, "x", test_span(&arena, "$x"), None);
         let result = Expression::Variable(node).accept(&mut v).unwrap();
         assert!(matches!(result, Expression::Variable(_)));
     }
@@ -737,7 +737,8 @@ mod tests {
                 InterpolationPart::expression(
                     &arena,
                     Expression::Variable(VariableExpression::new(
-                        "x".into(),
+                        &arena,
+                        "x",
                         test_span(&arena, "$x"),
                         None,
                     )),

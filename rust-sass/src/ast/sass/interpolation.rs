@@ -299,7 +299,7 @@ mod tests {
         let var_span = test_span(&arena, source, 4, 9); // $expr
         let interp_expr_span = test_span(&arena, source, 2, 10); // #{$expr}
 
-        let expr = Expression::Variable(VariableExpression::new("expr".into(), var_span, None));
+        let expr = Expression::Variable(VariableExpression::new(&arena, "expr", var_span, None));
 
         let interp = Interpolation::new(
             &arena,
@@ -353,7 +353,7 @@ mod tests {
         let source = "a.#{$expr}.b";
         let file_span = test_span(&arena, source, 0, 12);
         let var_span = test_span(&arena, source, 4, 9);
-        let expr = Expression::Variable(VariableExpression::new("expr".into(), var_span, None));
+        let expr = Expression::Variable(VariableExpression::new(&arena, "expr", var_span, None));
 
         let err = Interpolation::new(
             &arena,
@@ -390,7 +390,7 @@ mod tests {
         let file_span = test_span(&arena, source, 0, 12);
         let var_span = test_span(&arena, source, 4, 9);
         let interp_expr_span = test_span(&arena, source, 2, 10);
-        let expr = Expression::Variable(VariableExpression::new("expr".into(), var_span, None));
+        let expr = Expression::Variable(VariableExpression::new(&arena, "expr", var_span, None));
 
         let interp = Interpolation::new(
             &arena,
@@ -416,7 +416,7 @@ mod tests {
         let file_span = test_span(&arena, source, 0, 12);
         let var_span = test_span(&arena, source, 4, 9);
         let interp_expr_span = test_span(&arena, source, 2, 10);
-        let expr = Expression::Variable(VariableExpression::new("expr".into(), var_span, None));
+        let expr = Expression::Variable(VariableExpression::new(&arena, "expr", var_span, None));
 
         let interp = Interpolation::new(
             &arena,

@@ -1162,10 +1162,7 @@ where
     'compile: 'parse,
 {
     if let Expression::Variable(ve) = expression {
-        if let Some(span) = state
-            .env
-            .get_variable_node(&ve.name, ve.namespace.as_deref())?
-        {
+        if let Some(span) = state.env.get_variable_node(ve.name, ve.namespace)? {
             return Ok(span);
         }
     }
@@ -3587,7 +3584,7 @@ mod tests {
             def_span,
         );
         let ve = Expression::Variable(VariableExpression {
-            name: "x".into(),
+            name: "x",
             span: ref_span,
             namespace: None,
         });
@@ -3744,7 +3741,7 @@ mod tests {
         let span = make_span(&arena, "reference");
         let (_config, state) = test_visitor(&arena);
         let ve = Expression::Variable(VariableExpression {
-            name: "missing".into(),
+            name: "missing",
             span,
             namespace: None,
         });

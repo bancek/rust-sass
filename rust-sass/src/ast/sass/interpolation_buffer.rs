@@ -318,7 +318,7 @@ mod tests {
         let arena = Bump::new();
         let expr_span = test_span(&arena, "#{$expr}", 0, 7);
         let var_span = test_span(&arena, "$expr", 1, 6);
-        let expr = Expression::Variable(VariableExpression::new("expr".into(), var_span, None));
+        let expr = Expression::Variable(VariableExpression::new(&arena, "expr", var_span, None));
 
         let mut buf = InterpolationBuffer::new();
         buf.add(expr, expr_span);
@@ -332,7 +332,7 @@ mod tests {
         let interp_span = test_span(&arena, source, 0, 12);
         let var_span = test_span(&arena, source, 4, 9);
         let expr_span = test_span(&arena, source, 2, 10);
-        let expr = Expression::Variable(VariableExpression::new("expr".into(), var_span, None));
+        let expr = Expression::Variable(VariableExpression::new(&arena, "expr", var_span, None));
         let interp = Interpolation::new(
             &arena,
             vec![InterpolationPart::expression(&arena, expr)],
@@ -378,7 +378,7 @@ mod tests {
         let file_span = test_span(&arena, source, 0, 12);
         let var_span = test_span(&arena, source, 4, 9);
         let expr_span = test_span(&arena, source, 2, 10);
-        let expr = Expression::Variable(VariableExpression::new("expr".into(), var_span, None));
+        let expr = Expression::Variable(VariableExpression::new(&arena, "expr", var_span, None));
 
         let mut buf = InterpolationBuffer::new();
         buf.write("a.");
@@ -396,7 +396,7 @@ mod tests {
         let source = "a.#{$expr}.b";
         let var_span = test_span(&arena, source, 4, 9);
         let expr_span = test_span(&arena, source, 2, 10);
-        let expr = Expression::Variable(VariableExpression::new("expr".into(), var_span, None));
+        let expr = Expression::Variable(VariableExpression::new(&arena, "expr", var_span, None));
 
         let mut buf = InterpolationBuffer::new();
         buf.write("a.");
@@ -414,7 +414,7 @@ mod tests {
         let file_span = test_span(&arena, source, 0, 17);
         let var_span = test_span(&arena, source, 7, 12);
         let expr_span = test_span(&arena, source, 6, 13);
-        let expr = Expression::Variable(VariableExpression::new("expr".into(), var_span, None));
+        let expr = Expression::Variable(VariableExpression::new(&arena, "expr", var_span, None));
 
         let mut buf = InterpolationBuffer::new();
         buf.write("before");

@@ -243,9 +243,7 @@ where
     'compile: 'parse,
 {
     let result = add_exception_span(config, state, expr.span, None, async |_config, state| {
-        state
-            .env
-            .get_variable(&expr.name, expr.namespace.as_deref())
+        state.env.get_variable(expr.name, expr.namespace)
     })
     .await?;
     match result {
@@ -1804,7 +1802,7 @@ mod tests {
         let span = make_span(&arena, "$x");
         let (config, mut state) = test_visitor(&arena);
         let expr = VariableExpression {
-            name: "x".into(),
+            name: "x",
             span,
             namespace: None,
         };
@@ -1823,7 +1821,7 @@ mod tests {
             .env
             .set_local_variable("y", Value::new_with_arena(&arena, ValueKind::Null), span);
         let expr = VariableExpression {
-            name: "y".into(),
+            name: "y",
             span,
             namespace: None,
         };

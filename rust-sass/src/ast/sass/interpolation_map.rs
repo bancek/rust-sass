@@ -581,7 +581,7 @@ mod tests {
 
         let var_span = FileSpan::new(Some(fs), 4, 8); // "expr"
         let hash_span = FileSpan::new(Some(fs), 2, 9); // "#{expr}"
-        let expr = Expression::Variable(VariableExpression::new("expr".into(), var_span, None));
+        let expr = Expression::Variable(VariableExpression::new(&arena, "expr", var_span, None));
         let interp = Interpolation::new(
             &arena,
             vec![
@@ -733,7 +733,7 @@ mod tests {
 
         let var_span = FileSpan::new(Some(fs_a), 4, 8); // "expr"
         let hash_span = FileSpan::new(Some(fs_a), 2, 9); // "#{expr}"
-        let expr = Expression::Variable(VariableExpression::new("expr".into(), var_span, None));
+        let expr = Expression::Variable(VariableExpression::new(&arena, "expr", var_span, None));
         let interp = Interpolation::new(
             &arena,
             vec![

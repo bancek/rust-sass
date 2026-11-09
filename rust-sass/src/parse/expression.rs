@@ -601,7 +601,7 @@ fn variable_impl<'parse>(
         )));
     }
     let span = span_from_impl(scanner, &state.parser_state, start)?.file_span()?;
-    Ok(VariableExpression::new(name, span, None))
+    Ok(VariableExpression::new(state.arena, &name, span, None))
 }
 
 /// Consumes the `&` parent-selector expression.
@@ -1448,7 +1448,7 @@ pub(crate) fn argument_invocation<'parse>(
         } else if let Expression::Variable(ref ve) = expression {
             if scanner.scan_char(':') {
                 whitespace_impl(scanner, &mut state.parser_state, true)?;
-                let name = ve.name.clone();
+                let name = ve.name.to_string();
                 if named.contains_key(&name) {
                     let ve_span = ve.span()?;
                     return Err(Box::new(error_impl("Duplicate argument.", &ve_span)));
@@ -2088,9 +2088,10 @@ pub(crate) fn namespaced<'parse>(
             )));
         }
         return Ok(Expression::Variable(VariableExpression::new(
-            name,
+            state.arena,
+            &name,
             var_span,
-            Some(namespace.to_string()),
+            Some(namespace),
         )));
     }
     let start_id = scanner.state();
@@ -5398,7 +5399,7 @@ mod tests {
         match _expression_impl(&mut s, &mut st, o).unwrap() {
             Expression::Variable(v) => {
                 assert_eq!(v.name, "x");
-                assert_eq!(v.namespace.as_deref(), Some("ns"));
+                assert_eq!(v.namespace, Some("ns"));
                 assert_eq!(v.span.text(), "ns.$x");
             }
             _ => {
