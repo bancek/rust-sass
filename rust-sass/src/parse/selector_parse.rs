@@ -550,10 +550,10 @@ fn simple_selector_impl<'compile: 'parse, 'parse>(
 
     match scanner.peek_char(0) {
         _ if scanner.peek_char(0) == '[' as i32 => attribute_selector_impl(scanner, state),
-        _ if scanner.peek_char(0) == '.' as i32 => class_selector_impl(scanner, state),
-        _ if scanner.peek_char(0) == '#' as i32 => id_selector_impl(scanner, state),
+        _ if scanner.peek_char(0) == '.' as i32 => class_selector_impl(arena, scanner, state),
+        _ if scanner.peek_char(0) == '#' as i32 => id_selector_impl(arena, scanner, state),
         _ if scanner.peek_char(0) == '%' as i32 => {
-            let sel = placeholder_selector_impl(scanner, state)?;
+            let sel = placeholder_selector_impl(arena, scanner, state)?;
             if plain_css {
                 let span = span_from_impl(scanner, state, start)?.file_span()?;
                 return Err(Box::new(error_impl(
@@ -704,6 +704,7 @@ fn attribute_operator_impl<'parse>(
 
 // Consumes a class selector (`.` + name, with its span).
 fn class_selector_impl<'parse>(
+    arena: &'parse Bump,
     scanner: &mut SpanScanner<'parse>,
     state: &mut ParserState<'parse>,
 ) -> ParseResult<'parse, SimpleSelector<'parse>> {
@@ -711,11 +712,15 @@ fn class_selector_impl<'parse>(
     scanner.expect_char('.')?;
     let name = identifier_impl(scanner, state, false, false)?;
     let span = span_from_impl(scanner, state, start)?.file_span()?;
-    Ok(SimpleSelector::Class(ClassSelector::new(name, span)))
+    Ok(SimpleSelector::Class(ClassSelector::new(
+        &*arena.alloc_str(&name),
+        span,
+    )))
 }
 
 // Consumes an ID selector (`#` + name, with its span).
 fn id_selector_impl<'parse>(
+    arena: &'parse Bump,
     scanner: &mut SpanScanner<'parse>,
     state: &mut ParserState<'parse>,
 ) -> ParseResult<'parse, SimpleSelector<'parse>> {
@@ -723,11 +728,15 @@ fn id_selector_impl<'parse>(
     scanner.expect_char('#')?;
     let name = identifier_impl(scanner, state, false, false)?;
     let span = span_from_impl(scanner, state, start)?.file_span()?;
-    Ok(SimpleSelector::Id(IdSelector::new(name, span)))
+    Ok(SimpleSelector::Id(IdSelector::new(
+        &*arena.alloc_str(&name),
+        span,
+    )))
 }
 
 // Consumes a placeholder selector (`%` + name, with its span).
 fn placeholder_selector_impl<'parse>(
+    arena: &'parse Bump,
     scanner: &mut SpanScanner<'parse>,
     state: &mut ParserState<'parse>,
 ) -> ParseResult<'parse, SimpleSelector<'parse>> {
@@ -736,7 +745,8 @@ fn placeholder_selector_impl<'parse>(
     let name = identifier_impl(scanner, state, false, false)?;
     let span = span_from_impl(scanner, state, start)?.file_span()?;
     Ok(SimpleSelector::Placeholder(PlaceholderSelector::new(
-        name, span,
+        &*arena.alloc_str(&name),
+        span,
     )))
 }
 

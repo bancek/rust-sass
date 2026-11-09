@@ -7,6 +7,8 @@
 // dart-source: lib/src/ast/selector/class.dart + lib/src/extend/functions.dart
 // go-source: go/value/selector_class.go + go/value/selector_extend_functions.go
 
+use bumpalo::Bump;
+
 use crate::common::exception::SassResult;
 use crate::common::file_span::FileSpan;
 use crate::selector::selector_assert_not_bogus_impl;
@@ -29,7 +31,7 @@ pub struct ClassSelector<'parse> {
     /// The source span covering this selector.
     pub span: FileSpan<'parse>,
     /// The class name this selects for.
-    pub name: String,
+    pub name: &'parse str,
 }
 
 // Matches Dart: structural equality over the name; the span is excluded.
@@ -43,7 +45,7 @@ impl<'parse> Eq for ClassSelector<'parse> {}
 
 impl<'parse> ClassSelector<'parse> {
     /// Creates a class selector for `name`.
-    pub fn new(name: String, span: FileSpan<'parse>) -> Self {
+    pub fn new(name: &'parse str, span: FileSpan<'parse>) -> Self {
         ClassSelector { span, name }
     }
 
@@ -94,7 +96,7 @@ impl<'parse> ClassSelector<'parse> {
 
     // Matches Dart: the hash of the name; the span is excluded.
     pub fn hash_code(&self) -> i32 {
-        string_hash_code(&self.name)
+        string_hash_code(self.name)
     }
 
     /// Serializes this selector to CSS, quoting as `inspect` requests.
@@ -120,9 +122,13 @@ impl<'parse> ClassSelector<'parse> {
 
     // Matches Dart `ClassSelector.addSuffix` (class.dart): appends `suffix`
     // to the name. Internal-only in Dart (`@internal`); kept public here.
-    pub fn add_suffix(&self, suffix: &str) -> SassResult<SimpleSelector<'parse>> {
+    pub fn add_suffix(
+        &self,
+        arena: &'parse Bump,
+        suffix: &str,
+    ) -> SassResult<SimpleSelector<'parse>> {
         Ok(SimpleSelector::Class(ClassSelector::new(
-            format!("{}{}", self.name, suffix),
+            &*arena.alloc_str(&format!("{}{}", self.name, suffix)),
             self.span,
         )))
     }
@@ -164,50 +170,51 @@ mod tests {
 
     #[test]
     fn test_new_class_selector() {
-        let s = ClassSelector::new("foo".into(), BOGUS_SPAN);
+        let s = ClassSelector::new("foo", BOGUS_SPAN);
         assert_eq!(s.name, "foo");
     }
 
     #[test]
     fn test_class_selector_is_invisible() {
-        let s = ClassSelector::new("foo".into(), BOGUS_SPAN);
+        let s = ClassSelector::new("foo", BOGUS_SPAN);
         assert!(!s.is_invisible());
     }
 
     #[test]
     fn test_class_selector_is_bogus() {
-        let s = ClassSelector::new("foo".into(), BOGUS_SPAN);
+        let s = ClassSelector::new("foo", BOGUS_SPAN);
         assert!(!s.is_bogus());
     }
 
     #[test]
     fn test_class_selector_is_useless() {
-        let s = ClassSelector::new("foo".into(), BOGUS_SPAN);
+        let s = ClassSelector::new("foo", BOGUS_SPAN);
         assert!(!s.is_useless());
     }
 
     #[test]
     fn test_class_selector_contains_parent_selector() {
-        let s = ClassSelector::new("foo".into(), BOGUS_SPAN);
+        let s = ClassSelector::new("foo", BOGUS_SPAN);
         assert!(!s.contains_parent_selector().unwrap());
     }
 
     #[test]
     fn test_class_selector_has_complicated_superselector_semantics() {
-        let s = ClassSelector::new("foo".into(), BOGUS_SPAN);
+        let s = ClassSelector::new("foo", BOGUS_SPAN);
         assert!(!s.has_complicated_superselector_semantics());
     }
 
     #[test]
     fn test_class_selector_specificity() {
-        let s = ClassSelector::new("foo".into(), BOGUS_SPAN);
+        let s = ClassSelector::new("foo", BOGUS_SPAN);
         assert_eq!(s.specificity(), 1000);
     }
 
     #[test]
     fn test_class_selector_add_suffix() {
-        let s = ClassSelector::new("foo".into(), BOGUS_SPAN);
-        let result = s.add_suffix("bar").unwrap();
+        let s = ClassSelector::new("foo", BOGUS_SPAN);
+        let arena = bumpalo::Bump::new();
+        let result = s.add_suffix(&arena, "bar").unwrap();
         if let SimpleSelector::Class(ref cs) = result {
             assert_eq!(cs.name, "foobar");
         } else {
@@ -217,29 +224,29 @@ mod tests {
 
     #[test]
     fn test_class_selector_partial_eq() {
-        let s1 = ClassSelector::new("foo".into(), BOGUS_SPAN);
-        let s2 = ClassSelector::new("foo".into(), BOGUS_SPAN);
+        let s1 = ClassSelector::new("foo", BOGUS_SPAN);
+        let s2 = ClassSelector::new("foo", BOGUS_SPAN);
         assert_eq!(s1, s2);
-        let s3 = ClassSelector::new("bar".into(), BOGUS_SPAN);
+        let s3 = ClassSelector::new("bar", BOGUS_SPAN);
         assert_ne!(s1, s3);
     }
 
     #[test]
     fn test_class_selector_hash_code() {
-        let s1 = ClassSelector::new("foo".into(), BOGUS_SPAN);
-        let s2 = ClassSelector::new("foo".into(), BOGUS_SPAN);
+        let s1 = ClassSelector::new("foo", BOGUS_SPAN);
+        let s2 = ClassSelector::new("foo", BOGUS_SPAN);
         assert_eq!(s1.hash_code(), s2.hash_code());
     }
 
     #[test]
     fn test_class_selector_to_css_string() {
-        let s = ClassSelector::new("foo".into(), BOGUS_SPAN);
+        let s = ClassSelector::new("foo", BOGUS_SPAN);
         assert_eq!(s.to_css_string(true).unwrap(), ".foo");
     }
 
     #[test]
     fn test_class_selector_assert_not_bogus() {
-        let s = ClassSelector::new("foo".into(), BOGUS_SPAN);
+        let s = ClassSelector::new("foo", BOGUS_SPAN);
         assert!(s.assert_not_bogus(None, None).is_ok());
         assert!(s.assert_not_bogus(Some("test"), None).is_ok());
     }

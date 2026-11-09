@@ -733,8 +733,7 @@ fn complex_is_parent_superselector<'parse>(
     }
     let temp_compound = CompoundSelector::new(
         vec![SimpleSelector::Placeholder(PlaceholderSelector::new(
-            "<temp>".into(),
-            BOGUS_SPAN,
+            "<temp>", BOGUS_SPAN,
         ))],
         BOGUS_SPAN,
     )?;

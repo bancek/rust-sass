@@ -1362,7 +1362,7 @@ mod tests {
 
     fn make_test_selector_list(arena: &'_ Bump) -> SelectorList<'_> {
         let span = make_span(arena, ".foo");
-        let class = ClassSelector::new(".foo".into(), span);
+        let class = ClassSelector::new(".foo", span);
         let simple = SimpleSelector::Class(class);
         let compound = CompoundSelector::new(vec![simple], span).unwrap();
         let comp = ComplexSelectorComponent::new(Box::new(compound), vec![], span);

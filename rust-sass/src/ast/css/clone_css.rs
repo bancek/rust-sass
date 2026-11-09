@@ -417,14 +417,14 @@ mod tests {
 
     fn make_selector_list<'compile, 'parse>(
         arena: &'compile Bump,
-        name: &str,
+        name: &'parse str,
     ) -> SelectorList<'parse>
     where
         'compile: 'parse,
         'parse: 'compile,
     {
         let span = make_span(arena, name);
-        let class = ClassSelector::new(name.into(), span);
+        let class = ClassSelector::new(name, span);
         let simple = SimpleSelector::Class(class);
         let compound = CompoundSelector::new(vec![simple], span).unwrap();
         let comp = ComplexSelectorComponent::new(Box::new(compound), Vec::new(), span);

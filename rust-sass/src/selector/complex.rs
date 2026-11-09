@@ -414,12 +414,12 @@ mod tests {
     use crate::selector::class::ClassSelector;
     use crate::selector::SimpleSelector;
 
-    fn make_compound(name: &str) -> Box<CompoundSelector<'static>> {
-        let s = SimpleSelector::Class(ClassSelector::new(name.into(), BOGUS_SPAN));
+    fn make_compound(name: &'static str) -> Box<CompoundSelector<'static>> {
+        let s = SimpleSelector::Class(ClassSelector::new(name, BOGUS_SPAN));
         Box::new(CompoundSelector::new(vec![s], BOGUS_SPAN).unwrap())
     }
 
-    fn make_component(name: &str) -> ComplexSelectorComponent<'static> {
+    fn make_component(name: &'static str) -> ComplexSelectorComponent<'static> {
         ComplexSelectorComponent::new(make_compound(name), vec![], BOGUS_SPAN)
     }
 

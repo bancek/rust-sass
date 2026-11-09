@@ -539,7 +539,7 @@ impl<'parse> SelectorList<'parse> {
                 CompoundSelector::new(combined, component_span)
             } else {
                 let added = last_simples[last_simples.len() - 1]
-                    .add_suffix(suffix.unwrap_or(""))
+                    .add_suffix(arena, suffix.unwrap_or(""))
                     .map_err(wrap_err)?;
                 let mut combined =
                     Vec::with_capacity(last_simples.len() + resolved_simples.len() - 1);
@@ -818,8 +818,8 @@ mod tests {
     use crate::selector::parent::ParentSelector;
     use crate::selector::SimpleSelector;
 
-    fn make_complex(name: &str) -> ComplexSelector<'static> {
-        let s = SimpleSelector::Class(ClassSelector::new(name.into(), BOGUS_SPAN));
+    fn make_complex(name: &'static str) -> ComplexSelector<'static> {
+        let s = SimpleSelector::Class(ClassSelector::new(name, BOGUS_SPAN));
         let compound = Box::new(CompoundSelector::new(vec![s], BOGUS_SPAN).unwrap());
         let component = ComplexSelectorComponent::new(compound, vec![], BOGUS_SPAN);
         ComplexSelector::new(vec![], vec![component], BOGUS_SPAN, false).unwrap()

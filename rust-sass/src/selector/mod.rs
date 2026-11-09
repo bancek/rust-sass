@@ -29,6 +29,8 @@ pub mod util;
 pub mod visitor;
 pub mod weave;
 
+use bumpalo::Bump;
+
 use crate::serialize::SerializeVisitor;
 use std::fmt;
 use std::hash::{Hash, Hasher};
@@ -351,16 +353,20 @@ impl<'parse> SimpleSelector<'parse> {
     // Returns a copy of `self` as though written with `suffix` appended.
     // Assumes a valid identifier suffix; otherwise returns a script error.
     // Matches Dart: `SimpleSelector.addSuffix` (@internal).
-    pub fn add_suffix(&self, suffix: &str) -> SassResult<SimpleSelector<'parse>> {
+    pub fn add_suffix(
+        &self,
+        arena: &'parse Bump,
+        suffix: &str,
+    ) -> SassResult<SimpleSelector<'parse>> {
         match self {
-            SimpleSelector::Attribute(a) => a.add_suffix(suffix),
-            SimpleSelector::Class(c) => c.add_suffix(suffix),
-            SimpleSelector::Id(i) => i.add_suffix(suffix),
-            SimpleSelector::Pseudo(p) => p.add_suffix(suffix),
-            SimpleSelector::Parent(p) => p.add_suffix(suffix),
-            SimpleSelector::Placeholder(p) => p.add_suffix(suffix),
-            SimpleSelector::Type(t) => t.add_suffix(suffix),
-            SimpleSelector::Universal(u) => u.add_suffix(suffix),
+            SimpleSelector::Attribute(a) => a.add_suffix(arena, suffix),
+            SimpleSelector::Class(c) => c.add_suffix(arena, suffix),
+            SimpleSelector::Id(i) => i.add_suffix(arena, suffix),
+            SimpleSelector::Pseudo(p) => p.add_suffix(arena, suffix),
+            SimpleSelector::Parent(p) => p.add_suffix(arena, suffix),
+            SimpleSelector::Placeholder(p) => p.add_suffix(arena, suffix),
+            SimpleSelector::Type(t) => t.add_suffix(arena, suffix),
+            SimpleSelector::Universal(u) => u.add_suffix(arena, suffix),
         }
     }
 

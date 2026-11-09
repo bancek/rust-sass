@@ -761,7 +761,7 @@ mod tests {
         'compile: 'parse,
         'parse: 'compile,
     {
-        let sel = SimpleSelector::Class(ClassSelector::new(".foo".into(), BOGUS_SPAN));
+        let sel = SimpleSelector::Class(ClassSelector::new(".foo", BOGUS_SPAN));
         let compound = CompoundSelector::new(vec![sel], BOGUS_SPAN).unwrap();
         let complex = ComplexSelector::new(
             vec![],

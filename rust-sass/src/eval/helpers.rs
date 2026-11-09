@@ -3759,7 +3759,7 @@ mod tests {
     where
         'compile: 'parse,
     {
-        let class = ClassSelector::new(".foo".into(), span);
+        let class = ClassSelector::new(".foo", span);
         let compound = CompoundSelector::new(vec![SimpleSelector::Class(class)], span).unwrap();
         let comp = ComplexSelectorComponent::new(Box::new(compound), vec![], span);
         let complex = ComplexSelector::new(vec![], vec![comp], span, false).unwrap();

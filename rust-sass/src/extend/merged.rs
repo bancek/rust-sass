@@ -134,11 +134,11 @@ mod tests {
     use crate::selector::SimpleSelector;
     use bumpalo::Bump;
 
-    fn class(name: &str) -> SimpleSelector<'static> {
-        SimpleSelector::Class(ClassSelector::new(name.into(), BOGUS_SPAN))
+    fn class(name: &'static str) -> SimpleSelector<'static> {
+        SimpleSelector::Class(ClassSelector::new(name, BOGUS_SPAN))
     }
 
-    fn make_complex(name: &str) -> ComplexSelector<'static> {
+    fn make_complex(name: &'static str) -> ComplexSelector<'static> {
         let s = class(name);
         let compound = CompoundSelector::new(vec![s], BOGUS_SPAN).unwrap();
         let comp = ComplexSelectorComponent::new(Box::new(compound), vec![], BOGUS_SPAN);

@@ -7,6 +7,8 @@
 // dart-source: lib/src/ast/selector/universal.dart + lib/src/extend/functions.dart
 // go-source: go/value/selector_universal.go + go/value/selector_extend_functions.go
 
+use bumpalo::Bump;
+
 use crate::common::exception::{SassError, SassResult};
 use crate::common::file_span::FileSpan;
 use crate::selector::qualified_name::SelectorNamespace;
@@ -117,7 +119,11 @@ impl<'parse> UniversalSelector<'parse> {
     }
 
     // Matches Dart: the universal selector cannot take a suffix.
-    pub fn add_suffix(&self, _suffix: &str) -> SassResult<SimpleSelector<'parse>> {
+    pub fn add_suffix(
+        &self,
+        _arena: &'parse Bump,
+        _suffix: &str,
+    ) -> SassResult<SimpleSelector<'parse>> {
         Err(Box::new(SassError::Script {
             message: format!(
                 "Selector \"{}\" can't have a suffix",
@@ -277,7 +283,7 @@ mod tests {
     #[test]
     fn test_universal_selector_is_superselector_nil_ns() {
         let s = UniversalSelector::new(BOGUS_SPAN, SelectorNamespace::Default);
-        let target = SimpleSelector::Class(ClassSelector::new("foo".into(), BOGUS_SPAN));
+        let target = SimpleSelector::Class(ClassSelector::new("foo", BOGUS_SPAN));
         assert!(s.is_superselector_variant(&target).unwrap());
     }
 

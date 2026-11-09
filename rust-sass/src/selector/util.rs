@@ -32,7 +32,7 @@ mod tests {
         let parent = SimpleSelector::Parent(ParentSelector::new(&arena, BOGUS_SPAN, None));
         assert!(is_parent_selector(&parent));
 
-        let class = SimpleSelector::Class(ClassSelector::new("foo".into(), BOGUS_SPAN));
+        let class = SimpleSelector::Class(ClassSelector::new("foo", BOGUS_SPAN));
         assert!(!is_parent_selector(&class));
     }
 }

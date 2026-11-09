@@ -7,6 +7,8 @@
 // dart-source: lib/src/ast/selector/type.dart + lib/src/extend/functions.dart
 // go-source: go/value/selector_type.go + go/value/selector_extend_functions.go
 
+use bumpalo::Bump;
+
 use crate::common::exception::SassResult;
 use crate::common::file_span::FileSpan;
 use crate::selector::qualified_name::QualifiedName;
@@ -120,7 +122,11 @@ impl<'parse> TypeSelector<'parse> {
     // Matches Dart `TypeSelector.addSuffix` (type.dart): appends `suffix`
     // to the name, keeping the namespace. Internal-only in Dart
     // (`@internal`); kept public here.
-    pub fn add_suffix(&self, suffix: &str) -> SassResult<SimpleSelector<'parse>> {
+    pub fn add_suffix(
+        &self,
+        _arena: &'parse Bump,
+        suffix: &str,
+    ) -> SassResult<SimpleSelector<'parse>> {
         Ok(SimpleSelector::Type(TypeSelector {
             span: self.span,
             name: QualifiedName::new_with_namespace(
@@ -219,7 +225,8 @@ mod tests {
     #[test]
     fn test_type_selector_add_suffix() {
         let s = TypeSelector::new(QualifiedName::new("div".into()), BOGUS_SPAN);
-        let result = s.add_suffix("bar").unwrap();
+        let arena = bumpalo::Bump::new();
+        let result = s.add_suffix(&arena, "bar").unwrap();
         if let SimpleSelector::Type(ref ts) = result {
             assert_eq!(ts.name.name, "divbar");
         } else {

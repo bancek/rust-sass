@@ -7,6 +7,8 @@
 // dart-source: lib/src/ast/selector/attribute.dart + lib/src/extend/functions.dart
 // go-source: go/value/selector_attribute.go + go/value/selector_extend_functions.go
 
+use bumpalo::Bump;
+
 use crate::selector::selector_assert_not_bogus_impl;
 use crate::selector::simple_base_unify;
 use crate::selector::WarnLogger;
@@ -199,7 +201,11 @@ impl<'parse> AttributeSelector<'parse> {
     }
 
     // Matches Dart: attribute selectors reject suffixes.
-    pub fn add_suffix(&self, _suffix: &str) -> SassResult<SimpleSelector<'parse>> {
+    pub fn add_suffix(
+        &self,
+        _arena: &'parse Bump,
+        _suffix: &str,
+    ) -> SassResult<SimpleSelector<'parse>> {
         Err(Box::new(SassError::Script {
             message: "attribute selector cannot have a suffix".into(),
             argument_name: None,
@@ -317,7 +323,8 @@ mod tests {
     #[test]
     fn test_attribute_selector_add_suffix() {
         let s = AttributeSelector::new(QualifiedName::new("href".into()), BOGUS_SPAN);
-        assert!(s.add_suffix("x").is_err());
+        let arena = bumpalo::Bump::new();
+        assert!(s.add_suffix(&arena, "x").is_err());
     }
 
     #[test]

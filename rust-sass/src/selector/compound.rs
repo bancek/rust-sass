@@ -225,12 +225,12 @@ mod tests {
     use crate::selector::SimpleSelector;
     use bumpalo::Bump;
 
-    fn cls(name: &str) -> SimpleSelector<'static> {
-        SimpleSelector::Class(ClassSelector::new(name.into(), BOGUS_SPAN))
+    fn cls(name: &'static str) -> SimpleSelector<'static> {
+        SimpleSelector::Class(ClassSelector::new(name, BOGUS_SPAN))
     }
 
-    fn id(name: &str) -> SimpleSelector<'static> {
-        SimpleSelector::Id(IdSelector::new(name.into(), BOGUS_SPAN))
+    fn id(name: &'static str) -> SimpleSelector<'static> {
+        SimpleSelector::Id(IdSelector::new(name, BOGUS_SPAN))
     }
 
     #[test]
@@ -250,7 +250,7 @@ mod tests {
         let c = CompoundSelector::new(vec![cls("foo")], BOGUS_SPAN).unwrap();
         assert!(!c.is_invisible());
 
-        let ph = SimpleSelector::Placeholder(PlaceholderSelector::new("foo".into(), BOGUS_SPAN));
+        let ph = SimpleSelector::Placeholder(PlaceholderSelector::new("foo", BOGUS_SPAN));
         let c2 = CompoundSelector::new(vec![ph], BOGUS_SPAN).unwrap();
         assert!(c2.is_invisible());
     }
@@ -327,7 +327,7 @@ mod tests {
         let c = CompoundSelector::new(
             vec![
                 cls("foo"),
-                SimpleSelector::Id(IdSelector::new("bar".into(), BOGUS_SPAN)),
+                SimpleSelector::Id(IdSelector::new("bar", BOGUS_SPAN)),
             ],
             BOGUS_SPAN,
         )

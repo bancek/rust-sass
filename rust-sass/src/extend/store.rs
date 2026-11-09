@@ -1886,11 +1886,11 @@ mod tests {
     use crate::selector::placeholder::PlaceholderSelector;
     use crate::selector::SimpleSelector;
 
-    fn class<'compile>(name: &str) -> SimpleSelector<'compile> {
-        SimpleSelector::Class(ClassSelector::new(name.into(), BOGUS_SPAN))
+    fn class<'compile>(name: &'compile str) -> SimpleSelector<'compile> {
+        SimpleSelector::Class(ClassSelector::new(name, BOGUS_SPAN))
     }
 
-    fn make_complex<'compile>(name: &str) -> ComplexSelector<'compile> {
+    fn make_complex<'compile>(name: &'compile str) -> ComplexSelector<'compile> {
         let s = class(name);
         let compound = CompoundSelector::new(vec![s], BOGUS_SPAN).unwrap();
         let comp = ComplexSelectorComponent::new(Box::new(compound), vec![], BOGUS_SPAN);
@@ -1898,8 +1898,8 @@ mod tests {
     }
 
     fn make_complex_with_combinator<'compile>(
-        first: &str,
-        second: &str,
+        first: &'compile str,
+        second: &'compile str,
     ) -> ComplexSelector<'compile> {
         let s1 = class(first);
         let s2 = class(second);
@@ -2221,8 +2221,7 @@ mod tests {
 
         // store2 has .a { @extend %_private; }
         let ext_a = make_complex("a");
-        let private =
-            SimpleSelector::Placeholder(PlaceholderSelector::new("_private".into(), BOGUS_SPAN));
+        let private = SimpleSelector::Placeholder(PlaceholderSelector::new("_private", BOGUS_SPAN));
         store2
             .add_extension(
                 &arena,

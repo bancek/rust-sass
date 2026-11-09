@@ -133,7 +133,11 @@ impl<'parse> ParentSelector<'parse> {
 
     // Matches Dart: the suffix is resolved during parent resolution, so it
     // cannot be extended with another suffix here.
-    pub fn add_suffix(&self, _suffix: &str) -> SassResult<SimpleSelector<'parse>> {
+    pub fn add_suffix(
+        &self,
+        _arena: &'parse Bump,
+        _suffix: &str,
+    ) -> SassResult<SimpleSelector<'parse>> {
         Err(Box::new(SassError::Script {
             message: "parent selector cannot have a suffix".into(),
             argument_name: None,
@@ -233,7 +237,8 @@ mod tests {
     fn test_parent_selector_add_suffix() {
         let arena = Bump::new();
         let s = ParentSelector::new(&arena, BOGUS_SPAN, None);
-        assert!(s.add_suffix("x").is_err());
+        let arena = bumpalo::Bump::new();
+        assert!(s.add_suffix(&arena, "x").is_err());
     }
 
     #[test]

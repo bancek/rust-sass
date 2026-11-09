@@ -7,6 +7,8 @@
 // dart-source: lib/src/ast/selector/pseudo.dart + lib/src/extend/functions.dart
 // go-source: go/value/selector_pseudo.go + go/value/selector_extend_functions.go
 
+use bumpalo::Bump;
+
 use crate::common::exception::{SassError, SassResult};
 use crate::common::file_span::FileSpan;
 use crate::selector::list::SelectorList;
@@ -286,7 +288,11 @@ impl<'parse> PseudoSelector<'parse> {
     // argument-bearing pseudos reject suffixes, as does the base
     // implementation; otherwise appends `suffix` to the name. Internal-only
     // in Dart (`@internal`); kept public here.
-    pub fn add_suffix(&self, suffix: &str) -> SassResult<SimpleSelector<'parse>> {
+    pub fn add_suffix(
+        &self,
+        _arena: &'parse Bump,
+        suffix: &str,
+    ) -> SassResult<SimpleSelector<'parse>> {
         if self.argument.is_some() || self.selector.is_some() {
             return Err(Box::new(SassError::Script {
                 message: format!(
@@ -516,7 +522,8 @@ mod tests {
     #[test]
     fn test_pseudo_selector_add_suffix_simple() {
         let s = PseudoSelector::new("hover".into(), BOGUS_SPAN, false, None, None);
-        let result = s.add_suffix("-x").unwrap();
+        let arena = bumpalo::Bump::new();
+        let result = s.add_suffix(&arena, "-x").unwrap();
         if let SimpleSelector::Pseudo(ref ps) = result {
             assert_eq!(ps.name, "hover-x");
         } else {

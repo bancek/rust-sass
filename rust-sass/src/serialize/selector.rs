@@ -218,7 +218,7 @@ pub(crate) fn visit_class_selector_impl(
     c: &ClassSelector<'_>,
 ) -> SassResult<()> {
     buf.write_char('.').unwrap();
-    write!(buf, "{}", to_css_identifier(&c.name)?).unwrap();
+    write!(buf, "{}", to_css_identifier(c.name)?).unwrap();
     Ok(())
 }
 
@@ -228,7 +228,7 @@ pub(crate) fn visit_id_selector_impl(
     i: &IdSelector<'_>,
 ) -> SassResult<()> {
     buf.write_char('#').unwrap();
-    write!(buf, "{}", to_css_identifier(&i.name)?).unwrap();
+    write!(buf, "{}", to_css_identifier(i.name)?).unwrap();
     Ok(())
 }
 
@@ -238,7 +238,7 @@ pub(crate) fn visit_placeholder_selector_impl(
     p: &PlaceholderSelector<'_>,
 ) -> SassResult<()> {
     buf.write_char('%').unwrap();
-    write!(buf, "{}", to_css_identifier(&p.name)?).unwrap();
+    write!(buf, "{}", to_css_identifier(p.name)?).unwrap();
     Ok(())
 }
 
