@@ -595,7 +595,7 @@ where
 
     if merge {
         if plain_css {
-            for complex in &parsed_selector.0.components {
+            for complex in parsed_selector.0.components {
                 if !complex.leading_combinators.is_empty() {
                     let first = &complex.leading_combinators[0];
                     let first_span = first.span()?;
@@ -834,7 +834,7 @@ where
     if rule.selector.is_invisible_other_than_bogus_combinators() {
         return Ok(());
     }
-    for complex in &rule.selector.0.components {
+    for complex in rule.selector.0.components {
         if !complex.is_bogus() {
             continue;
         }
@@ -2564,7 +2564,7 @@ where
         .original_selector
         .0
         .components
-        .clone();
+        .to_vec();
     for complex in &bogus_check_components {
         if !complex.is_bogus() {
             continue;
@@ -2606,7 +2606,7 @@ where
     let style_rule = state.style_rule_ignoring_at_root.as_ref().unwrap();
     let style_selector = style_rule.selector;
 
-    for complex in &list.0.components {
+    for complex in list.0.components {
         let compound = match complex.single_compound() {
             Some(c) => c,
             None => {

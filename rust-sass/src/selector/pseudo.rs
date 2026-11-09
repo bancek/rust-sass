@@ -15,7 +15,6 @@ use crate::selector::list::SelectorList;
 use crate::selector::selector_assert_not_bogus_impl;
 use crate::selector::visitor::SelectorVisitor;
 use crate::selector::weave::compound_is_superselector;
-use crate::selector::CompoundSelector;
 use crate::selector::Selector;
 use crate::selector::WarnLogger;
 use crate::serialize::SerializeVisitor;
@@ -214,7 +213,7 @@ impl<'parse> PseudoSelector<'parse> {
                     "where" => 0,
                     "is" | "not" | "has" | "matches" => {
                         let mut max_sp = 0;
-                        for comp in &list.0.components {
+                        for comp in list.0.components {
                             let sp = comp.specificity();
                             if sp > max_sp {
                                 max_sp = sp;
@@ -224,7 +223,7 @@ impl<'parse> PseudoSelector<'parse> {
                     }
                     "nth-child" | "nth-last-child" => {
                         let mut max_sp = 0;
-                        for comp in &list.0.components {
+                        for comp in list.0.components {
                             let sp = comp.specificity();
                             if sp > max_sp {
                                 max_sp = sp;
@@ -350,10 +349,11 @@ impl<'parse> PseudoSelector<'parse> {
                 return Ok(false);
             }
         }
-        let compound_a =
-            CompoundSelector::new(vec![SimpleSelector::Pseudo(self.clone())], self.span)?;
-        let compound_b = CompoundSelector::new(vec![other.clone()], self.span)?;
-        compound_is_superselector(&compound_a, &compound_b, None)
+        // Synthetic compounds built from stack slices: they are only compared
+        // here, so they never need the compile arena (Dart: plain garbage).
+        let simples_a = [SimpleSelector::Pseudo(self.clone())];
+        let simples_b = [other.clone()];
+        compound_is_superselector(&simples_a, &simples_b, self.span, None)
     }
 
     // Matches Dart `PseudoSelector.unify` (pseudo.dart): `:host` compounds

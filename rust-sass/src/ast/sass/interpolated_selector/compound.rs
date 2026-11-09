@@ -42,7 +42,7 @@ impl<'parse> InterpolatedCompoundSelector<'parse> {
     /// Renders this selector by concatenating its components with no separator.
     pub fn to_display_string(&self) -> SassResult<String> {
         let mut buf = String::new();
-        for component in &self.components {
+        for component in self.components.iter() {
             write!(buf, "{}", component).unwrap();
         }
         Ok(buf)

@@ -425,6 +425,7 @@ fn complex_selector_impl<'compile: 'parse, 'parse>(
                 if let Some(ref lc) = last_compound {
                     let comp_span = trimmed_span(scanner, state, component_start)?;
                     let comp = ComplexSelectorComponent::new(
+                        arena,
                         Box::new(lc.clone()),
                         std::mem::take(&mut combinators),
                         comp_span,
@@ -481,6 +482,7 @@ fn complex_selector_impl<'compile: 'parse, 'parse>(
     } else if let Some(lc) = last_compound {
         let comp_span = trimmed_span(scanner, state, component_start)?;
         let comp = ComplexSelectorComponent::new(
+            arena,
             Box::new(lc),
             std::mem::take(&mut combinators),
             comp_span,
@@ -496,6 +498,7 @@ fn complex_selector_impl<'compile: 'parse, 'parse>(
 
     let span = trimmed_span(scanner, state, start)?;
     Ok(ComplexSelector::new(
+        arena,
         initial_combinators,
         components,
         span,
@@ -529,7 +532,7 @@ fn compound_selector_impl<'compile: 'parse, 'parse>(
     }
 
     let span = span_from_impl(scanner, state, start)?.file_span()?;
-    Ok(CompoundSelector::new(comps, span)?)
+    Ok(CompoundSelector::new(arena, comps, span)?)
 }
 
 // Consumes a simple selector.

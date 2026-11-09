@@ -123,7 +123,7 @@ pub(crate) fn visit_complex_selector_impl(
     state: &SerializeState,
     complex: &ComplexSelector<'_>,
 ) -> SassResult<()> {
-    write_combinators_impl(buf, state, &complex.leading_combinators)?;
+    write_combinators_impl(buf, state, complex.leading_combinators)?;
     if !complex.leading_combinators.is_empty() && !complex.components.is_empty() {
         state.write_optional_space(buf);
     }
@@ -132,7 +132,7 @@ pub(crate) fn visit_complex_selector_impl(
         if !comp.combinators.is_empty() {
             state.write_optional_space(buf);
         }
-        write_combinators_impl(buf, state, &comp.combinators)?;
+        write_combinators_impl(buf, state, comp.combinators)?;
         if i != complex.components.len() - 1
             && (!matches!(state.style, OutputStyle::Compressed) || comp.combinators.is_empty())
         {
@@ -150,7 +150,7 @@ pub(crate) fn visit_compound_selector_impl(
     compound: &CompoundSelector<'_>,
 ) -> SassResult<()> {
     let start = buf.len();
-    for simple in &compound.components {
+    for simple in compound.components {
         visit_simple_selector_impl(buf, state, simple)?;
     }
     if buf.len() == start {

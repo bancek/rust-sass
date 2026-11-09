@@ -484,7 +484,7 @@ impl<'parse> InterpolatedSelectorVisitor<'parse> for RecursiveAstVisitor {
         &mut self,
         node: &InterpolatedComplexSelector<'parse>,
     ) -> SassResult<()> {
-        for component in &node.components {
+        for component in node.components.iter() {
             self.visit_compound_selector(&component.selector)?;
         }
         Ok(())
@@ -494,7 +494,7 @@ impl<'parse> InterpolatedSelectorVisitor<'parse> for RecursiveAstVisitor {
         &mut self,
         node: &InterpolatedCompoundSelector<'parse>,
     ) -> SassResult<()> {
-        for simple in &node.components {
+        for simple in node.components.iter() {
             simple.accept(self)?;
         }
         Ok(())
@@ -536,7 +536,7 @@ impl<'parse> InterpolatedSelectorVisitor<'parse> for RecursiveAstVisitor {
     }
 
     fn visit_selector_list(&mut self, node: &InterpolatedSelectorList<'parse>) -> SassResult<()> {
-        for component in &node.components {
+        for component in node.components.iter() {
             self.visit_complex_selector(component)?;
         }
         Ok(())

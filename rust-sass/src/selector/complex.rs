@@ -38,14 +38,14 @@ pub struct ComplexSelector<'parse> {
     ///
     /// Empty means no leading combinator. More than one element is invalid
     /// CSS, still supported for backwards-compatibility purposes.
-    pub leading_combinators: Vec<CssValue<'parse, Combinator>>,
+    pub leading_combinators: &'parse [CssValue<'parse, Combinator>],
     /// The components of this selector.
     ///
     /// Only empty when [`ComplexSelector::leading_combinators`] is not empty.
     /// Descendant combinators are implicit between adjacent compounds.
     /// Multiple adjacent [`Combinator`]s are invalid CSS, supported for CSS
     /// hack purposes.
-    pub components: Vec<ComplexSelectorComponent<'parse>>,
+    pub components: &'parse [ComplexSelectorComponent<'parse>],
     // Whether a line break is emitted *before* this selector when serializing.
     pub line_break: bool,
 }
@@ -55,6 +55,7 @@ impl<'parse> ComplexSelector<'parse> {
     ///
     /// Returns an error if both lists are empty.
     pub fn new(
+        arena: &'parse Bump,
         leading_combinators: Vec<CssValue<'parse, Combinator>>,
         components: Vec<ComplexSelectorComponent<'parse>>,
         span: FileSpan<'parse>,
@@ -68,8 +69,8 @@ impl<'parse> ComplexSelector<'parse> {
         }
         Ok(ComplexSelector {
             span,
-            leading_combinators: leading_combinators.to_vec(),
-            components: components.to_vec(),
+            leading_combinators: &*arena.alloc_slice_fill_iter(leading_combinators),
+            components: &*arena.alloc_slice_fill_iter(components),
             line_break,
         })
     }
@@ -84,7 +85,7 @@ impl<'parse> ComplexSelector<'parse> {
         if self.components.is_empty() {
             return true;
         }
-        for comp in &self.components {
+        for comp in self.components {
             if comp.selector.is_invisible() {
                 return true;
             }
@@ -109,7 +110,7 @@ impl<'parse> ComplexSelector<'parse> {
                 return true;
             }
         }
-        for comp in &self.components {
+        for comp in self.components {
             if comp.combinators.len() > 1 {
                 return true;
             }
@@ -127,7 +128,7 @@ impl<'parse> ComplexSelector<'parse> {
         if self.leading_combinators.len() > 1 {
             return true;
         }
-        for comp in &self.components {
+        for comp in self.components {
             if comp.combinators.len() > 1 {
                 return true;
             }
@@ -141,7 +142,7 @@ impl<'parse> ComplexSelector<'parse> {
     // Whether this contains a parent (`&`) selector.
     // Matches Dart: `Selector.containsParentSelector` (@internal).
     pub fn contains_parent_selector(&self) -> SassResult<bool> {
-        for comp in &self.components {
+        for comp in self.components {
             if comp.selector.contains_parent_selector()? {
                 return Ok(true);
             }
@@ -163,7 +164,7 @@ impl<'parse> ComplexSelector<'parse> {
                 return true;
             }
         }
-        for comp in &self.components {
+        for comp in self.components {
             if comp.combinators.len() > 1 {
                 return true;
             }
@@ -178,7 +179,7 @@ impl<'parse> ComplexSelector<'parse> {
     // Matches Dart: `Selector.isInvisibleOtherThanBogusCombinators`
     // (@internal).
     pub fn is_invisible_other_than_bogus_combinators(&self) -> bool {
-        for comp in &self.components {
+        for comp in self.components {
             if comp.selector.is_invisible_other_than_bogus_combinators() {
                 return true;
             }
@@ -192,7 +193,7 @@ impl<'parse> ComplexSelector<'parse> {
     /// realistically holds 1000 simple selectors.
     pub fn specificity(&self) -> usize {
         let mut sum = 0;
-        for component in &self.components {
+        for component in self.components {
             sum += component.selector.specificity();
         }
         sum
@@ -216,10 +217,10 @@ impl<'parse> ComplexSelector<'parse> {
 
     pub fn hash_code(&self) -> i32 {
         let mut h = 0;
-        for lc in &self.leading_combinators {
+        for lc in self.leading_combinators {
             h = hash_combine(h, (lc.value as i32).wrapping_mul(31));
         }
-        for comp in &self.components {
+        for comp in self.components {
             h = hash_combine(h, comp.hash_code());
         }
         h
@@ -258,7 +259,7 @@ impl<'parse> ComplexSelector<'parse> {
         if !self.leading_combinators.is_empty() || !other.leading_combinators.is_empty() {
             return Ok(false);
         }
-        complex_is_superselector(&self.components, &other.components)
+        complex_is_superselector(self.components, other.components)
     }
 
     /// Parses a complex selector from `contents`.
@@ -285,6 +286,7 @@ impl<'parse> ComplexSelector<'parse> {
     // (@internal).
     pub fn with_additional_combinators(
         &self,
+        arena: &'parse Bump,
         combinators: &[CssValue<'parse, Combinator>],
         force_line_break: bool,
     ) -> Self {
@@ -292,23 +294,23 @@ impl<'parse> ComplexSelector<'parse> {
             return self.clone();
         }
         if !self.components.is_empty() {
-            let mut new_components = self.components.clone();
+            let mut new_components = self.components.to_vec();
             let last_idx = new_components.len() - 1;
             new_components[last_idx] =
-                new_components[last_idx].with_additional_combinators(combinators);
+                new_components[last_idx].with_additional_combinators(arena, combinators);
             return ComplexSelector {
                 span: self.span,
-                leading_combinators: self.leading_combinators.clone(),
-                components: new_components,
+                leading_combinators: self.leading_combinators,
+                components: &*arena.alloc_slice_fill_iter(new_components),
                 line_break: self.line_break || force_line_break,
             };
         }
-        let mut new_lc = self.leading_combinators.clone();
+        let mut new_lc = self.leading_combinators.to_vec();
         new_lc.extend_from_slice(combinators);
         ComplexSelector {
             span: self.span,
-            leading_combinators: new_lc,
-            components: vec![],
+            leading_combinators: &*arena.alloc_slice_fill_iter(new_lc),
+            components: &[],
             line_break: self.line_break || force_line_break,
         }
     }
@@ -319,16 +321,17 @@ impl<'parse> ComplexSelector<'parse> {
     // (@internal).
     pub fn with_additional_component(
         &self,
+        arena: &'parse Bump,
         component: &ComplexSelectorComponent<'parse>,
         span: FileSpan<'parse>,
         force_line_break: bool,
     ) -> Self {
-        let mut new_components = self.components.clone();
+        let mut new_components = self.components.to_vec();
         new_components.push(component.clone());
         ComplexSelector {
             span,
-            leading_combinators: self.leading_combinators.clone(),
-            components: new_components,
+            leading_combinators: self.leading_combinators,
+            components: &*arena.alloc_slice_fill_iter(new_components),
             line_break: self.line_break || force_line_break,
         }
     }
@@ -339,39 +342,40 @@ impl<'parse> ComplexSelector<'parse> {
     // new selector. Matches Dart: `ComplexSelector.concatenate` (@internal).
     pub fn concatenate(
         &self,
+        arena: &'parse Bump,
         child: &ComplexSelector<'parse>,
         span: FileSpan<'parse>,
         force_line_break: bool,
     ) -> Self {
         if child.leading_combinators.is_empty() {
-            let mut new_components = self.components.clone();
-            new_components.extend_from_slice(&child.components);
+            let mut new_components = self.components.to_vec();
+            new_components.extend_from_slice(child.components);
             return ComplexSelector {
                 span,
-                leading_combinators: self.leading_combinators.clone(),
-                components: new_components,
+                leading_combinators: self.leading_combinators,
+                components: &*arena.alloc_slice_fill_iter(new_components),
                 line_break: self.line_break || child.line_break || force_line_break,
             };
         }
         if !self.components.is_empty() {
-            let mut new_components = self.components.clone();
+            let mut new_components = self.components.to_vec();
             let last_idx = new_components.len() - 1;
-            new_components[last_idx] =
-                new_components[last_idx].with_additional_combinators(&child.leading_combinators);
-            new_components.extend_from_slice(&child.components);
+            new_components[last_idx] = new_components[last_idx]
+                .with_additional_combinators(arena, child.leading_combinators);
+            new_components.extend_from_slice(child.components);
             return ComplexSelector {
                 span,
-                leading_combinators: self.leading_combinators.clone(),
-                components: new_components,
+                leading_combinators: self.leading_combinators,
+                components: &*arena.alloc_slice_fill_iter(new_components),
                 line_break: self.line_break || child.line_break || force_line_break,
             };
         }
-        let mut new_lc = self.leading_combinators.clone();
-        new_lc.extend_from_slice(&child.leading_combinators);
+        let mut new_lc = self.leading_combinators.to_vec();
+        new_lc.extend_from_slice(child.leading_combinators);
         ComplexSelector {
             span,
-            leading_combinators: new_lc,
-            components: child.components.clone(),
+            leading_combinators: &*arena.alloc_slice_fill_iter(new_lc),
+            components: child.components,
             line_break: self.line_break || child.line_break || force_line_break,
         }
     }
@@ -413,106 +417,181 @@ mod tests {
     use crate::common::file_span::BOGUS_SPAN;
     use crate::selector::class::ClassSelector;
     use crate::selector::SimpleSelector;
+    use bumpalo::Bump;
 
-    fn make_compound(name: &'static str) -> Box<CompoundSelector<'static>> {
+    fn make_compound<'p>(arena: &'p Bump, name: &'static str) -> Box<CompoundSelector<'p>> {
         let s = SimpleSelector::Class(ClassSelector::new(name, BOGUS_SPAN));
-        Box::new(CompoundSelector::new(vec![s], BOGUS_SPAN).unwrap())
+        Box::new(CompoundSelector::new(arena, vec![s], BOGUS_SPAN).unwrap())
     }
 
-    fn make_component(name: &'static str) -> ComplexSelectorComponent<'static> {
-        ComplexSelectorComponent::new(make_compound(name), vec![], BOGUS_SPAN)
+    fn make_component<'p>(arena: &'p Bump, name: &'static str) -> ComplexSelectorComponent<'p> {
+        ComplexSelectorComponent::new(arena, make_compound(arena, name), vec![], BOGUS_SPAN)
     }
 
     #[test]
     fn test_new() {
-        let comp = make_component("foo");
-        let cs = ComplexSelector::new(vec![], vec![comp.clone()], BOGUS_SPAN, false).unwrap();
+        let arena = Bump::new();
+        let comp = make_component(&arena, "foo");
+        let cs =
+            ComplexSelector::new(&arena, vec![], vec![comp.clone()], BOGUS_SPAN, false).unwrap();
         assert_eq!(cs.components.len(), 1);
         assert_eq!(cs.components[0].selector, comp.selector);
     }
 
     #[test]
     fn test_new_empty() {
-        let result = ComplexSelector::new(vec![], vec![], BOGUS_SPAN, false);
+        let arena = Bump::new();
+        let result = ComplexSelector::new(&arena, vec![], vec![], BOGUS_SPAN, false);
         assert!(result.is_err());
     }
 
     #[test]
     fn test_is_invisible() {
-        let cs =
-            ComplexSelector::new(vec![], vec![make_component("foo")], BOGUS_SPAN, false).unwrap();
+        let arena = Bump::new();
+        let cs = ComplexSelector::new(
+            &arena,
+            vec![],
+            vec![make_component(&arena, "foo")],
+            BOGUS_SPAN,
+            false,
+        )
+        .unwrap();
         assert!(!cs.is_invisible());
     }
 
     #[test]
     fn test_is_bogus() {
-        let cs =
-            ComplexSelector::new(vec![], vec![make_component("foo")], BOGUS_SPAN, false).unwrap();
+        let arena = Bump::new();
+        let cs = ComplexSelector::new(
+            &arena,
+            vec![],
+            vec![make_component(&arena, "foo")],
+            BOGUS_SPAN,
+            false,
+        )
+        .unwrap();
         assert!(!cs.is_bogus());
     }
 
     #[test]
     fn test_is_useless() {
-        let cs =
-            ComplexSelector::new(vec![], vec![make_component("foo")], BOGUS_SPAN, false).unwrap();
+        let arena = Bump::new();
+        let cs = ComplexSelector::new(
+            &arena,
+            vec![],
+            vec![make_component(&arena, "foo")],
+            BOGUS_SPAN,
+            false,
+        )
+        .unwrap();
         assert!(!cs.is_useless());
     }
 
     #[test]
     fn test_single_compound() {
-        let comp = make_component("foo");
-        let cs = ComplexSelector::new(vec![], vec![comp.clone()], BOGUS_SPAN, false).unwrap();
+        let arena = Bump::new();
+        let comp = make_component(&arena, "foo");
+        let cs =
+            ComplexSelector::new(&arena, vec![], vec![comp.clone()], BOGUS_SPAN, false).unwrap();
         assert!(cs.single_compound().is_some());
     }
 
     #[test]
     fn test_specificity() {
-        let c1 = make_component("foo");
-        let c2 = make_component("bar");
-        let cs = ComplexSelector::new(vec![], vec![c1, c2], BOGUS_SPAN, false).unwrap();
+        let arena = Bump::new();
+        let c1 = make_component(&arena, "foo");
+        let c2 = make_component(&arena, "bar");
+        let cs = ComplexSelector::new(&arena, vec![], vec![c1, c2], BOGUS_SPAN, false).unwrap();
         assert_eq!(cs.specificity(), 2000);
     }
 
     #[test]
     fn test_hash_code() {
-        let cs1 =
-            ComplexSelector::new(vec![], vec![make_component("foo")], BOGUS_SPAN, false).unwrap();
-        let cs2 =
-            ComplexSelector::new(vec![], vec![make_component("foo")], BOGUS_SPAN, false).unwrap();
+        let arena = Bump::new();
+        let cs1 = ComplexSelector::new(
+            &arena,
+            vec![],
+            vec![make_component(&arena, "foo")],
+            BOGUS_SPAN,
+            false,
+        )
+        .unwrap();
+        let cs2 = ComplexSelector::new(
+            &arena,
+            vec![],
+            vec![make_component(&arena, "foo")],
+            BOGUS_SPAN,
+            false,
+        )
+        .unwrap();
         assert_eq!(cs1.hash_code(), cs2.hash_code());
     }
 
     #[test]
     fn test_with_additional_combinators() {
-        let cs =
-            ComplexSelector::new(vec![], vec![make_component("foo")], BOGUS_SPAN, false).unwrap();
+        let arena = Bump::new();
+        let cs = ComplexSelector::new(
+            &arena,
+            vec![],
+            vec![make_component(&arena, "foo")],
+            BOGUS_SPAN,
+            false,
+        )
+        .unwrap();
         let comb = CssValue::new(Combinator::Child, BOGUS_SPAN);
-        let result = cs.with_additional_combinators(&[comb], false);
+        let result = cs.with_additional_combinators(&arena, &[comb], false);
         assert_eq!(result.components.len(), 1);
         assert_eq!(result.components[0].combinators.len(), 1);
     }
 
     #[test]
     fn test_concatenate() {
-        let cs1 =
-            ComplexSelector::new(vec![], vec![make_component("foo")], BOGUS_SPAN, false).unwrap();
-        let cs2 =
-            ComplexSelector::new(vec![], vec![make_component("bar")], BOGUS_SPAN, false).unwrap();
-        let result = cs1.concatenate(&cs2, BOGUS_SPAN, false);
+        let arena = Bump::new();
+        let cs1 = ComplexSelector::new(
+            &arena,
+            vec![],
+            vec![make_component(&arena, "foo")],
+            BOGUS_SPAN,
+            false,
+        )
+        .unwrap();
+        let cs2 = ComplexSelector::new(
+            &arena,
+            vec![],
+            vec![make_component(&arena, "bar")],
+            BOGUS_SPAN,
+            false,
+        )
+        .unwrap();
+        let result = cs1.concatenate(&arena, &cs2, BOGUS_SPAN, false);
         assert_eq!(result.components.len(), 2);
     }
 
     #[test]
     fn test_eq() {
-        let cs1 =
-            ComplexSelector::new(vec![], vec![make_component("foo")], BOGUS_SPAN, false).unwrap();
-        let cs2 =
-            ComplexSelector::new(vec![], vec![make_component("foo")], BOGUS_SPAN, false).unwrap();
+        let arena = Bump::new();
+        let cs1 = ComplexSelector::new(
+            &arena,
+            vec![],
+            vec![make_component(&arena, "foo")],
+            BOGUS_SPAN,
+            false,
+        )
+        .unwrap();
+        let cs2 = ComplexSelector::new(
+            &arena,
+            vec![],
+            vec![make_component(&arena, "foo")],
+            BOGUS_SPAN,
+            false,
+        )
+        .unwrap();
         assert_eq!(cs1, cs2);
 
         let cs3 = ComplexSelector::new(
+            &arena,
             vec![CssValue::new(Combinator::Child, BOGUS_SPAN)],
-            vec![make_component("foo")],
+            vec![make_component(&arena, "foo")],
             BOGUS_SPAN,
             false,
         )
@@ -522,8 +601,15 @@ mod tests {
 
     #[test]
     fn test_complex_selector_assert_not_bogus() {
-        let cs =
-            ComplexSelector::new(vec![], vec![make_component("foo")], BOGUS_SPAN, false).unwrap();
+        let arena = Bump::new();
+        let cs = ComplexSelector::new(
+            &arena,
+            vec![],
+            vec![make_component(&arena, "foo")],
+            BOGUS_SPAN,
+            false,
+        )
+        .unwrap();
         assert!(cs.assert_not_bogus(None, None).is_ok());
     }
 

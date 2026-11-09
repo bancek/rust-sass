@@ -394,17 +394,17 @@ mod tests {
         SimpleSelector::Class(ClassSelector::new(name, BOGUS_SPAN))
     }
 
-    fn make_complex(name: &'static str) -> ComplexSelector<'static> {
+    fn make_complex<'p>(arena: &'p Bump, name: &'static str) -> ComplexSelector<'p> {
         let s = class(name);
-        let compound = CompoundSelector::new(vec![s], BOGUS_SPAN).unwrap();
-        let comp = ComplexSelectorComponent::new(Box::new(compound), vec![], BOGUS_SPAN);
-        ComplexSelector::new(vec![], vec![comp.clone()], BOGUS_SPAN, false).unwrap()
+        let compound = CompoundSelector::new(arena, vec![s], BOGUS_SPAN).unwrap();
+        let comp = ComplexSelectorComponent::new(arena, Box::new(compound), vec![], BOGUS_SPAN);
+        ComplexSelector::new(arena, vec![], vec![comp.clone()], BOGUS_SPAN, false).unwrap()
     }
 
     #[test]
     fn test_new_extension() {
         let arena = Bump::new();
-        let extender = make_complex("a");
+        let extender = make_complex(&arena, "a");
         let target = class("b");
         let ext = BaseExtension::new(&arena, extender.clone(), target, BOGUS_SPAN, None, false);
         assert_eq!(
@@ -422,7 +422,7 @@ mod tests {
     #[test]
     fn test_new_extension_optional() {
         let arena = Bump::new();
-        let extender = make_complex("a");
+        let extender = make_complex(&arena, "a");
         let target = class("b");
         let ext = BaseExtension::new(&arena, extender, target, BOGUS_SPAN, None, true);
         assert!(ext.is_optional());
@@ -431,7 +431,7 @@ mod tests {
     #[test]
     fn test_extension_media_context() {
         let arena = Bump::new();
-        let extender = make_complex("a");
+        let extender = make_complex(&arena, "a");
         let target = class("b");
         let mc = vec![CssMediaQuery::test_type(
             Some("screen".into()),
@@ -445,11 +445,11 @@ mod tests {
     #[test]
     fn test_extension_with_extender() {
         let arena = Bump::new();
-        let extender1 = make_complex("a");
+        let extender1 = make_complex(&arena, "a");
         let target = class("b");
         let ext = BaseExtension::new(&arena, extender1, target.clone(), BOGUS_SPAN, None, false);
 
-        let new_extender = make_complex("c");
+        let new_extender = make_complex(&arena, "c");
         let new_ext = ext.with_extender(&arena, new_extender.clone());
         assert_eq!(new_ext.target(), &target);
     }
@@ -457,7 +457,7 @@ mod tests {
     #[test]
     fn test_extension_string() {
         let arena = Bump::new();
-        let extender = make_complex("a");
+        let extender = make_complex(&arena, "a");
         let target = class("b");
         let ext = BaseExtension::new(&arena, extender, target, BOGUS_SPAN, None, false);
         let s = ext.to_display_string().unwrap();
@@ -467,7 +467,7 @@ mod tests {
     #[test]
     fn test_extension_string_optional() {
         let arena = Bump::new();
-        let extender = make_complex("a");
+        let extender = make_complex(&arena, "a");
         let target = class("b");
         let ext = BaseExtension::new(&arena, extender, target, BOGUS_SPAN, None, true);
         let s = ext.to_display_string().unwrap();
@@ -478,7 +478,7 @@ mod tests {
     #[test]
     fn test_extension_is_merged() {
         let arena = Bump::new();
-        let extender = make_complex("a");
+        let extender = make_complex(&arena, "a");
         let target = class("b");
         let ext = BaseExtension::new(&arena, extender, target, BOGUS_SPAN, None, false);
         assert!(!ext.is_merged());
@@ -487,7 +487,7 @@ mod tests {
     #[test]
     fn test_extension_clone_is_identity_equal() {
         let arena = Bump::new();
-        let extender = make_complex("a");
+        let extender = make_complex(&arena, "a");
         let target = class("b");
         let ext = BaseExtension::new(&arena, extender, target, BOGUS_SPAN, None, false);
         let cloned = ext;
@@ -499,7 +499,7 @@ mod tests {
         let arena = Bump::new();
         let ext1 = BaseExtension::new(
             &arena,
-            make_complex("a"),
+            make_complex(&arena, "a"),
             class("b"),
             BOGUS_SPAN,
             None,
@@ -507,7 +507,7 @@ mod tests {
         );
         let ext2 = BaseExtension::new(
             &arena,
-            make_complex("a"),
+            make_complex(&arena, "a"),
             class("b"),
             BOGUS_SPAN,
             None,
@@ -521,7 +521,7 @@ mod tests {
         let arena = Bump::new();
         let ext = BaseExtension::new(
             &arena,
-            make_complex("a"),
+            make_complex(&arena, "a"),
             class("b"),
             BOGUS_SPAN,
             None,
@@ -542,7 +542,8 @@ mod tests {
 
     #[test]
     fn test_extender_specificity_default() {
-        let extender = make_complex("a");
+        let arena = Bump::new();
+        let extender = make_complex(&arena, "a");
         let expected_spec = extender.specificity();
         let ex = Extender::new(extender, None, false);
         assert_eq!(ex.specificity, expected_spec);
@@ -550,21 +551,24 @@ mod tests {
 
     #[test]
     fn test_extender_specificity_explicit() {
-        let extender = make_complex("a");
+        let arena = Bump::new();
+        let extender = make_complex(&arena, "a");
         let ex = Extender::new(extender, Some(500), false);
         assert_eq!(ex.specificity, 500);
     }
 
     #[test]
     fn test_extender_is_original() {
-        let extender = make_complex("a");
+        let arena = Bump::new();
+        let extender = make_complex(&arena, "a");
         let ex = Extender::new(extender, None, true);
         assert!(ex.is_original);
     }
 
     #[test]
     fn test_assert_compatible_media_context_both_nil() {
-        let extender = make_complex("a");
+        let arena = Bump::new();
+        let extender = make_complex(&arena, "a");
         let ex = Extender::new(extender, None, false);
         let result = ex.assert_compatible_media_context(&None, BOGUS_SPAN);
         assert!(result.is_ok());
@@ -572,8 +576,8 @@ mod tests {
 
     #[test]
     fn test_assert_compatible_media_context_extender_has_no_media_context() {
-        let _arena = Bump::new();
-        let extender = make_complex("a");
+        let arena = Bump::new();
+        let extender = make_complex(&arena, "a");
         let ex = Extender::new(extender, None, false);
         let mc = vec![CssMediaQuery::test_type(
             Some("screen".into()),
@@ -586,8 +590,8 @@ mod tests {
 
     #[test]
     fn test_assert_compatible_media_context_matching() {
-        let _arena = Bump::new();
-        let extender = make_complex("a");
+        let arena = Bump::new();
+        let extender = make_complex(&arena, "a");
         let mc = vec![CssMediaQuery::test_type(
             Some("screen".into()),
             None,
@@ -611,7 +615,7 @@ mod tests {
         let extension_span = FileSpan::new(Some(ext_src), 0, 10); // @extend .a
         let selector_span = FileSpan::new(Some(sel_src), 0, 2); // .a
 
-        let extender = make_complex("a");
+        let extender = make_complex(&arena, "a");
         let mc1 = vec![CssMediaQuery::new_type(
             &arena,
             Some("screen".into()),
@@ -705,7 +709,8 @@ mod tests {
 
     #[test]
     fn test_extender_string() {
-        let extender = make_complex("a");
+        let arena = Bump::new();
+        let extender = make_complex(&arena, "a");
         let ex = Extender::new(extender, None, false);
         let s = ex.to_display_string().unwrap();
         assert!(!s.is_empty(), "extender string should not be empty");

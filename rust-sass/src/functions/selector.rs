@@ -377,7 +377,7 @@ where
 /// Matches Go: selectorListToString.
 fn selector_list_to_string(sl: &SelectorList<'_>) -> SassResult<String> {
     let mut parts = Vec::with_capacity(sl.0.components.len());
-    for c in &sl.0.components {
+    for c in sl.0.components {
         parts.push(c.to_css_string(true)?);
     }
     Ok(parts.join(", "))
@@ -413,7 +413,7 @@ fn prepend_parent<'compile: 'parse, 'parse>(
                 Some(t.name.name.clone()),
             )));
             comps.extend_from_slice(rest);
-            Ok(Some(CompoundSelector::new(comps, span)?))
+            Ok(Some(CompoundSelector::new(arena, comps, span)?))
         }
         _ => {
             let mut comps: Vec<SimpleSelector<'parse>> =
@@ -421,8 +421,8 @@ fn prepend_parent<'compile: 'parse, 'parse>(
             comps.push(SimpleSelector::Parent(ParentSelector::new(
                 arena, span, None,
             )));
-            comps.extend_from_slice(&compound.components);
-            Ok(Some(CompoundSelector::new(comps, span)?))
+            comps.extend_from_slice(compound.components);
+            Ok(Some(CompoundSelector::new(arena, comps, span)?))
         }
     }
 }
@@ -502,7 +502,7 @@ where
 {
     let compound = assert_compound_selector(&args[0], "selector", config, state, arena)?;
     let mut items: Vec<Value<'parse>> = Vec::with_capacity(compound.components.len());
-    for s in &compound.components {
+    for s in compound.components {
         items.push(Value::new_with_arena(
             arena,
             ValueKind::String(SassString::new(
@@ -693,7 +693,7 @@ where
     for child_v in &selectors[1..] {
         let child = assert_selector(child_v, "", false, config, state, arena)?;
         let mut new_components: Vec<ComplexSelector<'_>> = Vec::new();
-        for complex in &child.0.components {
+        for complex in child.0.components {
             if !complex.leading_combinators.is_empty() {
                 let s = selector_list_to_string(&result)?;
                 let complex_str = complex.to_css_string(true)?;
@@ -718,12 +718,13 @@ where
             let mut new_comps: Vec<ComplexSelectorComponent<'_>> =
                 Vec::with_capacity(1 + rest.len());
             new_comps.push(ComplexSelectorComponent::new(
+                arena,
                 Box::new(new_compound),
-                first_comp.combinators.clone(),
+                first_comp.combinators.to_vec(),
                 span,
             ));
             new_comps.extend_from_slice(rest);
-            let cs = ComplexSelector::new(vec![], new_comps, span, false)?;
+            let cs = ComplexSelector::new(arena, vec![], new_comps, span, false)?;
             new_components.push(cs);
         }
         let child_list = SelectorList::new(arena, new_components, span)?;

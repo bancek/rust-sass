@@ -195,9 +195,9 @@ mod tests {
         let span = make_span(arena, name);
         let class = ClassSelector::new(name, span);
         let simple = SimpleSelector::Class(class);
-        let compound = CompoundSelector::new(vec![simple], span).unwrap();
-        let comp = ComplexSelectorComponent::new(Box::new(compound), Vec::new(), span);
-        let complex = ComplexSelector::new(Vec::new(), vec![comp], span, false).unwrap();
+        let compound = CompoundSelector::new(arena, vec![simple], span).unwrap();
+        let comp = ComplexSelectorComponent::new(arena, Box::new(compound), Vec::new(), span);
+        let complex = ComplexSelector::new(arena, Vec::new(), vec![comp], span, false).unwrap();
         SelectorList::new(arena, vec![complex], span).unwrap()
     }
 

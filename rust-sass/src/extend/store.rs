@@ -479,7 +479,7 @@ impl<'parse> DefaultExtensionStore<'parse> {
     ) -> SassResult<StoreBox<'parse, SelectorList<'parse>>> {
         let mut sel = *sel;
         if !sel.is_invisible() {
-            for c in &sel.0.components {
+            for c in sel.0.components {
                 self.originals.insert(c.clone());
             }
         }
@@ -526,7 +526,7 @@ impl<'parse> DefaultExtensionStore<'parse> {
 
         let mut new_exts: Vec<(ComplexSelector<'parse>, Extension<'parse>)> = Vec::new();
 
-        for complex in &extender.0.components {
+        for complex in extender.0.components {
             if complex.is_useless() {
                 continue;
             }
@@ -666,12 +666,12 @@ impl<'parse> DefaultExtensionStore<'parse> {
     ) -> SassResult<SelectorList<'parse>> {
         let mut extender = DefaultExtensionStore::new(arena, mode, self.unicode);
         if !sel.is_invisible() {
-            for c in &sel.0.components {
+            for c in sel.0.components {
                 extender.originals.insert(c.clone());
             }
         }
         let mut result = *sel;
-        for complex in &targets.0.components {
+        for complex in targets.0.components {
             let compound = complex.single_compound().ok_or_else(|| SassError::Script {
                 message: format!(
                     "Can't extend complex selector {}.",
@@ -684,10 +684,10 @@ impl<'parse> DefaultExtensionStore<'parse> {
                 SimpleSelector<'parse>,
                 ArenaMap<'parse, ComplexSelector<'parse>, Extension<'parse>>,
             > = ArenaMap::new_in(arena);
-            for simple in &compound.components {
+            for simple in compound.components {
                 let mut em: ArenaMap<'parse, ComplexSelector<'parse>, Extension<'parse>> =
                     ArenaMap::new_in(arena);
-                for sc in &source.0.components {
+                for sc in source.0.components {
                     em.insert(
                         sc.clone(),
                         BaseExtension::new(arena, sc.clone(), simple.clone(), span, None, true),
@@ -943,9 +943,9 @@ fn register_selector<'parse>(
     list: &SelectorList<'parse>,
     mb: &MutableBox<'parse, SelectorList<'parse>>,
 ) {
-    for complex in &list.0.components {
-        for component in &complex.components {
-            for simple in &component.selector.components {
+    for complex in list.0.components {
+        for component in complex.components {
+            for simple in component.selector.components {
                 selectors
                     .entry(simple.clone())
                     .or_insert_with(|| {
@@ -970,13 +970,13 @@ fn simple_selectors_in_complex<'parse>(
     complex: &ComplexSelector<'parse>,
 ) -> Vec<SimpleSelector<'parse>> {
     let mut result = Vec::new();
-    for c in &complex.components {
-        for s in &c.selector.components {
+    for c in complex.components {
+        for s in c.selector.components {
             result.push(s.clone());
             if let SimpleSelector::Pseudo(ref ps) = s {
                 if let Some(ref inner) = ps.selector {
                     if let Selector::List(ref il) = inner.as_ref() {
-                        for ic in &il.0.components {
+                        for ic in il.0.components {
                             result.extend(simple_selectors_in_complex(ic));
                         }
                     }
@@ -1087,7 +1087,8 @@ fn extend_complex<'compile: 'parse, 'parse>(
                 let first_comps: Vec<ComplexSelectorComponent<'parse>> =
                     complex.components[..i].to_vec();
                 let cs = ComplexSelector::new(
-                    complex.leading_combinators.clone(),
+                    arena,
+                    complex.leading_combinators.to_vec(),
                     first_comps,
                     complex_span,
                     complex.line_break,
@@ -1099,11 +1100,12 @@ fn extend_complex<'compile: 'parse, 'parse>(
                 let mut comb_compat = Vec::new();
                 for nc in &ext {
                     if nc.leading_combinators.is_empty()
-                        || css_values_equal(&complex.leading_combinators, &nc.leading_combinators)
+                        || css_values_equal(complex.leading_combinators, nc.leading_combinators)
                     {
                         comb_compat.push(ComplexSelector::new(
-                            complex.leading_combinators.clone(),
-                            nc.components.clone(),
+                            arena,
+                            complex.leading_combinators.to_vec(),
+                            nc.components.to_vec(),
                             complex_span,
                             complex.line_break || nc.line_break,
                         )?);
@@ -1113,6 +1115,7 @@ fn extend_complex<'compile: 'parse, 'parse>(
             }
         } else if let Some(ref mut ene) = extended_not_expanded {
             let cs = ComplexSelector::new(
+                arena,
                 vec![],
                 vec![component.clone()],
                 complex_span,
@@ -1130,7 +1133,7 @@ fn extend_complex<'compile: 'parse, 'parse>(
     let is_orig = originals.contains(&complex);
     let mut first = true;
     for path in paths_f(&ene) {
-        if let Some(woven) = weave(&path, complex_span, Some(complex.line_break))? {
+        if let Some(woven) = weave(arena, &path, complex_span, Some(complex.line_break))? {
             if first && is_orig {
                 for wc in &woven {
                     originals.insert(wc.clone());
@@ -1186,6 +1189,7 @@ fn extend_compound<'compile: 'parse, 'parse>(
                 let mut opts = Vec::new();
                 if i != 0 {
                     opts.push(vec![extender_for_compound(
+                        arena,
                         &simples[..i],
                         component.span,
                         source_specificity,
@@ -1197,7 +1201,11 @@ fn extend_compound<'compile: 'parse, 'parse>(
                 opts.extend(ext);
             }
         } else if let Some(ref mut opts) = options {
-            opts.push(vec![extender_for_simple(simple, source_specificity)?]);
+            opts.push(vec![extender_for_simple(
+                arena,
+                simple,
+                source_specificity,
+            )?]);
         }
     }
 
@@ -1215,9 +1223,10 @@ fn extend_compound<'compile: 'parse, 'parse>(
         let mut result = Vec::new();
         for extender in &options[0] {
             extender.assert_compatible_media_context(media_ctx, component.selector.span)?;
-            let complex = extender
-                .selector
-                .with_additional_combinators(&component.combinators, false);
+            let complex =
+                extender
+                    .selector
+                    .with_additional_combinators(arena, component.combinators, false);
             if !complex.is_useless() {
                 result.push(complex);
             }
@@ -1239,16 +1248,18 @@ fn extend_compound<'compile: 'parse, 'parse>(
                 e.selector
                     .components
                     .last()
-                    .map(|c| c.selector.components.clone())
+                    .map(|c| c.selector.components.to_vec())
                     .unwrap_or_default()
             })
             .collect();
-        let fc = CompoundSelector::new(first_comps, component.selector.span()?)?;
+        let fc = CompoundSelector::new(arena, first_comps, component.selector.span()?)?;
         let cs = ComplexSelector::new(
+            arena,
             vec![],
             vec![ComplexSelectorComponent::new(
+                arena,
                 Box::new(fc),
-                component.combinators.clone(),
+                component.combinators.to_vec(),
                 component.span,
             )],
             component.span,
@@ -1259,9 +1270,9 @@ fn extend_compound<'compile: 'parse, 'parse>(
 
     let start = if mode == ExtendMode::Replace { 0 } else { 1 };
     for path in &extender_paths[start..] {
-        if let Some(extended) = unify_extenders(path, media_ctx, component.span)? {
+        if let Some(extended) = unify_extenders(arena, path, media_ctx, component.span)? {
             for complex in extended {
-                let wc = complex.with_additional_combinators(&component.combinators, false);
+                let wc = complex.with_additional_combinators(arena, component.combinators, false);
                 if !wc.is_useless() {
                     result.push(wc);
                 }
@@ -1281,16 +1292,19 @@ fn extend_compound<'compile: 'parse, 'parse>(
     Ok(Some(trimmed))
 }
 
-fn extender_for_compound<'parse>(
+fn extender_for_compound<'compile: 'parse, 'parse>(
+    arena: &'compile Bump,
     simples: &[SimpleSelector<'parse>],
     span: FileSpan<'parse>,
     source_specificity: &ArenaMap<'parse, SimpleSelector<'parse>, usize>,
 ) -> SassResult<Extender<'parse>> {
-    let compound = CompoundSelector::new(simples.to_vec(), span)?;
+    let compound = CompoundSelector::new(arena, simples.to_vec(), span)?;
     let spec = source_specificity_for(&compound, source_specificity);
     let cs = ComplexSelector::new(
+        arena,
         vec![],
         vec![ComplexSelectorComponent::new(
+            arena,
             Box::new(compound),
             vec![],
             span,
@@ -1301,16 +1315,19 @@ fn extender_for_compound<'parse>(
     Ok(Extender::new(cs, Some(spec), true))
 }
 
-fn extender_for_simple<'parse>(
+fn extender_for_simple<'compile: 'parse, 'parse>(
+    arena: &'compile Bump,
     simple: &SimpleSelector<'parse>,
     source_specificity: &ArenaMap<'parse, SimpleSelector<'parse>, usize>,
 ) -> SassResult<Extender<'parse>> {
     let spec = source_specificity.get(simple).copied().unwrap_or(0);
     let ss = simple_span_s(simple)?;
-    let compound = CompoundSelector::new(vec![simple.clone()], ss)?;
+    let compound = CompoundSelector::new(arena, vec![simple.clone()], ss)?;
     let cs = ComplexSelector::new(
+        arena,
         vec![],
         vec![ComplexSelectorComponent::new(
+            arena,
             Box::new(compound),
             vec![],
             ss,
@@ -1350,7 +1367,7 @@ fn extend_simple<'compile: 'parse, 'parse>(
         }
         let mut r = Vec::new();
         if mode != ExtendMode::Replace {
-            r.push(extender_for_simple(s, source_specificity)?);
+            r.push(extender_for_simple(arena, s, source_specificity)?);
         }
         for ext in exts.values() {
             r.push(ext.extender().clone());
@@ -1368,7 +1385,7 @@ fn extend_simple<'compile: 'parse, 'parse>(
                     if let Some(w) = without_pseudo(p, targets_used, mode, source_specificity)? {
                         res.push(w);
                     } else {
-                        res.push(vec![extender_for_simple(p, source_specificity)?]);
+                        res.push(vec![extender_for_simple(arena, p, source_specificity)?]);
                     }
                 }
                 return Ok(Some(res));
@@ -1428,7 +1445,7 @@ fn extend_pseudo<'compile: 'parse, 'parse>(
         return Ok(None);
     }
 
-    let mut complexes = extended.0.components.clone();
+    let mut complexes: Vec<ComplexSelector<'parse>> = extended.0.components.to_vec();
     if pseudo.normalized_name == "not" {
         let orig_has_complex = sel_list.0.components.iter().any(|c| c.components.len() > 1);
         let ext_has_simple = extended
@@ -1464,12 +1481,12 @@ fn extend_pseudo<'compile: 'parse, 'parse>(
                         || ip.normalized_name == "matches"
                         || ip.normalized_name == "where"
                     {
-                        result_comps.extend(inner_list.0.components.clone());
+                        result_comps.extend(inner_list.0.components.iter().cloned());
                     }
                 }
                 "is" | "matches" | "where" | "any" | "current" | "nth-child" | "nth-last-child" => {
                     if ip.name == pseudo.name && ip.argument == pseudo.argument {
-                        result_comps.extend(inner_list.0.components.clone());
+                        result_comps.extend(inner_list.0.components.iter().cloned());
                     }
                 }
                 "has" | "host" | "host-context" | "slotted" => {
@@ -1501,7 +1518,8 @@ fn extend_pseudo<'compile: 'parse, 'parse>(
     }
 }
 
-fn unify_extenders<'parse>(
+fn unify_extenders<'compile: 'parse, 'parse>(
+    arena: &'compile Bump,
     extenders: &[Extender<'parse>],
     media_ctx: &Option<Vec<CssMediaQuery>>,
     span: FileSpan<'parse>,
@@ -1512,7 +1530,7 @@ fn unify_extenders<'parse>(
     for extender in extenders {
         if extender.is_original {
             if let Some(fc) = extender.selector.components.last() {
-                originals.extend(fc.selector.components.clone());
+                originals.extend(fc.selector.components.iter().cloned());
                 olb = olb || extender.selector.line_break;
             }
         } else if extender.selector.is_useless() {
@@ -1522,18 +1540,24 @@ fn unify_extenders<'parse>(
         }
     }
     if !originals.is_empty() {
-        let c = CompoundSelector::new(originals, span)?;
+        let c = CompoundSelector::new(arena, originals, span)?;
         to_unify.insert(
             0,
             ComplexSelector::new(
+                arena,
                 vec![],
-                vec![ComplexSelectorComponent::new(Box::new(c), vec![], span)],
+                vec![ComplexSelectorComponent::new(
+                    arena,
+                    Box::new(c),
+                    vec![],
+                    span,
+                )],
                 span,
                 olb,
             )?,
         );
     }
-    let complexes = unify_complex(&to_unify, span)?;
+    let complexes = unify_complex(arena, &to_unify, span)?;
     for e in extenders {
         e.assert_compatible_media_context(media_ctx, span)?;
     }
@@ -1564,7 +1588,7 @@ fn trim<'parse>(
             continue 'outer;
         }
         let mut ms = 0;
-        for comp in &c1.components {
+        for comp in c1.components {
             ms = ms.max(source_specificity_for(&comp.selector, source_specificity));
         }
         let mut found = false;
@@ -1595,7 +1619,7 @@ fn source_specificity_for<'parse>(
     source_specificity: &ArenaMap<'parse, SimpleSelector<'parse>, usize>,
 ) -> usize {
     let mut s = 0;
-    for simple in &compound.components {
+    for simple in compound.components {
         if let Some(&sp) = source_specificity.get(simple) {
             s = s.max(sp);
         }
@@ -1705,8 +1729,8 @@ fn extend_existing_extensions<'compile: 'parse, 'parse>(
                 sources.insert(complex.clone(), merged);
             } else {
                 sources.insert(complex.clone(), with_ext);
-                for comp in &complex.components {
-                    for s in &comp.selector.components {
+                for comp in complex.components {
+                    for s in comp.selector.components {
                         extensions_by_extender
                             .entry(s.clone())
                             .or_insert_with(|| ArenaVec::new_in(arena))
@@ -1885,30 +1909,35 @@ mod tests {
     use crate::selector::list::SelectorList;
     use crate::selector::placeholder::PlaceholderSelector;
     use crate::selector::SimpleSelector;
+    use bumpalo::Bump;
 
     fn class<'compile>(name: &'compile str) -> SimpleSelector<'compile> {
         SimpleSelector::Class(ClassSelector::new(name, BOGUS_SPAN))
     }
 
-    fn make_complex<'compile>(name: &'compile str) -> ComplexSelector<'compile> {
+    fn make_complex<'compile: 'parse, 'parse>(
+        arena: &'compile Bump,
+        name: &'parse str,
+    ) -> ComplexSelector<'parse> {
         let s = class(name);
-        let compound = CompoundSelector::new(vec![s], BOGUS_SPAN).unwrap();
-        let comp = ComplexSelectorComponent::new(Box::new(compound), vec![], BOGUS_SPAN);
-        ComplexSelector::new(vec![], vec![comp], BOGUS_SPAN, false).unwrap()
+        let compound = CompoundSelector::new(arena, vec![s], BOGUS_SPAN).unwrap();
+        let comp = ComplexSelectorComponent::new(arena, Box::new(compound), vec![], BOGUS_SPAN);
+        ComplexSelector::new(arena, vec![], vec![comp], BOGUS_SPAN, false).unwrap()
     }
 
-    fn make_complex_with_combinator<'compile>(
-        first: &'compile str,
-        second: &'compile str,
-    ) -> ComplexSelector<'compile> {
+    fn make_complex_with_combinator<'compile: 'parse, 'parse>(
+        arena: &'compile Bump,
+        first: &'parse str,
+        second: &'parse str,
+    ) -> ComplexSelector<'parse> {
         let s1 = class(first);
         let s2 = class(second);
-        let c1 = CompoundSelector::new(vec![s1], BOGUS_SPAN).unwrap();
-        let c2 = CompoundSelector::new(vec![s2], BOGUS_SPAN).unwrap();
-        let comp1 = ComplexSelectorComponent::new(Box::new(c1), vec![], BOGUS_SPAN);
+        let c1 = CompoundSelector::new(arena, vec![s1], BOGUS_SPAN).unwrap();
+        let c2 = CompoundSelector::new(arena, vec![s2], BOGUS_SPAN).unwrap();
+        let comp1 = ComplexSelectorComponent::new(arena, Box::new(c1), vec![], BOGUS_SPAN);
         let comb = CssValue::new(Combinator::Child, BOGUS_SPAN);
-        let comp2 = ComplexSelectorComponent::new(Box::new(c2), vec![comb], BOGUS_SPAN);
-        ComplexSelector::new(vec![], vec![comp1, comp2], BOGUS_SPAN, false).unwrap()
+        let comp2 = ComplexSelectorComponent::new(arena, Box::new(c2), vec![comb], BOGUS_SPAN);
+        ComplexSelector::new(arena, vec![], vec![comp1, comp2], BOGUS_SPAN, false).unwrap()
     }
 
     fn make_selector_list<'compile>(
@@ -1924,9 +1953,9 @@ mod tests {
     }
 
     fn has_class(sel: &SelectorList, name: &str) -> bool {
-        for c in &sel.0.components {
-            for comp in &c.components {
-                for simple in &comp.selector.components {
+        for c in sel.0.components {
+            for comp in c.components {
+                for simple in comp.selector.components {
                     if let SimpleSelector::Class(ref cs) = simple {
                         if cs.name == name {
                             return true;
@@ -1951,7 +1980,7 @@ mod tests {
     fn test_is_empty_after_add_extension() {
         let arena = Bump::new();
         let store = ExtensionStore::new(&arena);
-        let extender = make_complex("a");
+        let extender = make_complex(&arena, "a");
         let sel = make_selector_list(&arena, vec![extender]);
         let target = class("b");
         store
@@ -1970,7 +1999,7 @@ mod tests {
     fn test_simple_selectors() {
         let arena = Bump::new();
         let store = ExtensionStore::new(&arena);
-        let complex = make_complex("a");
+        let complex = make_complex(&arena, "a");
         let sel = make_selector_list(&arena, vec![complex]);
         store.add_selector(&arena, &sel, None).unwrap();
 
@@ -1985,7 +2014,7 @@ mod tests {
     fn test_add_selector_no_extensions() {
         let arena = Bump::new();
         let store = ExtensionStore::new(&arena);
-        let complex = make_complex("a");
+        let complex = make_complex(&arena, "a");
         let sel = make_selector_list(&arena, vec![complex.clone()]);
         let result = store.add_selector(&arena, &sel, None).unwrap();
         assert_eq!(*result.value(), sel);
@@ -1997,7 +2026,7 @@ mod tests {
         let store = ExtensionStore::new(&arena);
 
         // .a { @extend .b; }
-        let extender = make_complex("a");
+        let extender = make_complex(&arena, "a");
         let target = class("b");
         store
             .add_extension(
@@ -2010,7 +2039,7 @@ mod tests {
             .unwrap();
 
         // .b { color: red; }
-        let complex_b = make_complex("b");
+        let complex_b = make_complex(&arena, "b");
         let sel_b = make_selector_list(&arena, vec![complex_b]);
         let result = store.add_selector(&arena, &sel_b, None).unwrap();
 
@@ -2024,7 +2053,7 @@ mod tests {
         let store = ExtensionStore::new(&arena);
 
         // Register .b first
-        let complex_b = make_complex("b");
+        let complex_b = make_complex(&arena, "b");
         let sel_b = make_selector_list(&arena, vec![complex_b.clone()]);
         let result = store.add_selector(&arena, &sel_b, None).unwrap();
         assert_eq!(
@@ -2034,7 +2063,7 @@ mod tests {
         );
 
         // Now add extension .a extends .b
-        let extender = make_complex("a");
+        let extender = make_complex(&arena, "a");
         let target = class("b");
         store
             .add_extension(
@@ -2059,7 +2088,7 @@ mod tests {
         let store = ExtensionStore::new(&arena);
 
         // .a extends .b — .a is now an extender for .b
-        let ext_a = make_complex("a");
+        let ext_a = make_complex(&arena, "a");
         store
             .add_extension(
                 &arena,
@@ -2071,7 +2100,7 @@ mod tests {
             .unwrap();
 
         // .c extends .a — chain propagates .c to also extend .b
-        let ext_c = make_complex("c");
+        let ext_c = make_complex(&arena, "c");
         store
             .add_extension(
                 &arena,
@@ -2083,7 +2112,7 @@ mod tests {
             .unwrap();
 
         // .b should get both .a (direct) and .c (chained)
-        let complex_b = make_complex("b");
+        let complex_b = make_complex(&arena, "b");
         let sel_b = make_selector_list(&arena, vec![complex_b]);
         let result = store.add_selector(&arena, &sel_b, None).unwrap();
 
@@ -2104,12 +2133,12 @@ mod tests {
         let store = ExtensionStore::new(&arena);
 
         // Useless: >1 leading combinator
-        let c1 = CompoundSelector::new(vec![class("a")], BOGUS_SPAN).unwrap();
-        let cc = ComplexSelectorComponent::new(Box::new(c1), vec![], BOGUS_SPAN);
+        let c1 = CompoundSelector::new(&arena, vec![class("a")], BOGUS_SPAN).unwrap();
+        let cc = ComplexSelectorComponent::new(&arena, Box::new(c1), vec![], BOGUS_SPAN);
         let comb1 = CssValue::new(Combinator::Child, BOGUS_SPAN);
         let comb2 = CssValue::new(Combinator::Child, BOGUS_SPAN);
         let useless =
-            ComplexSelector::new(vec![comb1, comb2], vec![cc], BOGUS_SPAN, false).unwrap();
+            ComplexSelector::new(&arena, vec![comb1, comb2], vec![cc], BOGUS_SPAN, false).unwrap();
         assert!(useless.is_useless());
 
         store
@@ -2139,7 +2168,7 @@ mod tests {
         let store = ExtensionStore::new(&arena);
 
         // .x > .y { @extend .z; }
-        let extender = make_complex_with_combinator("x", "y");
+        let extender = make_complex_with_combinator(&arena, "x", "y");
         store
             .add_extension(
                 &arena,
@@ -2151,7 +2180,7 @@ mod tests {
             .unwrap();
 
         // .z { color: red; }
-        let complex_z = make_complex("z");
+        let complex_z = make_complex(&arena, "z");
         let sel_z = make_selector_list(&arena, vec![complex_z]);
         let result = store.add_selector(&arena, &sel_z, None).unwrap();
 
@@ -2166,7 +2195,7 @@ mod tests {
     fn test_clone() {
         let arena = Bump::new();
         let store = ExtensionStore::new(&arena);
-        let complex_a = make_complex("a");
+        let complex_a = make_complex(&arena, "a");
         let sel = make_selector_list(&arena, vec![complex_a]);
         store.add_selector(&arena, &sel, None).unwrap();
 
@@ -2187,7 +2216,7 @@ mod tests {
         let store2 = ExtensionStore::new(&arena);
 
         // store2 has .a { @extend .b; }
-        let ext_a = make_complex("a");
+        let ext_a = make_complex(&arena, "a");
         store2
             .add_extension(
                 &arena,
@@ -2203,7 +2232,7 @@ mod tests {
         assert!(!store1.is_empty());
 
         // Adding .b should get extended by .a
-        let complex_b = make_complex("b");
+        let complex_b = make_complex(&arena, "b");
         let sel_b = make_selector_list(&arena, vec![complex_b]);
         let result = store1.add_selector(&arena, &sel_b, None).unwrap();
 
@@ -2220,7 +2249,7 @@ mod tests {
         let store2 = ExtensionStore::new(&arena);
 
         // store2 has .a { @extend %_private; }
-        let ext_a = make_complex("a");
+        let ext_a = make_complex(&arena, "a");
         let private = SimpleSelector::Placeholder(PlaceholderSelector::new("_private", BOGUS_SPAN));
         store2
             .add_extension(
@@ -2245,7 +2274,7 @@ mod tests {
         let arena = Bump::new();
         let store = ExtensionStore::new(&arena);
 
-        let ext_a = make_complex("a");
+        let ext_a = make_complex(&arena, "a");
         store
             .add_extension(
                 &arena,
@@ -2267,7 +2296,7 @@ mod tests {
         let arena = Bump::new();
         let store = ExtensionStore::new(&arena);
 
-        let ext_a = make_complex("a");
+        let ext_a = make_complex(&arena, "a");
         store
             .add_extension(
                 &arena,
@@ -2288,9 +2317,9 @@ mod tests {
     #[test]
     fn test_extend_static() {
         let arena = Bump::new();
-        let source = make_selector_list(&arena, vec![make_complex("a")]);
-        let targets = make_selector_list(&arena, vec![make_complex("b")]);
-        let sel = make_selector_list(&arena, vec![make_complex("b")]);
+        let source = make_selector_list(&arena, vec![make_complex(&arena, "a")]);
+        let targets = make_selector_list(&arena, vec![make_complex(&arena, "b")]);
+        let sel = make_selector_list(&arena, vec![make_complex(&arena, "b")]);
 
         let result = extend_static(&arena, &sel, &source, &targets, BOGUS_SPAN).unwrap();
         assert!(
@@ -2302,9 +2331,9 @@ mod tests {
     #[test]
     fn test_replace_static() {
         let arena = Bump::new();
-        let source = make_selector_list(&arena, vec![make_complex("a")]);
-        let targets = make_selector_list(&arena, vec![make_complex("b")]);
-        let sel = make_selector_list(&arena, vec![make_complex("b")]);
+        let source = make_selector_list(&arena, vec![make_complex(&arena, "a")]);
+        let targets = make_selector_list(&arena, vec![make_complex(&arena, "b")]);
+        let sel = make_selector_list(&arena, vec![make_complex(&arena, "b")]);
 
         let result = replace_static(&arena, &sel, &source, &targets, BOGUS_SPAN).unwrap();
         assert!(
@@ -2323,7 +2352,7 @@ mod tests {
         let store = ExtensionStore::new(&arena);
 
         // .a { @extend .b; } inside @media screen
-        let extender = make_complex("a");
+        let extender = make_complex(&arena, "a");
         let target = class("b");
         let mc = vec![CssMediaQuery::test_type(
             Some("screen".into()),
@@ -2341,7 +2370,7 @@ mod tests {
             .unwrap();
 
         // .b inside @media screen (same context) should get extended
-        let complex_b = make_complex("b");
+        let complex_b = make_complex(&arena, "b");
         let sel_b = make_selector_list(&arena, vec![complex_b]);
         let result = store.add_selector(&arena, &sel_b, Some(mc)).unwrap();
 
@@ -2355,7 +2384,7 @@ mod tests {
     fn test_seal_box() {
         let arena = Bump::new();
         let store = ExtensionStore::new(&arena);
-        let complex = make_complex("a");
+        let complex = make_complex(&arena, "a");
         let sel = make_selector_list(&arena, vec![complex]);
         let sealed = store.add_selector(&arena, &sel, None).unwrap();
         assert!(

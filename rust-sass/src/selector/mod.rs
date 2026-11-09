@@ -303,23 +303,6 @@ impl<'parse> SimpleSelector<'parse> {
         }
     }
 
-    // Whether this needs complex non-local reasoning to decide super- or
-    // sub-selector relations (pseudo-elements and pseudos with selector
-    // arguments). Matches Dart: `SimpleSelector.hasComplicatedSuperselectorSemantics`
-    // (@internal).
-    pub fn has_complicated_superselector_semantics(&self) -> bool {
-        match self {
-            SimpleSelector::Attribute(a) => a.has_complicated_superselector_semantics(),
-            SimpleSelector::Class(c) => c.has_complicated_superselector_semantics(),
-            SimpleSelector::Id(i) => i.has_complicated_superselector_semantics(),
-            SimpleSelector::Pseudo(p) => p.has_complicated_superselector_semantics(),
-            SimpleSelector::Parent(p) => p.has_complicated_superselector_semantics(),
-            SimpleSelector::Placeholder(p) => p.has_complicated_superselector_semantics(),
-            SimpleSelector::Type(t) => t.has_complicated_superselector_semantics(),
-            SimpleSelector::Universal(u) => u.has_complicated_superselector_semantics(),
-        }
-    }
-
     pub fn hash_code(&self) -> i32 {
         match self {
             SimpleSelector::Attribute(a) => a.hash_code(),
@@ -391,13 +374,13 @@ impl<'parse> SimpleSelector<'parse> {
                             || n == "nth-child"
                             || n == "nth-last-child"
                         {
-                            for complex in &list.0.components {
+                            for complex in list.0.components {
                                 if complex.components.is_empty() {
                                     return Ok(false);
                                 }
                                 let last_comp = &complex.components[complex.components.len() - 1];
                                 let mut found = false;
-                                for comp in &last_comp.selector.components {
+                                for comp in last_comp.selector.components {
                                     if self.is_superselector(comp)? {
                                         found = true;
                                         break;
@@ -534,6 +517,25 @@ impl<'parse> PartialEq for SimpleSelector<'parse> {
 }
 
 impl<'parse> Eq for SimpleSelector<'parse> {}
+
+impl SimpleSelector<'_> {
+    // Whether this needs complex non-local reasoning to decide super- or
+    // sub-selector relations (pseudo-elements and pseudos with selector
+    // arguments). Matches Dart: `SimpleSelector.hasComplicatedSuperselectorSemantics`
+    // (@internal).
+    pub fn has_complicated_superselector_semantics(&self) -> bool {
+        match self {
+            SimpleSelector::Attribute(a) => a.has_complicated_superselector_semantics(),
+            SimpleSelector::Class(c) => c.has_complicated_superselector_semantics(),
+            SimpleSelector::Id(i) => i.has_complicated_superselector_semantics(),
+            SimpleSelector::Pseudo(p) => p.has_complicated_superselector_semantics(),
+            SimpleSelector::Parent(p) => p.has_complicated_superselector_semantics(),
+            SimpleSelector::Placeholder(p) => p.has_complicated_superselector_semantics(),
+            SimpleSelector::Type(t) => t.has_complicated_superselector_semantics(),
+            SimpleSelector::Universal(u) => u.has_complicated_superselector_semantics(),
+        }
+    }
+}
 
 impl<'parse> Hash for SimpleSelector<'parse> {
     fn hash<H: Hasher>(&self, state: &mut H) {
