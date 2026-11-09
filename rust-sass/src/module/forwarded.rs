@@ -198,10 +198,18 @@ impl<'compile: 'parse, 'parse> ForwardedModuleView<'compile, 'parse> {
         }
 
         if let Some(safelist) = self.rule.shown_variables {
-            filtered = filtered.intersection(safelist).cloned().collect();
+            filtered = filtered
+                .iter()
+                .filter(|k| safelist.contains(k.as_str()))
+                .cloned()
+                .collect();
         } else if let Some(blocklist) = self.rule.hidden_variables {
             if !blocklist.is_empty() {
-                filtered = filtered.difference(blocklist).cloned().collect();
+                filtered = filtered
+                    .iter()
+                    .filter(|k| !blocklist.contains(k.as_str()))
+                    .cloned()
+                    .collect();
             }
         }
 

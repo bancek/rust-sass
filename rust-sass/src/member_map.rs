@@ -28,6 +28,8 @@ use std::fmt::Formatter;
 use bumpalo::Bump;
 use indexmap::IndexMap;
 
+use crate::arena_map::ArenaHashSet;
+
 use crate::arena_map::ArenaMap;
 
 // ===========================================================================
@@ -260,7 +262,7 @@ pub struct LimitedMapView<'s, 'a, V: Clone> {
     inner: &'s dyn MemberMap<V>,
     /// Arena-backed, so the view owns no heap data (the view itself lives in
     /// the arena for `@forward` show/hide rules).
-    allowed: &'a HashSet<String>,
+    allowed: &'a ArenaHashSet<'a, String>,
     /// Safelist order (Dart `LimitedMapView.safelist` iterates the safelist).
     /// `None` for blocklist views (inner order). Stored because `HashSet`
     /// iteration is nondeterministic — `keys`/`entries` must follow it.
@@ -282,7 +284,7 @@ impl<'s, 'a, V: Clone + Debug> LimitedMapView<'s, 'a, V> {
     pub fn new_safelist(
         arena: &'a Bump,
         inner: &'s dyn MemberMap<V>,
-        safelist: &HashSet<String>,
+        safelist: &ArenaHashSet<'_, String>,
     ) -> Self {
         // Dart `LimitedMapView.safelist`: `safelist.intersection(MapKeySet(_map))`
         // — iteration follows the SAFEList order, not the inner map's. But the
@@ -294,6 +296,7 @@ impl<'s, 'a, V: Clone + Debug> LimitedMapView<'s, 'a, V> {
             .filter(|k| inner.has(k.as_str()))
             .cloned()
             .collect();
+        let allowed = collect_in(arena, allowed);
         Self {
             inner,
             allowed: arena.alloc(allowed),
@@ -320,7 +323,7 @@ impl<'s, 'a, V: Clone + Debug> LimitedMapView<'s, 'a, V> {
             .collect();
         Self {
             inner,
-            allowed: arena.alloc(allowed),
+            allowed: arena.alloc(collect_in(arena, allowed)),
             safelist_order: Some(arena.alloc_slice_fill_iter(order)),
         }
     }
@@ -330,13 +333,14 @@ impl<'s, 'a, V: Clone + Debug> LimitedMapView<'s, 'a, V> {
     pub fn new_blocklist(
         arena: &'a Bump,
         inner: &'s dyn MemberMap<V>,
-        blocklist: &HashSet<String>,
+        blocklist: &ArenaHashSet<'_, String>,
     ) -> Self {
         let allowed: HashSet<String> = inner
             .keys()
             .into_iter()
             .filter(|k| !blocklist.contains(k.as_str()))
             .collect();
+        let allowed = collect_in(arena, allowed);
         Self {
             inner,
             allowed: arena.alloc(allowed),
@@ -536,8 +540,8 @@ pub fn forwarded_map<'a, V: Clone + Debug>(
     arena: &'a Bump,
     inner: &'a dyn MemberMap<V>,
     prefix: Option<&str>,
-    safelist: Option<&HashSet<String>>,
-    blocklist: Option<&HashSet<String>>,
+    safelist: Option<&ArenaHashSet<'_, String>>,
+    blocklist: Option<&ArenaHashSet<'_, String>>,
 ) -> &'a dyn MemberMap<V> {
     forwarded_map_ordered(arena, inner, prefix, None, safelist, blocklist)
 }
@@ -549,8 +553,8 @@ pub fn forwarded_map_ordered<'a, V: Clone + Debug>(
     inner: &'a dyn MemberMap<V>,
     prefix: Option<&str>,
     safelist_order: Option<&[String]>,
-    safelist: Option<&HashSet<String>>,
-    blocklist: Option<&HashSet<String>>,
+    safelist: Option<&ArenaHashSet<'_, String>>,
+    blocklist: Option<&ArenaHashSet<'_, String>>,
 ) -> &'a dyn MemberMap<V> {
     if prefix.is_none() && safelist.is_none() && blocklist.is_none_or(|b| b.is_empty()) {
         return inner;
@@ -605,7 +609,10 @@ pub fn member_map<'a, V: Clone + Debug>(
 ///
 /// Dart: `ShadowedModuleView._needsBlocklist` (`shadowed_view.dart:91-95`);
 /// Go `needsBlocklist`.
-pub fn needs_blocklist<V: Clone>(map: &dyn MemberMap<V>, blocklist: &HashSet<String>) -> bool {
+pub fn needs_blocklist<V: Clone>(
+    map: &dyn MemberMap<V>,
+    blocklist: &ArenaHashSet<'_, String>,
+) -> bool {
     if blocklist.is_empty() || map.is_empty() {
         return false;
     }
@@ -616,13 +623,31 @@ pub fn needs_blocklist<V: Clone>(map: &dyn MemberMap<V>, blocklist: &HashSet<Str
 /// blocklists after cloning the inner module's CSS.
 ///
 /// Go `mapKeyDiff` (used by shadowed.rs clone).
-pub fn map_key_diff<V: Clone>(
+pub fn map_key_diff<'a, V: Clone>(
+    arena: &'a Bump,
     full: &dyn MemberMap<V>,
     filtered: &dyn MemberMap<V>,
-) -> HashSet<String> {
+) -> ArenaHashSet<'a, String> {
     let full_keys: HashSet<String> = full.keys().into_iter().collect();
     let filtered_keys: HashSet<String> = filtered.keys().into_iter().collect();
-    full_keys.difference(&filtered_keys).cloned().collect()
+    collect_in(
+        arena,
+        full_keys.difference(&filtered_keys).cloned().collect(),
+    )
+}
+
+// Rebuilds `set` with the arena allocator (a plain `collect()` would use the
+// global one, since `&Bump` has no `Default`).
+fn collect_in<'a, T: Clone + std::hash::Hash + Eq>(
+    arena: &'a Bump,
+    set: HashSet<T>,
+) -> ArenaHashSet<'a, T> {
+    let mut out =
+        hashbrown::HashSet::with_hasher_in(hashbrown::DefaultHashBuilder::default(), arena);
+    for item in set {
+        out.insert(item);
+    }
+    out
 }
 
 // ===========================================================================
@@ -631,6 +656,18 @@ pub fn map_key_diff<V: Clone>(
 
 #[cfg(test)]
 mod tests {
+    fn arena_set<'a>(
+        arena: &'a Bump,
+        names: std::collections::HashSet<String>,
+    ) -> ArenaHashSet<'a, String> {
+        let mut set =
+            hashbrown::HashSet::with_hasher_in(hashbrown::DefaultHashBuilder::default(), arena);
+        for name in names {
+            set.insert(name);
+        }
+        set
+    }
+
     use super::*;
 
     fn make_map() -> IndexMap<String, i32> {
@@ -861,7 +898,7 @@ mod tests {
     #[test]
     fn test_limited_safelist_allows_safelisted_key() {
         let arena = Bump::new();
-        let safelist: HashSet<String> = ["a".into(), "c".into()].into();
+        let safelist = arena_set(&arena, ["a".into(), "c".into()].into());
         let limited: &dyn MemberMap<i32> = arena.alloc(LimitedMapView::new_safelist(
             &arena,
             make_v(&arena),
@@ -875,7 +912,7 @@ mod tests {
     #[test]
     fn test_limited_safelist_has() {
         let arena = Bump::new();
-        let safelist: HashSet<String> = ["a".into()].into();
+        let safelist = arena_set(&arena, ["a".into()].into());
         let limited: &dyn MemberMap<i32> = arena.alloc(LimitedMapView::new_safelist(
             &arena,
             make_v(&arena),
@@ -888,7 +925,7 @@ mod tests {
     #[test]
     fn test_limited_safelist_len() {
         let arena = Bump::new();
-        let safelist: HashSet<String> = ["a".into(), "c".into()].into();
+        let safelist = arena_set(&arena, ["a".into(), "c".into()].into());
         let limited: &dyn MemberMap<i32> = arena.alloc(LimitedMapView::new_safelist(
             &arena,
             make_v(&arena),
@@ -902,7 +939,7 @@ mod tests {
         let arena = Bump::new();
         let inner_map: &RefCell<_> = arena.alloc(make_arena_map(&arena));
         let inner = make_refcell_view(&arena, inner_map);
-        let safelist: HashSet<String> = ["a".into()].into();
+        let safelist = arena_set(&arena, ["a".into()].into());
         let limited: &dyn MemberMap<i32> =
             arena.alloc(LimitedMapView::new_safelist(&arena, inner, &safelist));
         assert_eq!(limited.get("a"), Some(1));
@@ -917,7 +954,7 @@ mod tests {
         let arena = Bump::new();
         let inner_map: &RefCell<_> = arena.alloc(make_arena_map(&arena));
         let inner = make_refcell_view(&arena, inner_map);
-        let safelist: HashSet<String> = ["a".into(), "new".into()].into();
+        let safelist = arena_set(&arena, ["a".into(), "new".into()].into());
         let limited: &dyn MemberMap<i32> =
             arena.alloc(LimitedMapView::new_safelist(&arena, inner, &safelist));
         assert_eq!(limited.len(), 1); // "a" exists, but "new" was not in inner at construction
@@ -933,7 +970,7 @@ mod tests {
     #[test]
     fn test_limited_blocklist_blocks_key() {
         let arena = Bump::new();
-        let blocklist: HashSet<String> = ["b".into()].into();
+        let blocklist = arena_set(&arena, ["b".into()].into());
         let limited: &dyn MemberMap<i32> = arena.alloc(LimitedMapView::new_blocklist(
             &arena,
             make_v(&arena),
@@ -947,7 +984,7 @@ mod tests {
     #[test]
     fn test_limited_blocklist_len() {
         let arena = Bump::new();
-        let blocklist: HashSet<String> = ["b".into()].into();
+        let blocklist = arena_set(&arena, ["b".into()].into());
         let limited: &dyn MemberMap<i32> = arena.alloc(LimitedMapView::new_blocklist(
             &arena,
             make_v(&arena),
@@ -959,7 +996,7 @@ mod tests {
     #[test]
     fn test_limited_empty_blocklist_passes_all() {
         let arena = Bump::new();
-        let blocklist: HashSet<String> = HashSet::new();
+        let blocklist = arena_set(&arena, std::collections::HashSet::new());
         let limited: &dyn MemberMap<i32> = arena.alloc(LimitedMapView::new_blocklist(
             &arena,
             make_v(&arena),
@@ -1128,7 +1165,7 @@ mod tests {
     #[test]
     fn test_forwarded_map_prefix_and_safelist() {
         let arena = Bump::new();
-        let safelist: HashSet<String> = ["ns-a".into(), "ns-c".into()].into();
+        let safelist = arena_set(&arena, ["ns-a".into(), "ns-c".into()].into());
         let result = forwarded_map(&arena, make_v(&arena), Some("ns-"), Some(&safelist), None);
         // Prefix applied first, then safelist filters on the PREFIXED keys
         assert_eq!(result.get("ns-a"), Some(1));
@@ -1140,7 +1177,7 @@ mod tests {
     #[test]
     fn test_forwarded_map_prefix_and_blocklist() {
         let arena = Bump::new();
-        let blocklist: HashSet<String> = ["ns-b".into()].into();
+        let blocklist = arena_set(&arena, ["ns-b".into()].into());
         let result = forwarded_map(&arena, make_v(&arena), Some("ns-"), None, Some(&blocklist));
         assert_eq!(result.get("ns-a"), Some(1));
         assert_eq!(result.get("ns-b"), None);
@@ -1151,7 +1188,7 @@ mod tests {
     #[test]
     fn test_forwarded_map_empty_blocklist() {
         let arena = Bump::new();
-        let blocklist: HashSet<String> = HashSet::new();
+        let blocklist = arena_set(&arena, std::collections::HashSet::new());
         let result = forwarded_map(&arena, make_v(&arena), Some("ns-"), None, Some(&blocklist));
         assert_eq!(result.len(), 5);
         assert_eq!(result.get("ns-a"), Some(1));
@@ -1222,30 +1259,37 @@ mod tests {
 
     #[test]
     fn test_needs_blocklist_false_when_none_blocked() {
+        let arena = Bump::new();
         let v = make_imv();
-        let blocklist: HashSet<String> = ["z".into(), "w".into()].into();
+        let blocklist = arena_set(&arena, ["z".into(), "w".into()].into());
         assert!(!needs_blocklist(&v, &blocklist));
     }
 
     #[test]
     fn test_needs_blocklist_true_when_blocked_exists() {
+        let arena = Bump::new();
         let v = make_imv();
-        let blocklist: HashSet<String> = ["b".into()].into();
+        let blocklist = arena_set(&arena, ["b".into()].into());
         assert!(needs_blocklist(&v, &blocklist));
     }
 
     #[test]
     fn test_needs_blocklist_empty_blocklist() {
+        let arena = Bump::new();
         let v = make_imv();
-        assert!(!needs_blocklist(&v, &HashSet::new()));
+        assert!(!needs_blocklist(
+            &v,
+            &arena_set(&arena, std::collections::HashSet::new()),
+        ));
     }
 
     #[test]
     fn test_needs_blocklist_empty_map() {
+        let arena = Bump::new();
         let v: IndexMapView<i32> = IndexMapView {
             map: IndexMap::new(),
         };
-        let blocklist: HashSet<String> = ["a".into()].into();
+        let blocklist = arena_set(&arena, ["a".into()].into());
         assert!(!needs_blocklist(&v, &blocklist));
     }
 
@@ -1253,38 +1297,41 @@ mod tests {
 
     #[test]
     fn test_map_key_diff_same_maps() {
+        let arena = Bump::new();
         let m1 = IndexMapView {
             map: IndexMap::from([("a".into(), 1)]),
         };
         let m2 = IndexMapView {
             map: IndexMap::from([("a".into(), 2)]),
         };
-        let diff = map_key_diff(&m1, &m2);
+        let diff = map_key_diff(&arena, &m1, &m2);
         assert!(diff.is_empty());
     }
 
     #[test]
     fn test_map_key_diff_extra_keys() {
+        let arena = Bump::new();
         let full = IndexMapView {
             map: IndexMap::from([("a".into(), 1), ("b".into(), 2)]),
         };
         let filtered = IndexMapView {
             map: IndexMap::from([("a".into(), 3)]),
         };
-        let diff = map_key_diff(&full, &filtered);
-        let expected: HashSet<String> = ["b".into()].into();
-        assert_eq!(diff, expected);
+        let diff = map_key_diff(&arena, &full, &filtered);
+        assert_eq!(diff.len(), 1);
+        assert!(diff.contains("b"));
     }
 
     #[test]
     fn test_map_key_diff_filtered_has_more() {
+        let arena = Bump::new();
         let full = IndexMapView {
             map: IndexMap::from([("a".into(), 1)]),
         };
         let filtered = IndexMapView {
             map: IndexMap::from([("a".into(), 3), ("b".into(), 4)]),
         };
-        let diff = map_key_diff(&full, &filtered);
+        let diff = map_key_diff(&arena, &full, &filtered);
         assert!(diff.is_empty());
     }
 
@@ -1297,7 +1344,7 @@ mod tests {
         let inner = make_v(&arena); // a=1, b=2, c=3, _private=99, -dash=100
 
         // @forward as ns-* show $a
-        let safelist: HashSet<String> = ["ns-a".into()].into();
+        let safelist = arena_set(&arena, ["ns-a".into()].into());
         let forwarded = forwarded_map(&arena, inner, Some("ns-"), Some(&safelist), None);
         assert_eq!(forwarded.get("ns-a"), Some(1));
         assert_eq!(forwarded.get("ns-b"), None);

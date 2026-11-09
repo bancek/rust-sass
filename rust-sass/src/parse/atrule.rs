@@ -21,11 +21,13 @@ use crate::parse::parser::raw_text_impl;
 use crate::parse::parser::string_impl;
 use crate::parse::sass::sass_import_argument_impl;
 use crate::parse::stylesheet::StylesheetParser;
+use bumpalo::Bump;
 use std::collections::{HashMap, HashSet};
 
 use crate::url::ArenaUrl;
 use crate::util::utils::{default_namespace, DefaultNamespaceResult};
 
+use crate::arena_map::ArenaHashSet;
 use crate::ast::sass::argument_list::ArgumentList;
 use crate::ast::sass::configured_variable::ConfiguredVariable;
 use crate::ast::sass::dynamic_import::DynamicImport;
@@ -645,15 +647,15 @@ fn forward_rule_impl<'b>(
     if scan_identifier_impl(scanner, "show", false)? {
         whitespace_impl(scanner, &mut state.parser_state, true)?;
         let (order_mf, order_vars, idents, vars) = member_list_impl(scanner, state)?;
-        shown_mf = Some(idents);
-        shown_vars = Some(vars);
+        shown_mf = Some(arena_set(state.arena, idents));
+        shown_vars = Some(arena_set(state.arena, vars));
         shown_order_mf = Some(order_mf);
         shown_order_vars = Some(order_vars);
     } else if scan_identifier_impl(scanner, "hide", false)? {
         whitespace_impl(scanner, &mut state.parser_state, true)?;
         let (_, _, idents, vars) = member_list_impl(scanner, state)?;
-        hidden_mf = Some(idents);
-        hidden_vars = Some(vars);
+        hidden_mf = Some(arena_set(state.arena, idents));
+        hidden_vars = Some(arena_set(state.arena, vars));
     }
     let configuration = configuration_impl(scanner, state, true)?;
     whitespace_impl(scanner, &mut state.parser_state, false)?;
@@ -670,7 +672,7 @@ fn forward_rule_impl<'b>(
             state.arena,
             url,
             sm,
-            shown_vars.unwrap_or_default(),
+            shown_vars.unwrap_or_else(|| arena_set(state.arena, HashSet::new())),
             shown_order_mf.unwrap_or_default(),
             shown_order_vars.unwrap_or_default(),
             span,
@@ -683,7 +685,7 @@ fn forward_rule_impl<'b>(
             state.arena,
             url,
             hm,
-            hidden_vars.unwrap_or_default(),
+            hidden_vars.unwrap_or_else(|| arena_set(state.arena, HashSet::new())),
             span,
             prefix.as_deref(),
             configuration,
@@ -747,6 +749,17 @@ fn member_list_impl<'b>(
         idents.into_iter().collect::<HashSet<String>>(),
         vars.into_iter().collect::<HashSet<String>>(),
     ))
+}
+
+/// Rebuilds `set` in the compile arena (`&Bump` has no `Default`, so a plain
+/// `collect()` would allocate on the global heap).
+fn arena_set<'parse>(arena: &'parse Bump, set: HashSet<String>) -> ArenaHashSet<'parse, String> {
+    let mut out =
+        hashbrown::HashSet::with_hasher_in(hashbrown::DefaultHashBuilder::default(), arena);
+    for item in set {
+        out.insert(item);
+    }
+    out
 }
 
 // ======================================================================

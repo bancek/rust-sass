@@ -31,19 +31,32 @@ use std::ops::AsyncFnOnce;
 
 use allocator_api2::vec::Vec as AllocVec;
 use bumpalo::Bump;
-use hashbrown::{HashMap as ArenaHashMap, HashSet as ArenaHashSet};
 use indexmap::IndexMap;
 
-use crate::arena_map::ArenaMap;
+use crate::arena_map::{ArenaHashMap, ArenaHashSet, ArenaMap};
+
+/// Rebuilds a `HashSet` in the arena (`&Bump` has no `Default`, so `collect()`
+/// would use the global allocator).
+fn arena_collect<'a, T: Clone + std::hash::Hash + Eq>(
+    arena: &'a Bump,
+    set: HashSet<T>,
+) -> ArenaHashSet<'a, T> {
+    let mut out =
+        hashbrown::HashSet::with_hasher_in(hashbrown::DefaultHashBuilder::default(), arena);
+    for item in set {
+        out.insert(item);
+    }
+    out
+}
 
 /// Arena-backed Vec (Dart `List<T>`).
 type ArenaVec<'p, T> = AllocVec<T, &'p Bump>;
 /// Arena-backed ordered map with arena string keys (Dart `Map<String, V>`).
 type ArenaStrMap<'p, V> = ArenaMap<'p, &'p str, V>;
 /// Dart `Map<String, int>` index cache, stored in the arena.
-type ArenaCache<'p> = ArenaHashMap<&'p str, usize, hashbrown::DefaultHashBuilder, &'p Bump>;
+type ArenaCache<'p> = ArenaHashMap<'p, &'p str, usize>;
 /// Dart `Set<String>`, stored in the arena.
-type ArenaStrSet<'p> = ArenaHashSet<&'p str, hashbrown::DefaultHashBuilder, &'p Bump>;
+type ArenaStrSet<'p> = ArenaHashSet<'p, &'p str>;
 
 use crate::ast::sass::statement::forward_rule::ForwardRule;
 use crate::callable::Callable;
@@ -1377,6 +1390,9 @@ impl<'compile: 'parse, 'parse> Environment<'compile, 'parse> {
                 forwarded_mixins.insert(name.clone());
             }
         }
+        let forwarded_vars = arena_collect(arena, forwarded_vars);
+        let forwarded_funcs = arena_collect(arena, forwarded_funcs);
+        let forwarded_mixins = arena_collect(arena, forwarded_mixins);
 
         if inner.at_root() {
             // Hide members from modules that have already been imported or

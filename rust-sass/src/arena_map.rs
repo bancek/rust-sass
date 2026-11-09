@@ -35,6 +35,12 @@ use hashbrown::HashTable;
 /// An arena-backed `Vec` (Dart `List<T>`).
 pub type ArenaVec<'p, T> = allocator_api2::vec::Vec<T, &'p Bump>;
 
+/// An arena-backed `HashSet` (Dart `Set<T>`).
+pub type ArenaHashSet<'p, T> = hashbrown::HashSet<T, hashbrown::DefaultHashBuilder, &'p Bump>;
+
+/// An arena-backed `HashMap` (Dart `Map<K, V>` without insertion order).
+pub type ArenaHashMap<'p, K, V> = hashbrown::HashMap<K, V, hashbrown::DefaultHashBuilder, &'p Bump>;
+
 /// The cached hash makes removals and rehashes allocation-free of hashing.
 struct Bucket<K, V> {
     hash: u64,

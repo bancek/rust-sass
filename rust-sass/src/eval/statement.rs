@@ -3800,7 +3800,7 @@ where
 
     // Configuration evaluation outside @forward frame (matching Go: evaluate_expression.go:891-895)
     let old_configuration = state.configuration.clone();
-    let adjusted = old_configuration.through_forward(node);
+    let adjusted = old_configuration.through_forward(arena, node);
 
     let mut forward_config = if !node.configuration.is_empty() {
         Some(add_forward_configuration(config, state, arena, &adjusted, node).await?)

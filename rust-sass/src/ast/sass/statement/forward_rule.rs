@@ -7,7 +7,6 @@
 // dart-source: lib/src/ast/sass/statement/forward_rule.dart
 // go-source: go/value/sass_statement_forward_rule.go
 
-use std::collections::HashSet;
 use std::fmt;
 use std::fmt::Write;
 
@@ -20,6 +19,7 @@ use crate::common::exception::SassResult;
 use crate::common::file_span::FileSpan;
 use crate::util::css_identifier::to_css_identifier;
 
+use crate::arena_map::ArenaHashSet;
 use crate::ast::sass::configured_variable::ConfiguredVariable;
 
 /// A `@forward` rule.
@@ -34,14 +34,14 @@ pub struct ForwardRule<'parse> {
     /// Empty means no mixins or functions may be accessed; `None` imposes
     /// no restriction. When non-`None`, the hidden sets are both `None`
     /// and [`ForwardRule::shown_variables`] is non-`None`.
-    pub shown_mixins_and_functions: Option<&'parse HashSet<String>>,
+    pub shown_mixins_and_functions: Option<&'parse ArenaHashSet<'parse, String>>,
     /// The variable names (without `$`) accessible from the forwarded
     /// module.
     ///
     /// Empty means no variables may be accessed; `None` imposes no
     /// restriction. When non-`None`, the hidden sets are both `None` and
     /// [`ForwardRule::shown_mixins_and_functions`] is non-`None`.
-    pub shown_variables: Option<&'parse HashSet<String>>,
+    pub shown_variables: Option<&'parse ArenaHashSet<'parse, String>>,
     /// Source-order `@forward show` lists (Dart `LinkedHashSet` iteration
     /// drives `LimitedMapView` key order, observed via
     /// `meta.module-variables`). `None` unless this is a show-rule.
@@ -53,14 +53,14 @@ pub struct ForwardRule<'parse> {
     /// Empty means any mixins or functions may be accessed; `None` imposes
     /// no restriction. When non-`None`, the shown sets are both `None` and
     /// [`ForwardRule::hidden_variables`] is non-`None`.
-    pub hidden_mixins_and_functions: Option<&'parse HashSet<String>>,
+    pub hidden_mixins_and_functions: Option<&'parse ArenaHashSet<'parse, String>>,
     /// The variable names (without `$`) that may not be accessed from the
     /// forwarded module.
     ///
     /// Empty means any variables may be accessed; `None` imposes no
     /// restriction. When non-`None`, the shown sets are both `None` and
     /// [`ForwardRule::hidden_mixins_and_functions`] is non-`None`.
-    pub hidden_variables: Option<&'parse HashSet<String>>,
+    pub hidden_variables: Option<&'parse ArenaHashSet<'parse, String>>,
     /// The prefix added to the front of member names from the forwarded
     /// module, or `None` when member names are used as-is.
     pub prefix: Option<&'parse str>,
@@ -97,8 +97,8 @@ impl<'parse> ForwardRule<'parse> {
     pub fn show(
         arena: &'parse Bump,
         url: ArenaUrl<'parse>,
-        shown_mixins_and_functions: HashSet<String>,
-        shown_variables: HashSet<String>,
+        shown_mixins_and_functions: ArenaHashSet<'parse, String>,
+        shown_variables: ArenaHashSet<'parse, String>,
         span: FileSpan<'parse>,
         prefix: Option<&str>,
         configuration: Vec<ConfiguredVariable<'parse>>,
@@ -124,8 +124,8 @@ impl<'parse> ForwardRule<'parse> {
     pub fn show_ordered(
         arena: &'parse Bump,
         url: ArenaUrl<'parse>,
-        shown_mixins_and_functions: HashSet<String>,
-        shown_variables: HashSet<String>,
+        shown_mixins_and_functions: ArenaHashSet<'parse, String>,
+        shown_variables: ArenaHashSet<'parse, String>,
         shown_order_mf: Vec<String>,
         shown_order_vars: Vec<String>,
         span: FileSpan<'parse>,
@@ -151,8 +151,8 @@ impl<'parse> ForwardRule<'parse> {
     pub fn hide(
         arena: &'parse Bump,
         url: ArenaUrl<'parse>,
-        hidden_mixins_and_functions: HashSet<String>,
-        hidden_variables: HashSet<String>,
+        hidden_mixins_and_functions: ArenaHashSet<'parse, String>,
+        hidden_variables: ArenaHashSet<'parse, String>,
         span: FileSpan<'parse>,
         prefix: Option<&str>,
         configuration: Vec<ConfiguredVariable<'parse>>,
@@ -221,8 +221,8 @@ impl<'parse> fmt::Display for ForwardRule<'parse> {
 }
 
 fn member_list(
-    mixins_and_functions: &HashSet<String>,
-    variables: Option<&HashSet<String>>,
+    mixins_and_functions: &ArenaHashSet<'_, String>,
+    variables: Option<&ArenaHashSet<'_, String>>,
 ) -> SassResult<String> {
     let mut names = Vec::with_capacity(mixins_and_functions.len());
     for name in mixins_and_functions {

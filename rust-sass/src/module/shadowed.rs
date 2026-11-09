@@ -12,6 +12,7 @@
 //!
 //! Matches Dart: `ShadowedModuleView` (`module/shadowed_view.dart`).
 
+use crate::arena_map::ArenaHashSet;
 use crate::module::ModuleKind;
 use std::collections::HashSet;
 use std::fmt::Debug;
@@ -45,9 +46,9 @@ impl<'compile: 'parse, 'parse> ShadowedModuleView<'compile, 'parse> {
     pub fn new(
         arena: &'compile Bump,
         inner: Module<'compile, 'parse>,
-        variables: &HashSet<String>,
-        functions: &HashSet<String>,
-        mixins: &HashSet<String>,
+        variables: &ArenaHashSet<'_, String>,
+        functions: &ArenaHashSet<'_, String>,
+        mixins: &ArenaHashSet<'_, String>,
     ) -> Self {
         ShadowedModuleView {
             variables: Self::maybe_blocklist(arena, inner.variables_view(arena), variables),
@@ -67,7 +68,7 @@ impl<'compile: 'parse, 'parse> ShadowedModuleView<'compile, 'parse> {
     fn maybe_blocklist<V: Clone + Debug + 'parse>(
         arena: &'compile Bump,
         inner_view: &'parse dyn MemberMap<V>,
-        blocklist: &HashSet<String>,
+        blocklist: &ArenaHashSet<'_, String>,
     ) -> &'parse dyn MemberMap<V> {
         if blocklist.is_empty() || !member_map::needs_blocklist(inner_view, blocklist) {
             return inner_view;
@@ -132,9 +133,9 @@ impl<'compile: 'parse, 'parse> ShadowedModuleView<'compile, 'parse> {
     pub fn if_necessary(
         arena: &'compile Bump,
         module: &Module<'compile, 'parse>,
-        variables: &HashSet<String>,
-        functions: &HashSet<String>,
-        mixins: &HashSet<String>,
+        variables: &ArenaHashSet<'_, String>,
+        functions: &ArenaHashSet<'_, String>,
+        mixins: &ArenaHashSet<'_, String>,
     ) -> Option<Module<'compile, 'parse>> {
         let module_vars = module.variables();
         let module_funcs = module.functions();
@@ -171,11 +172,11 @@ impl<'compile: 'parse, 'parse> ShadowedModuleView<'compile, 'parse> {
     pub fn clone_css(&self, arena: &'compile Bump) -> SassResult<Module<'compile, 'parse>> {
         let cloned_inner = self.inner.clone_css(arena)?;
         let shadowed_vars =
-            member_map::map_key_diff(cloned_inner.variables_view(arena), self.variables);
+            member_map::map_key_diff(arena, cloned_inner.variables_view(arena), self.variables);
         let shadowed_funcs =
-            member_map::map_key_diff(cloned_inner.functions_view(arena), self.functions);
+            member_map::map_key_diff(arena, cloned_inner.functions_view(arena), self.functions);
         let shadowed_mixins =
-            member_map::map_key_diff(cloned_inner.mixins_view(arena), self.mixins);
+            member_map::map_key_diff(arena, cloned_inner.mixins_view(arena), self.mixins);
         Ok(Module::new(
             arena,
             ModuleKind::Shadowed(Self::new(

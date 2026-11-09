@@ -607,6 +607,18 @@ impl<'a, V: Clone + Debug> ModuleVariables<'a, V> {
 
 #[cfg(test)]
 mod tests {
+    fn arena_set<'a>(
+        arena: &'a Bump,
+        names: &[&str],
+    ) -> crate::arena_map::ArenaHashSet<'a, String> {
+        let mut set =
+            hashbrown::HashSet::with_hasher_in(hashbrown::DefaultHashBuilder::default(), arena);
+        for name in names {
+            set.insert((*name).to_string());
+        }
+        set
+    }
+
     use crate::ast::sass::parameter_list::ParameterList;
     use crate::ast::sass::statement::ForwardRule;
     use crate::callable::BuiltInCallable;
@@ -849,13 +861,13 @@ mod tests {
         let inner = BuiltInModule::new(&arena, "test".into(), &[], &[], vars);
         let inner_mod = Module::new(&arena, ModuleKind::BuiltIn(inner));
 
-        let blocked: HashSet<String> = ["b".into()].into();
+        let blocked = arena_set(&arena, &["b"]);
         let sv = ShadowedModuleView::new(
             &arena,
             inner_mod,
             &blocked,
-            &HashSet::new(),
-            &HashSet::new(),
+            &arena_set(&arena, &[]),
+            &arena_set(&arena, &[]),
         );
 
         assert!(sv.variables.has("a"));
@@ -870,9 +882,9 @@ mod tests {
         let result = ShadowedModuleView::if_necessary(
             &arena,
             &inner_mod,
-            &HashSet::new(),
-            &HashSet::new(),
-            &HashSet::new(),
+            &arena_set(&arena, &[]),
+            &arena_set(&arena, &[]),
+            &arena_set(&arena, &[]),
         );
         assert!(result.is_none());
     }
@@ -884,13 +896,13 @@ mod tests {
         vars.insert("a".into(), Value::new_with_arena(&arena, ValueKind::Null));
         let inner = BuiltInModule::new(&arena, "test".into(), &[], &[], vars);
         let inner_mod = Module::new(&arena, ModuleKind::BuiltIn(inner));
-        let blocked: HashSet<String> = ["a".into()].into();
+        let blocked = arena_set(&arena, &["a"]);
         let result = ShadowedModuleView::if_necessary(
             &arena,
             &inner_mod,
             &blocked,
-            &HashSet::new(),
-            &HashSet::new(),
+            &arena_set(&arena, &[]),
+            &arena_set(&arena, &[]),
         );
         assert!(result.is_some());
     }
@@ -902,13 +914,13 @@ mod tests {
         vars.insert("a".into(), Value::new_with_arena(&arena, ValueKind::Null));
         let inner = BuiltInModule::new(&arena, "test".into(), &[], &[], vars);
         let inner_mod = Module::new(&arena, ModuleKind::BuiltIn(inner));
-        let blocked: HashSet<String> = ["a".into()].into();
+        let blocked = arena_set(&arena, &["a"]);
         let sv = ShadowedModuleView::new(
             &arena,
             inner_mod,
             &blocked,
-            &HashSet::new(),
-            &HashSet::new(),
+            &arena_set(&arena, &[]),
+            &arena_set(&arena, &[]),
         );
         assert!(sv.is_empty().unwrap());
     }
@@ -930,17 +942,17 @@ mod tests {
         vars.insert("b".into(), Value::new_with_arena(&arena, ValueKind::Null));
         let inner = BuiltInModule::new(&arena, "test".into(), &[], &[], vars);
         let inner_mod = Module::new(&arena, ModuleKind::BuiltIn(inner));
-        let blocked: HashSet<String> = ["b".into()].into();
+        let blocked = arena_set(&arena, &["b"]);
 
-        let make = |blocked: &HashSet<String>| {
+        let make = |blocked: &crate::arena_map::ArenaHashSet<'_, String>| {
             Module::new(
                 &arena,
                 ModuleKind::Shadowed(ShadowedModuleView::new(
                     &arena,
                     inner_mod,
                     blocked,
-                    &HashSet::new(),
-                    &HashSet::new(),
+                    &arena_set(&arena, &[]),
+                    &arena_set(&arena, &[]),
                 )),
             )
         };
@@ -949,7 +961,7 @@ mod tests {
         assert_eq!(first, second);
         assert_eq!(hash_of(&first), hash_of(&second));
 
-        let other: HashSet<String> = ["a".into()].into();
+        let other = arena_set(&arena, &["a"]);
         let different = make(&other);
         assert_ne!(first, different);
 
@@ -960,8 +972,8 @@ mod tests {
                 &arena,
                 first,
                 &other,
-                &HashSet::new(),
-                &HashSet::new(),
+                &arena_set(&arena, &[]),
+                &arena_set(&arena, &[]),
             )),
         );
         let nested_again = Module::new(
@@ -970,8 +982,8 @@ mod tests {
                 &arena,
                 second,
                 &other,
-                &HashSet::new(),
-                &HashSet::new(),
+                &arena_set(&arena, &[]),
+                &arena_set(&arena, &[]),
             )),
         );
         assert_eq!(nested, nested_again);

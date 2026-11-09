@@ -25,12 +25,11 @@ use std::hash::{Hash, Hasher};
 
 use allocator_api2::vec::Vec as AllocVec;
 use bumpalo::Bump;
-use hashbrown::{HashMap as ArenaHashMap, HashSet as ArenaHashSet};
 
-use crate::arena_map::ArenaMap;
+use crate::arena_map::{ArenaHashMap, ArenaHashSet, ArenaMap};
 
 type ArenaVec<'p, T> = AllocVec<T, &'p Bump>;
-type ArenaSet<'p, T> = ArenaHashSet<T, hashbrown::DefaultHashBuilder, &'p Bump>;
+type ArenaSet<'p, T> = ArenaHashSet<'p, T>;
 
 use crate::ast::css::media_query::CssMediaQuery;
 use crate::ast::sass::statement::extend_rule::ExtendRule;
@@ -341,10 +340,9 @@ pub struct DefaultExtensionStore<'parse> {
     // key types don't even trigger it.)
     #[allow(clippy::mutable_key_type)]
     pub(crate) media_contexts: ArenaHashMap<
+        'parse,
         MutableBox<'parse, SelectorList<'parse>>,
         ArenaVec<'parse, CssMediaQuery<'parse>>,
-        hashbrown::DefaultHashBuilder,
-        &'parse Bump,
     >,
     /// A map from simple selectors to the specificity of their source
     /// selectors: the maximum specificity of the complex selector that
@@ -406,10 +404,9 @@ impl<'parse> DefaultExtensionStore<'parse> {
             ArenaVec<'parse, Extension<'parse>>,
         >,
         media_contexts: ArenaHashMap<
+            'parse,
             MutableBox<'parse, SelectorList<'parse>>,
             ArenaVec<'parse, CssMediaQuery<'parse>>,
-            hashbrown::DefaultHashBuilder,
-            &'parse Bump,
         >,
         source_specificity: ArenaMap<'parse, SimpleSelector<'parse>, usize>,
         originals: ArenaSet<'parse, ComplexSelector<'parse>>,
@@ -847,10 +844,9 @@ impl<'parse> DefaultExtensionStore<'parse> {
             ArenaSet<'parse, MutableBox<'parse, SelectorList<'parse>>>,
         > = ArenaMap::new_in(arena);
         let mut new_mcs: ArenaHashMap<
+            'parse,
             MutableBox<'parse, SelectorList<'parse>>,
             ArenaVec<'parse, CssMediaQuery<'parse>>,
-            hashbrown::DefaultHashBuilder,
-            &'parse Bump,
         > = ArenaHashMap::with_hasher_in(hashbrown::DefaultHashBuilder::default(), arena);
         let mut old_to_new: HashMap<
             SelectorListIdentity<'parse>,
@@ -1754,10 +1750,9 @@ fn extend_existing_selectors<'compile: 'parse, 'parse>(
         ArenaSet<'parse, MutableBox<'parse, SelectorList<'parse>>>,
     >,
     media_contexts: &ArenaHashMap<
+        'parse,
         MutableBox<'parse, SelectorList<'parse>>,
         ArenaVec<'parse, CssMediaQuery<'parse>>,
-        hashbrown::DefaultHashBuilder,
-        &'parse Bump,
     >,
     originals: &mut ArenaSet<'parse, ComplexSelector<'parse>>,
     source_specificity: &ArenaMap<'parse, SimpleSelector<'parse>, usize>,
