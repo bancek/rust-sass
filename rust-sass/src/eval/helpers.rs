@@ -2198,6 +2198,7 @@ where
     state.in_supports_declaration = old_in_supports;
 
     let map = if source_map {
+        let target_offsets = arena.alloc_slice_clone(&target_offsets);
         let map = InterpolationMap::new(interpolation.clone(), target_offsets).map_err(|e| {
             SassError::Script {
                 message: e.message,

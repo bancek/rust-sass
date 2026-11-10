@@ -3594,7 +3594,7 @@ mod tests {
         );
         let interp_span = FileSpan::new(Some(interp_fs), 0, interp_text.len());
         let interp = Interpolation::new(arena, vec![], vec![], interp_span).unwrap();
-        let map = InterpolationMap::new(interp, vec![]).unwrap();
+        let map = InterpolationMap::new(interp, &[]).unwrap();
         let map_ref: &'parse InterpolationMap<'parse> = arena.alloc(map);
         let parser = Parser::new(arena, gen_fs, Syntax::Scss, Some(map_ref));
         (parser, map_ref, gen_fs)
