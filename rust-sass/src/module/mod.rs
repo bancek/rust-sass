@@ -684,7 +684,7 @@ mod tests {
             Value::new_with_arena(
                 &arena,
                 // Arbitrary value: this test only asserts key presence.
-                ValueKind::Number(SassNumber::new(1.0, None)),
+                ValueKind::Number(SassNumber::new(&arena, 1.0, None)),
             ),
         );
         let m = BuiltInModule::new(&arena, "math".into(), &[], &[], vars);

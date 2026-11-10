@@ -402,7 +402,7 @@ impl<'parse> SelectorList<'parse> {
         let mut contains_selector_pseudo = false;
         for simple in simples.iter() {
             if let SimpleSelector::Pseudo(ref ps) = simple {
-                if let Some(ref sel) = ps.selector {
+                if let Some(sel) = ps.selector {
                     if sel.contains_parent_selector()? {
                         contains_selector_pseudo = true;
                         break;
@@ -428,7 +428,7 @@ impl<'parse> SelectorList<'parse> {
                                 "parent selector".into(),
                             )
                         })? {
-                            let nested = match sel.as_ref() {
+                            let nested = match sel {
                                 Selector::List(ref list) => list
                                     .nest_within(arena, Some(parent), false, false)
                                     .map_err(|e| {
@@ -750,11 +750,8 @@ fn simple_parent_selector_with_suffix<'parse>(
     match simple {
         SimpleSelector::Parent(ps) if ps.suffix().is_some() => Some(ps),
         SimpleSelector::Pseudo(pseudo) => match pseudo.selector {
-            Some(ref sel) => match sel.as_ref() {
-                Selector::List(inner) => find_parent_selector_with_suffix(inner),
-                _ => None,
-            },
-            None => None,
+            Some(Selector::List(inner)) => find_parent_selector_with_suffix(inner),
+            _ => None,
         },
         _ => None,
     }

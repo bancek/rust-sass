@@ -231,14 +231,19 @@ where
             }
             let lower = s.text.initial_plain().to_lowercase();
             match lower.as_str() {
-                "pi" => Ok(CalcArgument::Number(SassNumber::new(PI, None))),
-                "e" => Ok(CalcArgument::Number(SassNumber::new(E, None))),
-                "infinity" => Ok(CalcArgument::Number(SassNumber::new(f64::INFINITY, None))),
+                "pi" => Ok(CalcArgument::Number(SassNumber::new(arena, PI, None))),
+                "e" => Ok(CalcArgument::Number(SassNumber::new(arena, E, None))),
+                "infinity" => Ok(CalcArgument::Number(SassNumber::new(
+                    arena,
+                    f64::INFINITY,
+                    None,
+                ))),
                 "-infinity" => Ok(CalcArgument::Number(SassNumber::new(
+                    arena,
                     f64::NEG_INFINITY,
                     None,
                 ))),
-                "nan" => Ok(CalcArgument::Number(SassNumber::new(f64::NAN, None))),
+                "nan" => Ok(CalcArgument::Number(SassNumber::new(arena, f64::NAN, None))),
                 _ => {
                     let val = evaluate_expression(config, state, arena, expr).await?;
                     match &*val {

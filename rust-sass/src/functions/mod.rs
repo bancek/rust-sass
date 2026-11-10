@@ -219,7 +219,10 @@ mod tests {
             &arena,
             if_fn,
             &[
-                Value::new_with_arena(&arena, ValueKind::Number(SassNumber::new(0.0, None))),
+                Value::new_with_arena(
+                    &arena,
+                    ValueKind::Number(SassNumber::new(&arena, 0.0, None)),
+                ),
                 if_true,
                 if_false,
             ],

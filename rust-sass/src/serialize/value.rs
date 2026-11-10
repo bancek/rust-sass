@@ -421,9 +421,10 @@ mod tests {
     }
 
     fn number_css(value: f64, unit: Option<&str>) -> String {
+        let arena = bumpalo::Bump::new();
         let state = crate::serialize::SerializeState::new(true, false);
         let mut buf = SourceMapBuffer::new_plain();
-        visit_number_impl(&mut buf, &state, &SassNumber::new(value, unit)).unwrap();
+        visit_number_impl(&mut buf, &state, &SassNumber::new(&arena, value, unit)).unwrap();
         buf.into_string()
     }
 

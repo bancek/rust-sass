@@ -475,7 +475,7 @@ mod tests {
     }
 
     fn num_val<'compile: 'parse, 'parse>(arena: &'compile Bump, v: f64) -> Value<'parse> {
-        Value::new_with_arena(arena, ValueKind::Number(SassNumber::new(v, None)))
+        Value::new_with_arena(arena, ValueKind::Number(SassNumber::new(arena, v, None)))
     }
 
     fn comma_list<'compile: 'parse, 'parse>(
@@ -505,7 +505,7 @@ mod tests {
                     arena,
                     ValueKind::String(SassString::new(arena.alloc_str(k), false)),
                 ),
-                Value::new_with_arena(arena, ValueKind::Number(SassNumber::new(*v, None))),
+                Value::new_with_arena(arena, ValueKind::Number(SassNumber::new(arena, *v, None))),
             );
         }
         Value::new_with_arena(arena, ValueKind::Map(m))
@@ -530,7 +530,7 @@ mod tests {
         for (k, v) in pairs {
             keywords.insert(
                 k.to_string(),
-                Value::new_with_arena(arena, ValueKind::Number(SassNumber::new(*v, None))),
+                Value::new_with_arena(arena, ValueKind::Number(SassNumber::new(arena, *v, None))),
             );
         }
         Value::new_with_arena(
@@ -988,7 +988,7 @@ mod tests {
                 mk_calc(
                     &arena,
                     "calc",
-                    vec![CalcArgument::Number(SassNumber::new(1.0, None))],
+                    vec![CalcArgument::Number(SassNumber::new(&arena, 1.0, None))],
                 ),
                 "calculation",
             ),
@@ -1099,7 +1099,7 @@ mod tests {
         let calc = mk_calc(
             &arena,
             "calc",
-            vec![CalcArgument::Number(SassNumber::new(1.0, None))],
+            vec![CalcArgument::Number(SassNumber::new(&arena, 1.0, None))],
         );
         let got = eval_ok(&arena, &calc_name_function(&arena), &[calc]).await;
         assert_quoted_string(&got, "calc");
@@ -1112,8 +1112,8 @@ mod tests {
             &arena,
             "max",
             vec![
-                CalcArgument::Number(SassNumber::new(1.0, None)),
-                CalcArgument::Number(SassNumber::new(2.0, None)),
+                CalcArgument::Number(SassNumber::new(&arena, 1.0, None)),
+                CalcArgument::Number(SassNumber::new(&arena, 2.0, None)),
             ],
         );
         let got = eval_ok(&arena, &calc_name_function(&arena), &[calc]).await;
@@ -1151,8 +1151,8 @@ mod tests {
             &arena,
             "max",
             vec![
-                CalcArgument::Number(SassNumber::new(1.0, None)),
-                CalcArgument::Number(SassNumber::new(2.0, Some("px"))),
+                CalcArgument::Number(SassNumber::new(&arena, 1.0, None)),
+                CalcArgument::Number(SassNumber::new(&arena, 2.0, Some("px"))),
             ],
         );
         let got = eval_ok(&arena, &calc_args_function(&arena), &[calc]).await;
@@ -1166,7 +1166,11 @@ mod tests {
         let calc = mk_calc(
             &arena,
             "calc",
-            vec![CalcArgument::Number(SassNumber::new(1.0, Some("px")))],
+            vec![CalcArgument::Number(SassNumber::new(
+                &arena,
+                1.0,
+                Some("px"),
+            ))],
         );
         let got = eval_ok(&arena, &calc_args_function(&arena), &[calc]).await;
         assert_inspect(&got, "(1px,)");
@@ -1180,8 +1184,8 @@ mod tests {
         // (Dart: argument.toString()).
         let op = CalculationOperation::new(
             CalculationOperator::Plus,
-            CalcArgument::Number(SassNumber::new(1.0, Some("px"))),
-            CalcArgument::Number(SassNumber::new(2.0, Some("px"))),
+            CalcArgument::Number(SassNumber::new(&arena, 1.0, Some("px"))),
+            CalcArgument::Number(SassNumber::new(&arena, 2.0, Some("px"))),
         );
         let calc = mk_calc(
             &arena,
@@ -1227,14 +1231,18 @@ mod tests {
         let arena = Bump::new();
         let inner = SassCalculation::new_unsimplified(
             "calc",
-            vec![CalcArgument::Number(SassNumber::new(1.0, Some("px")))],
+            vec![CalcArgument::Number(SassNumber::new(
+                &arena,
+                1.0,
+                Some("px"),
+            ))],
         );
         let calc = mk_calc(
             &arena,
             "max",
             vec![
                 CalcArgument::Calculation(&*arena.alloc(inner)),
-                CalcArgument::Number(SassNumber::new(2.0, Some("px"))),
+                CalcArgument::Number(SassNumber::new(&arena, 2.0, Some("px"))),
             ],
         );
         let got = eval_ok(&arena, &calc_args_function(&arena), &[calc]).await;

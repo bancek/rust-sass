@@ -364,34 +364,32 @@ impl<'parse> SimpleSelector<'parse> {
         }
         if let SimpleSelector::Pseudo(ref p) = other {
             if p.is_class {
-                if let Some(ref sel) = p.selector {
-                    if let Selector::List(ref list) = sel.as_ref() {
-                        let n = p.normalized_name;
-                        if n == "is"
-                            || n == "matches"
-                            || n == "where"
-                            || n == "any"
-                            || n == "nth-child"
-                            || n == "nth-last-child"
-                        {
-                            for complex in list.0.components {
-                                if complex.components.is_empty() {
-                                    return Ok(false);
-                                }
-                                let last_comp = &complex.components[complex.components.len() - 1];
-                                let mut found = false;
-                                for comp in last_comp.selector.components {
-                                    if self.is_superselector(comp)? {
-                                        found = true;
-                                        break;
-                                    }
-                                }
-                                if !found {
-                                    return Ok(false);
+                if let Some(Selector::List(ref list)) = p.selector {
+                    let n = p.normalized_name;
+                    if n == "is"
+                        || n == "matches"
+                        || n == "where"
+                        || n == "any"
+                        || n == "nth-child"
+                        || n == "nth-last-child"
+                    {
+                        for complex in list.0.components {
+                            if complex.components.is_empty() {
+                                return Ok(false);
+                            }
+                            let last_comp = &complex.components[complex.components.len() - 1];
+                            let mut found = false;
+                            for comp in last_comp.selector.components {
+                                if self.is_superselector(comp)? {
+                                    found = true;
+                                    break;
                                 }
                             }
-                            return Ok(true);
+                            if !found {
+                                return Ok(false);
+                            }
                         }
+                        return Ok(true);
                     }
                 }
             }

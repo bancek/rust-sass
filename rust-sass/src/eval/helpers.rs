@@ -2362,7 +2362,7 @@ where
                     named.insert(
                         s.text.to_string(),
                         Expression::Value(ValueExpression {
-                            value: Box::new(cleaned),
+                            value: cleaned,
                             span: rest_args_span,
                         }),
                     );
@@ -2381,7 +2381,7 @@ where
             for item in arg_list.as_list() {
                 let cleaned = without_slash(config, state, arena, *item, rest_span)?;
                 positional.push(Expression::Value(ValueExpression {
-                    value: Box::new(cleaned),
+                    value: cleaned,
                     span: rest_args_span,
                 }));
             }
@@ -2390,7 +2390,7 @@ where
                 named.insert(
                     (*key).to_string(),
                     Expression::Value(ValueExpression {
-                        value: Box::new(cleaned),
+                        value: cleaned,
                         span: rest_args_span,
                     }),
                 );
@@ -2400,7 +2400,7 @@ where
             for item in l.as_list() {
                 let cleaned = without_slash(config, state, arena, *item, rest_span)?;
                 positional.push(Expression::Value(ValueExpression {
-                    value: Box::new(cleaned),
+                    value: cleaned,
                     span: rest_args_span,
                 }));
             }
@@ -2408,7 +2408,7 @@ where
         _ => {
             let cleaned = without_slash(config, state, arena, rest, rest_span)?;
             positional.push(Expression::Value(ValueExpression {
-                value: Box::new(cleaned),
+                value: cleaned,
                 span: rest_args_span,
             }));
         }
@@ -2431,7 +2431,7 @@ where
                     named.insert(
                         s.text.to_string(),
                         Expression::Value(ValueExpression {
-                            value: Box::new(cleaned),
+                            value: cleaned,
                             span: kw_args_span,
                         }),
                     );
@@ -3153,7 +3153,10 @@ mod tests {
                         has_quotes: false,
                     }),
                 ),
-                Value::new_with_arena(&arena, ValueKind::Number(SassNumber::new(1.0, None))),
+                Value::new_with_arena(
+                    &arena,
+                    ValueKind::Number(SassNumber::new(&arena, 1.0, None)),
+                ),
             )],
         );
         let args = make_args(
@@ -3161,7 +3164,7 @@ mod tests {
             vec![],
             IndexMap::new(),
             Some(Box::new(Expression::Value(ValueExpression {
-                value: Box::new(Value::new_with_arena(&arena, ValueKind::Map(m))),
+                value: Value::new_with_arena(&arena, ValueKind::Map(m)),
                 span,
             }))),
             None,
@@ -3183,8 +3186,14 @@ mod tests {
         let lst = SassList::new(
             &arena,
             vec![
-                Value::new_with_arena(&arena, ValueKind::Number(SassNumber::new(1.0, None))),
-                Value::new_with_arena(&arena, ValueKind::Number(SassNumber::new(2.0, None))),
+                Value::new_with_arena(
+                    &arena,
+                    ValueKind::Number(SassNumber::new(&arena, 1.0, None)),
+                ),
+                Value::new_with_arena(
+                    &arena,
+                    ValueKind::Number(SassNumber::new(&arena, 2.0, None)),
+                ),
             ],
             ListSeparator::Comma,
             false,
@@ -3194,7 +3203,7 @@ mod tests {
             vec![],
             IndexMap::new(),
             Some(Box::new(Expression::Value(ValueExpression {
-                value: Box::new(Value::new_with_arena(&arena, ValueKind::List(lst))),
+                value: Value::new_with_arena(&arena, ValueKind::List(lst)),
                 span,
             }))),
             None,
@@ -3217,10 +3226,10 @@ mod tests {
             vec![],
             IndexMap::new(),
             Some(Box::new(Expression::Value(ValueExpression {
-                value: Box::new(Value::new_with_arena(
+                value: Value::new_with_arena(
                     &arena,
-                    ValueKind::Number(SassNumber::new(42.0, None)),
-                )),
+                    ValueKind::Number(SassNumber::new(&arena, 42.0, None)),
+                ),
                 span,
             }))),
             None,
@@ -3244,10 +3253,10 @@ mod tests {
             IndexMap::new(),
             None,
             Some(Box::new(Expression::Value(ValueExpression {
-                value: Box::new(Value::new_with_arena(
+                value: Value::new_with_arena(
                     &arena,
-                    ValueKind::Number(SassNumber::new(1.0, None)),
-                )),
+                    ValueKind::Number(SassNumber::new(&arena, 1.0, None)),
+                ),
                 span,
             }))),
             span,
@@ -3269,10 +3278,10 @@ mod tests {
         let args = make_args(
             &arena,
             vec![Expression::Value(ValueExpression {
-                value: Box::new(Value::new_with_arena(
+                value: Value::new_with_arena(
                     &arena,
-                    ValueKind::Number(SassNumber::new(10.0, None)),
-                )),
+                    ValueKind::Number(SassNumber::new(&arena, 10.0, None)),
+                ),
                 span,
             })],
             IndexMap::new(),
@@ -3296,10 +3305,10 @@ mod tests {
         let span = make_span(&arena, "test");
         let (config, mut state) = test_visitor(&arena);
         let pos_expr = Expression::Value(ValueExpression {
-            value: Box::new(Value::new_with_arena(
+            value: Value::new_with_arena(
                 &arena,
-                ValueKind::Number(SassNumber::new(1.0, None)),
-            )),
+                ValueKind::Number(SassNumber::new(&arena, 1.0, None)),
+            ),
             span,
         });
         let args = make_args(&arena, vec![pos_expr], IndexMap::new(), None, None, span);
@@ -3325,7 +3334,10 @@ mod tests {
                         has_quotes: false,
                     }),
                 ),
-                Value::new_with_arena(&arena, ValueKind::Number(SassNumber::new(5.0, None))),
+                Value::new_with_arena(
+                    &arena,
+                    ValueKind::Number(SassNumber::new(&arena, 5.0, None)),
+                ),
             )],
         );
         let args = make_args(
@@ -3333,7 +3345,7 @@ mod tests {
             vec![],
             IndexMap::new(),
             Some(Box::new(Expression::Value(ValueExpression {
-                value: Box::new(Value::new_with_arena(&arena, ValueKind::Map(m))),
+                value: Value::new_with_arena(&arena, ValueKind::Map(m)),
                 span,
             }))),
             None,
@@ -3357,17 +3369,17 @@ mod tests {
             vec![],
             IndexMap::new(),
             Some(Box::new(Expression::Value(ValueExpression {
-                value: Box::new(Value::new_with_arena(
+                value: Value::new_with_arena(
                     &arena,
-                    ValueKind::Number(SassNumber::new(1.0, None)),
-                )),
+                    ValueKind::Number(SassNumber::new(&arena, 1.0, None)),
+                ),
                 span,
             }))),
             Some(Box::new(Expression::Value(ValueExpression {
-                value: Box::new(Value::new_with_arena(
+                value: Value::new_with_arena(
                     &arena,
-                    ValueKind::Number(SassNumber::new(2.0, None)),
-                )),
+                    ValueKind::Number(SassNumber::new(&arena, 2.0, None)),
+                ),
                 span,
             }))),
             span,
@@ -3446,7 +3458,7 @@ mod tests {
         let (config, mut state) = test_visitor(&arena);
         let color = SassColor::rgb(255.0, 0.0, 0.0, 1.0);
         let expr = Expression::Value(ValueExpression {
-            value: Box::new(Value::new_with_arena(&arena, ValueKind::Color(color))),
+            value: Value::new_with_arena(&arena, ValueKind::Color(color)),
             span,
         });
         let interp = Interpolation::new(
@@ -3483,10 +3495,10 @@ mod tests {
         let arena = Bump::new();
         let span = make_span(&arena, "test");
         let (config, mut state) = test_visitor(&arena);
-        let num = SassNumber::new(42.0, None).with_slash(
+        let num = SassNumber::new(&arena, 42.0, None).with_slash(
             &arena,
-            SassNumber::new(1.0, Some("px")),
-            SassNumber::new(2.0, Some("px")),
+            SassNumber::new(&arena, 1.0, Some("px")),
+            SassNumber::new(&arena, 2.0, Some("px")),
         );
         let val = Value::new_with_arena(&arena, ValueKind::Number(num));
 
@@ -3512,7 +3524,7 @@ mod tests {
         let arena = Bump::new();
         let span = make_span(&arena, "test");
         let (config, mut state) = test_visitor(&arena);
-        let num = SassNumber::new(42.0, None);
+        let num = SassNumber::new(&arena, 42.0, None);
         let val = Value::new_with_arena(&arena, ValueKind::Number(num));
 
         let result = without_slash(&config, &mut state, &arena, val, span).unwrap();
@@ -3540,10 +3552,10 @@ mod tests {
     #[rust_sass_macros::maybe_test]
     async fn test_slash_division_recommendation_simple() {
         let arena = Bump::new();
-        let num = SassNumber::new(1.0, Some("px")).with_slash(
+        let num = SassNumber::new(&arena, 1.0, Some("px")).with_slash(
             &arena,
-            SassNumber::new(1.0, None),
-            SassNumber::new(2.0, None),
+            SassNumber::new(&arena, 1.0, None),
+            SassNumber::new(&arena, 2.0, None),
         );
         let got = slash_division_recommendation(&num).unwrap();
         assert_eq!(got, "math.div(1, 2)");
@@ -3552,13 +3564,16 @@ mod tests {
     #[rust_sass_macros::maybe_test]
     async fn test_slash_division_recommendation_nested() {
         let arena = Bump::new();
-        let inner = SassNumber::new(1.0, Some("px")).with_slash(
+        let inner = SassNumber::new(&arena, 1.0, Some("px")).with_slash(
             &arena,
-            SassNumber::new(1.0, Some("px")),
-            SassNumber::new(2.0, Some("px")),
+            SassNumber::new(&arena, 1.0, Some("px")),
+            SassNumber::new(&arena, 2.0, Some("px")),
         );
-        let outer =
-            SassNumber::new(42.0, None).with_slash(&arena, inner, SassNumber::new(3.0, Some("px")));
+        let outer = SassNumber::new(&arena, 42.0, None).with_slash(
+            &arena,
+            inner,
+            SassNumber::new(&arena, 3.0, Some("px")),
+        );
         let got = slash_division_recommendation(&outer).unwrap();
         assert_eq!(got, "math.div(math.div(1px, 2px), 3px)");
     }

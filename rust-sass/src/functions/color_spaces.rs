@@ -275,9 +275,9 @@ fn rgb_two_arg<'compile: 'parse, 'parse>(
     let b = rgb.channel2;
     if second.is_special_number() {
         let mut v = vec![
-            Value::new_with_arena(arena, ValueKind::Number(SassNumber::new(r, None))),
-            Value::new_with_arena(arena, ValueKind::Number(SassNumber::new(g, None))),
-            Value::new_with_arena(arena, ValueKind::Number(SassNumber::new(b, None))),
+            Value::new_with_arena(arena, ValueKind::Number(SassNumber::new(arena, r, None))),
+            Value::new_with_arena(arena, ValueKind::Number(SassNumber::new(arena, g, None))),
+            Value::new_with_arena(arena, ValueKind::Number(SassNumber::new(arena, b, None))),
         ];
         v.push(*second);
         return function_string(arena, name, &v);
@@ -816,7 +816,11 @@ where
         if scanner.is_done() {
             return Ok(Value::new_with_arena(
                 arena,
-                ValueKind::Number(SassNumber::new(num_expr.value, num_expr.unit.as_deref())),
+                ValueKind::Number(SassNumber::new(
+                    arena,
+                    num_expr.value,
+                    num_expr.unit.as_deref(),
+                )),
             ));
         }
     }

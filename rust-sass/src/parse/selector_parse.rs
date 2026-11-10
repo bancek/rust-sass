@@ -864,7 +864,7 @@ fn pseudo_selector_impl<'compile: 'parse, 'parse>(
         span,
         element,
         argument.as_deref(),
-        selector,
+        selector.map(|s| &*arena.alloc(s)),
     )))
 }
 

@@ -446,7 +446,7 @@ where
     let s = assert_string(&args[0], Some("string"))?;
     Ok(Value::new_with_arena(
         arena,
-        ValueKind::Number(SassNumber::new(s.sass_length() as f64, None)),
+        ValueKind::Number(SassNumber::new(arena, s.sass_length() as f64, None)),
     ))
 }
 
@@ -578,7 +578,7 @@ where
     let codepoint_idx = code_unit_index_to_codepoint_index(s.text, code_unit_index);
     Ok(Value::new_with_arena(
         arena,
-        ValueKind::Number(SassNumber::new((codepoint_idx + 1) as f64, None)),
+        ValueKind::Number(SassNumber::new(arena, (codepoint_idx + 1) as f64, None)),
     ))
 }
 
@@ -879,7 +879,7 @@ mod tests {
     }
 
     fn num_val<'compile: 'parse, 'parse>(arena: &'compile Bump, v: f64) -> Value<'parse> {
-        Value::new_with_arena(arena, ValueKind::Number(SassNumber::new(v, None)))
+        Value::new_with_arena(arena, ValueKind::Number(SassNumber::new(arena, v, None)))
     }
 
     fn unit_val<'compile: 'parse, 'parse>(
@@ -887,7 +887,10 @@ mod tests {
         v: f64,
         unit: &str,
     ) -> Value<'parse> {
-        Value::new_with_arena(arena, ValueKind::Number(SassNumber::new(v, Some(unit))))
+        Value::new_with_arena(
+            arena,
+            ValueKind::Number(SassNumber::new(arena, v, Some(unit))),
+        )
     }
 
     /// The evaluated default for `$end-at: -1`. The test harness pads missing

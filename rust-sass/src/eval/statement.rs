@@ -1852,6 +1852,7 @@ where
     let from_denom = from_num_ref.denominator_units.clone();
     let coerced_to_num = add_exception_span(config, state, to_span, Some(true), async |_, _| {
         to_num_ref.coerce(
+            arena,
             &from_num_ref.numerator_units,
             &from_num_ref.denominator_units,
             None,
@@ -1885,6 +1886,7 @@ where
             let mut i = from;
             while i != to_val_i64 {
                 let unit_num = SassNumber::new(
+                    arena,
                     i as f64,
                     if from_units.is_empty() && from_denom.is_empty() {
                         None
@@ -4564,7 +4566,7 @@ mod tests {
         let rule = EachRule {
             variables: vec!["x".into()],
             list: Expression::Value(ValueExpression {
-                value: Box::new(Value::new_with_arena(&arena, ValueKind::List(list))),
+                value: Value::new_with_arena(&arena, ValueKind::List(list)),
                 span,
             }),
             children: arena_statements(&arena, vec![return_stmt]),
@@ -4651,13 +4653,13 @@ mod tests {
         state.in_unknown_at_rule = true;
         let name = Interpolation::plain(&arena, "color".into(), Span::File(span));
         let val_expr = Expression::Value(ValueExpression {
-            value: Box::new(Value::new_with_arena(
+            value: Value::new_with_arena(
                 &arena,
                 ValueKind::String(SassString {
                     text: "red",
                     has_quotes: false,
                 }),
-            )),
+            ),
             span,
         });
         let node = Declaration {
@@ -4687,7 +4689,7 @@ mod tests {
         let (config, mut state) = test_visitor_with_root(&arena);
         let name = Interpolation::plain(&arena, "color".into(), Span::File(span));
         let val_expr = Expression::Value(ValueExpression {
-            value: Box::new(Value::new_with_arena(&arena, ValueKind::Null)),
+            value: Value::new_with_arena(&arena, ValueKind::Null),
             span,
         });
         let node = Declaration {
@@ -4714,7 +4716,7 @@ mod tests {
         state.in_unknown_at_rule = true;
         let name = Interpolation::plain(&arena, "color".into(), Span::File(span));
         let val_expr = Expression::Value(ValueExpression {
-            value: Box::new(Value::new_with_arena(&arena, ValueKind::Null)),
+            value: Value::new_with_arena(&arena, ValueKind::Null),
             span,
         });
         let node = Declaration {
@@ -4740,13 +4742,13 @@ mod tests {
         state.declaration_name = Some("font".into());
         let name = Interpolation::plain(&arena, "weight".into(), Span::File(span));
         let val_expr = Expression::Value(ValueExpression {
-            value: Box::new(Value::new_with_arena(
+            value: Value::new_with_arena(
                 &arena,
                 ValueKind::String(SassString {
                     text: "bold",
                     has_quotes: false,
                 }),
-            )),
+            ),
             span,
         });
         let node = Declaration {

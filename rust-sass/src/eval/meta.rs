@@ -1332,7 +1332,7 @@ mod tests {
         )
     }
     fn num_val<'compile: 'parse, 'parse>(arena: &'compile Bump, v: f64) -> Value<'parse> {
-        Value::new_with_arena(arena, ValueKind::Number(SassNumber::new(v, None)))
+        Value::new_with_arena(arena, ValueKind::Number(SassNumber::new(arena, v, None)))
     }
 
     fn noop_callable<'compile, 'parse>(
@@ -1462,7 +1462,7 @@ mod tests {
         for (k, v_) in vars {
             var_map.insert(
                 k.to_string(),
-                Value::new_with_arena(arena, ValueKind::Number(SassNumber::new(*v_, None))),
+                Value::new_with_arena(arena, ValueKind::Number(SassNumber::new(arena, *v_, None))),
             );
         }
         let mod_ = BuiltInModule::new(arena, namespace.to_string(), &fns, &mixins, var_map);

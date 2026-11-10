@@ -1858,7 +1858,7 @@ mod tests {
     #[test]
     fn test_frame_scoped_variable_readers() {
         fn num<'a>(arena: &'a Bump, v: f64) -> Value<'a> {
-            Value::new_with_arena(arena, ValueKind::Number(SassNumber::new(v, None)))
+            Value::new_with_arena(arena, ValueKind::Number(SassNumber::new(arena, v, None)))
         }
 
         fn number_of(value: Value<'_>) -> Option<f64> {

@@ -23,16 +23,16 @@ use crate::ast::sass::interpolation::Interpolation;
 #[derive(Clone, Debug)]
 pub struct ValueExpression<'parse> {
     /// The embedded value.
-    pub value: Box<Value<'parse>>,
+    ///
+    /// `Value` is a `Copy` arena handle; the `Box` only exists because Dart
+    /// stores an `Object`, and would leak inside the arena.
+    pub value: Value<'parse>,
     pub span: FileSpan<'parse>,
 }
 
 impl<'parse> ValueExpression<'parse> {
     pub fn new(value: Value<'parse>, span: FileSpan<'parse>) -> Self {
-        ValueExpression {
-            value: Box::new(value),
-            span,
-        }
+        ValueExpression { value, span }
     }
 
     pub fn source_interpolation(&self) -> Option<&Interpolation<'parse>> {

@@ -949,10 +949,8 @@ fn register_selector<'parse>(
                     })
                     .insert(*mb);
                 if let SimpleSelector::Pseudo(ref ps) = simple {
-                    if let Some(ref inner) = ps.selector {
-                        if let Selector::List(ref il) = inner.as_ref() {
-                            register_selector(arena, selectors, il, mb);
-                        }
+                    if let Some(Selector::List(ref il)) = ps.selector {
+                        register_selector(arena, selectors, il, mb);
                     }
                 }
             }
@@ -970,11 +968,9 @@ fn simple_selectors_in_complex<'parse>(
         for s in c.selector.components {
             result.push(s.clone());
             if let SimpleSelector::Pseudo(ref ps) = s {
-                if let Some(ref inner) = ps.selector {
-                    if let Selector::List(ref il) = inner.as_ref() {
-                        for ic in il.0.components {
-                            result.extend(simple_selectors_in_complex(ic));
-                        }
+                if let Some(Selector::List(ref il)) = ps.selector {
+                    for ic in il.0.components {
+                        result.extend(simple_selectors_in_complex(ic));
                     }
                 }
             }
@@ -1402,7 +1398,7 @@ fn extend_pseudo<'compile: 'parse, 'parse>(
     source_specificity: &ArenaMap<'parse, SimpleSelector<'parse>, usize>,
     mode: ExtendMode,
 ) -> SassResult<Option<Vec<SimpleSelector<'parse>>>> {
-    let sel = match pseudo.selector.as_ref() {
+    let sel = match pseudo.selector {
         Some(s) => s,
         None => {
             return Err(Box::new(SassError::Script {
@@ -1411,7 +1407,7 @@ fn extend_pseudo<'compile: 'parse, 'parse>(
             }))
         }
     };
-    let sel_list = match sel.as_ref() {
+    let sel_list = match sel {
         Selector::List(ref l) => l,
         _ => return Ok(None),
     };
@@ -1447,14 +1443,14 @@ fn extend_pseudo<'compile: 'parse, 'parse>(
     let mut result_comps = Vec::new();
     for complex in &complexes {
         if let Some(ip) = find_single_simple_pseudo(complex) {
-            let inner_sel = match ip.selector.as_ref() {
+            let inner_sel = match ip.selector {
                 Some(s) => s,
                 None => {
                     result_comps.push(complex.clone());
                     continue;
                 }
             };
-            let inner_list = match inner_sel.as_ref() {
+            let inner_list = match inner_sel {
                 Selector::List(ref l) => l,
                 _ => {
                     result_comps.push(complex.clone());

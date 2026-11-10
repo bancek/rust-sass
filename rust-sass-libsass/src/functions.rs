@@ -600,6 +600,7 @@ where
                 Ok(Value::new_with_arena(
                     arena,
                     ValueKind::Number(SassNumber::new(
+                        arena,
                         sass_number_get_value(v),
                         if unit.is_empty() { None } else { Some(&unit) },
                     )),
@@ -1150,7 +1151,7 @@ mod tests {
                 rust_sass::value::SassCalculation::new_unsimplified(
                     "calc",
                     vec![rust_sass::value::CalcArgument::Number(SassNumber::new(
-                        1.0, None,
+                        &arena, 1.0, None,
                     ))],
                 ),
             )),
@@ -1165,6 +1166,7 @@ mod tests {
         let complex = Value::new_with_arena(
             &arena,
             ValueKind::Number(SassNumber::with_units(
+                &arena,
                 1.0,
                 vec!["px".to_string(), "em".to_string()],
                 vec![],

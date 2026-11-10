@@ -10,7 +10,7 @@ rust-version.workspace = true
 
 [dependencies]
 allocator-api2.workspace = true
-bumpalo = { workspace = true, features = ["boxed", "allocator-api2"] }
+bumpalo = { workspace = true, features = ["boxed", "allocator-api2", "collections"] }
 futures.workspace = true
 hashbrown = { workspace = true, features = ["allocator-api2"] }
 indexmap.workspace = true

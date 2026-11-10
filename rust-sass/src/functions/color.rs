@@ -651,7 +651,7 @@ where
                 if channel_name == "alpha" {
                     return Ok(Value::new_with_arena(
                         arena,
-                        ValueKind::Number(SassNumber::new(working_color.alpha, None)),
+                        ValueKind::Number(SassNumber::new(arena, working_color.alpha, None)),
                     ));
                 }
                 let chs = space_channels(working_color.space);
@@ -682,9 +682,9 @@ where
                     }));
                 }
                 let num = if unit.is_empty() {
-                    SassNumber::new(channel_value, None)
+                    SassNumber::new(arena, channel_value, None)
                 } else {
-                    SassNumber::new(channel_value, Some(unit))
+                    SassNumber::new(arena, channel_value, Some(unit))
                 };
                 Ok(Value::new_with_arena(arena, ValueKind::Number(num)))
             },

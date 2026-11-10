@@ -220,7 +220,7 @@ pub(crate) fn evaluate_value_expression<'compile, 'parse>(
 where
     'compile: 'parse,
 {
-    Ok(*expr.value)
+    Ok(expr.value)
 }
 
 // ===========================================================================
@@ -333,7 +333,7 @@ where
     let unit: Option<&str> = expr.unit.as_deref();
     Ok(Value::new_with_arena(
         arena,
-        ValueKind::Number(SassNumber::new(expr.value, unit)),
+        ValueKind::Number(SassNumber::new(arena, expr.value, unit)),
     ))
 }
 
@@ -1791,7 +1791,7 @@ mod tests {
         let span = make_span(&arena, "null");
         let (config, mut state) = test_visitor(&arena);
         let expr = ValueExpression {
-            value: Box::new(Value::new_with_arena(&arena, ValueKind::Null)),
+            value: Value::new_with_arena(&arena, ValueKind::Null),
             span,
         };
         let result = evaluate_value_expression(&config, &mut state, &expr).unwrap();

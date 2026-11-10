@@ -15,6 +15,7 @@ use crate::common::file_span::FileSpan;
 use crate::value::SassNumber;
 
 use crate::ast::sass::interpolation::Interpolation;
+use bumpalo::Bump;
 
 /// A number literal.
 #[derive(Clone, Debug)]
@@ -36,8 +37,12 @@ impl<'parse> NumberExpression<'parse> {
     }
 
     pub fn to_display_string(&self) -> SassResult<String> {
-        let num = SassNumber::new(self.value, self.unit.as_deref());
-        num.to_display_string()
+        // Matches Dart: `SassNumber(value, unit).toDisplayString()`. Numbers are
+        // formatted outside a compilation, so a throwaway arena backs the
+        // temporary `SassNumber` (same pattern as the selector comparison paths).
+        let arena = Bump::new();
+        let number = SassNumber::new(&arena, self.value, self.unit.as_deref());
+        number.to_display_string()
     }
 }
 
@@ -88,5 +93,25 @@ mod tests {
         let span = FileSpan::new(Some(fs), 0, 2);
         let expr = NumberExpression::new(42.0, span, None);
         assert!(expr.source_interpolation().is_none());
+    }
+
+    #[test]
+    fn test_to_display_string_matches_number_serialization() {
+        let arena = Bump::new();
+        let fs = FileSource::new_in(&arena, "1e1", None);
+        let span = FileSpan::new(Some(fs), 0, 3);
+
+        let expr = NumberExpression::new(1.5, span, Some("px".to_string()));
+        assert_eq!(expr.to_display_string().unwrap(), "1.5px");
+        let expr = NumberExpression::new(2.0, span, None);
+        assert_eq!(expr.to_display_string().unwrap(), "2");
+
+        // A unit that would reparse as an exponent keeps Dart's escape.
+        let expr = NumberExpression::new(1.0, span, Some("e1".to_string()));
+        assert_eq!(expr.to_display_string().unwrap(), "1\\65 1");
+
+        // Non-finite values go through the calc() form, as `visitNumber` does.
+        let expr = NumberExpression::new(f64::INFINITY, span, Some("%".to_string()));
+        assert_eq!(expr.to_display_string().unwrap(), "calc(infinity * 1%)");
     }
 }

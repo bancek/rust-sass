@@ -123,6 +123,7 @@ impl<'compile: 'parse, 'parse: 'compile> Protofier<'compile, 'parse> {
             pv::Value::Number(n) => SassValue::new_with_arena(
                 self.ctx.arena,
                 ValueKind::Number(SassNumber::with_units(
+                    self.ctx.arena,
                     n.value,
                     n.numerators.clone(),
                     n.denominators.clone(),
@@ -305,13 +306,13 @@ impl<'compile: 'parse, 'parse: 'compile> Protofier<'compile, 'parse> {
 
     fn protofy_calculation_value(
         &mut self,
-        arg: &CalcArgument,
+        arg: &CalcArgument<'_>,
     ) -> SassResult<ProtoCalculationValue> {
         let oneof = match arg {
             CalcArgument::Number(n) => calculation_value::Value::Number(pv::Number {
                 value: n.value,
-                numerators: n.numerator_units.clone(),
-                denominators: n.denominator_units.clone(),
+                numerators: n.numerator_units.to_vec(),
+                denominators: n.denominator_units.to_vec(),
             }),
             CalcArgument::Calculation(c) => {
                 calculation_value::Value::Calculation(self.protofy_calculation(c)?)
@@ -390,9 +391,14 @@ impl<'compile: 'parse, 'parse: 'compile> Protofier<'compile, 'parse> {
             .as_ref()
             .ok_or_else(|| script("Missing mandatory field value"))?
         {
-            calculation_value::Value::Number(n) => Ok(CalcArgument::Number(
-                SassNumber::with_units(n.value, n.numerators.clone(), n.denominators.clone()),
-            )),
+            calculation_value::Value::Number(n) => {
+                Ok(CalcArgument::Number(SassNumber::with_units(
+                    self.ctx.arena,
+                    n.value,
+                    n.numerators.clone(),
+                    n.denominators.clone(),
+                )))
+            }
             calculation_value::Value::String(s) => Ok(CalcArgument::String(s.clone(), false)),
             calculation_value::Value::Interpolation(s) => {
                 Ok(CalcArgument::String(format!("({s})"), false))
@@ -469,11 +475,11 @@ impl<'compile: 'parse, 'parse: 'compile> ValueVisitor<'parse> for Protofier<'com
         }))
     }
 
-    fn visit_number(&mut self, value: &SassNumber) -> SassResult<pv::Value> {
+    fn visit_number(&mut self, value: &SassNumber<'_>) -> SassResult<pv::Value> {
         Ok(pv::Value::Number(pv::Number {
             value: value.value,
-            numerators: value.numerator_units.clone(),
-            denominators: value.denominator_units.clone(),
+            numerators: value.numerator_units.to_vec(),
+            denominators: value.denominator_units.to_vec(),
         }))
     }
 
@@ -758,6 +764,7 @@ mod tests {
             SassValue::new_with_arena(
                 &arena,
                 ValueKind::Number(SassNumber::with_units(
+                    &arena,
                     3.0,
                     vec!["px".into()],
                     vec!["s".into()],
@@ -766,7 +773,10 @@ mod tests {
         );
         roundtrip(
             ctx,
-            SassValue::new_with_arena(&arena, ValueKind::Number(SassNumber::new(42.0, None))),
+            SassValue::new_with_arena(
+                &arena,
+                ValueKind::Number(SassNumber::new(&arena, 42.0, None)),
+            ),
         );
     }
 
@@ -808,7 +818,7 @@ mod tests {
                     vec![
                         SassValue::new_with_arena(
                             &arena,
-                            ValueKind::Number(SassNumber::new(1.0, None)),
+                            ValueKind::Number(SassNumber::new(&arena, 1.0, None)),
                         ),
                         SassValue::new_with_arena(
                             &arena,
@@ -848,13 +858,13 @@ mod tests {
                             ),
                             SassValue::new_with_arena(
                                 &arena,
-                                ValueKind::Number(SassNumber::new(1.0, None)),
+                                ValueKind::Number(SassNumber::new(&arena, 1.0, None)),
                             ),
                         ),
                         (
                             SassValue::new_with_arena(
                                 &arena,
-                                ValueKind::Number(SassNumber::new(2.0, None)),
+                                ValueKind::Number(SassNumber::new(&arena, 2.0, None)),
                             ),
                             SassValue::new_with_arena(&arena, ValueKind::Boolean(SASS_TRUE)),
                         ),
@@ -885,7 +895,7 @@ mod tests {
                     &arena,
                     vec![SassValue::new_with_arena(
                         &arena,
-                        ValueKind::Number(SassNumber::new(1.0, None)),
+                        ValueKind::Number(SassNumber::new(&arena, 1.0, None)),
                     )],
                     keywords,
                     ListSeparator::Comma,
@@ -916,7 +926,7 @@ mod tests {
                 ValueKind::Calculation(&*arena.alloc(SassCalculation::new_unsimplified(
                     "min",
                     vec![
-                        CalcArgument::Number(SassNumber::new(1.0, Some("px"))),
+                        CalcArgument::Number(SassNumber::new(&arena, 1.0, Some("px"))),
                         CalcArgument::String("var(--x)".into(), false),
                     ],
                 ))),
@@ -990,7 +1000,7 @@ mod tests {
                 &arena,
                 vec![SassValue::new_with_arena(
                     &arena,
-                    ValueKind::Number(SassNumber::new(7.0, None)),
+                    ValueKind::Number(SassNumber::new(&arena, 7.0, None)),
                 )],
                 IndexMap::new(),
                 ListSeparator::Undecided,

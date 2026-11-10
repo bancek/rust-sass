@@ -114,6 +114,9 @@ fn invert_channel(color: &SassColor, ch: &LinearChannel, val: Option<f64>) -> Sa
 ///
 /// Ports Dart's `_suggestScaleAndAdjust` (color.dart:1992).
 fn suggest_scale_and_adjust(color: &SassColor, adjustment: f64, channel_name: &str) -> String {
+    // Only formats numbers into the suggestion text, so the temporary
+    // `SassNumber`s use a throwaway arena rather than the compile arena.
+    let arena = Bump::new();
     let (ch_min, ch_max) = if channel_name == "alpha" {
         (0.0, 1.0)
     } else {
@@ -146,7 +149,7 @@ fn suggest_scale_and_adjust(color: &SassColor, adjustment: f64, channel_name: &s
         } else {
             (new_value - old_value) / (old_value - ch_min)
         };
-        let fc = num_css(&SassNumber::new(factor * 100.0, Some("%"))).unwrap_or_default();
+        let fc = num_css(&SassNumber::new(&arena, factor * 100.0, Some("%"))).unwrap_or_default();
         s.push_str(&format!(
             "s:\n\ncolor.scale($color, ${channel_name}: {fc})\n"
         ));
@@ -154,9 +157,9 @@ fn suggest_scale_and_adjust(color: &SassColor, adjustment: f64, channel_name: &s
         s.push_str(":\n\n");
     }
     let diff = if channel_name != "alpha" {
-        SassNumber::new(adjustment, Some("%"))
+        SassNumber::new(&arena, adjustment, Some("%"))
     } else {
-        SassNumber::new(adjustment, None)
+        SassNumber::new(&arena, adjustment, None)
     };
     let dc = num_css(&diff).unwrap_or_default();
     s.push_str(&format!("color.adjust($color, ${channel_name}: {dc})"));
@@ -389,7 +392,9 @@ where
                 if !color.is_legacy() {
                     return Err(Box::new(SassError::Script { message: "adjust-hue() is only supported for legacy colors. Please use color.adjust() instead with an explicit $space argument.".into(), argument_name: None }));
                 }
-                let deg_css = num_css(&SassNumber::new(degrees, Some("deg"))).unwrap_or_default();
+                // Message text only: the temporary number gets a throwaway arena.
+                let deg_css = num_css(&SassNumber::new(&Bump::new(), degrees, Some("deg")))
+                    .unwrap_or_default();
                 warn_deprecation(config, state, &format!("adjust-hue() is deprecated. Suggestion:\n\ncolor.adjust($color, $hue: {deg_css})\n\nMore info: https://sass-lang.com/d/color-functions"), &de::COLOR_FUNCTIONS)?;
                 let result = color.change_hsl(Some(color.hue()? + degrees), None, None, None)?;
                 Ok(Value::new_with_arena(arena, ValueKind::Color(result)))
@@ -499,6 +504,7 @@ where
                         Ok(Value::new_with_arena(
                             arena,
                             ValueKind::Number(SassNumber::new(
+                                arena,
                                 value::assert_color(&args[0], Some("color"))?.alpha,
                                 None,
                             )),
@@ -571,6 +577,7 @@ where
                         Ok(Value::new_with_arena(
                             arena,
                             ValueKind::Number(SassNumber::new(
+                                arena,
                                 value::assert_color(&args[0], Some("color"))?.alpha,
                                 None,
                             )),
@@ -631,6 +638,7 @@ where
                 Ok(Value::new_with_arena(
                     arena,
                     ValueKind::Number(SassNumber::new(
+                        arena,
                         value::assert_color(&args[0], Some("color"))?.alpha,
                         None,
                     )),
@@ -668,6 +676,7 @@ where
                 Ok(Value::new_with_arena(
                     arena,
                     ValueKind::Number(SassNumber::new(
+                        arena,
                         value::assert_color(&args[0], Some("color"))?.alpha,
                         None,
                     )),

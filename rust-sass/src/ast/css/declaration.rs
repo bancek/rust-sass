@@ -237,7 +237,7 @@ mod tests {
         let arena = Bump::new();
         let span = make_span(&arena, "color: 42;");
         let name = make_val(&arena, "color");
-        let num = SassNumber::new(42.0, None);
+        let num = SassNumber::new(&arena, 42.0, None);
         let val = CssValue::new(
             Value::new_with_arena(&arena, ValueKind::Number(num)),
             make_span(&arena, "42"),

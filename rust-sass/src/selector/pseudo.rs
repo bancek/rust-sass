@@ -64,7 +64,7 @@ pub struct PseudoSelector<'parse> {
     /// This is `None` when there is no selector. When both
     /// [`argument`](Self::argument) and `selector` are present, the selector
     /// follows the argument.
-    pub selector: Option<Box<Selector<'parse>>>,
+    pub selector: Option<&'parse Selector<'parse>>,
 }
 
 impl<'parse> PseudoSelector<'parse> {
@@ -80,10 +80,9 @@ impl<'parse> PseudoSelector<'parse> {
         span: FileSpan<'parse>,
         element: bool,
         argument: Option<&str>,
-        selector: Option<Selector<'parse>>,
+        selector: Option<&'parse Selector<'parse>>,
     ) -> Self {
         let is_class = !element && !is_fake_pseudo_element(name);
-        let selector = selector.map(Box::new);
         PseudoSelector {
             span,
             name: arena.alloc_str(name),
@@ -208,33 +207,31 @@ impl<'parse> PseudoSelector<'parse> {
         }
         match &self.selector {
             None => 1000,
-            Some(sel) => match sel.as_ref() {
-                Selector::List(ref list) => match self.normalized_name {
-                    "where" => 0,
-                    "is" | "not" | "has" | "matches" => {
-                        let mut max_sp = 0;
-                        for comp in list.0.components {
-                            let sp = comp.specificity();
-                            if sp > max_sp {
-                                max_sp = sp;
-                            }
+            Some(Selector::List(list)) => match self.normalized_name {
+                "where" => 0,
+                "is" | "not" | "has" | "matches" => {
+                    let mut max_sp = 0;
+                    for comp in list.0.components {
+                        let sp = comp.specificity();
+                        if sp > max_sp {
+                            max_sp = sp;
                         }
-                        max_sp
                     }
-                    "nth-child" | "nth-last-child" => {
-                        let mut max_sp = 0;
-                        for comp in list.0.components {
-                            let sp = comp.specificity();
-                            if sp > max_sp {
-                                max_sp = sp;
-                            }
+                    max_sp
+                }
+                "nth-child" | "nth-last-child" => {
+                    let mut max_sp = 0;
+                    for comp in list.0.components {
+                        let sp = comp.specificity();
+                        if sp > max_sp {
+                            max_sp = sp;
                         }
-                        1000 + max_sp
                     }
-                    _ => 1000,
-                },
+                    1000 + max_sp
+                }
                 _ => 1000,
             },
+            _ => 1000,
         }
     }
 
@@ -256,7 +253,7 @@ impl<'parse> PseudoSelector<'parse> {
         if let Some(arg) = self.argument {
             h = hash_combine(h, string_hash_code(arg));
         }
-        if let Some(ref sel) = self.selector {
+        if let Some(sel) = self.selector {
             h = hash_combine(h, sel.hash_code());
         }
         h
@@ -324,7 +321,7 @@ impl<'parse> PseudoSelector<'parse> {
             self.span,
             self.is_element(),
             self.argument,
-            Some(Selector::List(*sel)),
+            Some(arena.alloc(Selector::List(*sel))),
         ))
     }
 
@@ -346,8 +343,8 @@ impl<'parse> PseudoSelector<'parse> {
                 && p.name == self.name
             {
                 if p.selector.is_some() {
-                    if let Some(Selector::List(ref my_list)) = self.selector.as_deref() {
-                        if let Some(super::Selector::List(ref other_list)) = p.selector.as_deref() {
+                    if let Some(Selector::List(ref my_list)) = self.selector {
+                        if let Some(super::Selector::List(ref other_list)) = p.selector {
                             return my_list.is_superselector(other_list);
                         }
                     }

@@ -242,7 +242,7 @@ pub trait ValueVisitor<'parse> {
 impl<'parse> ValueKind<'parse> {
     /// Creates a unitless number value in the compilation arena.
     pub fn unitless_number<'compile: 'parse>(arena: &'compile Bump, v: f64) -> Value<'parse> {
-        Value::new_with_arena(arena, ValueKind::Number(SassNumber::new(v, None)))
+        Value::new_with_arena(arena, ValueKind::Number(SassNumber::new(arena, v, None)))
     }
 
     /// Calls the matching visit method on `visitor` for `self`.
@@ -527,7 +527,7 @@ impl<'parse> ValueKind<'parse> {
             (ValueKind::Module(m), other) => m.plus(other),
             (ValueKind::Number(a), ValueKind::Number(b)) => Ok(Value::new_with_arena(
                 arena,
-                ValueKind::Number(a.plus_num(b)?),
+                ValueKind::Number(a.plus_num(arena, b)?),
             )),
             (ValueKind::String(a), ValueKind::String(_b)) => a.plus(arena, other),
             (ValueKind::Number(a), ValueKind::Color(_)) => {
@@ -586,7 +586,7 @@ impl<'parse> ValueKind<'parse> {
             (ValueKind::Module(m), other) => m.minus(other),
             (ValueKind::Number(a), ValueKind::Number(b)) => Ok(Value::new_with_arena(
                 arena,
-                ValueKind::Number(a.minus_num(b)?),
+                ValueKind::Number(a.minus_num(arena, b)?),
             )),
             (ValueKind::Number(a), ValueKind::Color(_)) => {
                 let self_val = Value::new_with_arena(arena, ValueKind::Number(a.clone()));
@@ -632,7 +632,7 @@ impl<'parse> ValueKind<'parse> {
         match (self, other) {
             (ValueKind::Number(a), ValueKind::Number(b)) => Ok(Value::new_with_arena(
                 arena,
-                ValueKind::Number(a.times_num(b)?),
+                ValueKind::Number(a.times_num(arena, b)?),
             )),
             _ => default_times(arena, self, other),
         }
@@ -652,7 +652,7 @@ impl<'parse> ValueKind<'parse> {
             (ValueKind::Module(m), other) => m.divided_by(other),
             (ValueKind::Number(a), ValueKind::Number(b)) => Ok(Value::new_with_arena(
                 arena,
-                ValueKind::Number(a.divided_by_num(b)?),
+                ValueKind::Number(a.divided_by_num(arena, b)?),
             )),
             (ValueKind::Number(_), _) => default_divided_by(arena, self, other),
             (ValueKind::Color(_), ValueKind::Number(_))
@@ -681,7 +681,7 @@ impl<'parse> ValueKind<'parse> {
         match (self, other) {
             (ValueKind::Number(a), ValueKind::Number(b)) => Ok(Value::new_with_arena(
                 arena,
-                ValueKind::Number(a.modulo_num(b)?),
+                ValueKind::Number(a.modulo_num(arena, b)?),
             )),
             _ => default_modulo(arena, self, other),
         }
@@ -808,7 +808,7 @@ impl<'parse> ValueKind<'parse> {
         match self {
             ValueKind::Number(a) => Ok(Value::new_with_arena(
                 arena,
-                ValueKind::Number(a.unary_minus_num()),
+                ValueKind::Number(a.unary_minus_num(arena)),
             )),
             ValueKind::Calculation(c) => {
                 let c_str = c.to_css_string(true)?;
@@ -1895,8 +1895,14 @@ mod tests {
     #[test]
     fn test_value_plus_number() {
         let arena = Bump::new();
-        let a = Value::new_with_arena(&arena, ValueKind::Number(SassNumber::new(5.0, Some("px"))));
-        let b = Value::new_with_arena(&arena, ValueKind::Number(SassNumber::new(3.0, Some("px"))));
+        let a = Value::new_with_arena(
+            &arena,
+            ValueKind::Number(SassNumber::new(&arena, 5.0, Some("px"))),
+        );
+        let b = Value::new_with_arena(
+            &arena,
+            ValueKind::Number(SassNumber::new(&arena, 3.0, Some("px"))),
+        );
         let r = a.plus(&arena, &b).unwrap();
         match &*r {
             ValueKind::Number(n) => {
@@ -1931,8 +1937,14 @@ mod tests {
     #[test]
     fn test_value_minus_number() {
         let arena = Bump::new();
-        let a = Value::new_with_arena(&arena, ValueKind::Number(SassNumber::new(5.0, Some("px"))));
-        let b = Value::new_with_arena(&arena, ValueKind::Number(SassNumber::new(3.0, Some("px"))));
+        let a = Value::new_with_arena(
+            &arena,
+            ValueKind::Number(SassNumber::new(&arena, 5.0, Some("px"))),
+        );
+        let b = Value::new_with_arena(
+            &arena,
+            ValueKind::Number(SassNumber::new(&arena, 3.0, Some("px"))),
+        );
         let r = a.minus(&arena, &b).unwrap();
         match &*r {
             ValueKind::Number(n) => assert!((n.value - 2.0).abs() < 1e-9),
@@ -1943,8 +1955,14 @@ mod tests {
     #[test]
     fn test_value_times_number() {
         let arena = Bump::new();
-        let a = Value::new_with_arena(&arena, ValueKind::Number(SassNumber::new(5.0, Some("px"))));
-        let b = Value::new_with_arena(&arena, ValueKind::Number(SassNumber::new(3.0, None)));
+        let a = Value::new_with_arena(
+            &arena,
+            ValueKind::Number(SassNumber::new(&arena, 5.0, Some("px"))),
+        );
+        let b = Value::new_with_arena(
+            &arena,
+            ValueKind::Number(SassNumber::new(&arena, 3.0, None)),
+        );
         let r = a.times(&arena, &b).unwrap();
         match &*r {
             ValueKind::Number(n) => {
@@ -1958,8 +1976,14 @@ mod tests {
     #[test]
     fn test_value_divided_by_number() {
         let arena = Bump::new();
-        let a = Value::new_with_arena(&arena, ValueKind::Number(SassNumber::new(10.0, Some("px"))));
-        let b = Value::new_with_arena(&arena, ValueKind::Number(SassNumber::new(2.0, None)));
+        let a = Value::new_with_arena(
+            &arena,
+            ValueKind::Number(SassNumber::new(&arena, 10.0, Some("px"))),
+        );
+        let b = Value::new_with_arena(
+            &arena,
+            ValueKind::Number(SassNumber::new(&arena, 2.0, None)),
+        );
         let r = a.divided_by(&arena, &b).unwrap();
         match &*r {
             ValueKind::Number(n) => {
@@ -1973,8 +1997,14 @@ mod tests {
     #[test]
     fn test_value_modulo_number() {
         let arena = Bump::new();
-        let a = Value::new_with_arena(&arena, ValueKind::Number(SassNumber::new(7.0, Some("px"))));
-        let b = Value::new_with_arena(&arena, ValueKind::Number(SassNumber::new(3.0, Some("px"))));
+        let a = Value::new_with_arena(
+            &arena,
+            ValueKind::Number(SassNumber::new(&arena, 7.0, Some("px"))),
+        );
+        let b = Value::new_with_arena(
+            &arena,
+            ValueKind::Number(SassNumber::new(&arena, 3.0, Some("px"))),
+        );
         let r = a.modulo(&arena, &b).unwrap();
         match &*r {
             ValueKind::Number(n) => assert!((n.value - 1.0).abs() < 1e-9),
@@ -1985,8 +2015,14 @@ mod tests {
     #[test]
     fn test_value_comparison() {
         let arena = Bump::new();
-        let a = Value::new_with_arena(&arena, ValueKind::Number(SassNumber::new(5.0, Some("px"))));
-        let b = Value::new_with_arena(&arena, ValueKind::Number(SassNumber::new(3.0, Some("px"))));
+        let a = Value::new_with_arena(
+            &arena,
+            ValueKind::Number(SassNumber::new(&arena, 5.0, Some("px"))),
+        );
+        let b = Value::new_with_arena(
+            &arena,
+            ValueKind::Number(SassNumber::new(&arena, 3.0, Some("px"))),
+        );
         assert_eq!(
             a.greater_than(&arena, &b).unwrap(),
             Value::new_with_arena(&arena, ValueKind::Boolean(SASS_TRUE))
@@ -2000,7 +2036,10 @@ mod tests {
     #[test]
     fn test_value_unary_plus_number() {
         let arena = Bump::new();
-        let a = Value::new_with_arena(&arena, ValueKind::Number(SassNumber::new(5.0, Some("px"))));
+        let a = Value::new_with_arena(
+            &arena,
+            ValueKind::Number(SassNumber::new(&arena, 5.0, Some("px"))),
+        );
         let r = a.unary_plus(&arena).unwrap();
         match &*r {
             ValueKind::Number(n) => {
@@ -2014,7 +2053,10 @@ mod tests {
     #[test]
     fn test_value_unary_minus_number() {
         let arena = Bump::new();
-        let a = Value::new_with_arena(&arena, ValueKind::Number(SassNumber::new(5.0, Some("px"))));
+        let a = Value::new_with_arena(
+            &arena,
+            ValueKind::Number(SassNumber::new(&arena, 5.0, Some("px"))),
+        );
         let r = a.unary_minus(&arena).unwrap();
         match &*r {
             ValueKind::Number(n) => {

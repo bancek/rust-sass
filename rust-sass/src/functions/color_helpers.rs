@@ -197,8 +197,13 @@ where
 /// at the call site (`Option` wrapper there).
 ///
 /// Ports Dart's `_forcePercent` (color.dart:1913).
-pub fn force_percent<'parse>(n: &SassNumber<'parse>) -> SassNumber<'parse> {
-    SassNumber::with_units(n.value, vec!["%".into()], n.denominator_units.clone())
+pub fn force_percent<'parse>(arena: &'parse Bump, n: &SassNumber<'parse>) -> SassNumber<'parse> {
+    SassNumber::with_units(
+        arena,
+        n.value,
+        vec!["%".into()],
+        n.denominator_units.to_vec(),
+    )
 }
 
 /// Returns whether `v` is a proprietary Microsoft filter invocation.
@@ -426,9 +431,9 @@ where
                     &COLOR_FUNCTIONS,
                 )?;
                 let num = if u.is_empty() {
-                    SassNumber::new(v, None)
+                    SassNumber::new(arena, v, None)
                 } else {
-                    SassNumber::new(v, Some(u))
+                    SassNumber::new(arena, v, Some(u))
                 };
                 Ok(Value::new_with_arena(arena, ValueKind::Number(num)))
             },
@@ -442,17 +447,21 @@ mod tests {
 
     #[test]
     fn test_percentage_or_unitless() {
+        let arena = bumpalo::Bump::new();
         // Unitless and % pass through.
-        let v = percentage_or_unitless(&SassNumber::new(0.5, None), 255.0, "alpha").unwrap();
+        let v =
+            percentage_or_unitless(&SassNumber::new(&arena, 0.5, None), 255.0, "alpha").unwrap();
         assert_eq!(v, 0.5);
-        let v = percentage_or_unitless(&SassNumber::new(50.0, Some("%")), 255.0, "alpha").unwrap();
+        let v = percentage_or_unitless(&SassNumber::new(&arena, 50.0, Some("%")), 255.0, "alpha")
+            .unwrap();
         assert_eq!(v, 127.5);
     }
 
     #[test]
     fn test_percentage_or_unitless_error_message() {
-        let err =
-            percentage_or_unitless(&SassNumber::new(0.5, Some("px")), 255.0, "alpha").unwrap_err();
+        let arena = bumpalo::Bump::new();
+        let err = percentage_or_unitless(&SassNumber::new(&arena, 0.5, Some("px")), 255.0, "alpha")
+            .unwrap_err();
         match *err {
             SassError::Script {
                 message,

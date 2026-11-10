@@ -251,11 +251,9 @@ pub(crate) fn visit_pseudo_selector_impl(
     pseudo: &PseudoSelector<'_>,
 ) -> SassResult<()> {
     if pseudo.name == "not" {
-        if let Some(ref sel) = pseudo.selector {
-            if let Selector::List(ref sl) = **sel {
-                if sl.is_invisible() {
-                    return Ok(());
-                }
+        if let Some(Selector::List(ref sl)) = pseudo.selector {
+            if sl.is_invisible() {
+                return Ok(());
             }
         }
     }
@@ -274,7 +272,7 @@ pub(crate) fn visit_pseudo_selector_impl(
             buf.write_char(' ').unwrap();
         }
     }
-    if let Some(ref sel) = pseudo.selector {
+    if let Some(sel) = pseudo.selector {
         visit_selector_impl(buf, state, sel)?;
     }
     buf.write_char(')').unwrap();

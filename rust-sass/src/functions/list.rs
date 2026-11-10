@@ -117,7 +117,11 @@ where
             move |_config, _state, args, arena: &'compile Bump| {
                 Ok(Value::new_with_arena(
                     arena,
-                    ValueKind::Number(SassNumber::new(args[0].length_as_list() as f64, None)),
+                    ValueKind::Number(SassNumber::new(
+                        arena,
+                        args[0].length_as_list() as f64,
+                        None,
+                    )),
                 ))
             },
         ),
@@ -393,7 +397,7 @@ where
                     if item == &args[1] {
                         return Ok(Value::new_with_arena(
                             arena,
-                            ValueKind::Number(SassNumber::new((i + 1) as f64, None)),
+                            ValueKind::Number(SassNumber::new(arena, (i + 1) as f64, None)),
                         ));
                     }
                 }
@@ -496,7 +500,7 @@ mod tests {
     use crate::functions::test_utils::*;
 
     fn num<'compile: 'parse, 'parse>(arena: &'compile Bump, v: f64) -> Value<'parse> {
-        Value::new_with_arena(arena, ValueKind::Number(SassNumber::new(v, None)))
+        Value::new_with_arena(arena, ValueKind::Number(SassNumber::new(arena, v, None)))
     }
 
     fn s<'compile: 'parse, 'parse>(arena: &'compile Bump, s: &str) -> Value<'parse> {

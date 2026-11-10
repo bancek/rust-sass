@@ -122,13 +122,13 @@ where
             &Value::new_with_arena(arena, ValueKind::Number(adjustment.clone())),
             "hue",
         )?;
-        cloned = Some(SassNumber::new(deg, None));
+        cloned = Some(SassNumber::new(arena, deg, None));
         adjustment = cloned.as_ref().unwrap();
     } else if color.space == ColorSpace::Hsl
         && (channel.channel.name == "saturation" || channel.channel.name == "lightness")
     {
         check_percent_deprecation(config, state, adjustment, channel.channel.name)?;
-        cloned = Some(SassNumber::new(adjustment.value, Some("%")));
+        cloned = Some(SassNumber::new(arena, adjustment.value, Some("%")));
         adjustment = cloned.as_ref().unwrap();
     } else if channel.channel.name == "alpha" && adjustment.has_units() {
         warn_deprecation(config, state,
@@ -136,7 +136,7 @@ where
                 adjustment.unit_string(), adjustment.unit_suggestion("alpha", None)),
             &de::FUNCTION_UNITS,
         )?;
-        cloned = Some(SassNumber::new(adjustment.value, None));
+        cloned = Some(SassNumber::new(arena, adjustment.value, None));
         adjustment = cloned.as_ref().unwrap();
     }
     let adj_ptr = channel_from_value(channel, Some(adjustment), false)?;
@@ -338,9 +338,9 @@ where
                         if (color.space == ColorSpace::Hsl || color.space == ColorSpace::Hwb)
                             && ch_idx > 0
                         {
-                            Ok(Some(SassNumber::new(v, Some("%"))))
+                            Ok(Some(SassNumber::new(arena, v, Some("%"))))
                         } else {
-                            Ok(Some(SassNumber::new(v, None)))
+                            Ok(Some(SassNumber::new(arena, v, None)))
                         }
                     } else {
                         Ok(None)
@@ -353,7 +353,9 @@ where
             if let ValueKind::Number(n) = &**arg {
                 return Ok(Some(n.clone()));
             }
-            let s = num_str(&SassNumber::new(0.0, None))
+            // The temporary number only proves `num_str` succeeds; it is
+            // formatted in a throwaway arena, not the compile one.
+            let s = num_str(&SassNumber::new(&Bump::new(), 0.0, None))
                 .map(|_| arg.to_display_string().unwrap_or_default())?;
             let chs = color.space.channels_linear();
             Err(Box::new(SassError::Script {
@@ -631,10 +633,13 @@ mod tests {
     use crate::value::{SassNumber, ValueKind};
 
     fn n<'compile: 'parse, 'parse>(arena: &'compile Bump, v: f64) -> Value<'parse> {
-        Value::new_with_arena(arena, ValueKind::Number(SassNumber::new(v, None)))
+        Value::new_with_arena(arena, ValueKind::Number(SassNumber::new(arena, v, None)))
     }
     fn pc<'compile: 'parse, 'parse>(arena: &'compile Bump, v: f64) -> Value<'parse> {
-        Value::new_with_arena(arena, ValueKind::Number(SassNumber::new(v, Some("%"))))
+        Value::new_with_arena(
+            arena,
+            ValueKind::Number(SassNumber::new(arena, v, Some("%"))),
+        )
     }
 
     #[rust_sass_macros::maybe_test]

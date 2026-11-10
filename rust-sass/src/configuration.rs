@@ -456,7 +456,7 @@ mod tests {
         'compile: 'parse,
         'parse: 'compile,
     {
-        Value::new_with_arena(arena, ValueKind::Number(SassNumber::new(n, None)))
+        Value::new_with_arena(arena, ValueKind::Number(SassNumber::new(arena, n, None)))
     }
 
     fn make_cv<'compile, 'parse>(

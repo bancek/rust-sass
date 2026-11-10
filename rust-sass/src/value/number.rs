@@ -21,6 +21,7 @@ use crate::value::number_util::type_by_unit;
 use crate::value::number_util::unit_string;
 use crate::value::number_util::units_are_convertible;
 use crate::value::number_util::units_by_type;
+use allocator_api2::vec::Vec as ArenaVec;
 use bumpalo::Bump;
 
 use crate::serialize::SerializeVisitor;
@@ -44,10 +45,14 @@ pub struct SassNumber<'parse> {
     /// integer-ness, [`as_int`](Self::as_int) to read it, or
     /// [`assert_int`](Self::assert_int) to do both at once.
     pub value: f64,
-    /// This number's numerator units.
-    pub numerator_units: Vec<String>,
-    /// This number's denominator units.
-    pub denominator_units: Vec<String>,
+    /// This number's numerator units, allocated in the compile arena.
+    ///
+    /// Arena-backed because numbers live in the arena, which never runs
+    /// destructors; a `Vec<String>` here would leak on every arithmetic
+    /// operation. Build with [`SassNumber::with_units`].
+    pub numerator_units: ArenaVec<String, &'parse Bump>,
+    /// This number's denominator units, allocated in the compile arena.
+    pub denominator_units: ArenaVec<String, &'parse Bump>,
     // The representation of this number as two slash-separated numbers, if it
     // has one.
     //
@@ -56,25 +61,35 @@ pub struct SassNumber<'parse> {
     pub as_slash: Option<(&'parse SassNumber<'parse>, &'parse SassNumber<'parse>)>,
 }
 
+/// Moves `units` into an arena-backed list.
+fn arena_units<'parse>(arena: &'parse Bump, units: Vec<String>) -> ArenaVec<String, &'parse Bump> {
+    let mut list: ArenaVec<String, &'parse Bump> = ArenaVec::new_in(arena);
+    list.extend(units);
+    list
+}
+
+/// Copies `units` into an arena-backed list.
+fn copy_units<'parse>(arena: &'parse Bump, units: &[String]) -> ArenaVec<String, &'parse Bump> {
+    let mut list: ArenaVec<String, &'parse Bump> = ArenaVec::with_capacity_in(units.len(), arena);
+    list.extend(units.iter().cloned());
+    list
+}
+
 impl<'parse> SassNumber<'parse> {
     /// Creates a number, optionally with a single numerator unit.
     ///
     /// This matches the numbers that can be written as literals.
     /// [`with_units`](Self::with_units) can be used for more complex units.
-    pub fn new(value: f64, unit: Option<&str>) -> Self {
-        match unit {
-            Some(u) => SassNumber {
-                value,
-                numerator_units: vec![u.to_string()],
-                denominator_units: vec![],
-                as_slash: None,
-            },
-            None => SassNumber {
-                value,
-                numerator_units: vec![],
-                denominator_units: vec![],
-                as_slash: None,
-            },
+    pub fn new(arena: &'parse Bump, value: f64, unit: Option<&str>) -> Self {
+        let mut numerator_units = ArenaVec::new_in(arena);
+        if let Some(u) = unit {
+            numerator_units.push(u.to_string());
+        }
+        SassNumber {
+            value,
+            numerator_units,
+            denominator_units: ArenaVec::new_in(arena),
+            as_slash: None,
         }
     }
 
@@ -83,9 +98,14 @@ impl<'parse> SassNumber<'parse> {
     /// Units that cancel (a denominator convertible to a numerator) are
     /// simplified away, folding the conversion factor into the value; a fully
     /// cancelled result becomes unitless or single-unit.
-    pub fn with_units(value: f64, num_units: Vec<String>, den_units: Vec<String>) -> Self {
-        let mut num = num_units;
-        let mut den = vec![];
+    pub fn with_units(
+        arena: &'parse Bump,
+        value: f64,
+        num_units: Vec<String>,
+        den_units: Vec<String>,
+    ) -> Self {
+        let mut num = arena_units(arena, num_units);
+        let mut den = ArenaVec::new_in(arena);
         let mut val = value;
         let remaining_den = den_units;
         for rden in remaining_den {
@@ -434,7 +454,7 @@ impl<'parse> SassNumber<'parse> {
         }
 
         let mut v = self.value;
-        let mut old_numerators: Vec<String> = self.numerator_units.clone();
+        let mut old_numerators: Vec<String> = self.numerator_units.to_vec();
 
         for new_num in new_numerators {
             let mut found = false;
@@ -457,7 +477,7 @@ impl<'parse> SassNumber<'parse> {
             }
         }
 
-        let mut old_denominators: Vec<String> = self.denominator_units.clone();
+        let mut old_denominators: Vec<String> = self.denominator_units.to_vec();
         for new_den in new_denominators {
             let mut found = false;
             for i in 0..old_denominators.len() {
@@ -495,11 +515,11 @@ impl<'parse> SassNumber<'parse> {
     // Returns a number with the same units as `self` but with `v` as its value.
     //
     // Matches Dart: SassNumber.withValue (number.dart).
-    pub fn with_value(&self, v: f64) -> Self {
+    pub fn with_value(&self, arena: &'parse Bump, v: f64) -> Self {
         SassNumber {
             value: v,
-            numerator_units: self.numerator_units.clone(),
-            denominator_units: self.denominator_units.clone(),
+            numerator_units: copy_units(arena, &self.numerator_units),
+            denominator_units: copy_units(arena, &self.denominator_units),
             as_slash: None,
         }
     }
@@ -508,11 +528,16 @@ impl<'parse> SassNumber<'parse> {
     ///
     /// Unlike [`with_units`](Self::with_units) (the constructor), no
     /// simplification is performed.
-    pub fn with_units_vec(&self, num_units: Vec<String>, den_units: Vec<String>) -> Self {
+    pub fn with_units_vec(
+        &self,
+        arena: &'parse Bump,
+        num_units: Vec<String>,
+        den_units: Vec<String>,
+    ) -> Self {
         SassNumber {
             value: self.value,
-            numerator_units: num_units,
-            denominator_units: den_units,
+            numerator_units: arena_units(arena, num_units),
+            denominator_units: arena_units(arena, den_units),
             as_slash: self.as_slash,
         }
     }
@@ -573,15 +598,14 @@ impl<'parse> SassNumber<'parse> {
         for num in &self.numerator_units {
             result.push_str(&format!(" / 1{}", num));
         }
+        // Dart tests `unit == null`, not emptiness: `Some("")` still appends " * 1".
         if let Some(u) = unit {
-            if !u.is_empty() {
-                result.push_str(&format!(" * 1{}", u));
-            }
+            result.push_str(&format!(" * 1{}", u));
         }
-        if !self.numerator_units.is_empty() {
-            format!("calc({})", result)
-        } else {
+        if self.numerator_units.is_empty() {
             result
+        } else {
+            format!("calc({})", result)
         }
     }
 
@@ -651,52 +675,65 @@ impl<'parse> SassNumber<'parse> {
     //
     // Matches Dart: SassNumber.plus (number.dart); color-mixing and string
     // concatenation live on the `Value` dispatch, not here.
-    pub fn plus_num(&self, other: &SassNumber<'parse>) -> SassResult<SassNumber<'parse>> {
+    pub fn plus_num(
+        &self,
+        arena: &'parse Bump,
+        other: &SassNumber<'parse>,
+    ) -> SassResult<SassNumber<'parse>> {
         if !self.has_units() {
             if other.has_units() {
-                return Ok(other.with_value(self.value + other.value));
+                return Ok(other.with_value(arena, self.value + other.value));
             }
-            return Ok(SassNumber::new(self.value + other.value, None));
+            return Ok(SassNumber::new(arena, self.value + other.value, None));
         }
         if !other.has_units() {
-            return Ok(self.with_value(self.value + other.value));
+            return Ok(self.with_value(arena, self.value + other.value));
         }
         self.coerce_units(other, |a, b| a + b)
-            .map(|v| self.with_value(v))
+            .map(|v| self.with_value(arena, v))
     }
 
     // Sass `-` between two numbers. Same unit rules as `plus_num`.
     //
     // Matches Dart: SassNumber.minus (number.dart).
-    pub fn minus_num(&self, other: &SassNumber<'parse>) -> SassResult<SassNumber<'parse>> {
+    pub fn minus_num(
+        &self,
+        arena: &'parse Bump,
+        other: &SassNumber<'parse>,
+    ) -> SassResult<SassNumber<'parse>> {
         if !self.has_units() {
             if other.has_units() {
-                return Ok(other.with_value(self.value - other.value));
+                return Ok(other.with_value(arena, self.value - other.value));
             }
-            return Ok(SassNumber::new(self.value - other.value, None));
+            return Ok(SassNumber::new(arena, self.value - other.value, None));
         }
         if !other.has_units() {
-            return Ok(self.with_value(self.value - other.value));
+            return Ok(self.with_value(arena, self.value - other.value));
         }
         self.coerce_units(other, |a, b| a - b)
-            .map(|v| self.with_value(v))
+            .map(|v| self.with_value(arena, v))
     }
 
     // Sass `*` between two numbers. A unitless operand preserves the other's
     // units; two unitful operands multiply their unit lists.
     //
     // Matches Dart: SassNumber.times (number.dart).
-    pub fn times_num(&self, other: &SassNumber<'parse>) -> SassResult<SassNumber<'parse>> {
+    pub fn times_num(
+        &self,
+        arena: &'parse Bump,
+        other: &SassNumber<'parse>,
+    ) -> SassResult<SassNumber<'parse>> {
         if !self.has_units() {
             if other.has_units() {
-                return Ok(other.with_value(self.value * other.value));
+                return Ok(other.with_value(arena, self.value * other.value));
             }
-            return Ok(SassNumber::new(self.value * other.value, None));
+            return Ok(SassNumber::new(arena, self.value * other.value, None));
         }
         if !other.has_units() {
-            return Ok(self.with_value(self.value * other.value));
+            return Ok(self.with_value(arena, self.value * other.value));
         }
         Ok(self.multiply_units(
+            arena,
             self.value * other.value,
             &other.numerator_units,
             &other.denominator_units,
@@ -707,21 +744,27 @@ impl<'parse> SassNumber<'parse> {
     // unitful divisor inverts its units via `multiply_units`.
     //
     // Matches Dart: SassNumber.dividedBy (number.dart).
-    pub fn divided_by_num(&self, other: &SassNumber<'parse>) -> SassResult<SassNumber<'parse>> {
+    pub fn divided_by_num(
+        &self,
+        arena: &'parse Bump,
+        other: &SassNumber<'parse>,
+    ) -> SassResult<SassNumber<'parse>> {
         if !self.has_units() {
             if other.has_units() {
                 return Ok(SassNumber::with_units(
+                    arena,
                     self.value / other.value,
-                    other.denominator_units.clone(),
-                    other.numerator_units.clone(),
+                    other.denominator_units.to_vec(),
+                    other.numerator_units.to_vec(),
                 ));
             }
-            return Ok(SassNumber::new(self.value / other.value, None));
+            return Ok(SassNumber::new(arena, self.value / other.value, None));
         }
         if !other.has_units() {
-            return Ok(self.with_value(self.value / other.value));
+            return Ok(self.with_value(arena, self.value / other.value));
         }
         Ok(self.multiply_units(
+            arena,
             self.value / other.value,
             &other.denominator_units,
             &other.numerator_units,
@@ -732,19 +775,23 @@ impl<'parse> SassNumber<'parse> {
     // A unitless operand takes on the other's units.
     //
     // Matches Dart: SassNumber.modulo (number.dart).
-    pub fn modulo_num(&self, other: &SassNumber<'parse>) -> SassResult<SassNumber<'parse>> {
+    pub fn modulo_num(
+        &self,
+        arena: &'parse Bump,
+        other: &SassNumber<'parse>,
+    ) -> SassResult<SassNumber<'parse>> {
         if !self.has_units() {
             let result_val = number::modulo_like_sass(self.value, other.value);
             if other.has_units() {
-                return Ok(other.with_value(result_val));
+                return Ok(other.with_value(arena, result_val));
             }
-            return Ok(SassNumber::new(result_val, None));
+            return Ok(SassNumber::new(arena, result_val, None));
         }
         if !other.has_units() {
-            return Ok(self.with_value(number::modulo_like_sass(self.value, other.value)));
+            return Ok(self.with_value(arena, number::modulo_like_sass(self.value, other.value)));
         }
         self.coerce_units(other, number::modulo_like_sass)
-            .map(|v| self.with_value(v))
+            .map(|v| self.with_value(arena, v))
     }
 
     // Sass `>` between two numbers, coerced to match; unitless operands
@@ -809,8 +856,8 @@ impl<'parse> SassNumber<'parse> {
     // Unary `-`, preserving units.
     //
     // Matches Dart: SassNumber.unaryMinus (number.dart).
-    pub fn unary_minus_num(&self) -> SassNumber<'parse> {
-        self.with_value(-self.value)
+    pub fn unary_minus_num(&self, arena: &'parse Bump) -> SassNumber<'parse> {
+        self.with_value(arena, -self.value)
     }
 
     /// If [`value`](Self::value) is between `min` and `max`, returns it.
@@ -897,12 +944,14 @@ impl<'parse> SassNumber<'parse> {
     /// reporting.
     pub fn convert(
         &self,
+        arena: &'parse Bump,
         new_numerators: &[String],
         new_denominators: &[String],
         name: Option<&str>,
     ) -> SassResult<SassNumber<'parse>> {
         let val = self.convert_value(new_numerators, new_denominators, name)?;
         Ok(SassNumber::with_units(
+            arena,
             val,
             new_numerators.to_vec(),
             new_denominators.to_vec(),
@@ -921,12 +970,14 @@ impl<'parse> SassNumber<'parse> {
     /// used for error reporting.
     pub fn coerce(
         &self,
+        arena: &'parse Bump,
         new_numerators: &[String],
         new_denominators: &[String],
         name: Option<&str>,
     ) -> SassResult<SassNumber<'parse>> {
         if !self.has_units() {
             return Ok(SassNumber::with_units(
+                arena,
                 self.value,
                 new_numerators.to_vec(),
                 new_denominators.to_vec(),
@@ -934,6 +985,7 @@ impl<'parse> SassNumber<'parse> {
         }
         let val = self.coerce_value(new_numerators, new_denominators, name)?;
         Ok(SassNumber::with_units(
+            arena,
             val,
             new_numerators.to_vec(),
             new_denominators.to_vec(),
@@ -953,12 +1005,13 @@ impl<'parse> SassNumber<'parse> {
     /// reporting.
     pub fn coerce_to_match(
         &self,
+        arena: &'parse Bump,
         other: &SassNumber<'parse>,
         name: Option<&str>,
         other_name: Option<&str>,
     ) -> SassResult<SassNumber<'parse>> {
         if !self.has_units() {
-            return Ok(other.with_value(self.value));
+            return Ok(other.with_value(arena, self.value));
         }
         let val = self.coerce_or_convert_value(
             &other.numerator_units,
@@ -969,9 +1022,10 @@ impl<'parse> SassNumber<'parse> {
             other_name,
         )?;
         Ok(SassNumber::with_units(
+            arena,
             val,
-            other.numerator_units.clone(),
-            other.denominator_units.clone(),
+            other.numerator_units.to_vec(),
+            other.denominator_units.to_vec(),
         ))
     }
 
@@ -984,6 +1038,7 @@ impl<'parse> SassNumber<'parse> {
     /// `name`/`other_name` are the Sass argument names for error reporting.
     pub fn convert_to_match(
         &self,
+        arena: &'parse Bump,
         other: &SassNumber<'parse>,
         name: Option<&str>,
         other_name: Option<&str>,
@@ -1000,9 +1055,10 @@ impl<'parse> SassNumber<'parse> {
             other_name,
         )?;
         Ok(SassNumber::with_units(
+            arena,
             val,
-            other.numerator_units.clone(),
-            other.denominator_units.clone(),
+            other.numerator_units.to_vec(),
+            other.denominator_units.to_vec(),
         ))
     }
 
@@ -1049,19 +1105,22 @@ impl<'parse> SassNumber<'parse> {
     // Matches Dart: SassNumber.multiplyUnits (number.dart).
     pub fn multiply_units(
         &self,
+        arena: &'parse Bump,
         n: f64,
         other_numerators: &[String],
         other_denominators: &[String],
     ) -> SassNumber<'parse> {
         if other_numerators.is_empty() && other_denominators.is_empty() {
             return SassNumber::with_units(
+                arena,
                 n,
-                self.numerator_units.clone(),
-                self.denominator_units.clone(),
+                self.numerator_units.to_vec(),
+                self.denominator_units.to_vec(),
             );
         }
         if self.numerator_units.is_empty() && self.denominator_units.is_empty() {
             return SassNumber::with_units(
+                arena,
                 n,
                 other_numerators.to_vec(),
                 other_denominators.to_vec(),
@@ -1072,9 +1131,10 @@ impl<'parse> SassNumber<'parse> {
             && !units_are_convertible(&self.denominator_units, other_numerators)
         {
             return SassNumber::with_units(
+                arena,
                 n,
                 other_numerators.to_vec(),
-                self.denominator_units.clone(),
+                self.denominator_units.to_vec(),
             );
         }
         if self.denominator_units.is_empty()
@@ -1082,8 +1142,9 @@ impl<'parse> SassNumber<'parse> {
             && !units_are_convertible(&self.numerator_units, other_denominators)
         {
             return SassNumber::with_units(
+                arena,
                 n,
-                self.numerator_units.clone(),
+                self.numerator_units.to_vec(),
                 other_denominators.to_vec(),
             );
         }
@@ -1106,7 +1167,7 @@ impl<'parse> SassNumber<'parse> {
             }
         }
 
-        let mut mutable_den: Vec<String> = self.denominator_units.clone();
+        let mut mutable_den: Vec<String> = self.denominator_units.to_vec();
         for num in other_numerators {
             let mut found = false;
             for i in 0..mutable_den.len() {
@@ -1123,7 +1184,7 @@ impl<'parse> SassNumber<'parse> {
         }
 
         mutable_den.extend(mutable_other_den);
-        SassNumber::with_units(val, new_numerators, mutable_den)
+        SassNumber::with_units(arena, val, new_numerators, mutable_den)
     }
 }
 
@@ -1155,7 +1216,8 @@ mod tests {
 
     #[test]
     fn test_new_unitless() {
-        let n = SassNumber::new(42.0, None);
+        let arena = Bump::new();
+        let n = SassNumber::new(&arena, 42.0, None);
         assert!(!n.has_units());
         assert!(!n.has_complex_units());
         assert_eq!(n.value, 42.0);
@@ -1163,22 +1225,26 @@ mod tests {
 
     #[test]
     fn test_new_single_unit() {
-        let n = SassNumber::new(10.0, Some("px"));
+        let arena = Bump::new();
+        let n = SassNumber::new(&arena, 10.0, Some("px"));
         assert!(n.has_units());
         assert!(!n.has_complex_units());
-        assert_eq!(n.numerator_units, vec!["px".to_string()]);
+        assert_eq!(n.numerator_units.as_slice(), &["px".to_string()]);
     }
 
     #[test]
     fn test_new_complex() {
-        let n = SassNumber::with_units(10.0, vec!["m".to_string()], vec!["s".to_string()]);
+        let arena = Bump::new();
+        let n = SassNumber::with_units(&arena, 10.0, vec!["m".to_string()], vec!["s".to_string()]);
         assert!(n.has_units());
         assert!(n.has_complex_units());
     }
 
     #[test]
     fn test_with_units_simplify() {
+        let arena = Bump::new();
         let n = SassNumber::with_units(
+            &arena,
             1.0,
             vec!["px".to_string(), "in".to_string()],
             vec!["px".to_string()],
@@ -1189,82 +1255,97 @@ mod tests {
 
     #[test]
     fn test_is_int() {
-        assert!(SassNumber::new(5.0, None).is_int());
-        assert!(!SassNumber::new(5.5, None).is_int());
+        let arena = Bump::new();
+        assert!(SassNumber::new(&arena, 5.0, None).is_int());
+        assert!(!SassNumber::new(&arena, 5.5, None).is_int());
     }
 
     #[test]
     fn test_as_int() {
-        assert_eq!(SassNumber::new(5.0, None).as_int(), Some(5));
-        assert_eq!(SassNumber::new(5.5, None).as_int(), None);
+        let arena = Bump::new();
+        assert_eq!(SassNumber::new(&arena, 5.0, None).as_int(), Some(5));
+        assert_eq!(SassNumber::new(&arena, 5.5, None).as_int(), None);
     }
 
     #[test]
     fn test_assert_int() {
-        assert!(SassNumber::new(5.0, None).assert_int(None).is_ok());
-        assert!(SassNumber::new(5.5, None).assert_int(None).is_err());
+        let arena = Bump::new();
+        assert!(SassNumber::new(&arena, 5.0, None).assert_int(None).is_ok());
+        assert!(SassNumber::new(&arena, 5.5, None).assert_int(None).is_err());
     }
 
     #[test]
     fn test_has_unit() {
-        assert!(SassNumber::new(5.0, Some("px")).has_unit("px"));
-        assert!(!SassNumber::new(5.0, None).has_unit("px"));
+        let arena = Bump::new();
+        assert!(SassNumber::new(&arena, 5.0, Some("px")).has_unit("px"));
+        assert!(!SassNumber::new(&arena, 5.0, None).has_unit("px"));
     }
 
     #[test]
     fn test_assert_unit() {
-        assert!(SassNumber::new(5.0, Some("px"))
+        let arena = Bump::new();
+        assert!(SassNumber::new(&arena, 5.0, Some("px"))
             .assert_unit("px", None)
             .is_ok());
-        assert!(SassNumber::new(5.0, None).assert_unit("px", None).is_err());
+        assert!(SassNumber::new(&arena, 5.0, None)
+            .assert_unit("px", None)
+            .is_err());
     }
 
     #[test]
     fn test_assert_no_units() {
-        assert!(SassNumber::new(5.0, None).assert_no_units(None).is_ok());
-        assert!(SassNumber::new(5.0, Some("px"))
+        let arena = Bump::new();
+        assert!(SassNumber::new(&arena, 5.0, None)
+            .assert_no_units(None)
+            .is_ok());
+        assert!(SassNumber::new(&arena, 5.0, Some("px"))
             .assert_no_units(None)
             .is_err());
     }
 
     #[test]
     fn test_unit_string() {
-        assert_eq!(SassNumber::new(5.0, None).unit_string(), "");
-        assert_eq!(SassNumber::new(5.0, Some("px")).unit_string(), "px");
+        let arena = Bump::new();
+        assert_eq!(SassNumber::new(&arena, 5.0, None).unit_string(), "");
+        assert_eq!(SassNumber::new(&arena, 5.0, Some("px")).unit_string(), "px");
     }
 
     #[test]
     fn test_has_compatible_units() {
-        let a = SassNumber::new(5.0, Some("px"));
-        let b = SassNumber::new(10.0, Some("px"));
+        let arena = Bump::new();
+        let a = SassNumber::new(&arena, 5.0, Some("px"));
+        let b = SassNumber::new(&arena, 10.0, Some("px"));
         assert!(a.has_compatible_units(&b));
-        let c = SassNumber::new(1.0, Some("in"));
+        let c = SassNumber::new(&arena, 1.0, Some("in"));
         assert!(a.has_compatible_units(&c));
-        let d = SassNumber::new(90.0, Some("deg"));
+        let d = SassNumber::new(&arena, 90.0, Some("deg"));
         assert!(!a.has_compatible_units(&d));
     }
 
     #[test]
     fn test_compatible_with_unit() {
-        assert!(SassNumber::new(5.0, None).compatible_with_unit("px"));
-        assert!(SassNumber::new(5.0, Some("px")).compatible_with_unit("in"));
-        assert!(!SassNumber::new(5.0, Some("px")).compatible_with_unit("deg"));
+        let arena = Bump::new();
+        assert!(SassNumber::new(&arena, 5.0, None).compatible_with_unit("px"));
+        assert!(SassNumber::new(&arena, 5.0, Some("px")).compatible_with_unit("in"));
+        assert!(!SassNumber::new(&arena, 5.0, Some("px")).compatible_with_unit("deg"));
     }
 
     #[test]
     fn test_convert_value_to_unit() {
-        let n = SassNumber::new(1.0, Some("in"));
+        let arena = Bump::new();
+        let n = SassNumber::new(&arena, 1.0, Some("in"));
         let v = n.convert_value_to_unit("px", None).unwrap();
         assert!(approx(v, 96.0), "1in should be 96px, got {}", v);
     }
 
     #[test]
     fn test_coerce_value_to_unit() {
-        let v = SassNumber::new(1.0, Some("in"))
+        let arena = Bump::new();
+        let v = SassNumber::new(&arena, 1.0, Some("in"))
             .coerce_value_to_unit("px", None)
             .unwrap();
         assert!(approx(v, 96.0));
-        let v = SassNumber::new(5.0, None)
+        let v = SassNumber::new(&arena, 5.0, None)
             .coerce_value_to_unit("px", None)
             .unwrap();
         assert!(approx(v, 5.0));
@@ -1272,17 +1353,18 @@ mod tests {
 
     #[test]
     fn test_convert_value_to_unit_unitless_fails() {
-        let n = SassNumber::new(5.0, None);
+        let arena = Bump::new();
+        let n = SassNumber::new(&arena, 5.0, None);
         assert!(n.convert_value_to_unit("px", None).is_err());
     }
 
     #[test]
     fn test_slash() {
         let arena = Bump::new();
-        let n = SassNumber::new(5.0, None).with_slash(
+        let n = SassNumber::new(&arena, 5.0, None).with_slash(
             &arena,
-            SassNumber::new(2.0, None),
-            SassNumber::new(3.0, None),
+            SassNumber::new(&arena, 2.0, None),
+            SassNumber::new(&arena, 3.0, None),
         );
         assert!(n.has_slash());
         let (a, b) = n.slash_pair().unwrap();
@@ -1294,179 +1376,221 @@ mod tests {
 
     #[test]
     fn test_with_value() {
-        let n = SassNumber::new(5.0, Some("px")).with_value(10.0);
+        let arena = Bump::new();
+        let n = SassNumber::new(&arena, 5.0, Some("px")).with_value(&arena, 10.0);
         assert!(approx(n.value, 10.0));
         assert!(n.has_unit("px"));
     }
 
     #[test]
     fn test_with_units() {
-        let n = SassNumber::new(5.0, Some("px")).with_units_vec(vec!["cm".to_string()], vec![]);
+        let arena = Bump::new();
+        let n = SassNumber::new(&arena, 5.0, Some("px")).with_units_vec(
+            &arena,
+            vec!["cm".to_string()],
+            vec![],
+        );
         assert!(n.has_unit("cm"));
         assert!(approx(n.value, 5.0));
     }
 
     #[test]
     fn test_unit_suggestion() {
-        let s = SassNumber::new(1.0, None).unit_suggestion("foo", None);
-        assert!(!s.is_empty());
-        assert!(s.contains("foo"));
+        let arena = Bump::new();
+        let s = SassNumber::new(&arena, 1.0, None).unit_suggestion("foo", None);
+        assert_eq!(s, "$foo");
+        assert_eq!(
+            SassNumber::new(&arena, 1.0, None).unit_suggestion("foo", Some("px")),
+            "$foo * 1px"
+        );
+        // Dart checks `unit == null`, so an empty unit still adds ` * 1`.
+        assert_eq!(
+            SassNumber::new(&arena, 1.0, None).unit_suggestion("foo", Some("")),
+            "$foo * 1"
+        );
+        assert_eq!(
+            SassNumber::new(&arena, 1.0, Some("em")).unit_suggestion("foo", Some("px")),
+            "calc($foo / 1em * 1px)"
+        );
+        assert_eq!(
+            SassNumber::with_units(&arena, 1.0, vec![], vec!["s".into()])
+                .unit_suggestion("foo", None),
+            "$foo * 1s"
+        );
     }
 
     #[test]
     fn test_number_equals() {
-        let a = SassNumber::new(5.0, Some("px"));
-        let b = SassNumber::new(5.0, Some("px"));
+        let arena = Bump::new();
+        let a = SassNumber::new(&arena, 5.0, Some("px"));
+        let b = SassNumber::new(&arena, 5.0, Some("px"));
         assert!(a.equals(&b));
-        let c = SassNumber::new(96.0, Some("px"));
-        let d = SassNumber::new(1.0, Some("in"));
+        let c = SassNumber::new(&arena, 96.0, Some("px"));
+        let d = SassNumber::new(&arena, 1.0, Some("in"));
         assert!(c.equals(&d), "96px should equal 1in");
     }
 
     #[test]
     fn test_number_hash_code() {
-        let a = SassNumber::new(96.0, Some("px"));
-        let b = SassNumber::new(1.0, Some("in"));
+        let arena = Bump::new();
+        let a = SassNumber::new(&arena, 96.0, Some("px"));
+        let b = SassNumber::new(&arena, 1.0, Some("in"));
         assert_eq!(a.hash_code(), b.hash_code());
     }
 
     #[test]
     fn test_khz_dppx_equality_and_hash() {
+        let arena = Bump::new();
         // Dart canonicalMultiplierForUnit: 1 / innerMap.values.first, so
         // kHz→1000, dpcm→2.54, dppx→96. Previously stored inverted.
-        let a = SassNumber::new(1.0, Some("kHz"));
-        let b = SassNumber::new(1000.0, Some("Hz"));
+        let a = SassNumber::new(&arena, 1.0, Some("kHz"));
+        let b = SassNumber::new(&arena, 1000.0, Some("Hz"));
         assert!(a.equals(&b), "1kHz should equal 1000Hz");
         assert_eq!(a.hash_code(), b.hash_code());
-        let c = SassNumber::new(1.0, Some("dppx"));
-        let d = SassNumber::new(96.0, Some("dpi"));
+        let c = SassNumber::new(&arena, 1.0, Some("dppx"));
+        let d = SassNumber::new(&arena, 96.0, Some("dpi"));
         assert!(c.equals(&d), "1dppx should equal 96dpi");
         assert_eq!(c.hash_code(), d.hash_code());
-        let e = SassNumber::new(1.0, Some("dpcm"));
-        let f = SassNumber::new(2.54, Some("dpi"));
+        let e = SassNumber::new(&arena, 1.0, Some("dpcm"));
+        let f = SassNumber::new(&arena, 2.54, Some("dpi"));
         assert!(e.equals(&f), "1dpcm should equal 2.54dpi");
         assert_eq!(e.hash_code(), f.hash_code());
     }
 
     #[test]
     fn test_plus_unitless() {
-        let a = SassNumber::new(5.0, None);
-        let b = SassNumber::new(3.0, None);
-        let r = a.plus_num(&b).unwrap();
+        let arena = Bump::new();
+        let a = SassNumber::new(&arena, 5.0, None);
+        let b = SassNumber::new(&arena, 3.0, None);
+        let r = a.plus_num(&arena, &b).unwrap();
         assert!(approx(r.value, 8.0));
         assert!(!r.has_units());
     }
 
     #[test]
     fn test_plus_unitful() {
-        let a = SassNumber::new(5.0, Some("px"));
-        let b = SassNumber::new(3.0, Some("px"));
-        let r = a.plus_num(&b).unwrap();
+        let arena = Bump::new();
+        let a = SassNumber::new(&arena, 5.0, Some("px"));
+        let b = SassNumber::new(&arena, 3.0, Some("px"));
+        let r = a.plus_num(&arena, &b).unwrap();
         assert!(approx(r.value, 8.0));
         assert!(r.has_unit("px"));
     }
 
     #[test]
     fn test_plus_unitless_and_unitful() {
-        let a = SassNumber::new(5.0, None);
-        let b = SassNumber::new(10.0, Some("px"));
-        let r = a.plus_num(&b).unwrap();
+        let arena = Bump::new();
+        let a = SassNumber::new(&arena, 5.0, None);
+        let b = SassNumber::new(&arena, 10.0, Some("px"));
+        let r = a.plus_num(&arena, &b).unwrap();
         assert!(approx(r.value, 15.0));
         assert!(r.has_unit("px"));
     }
 
     #[test]
     fn test_plus_incompatible_units() {
-        let a = SassNumber::new(5.0, Some("px"));
-        let b = SassNumber::new(3.0, Some("deg"));
-        assert!(a.plus_num(&b).is_err());
+        let arena = Bump::new();
+        let a = SassNumber::new(&arena, 5.0, Some("px"));
+        let b = SassNumber::new(&arena, 3.0, Some("deg"));
+        assert!(a.plus_num(&arena, &b).is_err());
     }
 
     #[test]
     fn test_times() {
-        let a = SassNumber::new(5.0, Some("px"));
-        let b = SassNumber::new(3.0, None);
-        let r = a.times_num(&b).unwrap();
+        let arena = Bump::new();
+        let a = SassNumber::new(&arena, 5.0, Some("px"));
+        let b = SassNumber::new(&arena, 3.0, None);
+        let r = a.times_num(&arena, &b).unwrap();
         assert!(approx(r.value, 15.0));
         assert!(r.has_unit("px"));
     }
 
     #[test]
     fn test_times_unitful() {
-        let a = SassNumber::new(2.0, Some("in"));
-        let b = SassNumber::new(3.0, Some("px"));
-        let r = a.times_num(&b).unwrap();
+        let arena = Bump::new();
+        let a = SassNumber::new(&arena, 2.0, Some("in"));
+        let b = SassNumber::new(&arena, 3.0, Some("px"));
+        let r = a.times_num(&arena, &b).unwrap();
         assert!(approx(r.value, 6.0));
     }
 
     #[test]
     fn test_divided_by() {
-        let a = SassNumber::new(10.0, Some("px"));
-        let b = SassNumber::new(2.0, None);
-        let r = a.divided_by_num(&b).unwrap();
+        let arena = Bump::new();
+        let a = SassNumber::new(&arena, 10.0, Some("px"));
+        let b = SassNumber::new(&arena, 2.0, None);
+        let r = a.divided_by_num(&arena, &b).unwrap();
         assert!(approx(r.value, 5.0));
         assert!(r.has_unit("px"));
     }
 
     #[test]
     fn test_divided_by_unitful() {
-        let a = SassNumber::new(10.0, Some("px"));
-        let b = SassNumber::new(5.0, Some("px"));
-        let r = a.divided_by_num(&b).unwrap();
+        let arena = Bump::new();
+        let a = SassNumber::new(&arena, 10.0, Some("px"));
+        let b = SassNumber::new(&arena, 5.0, Some("px"));
+        let r = a.divided_by_num(&arena, &b).unwrap();
         assert!(approx(r.value, 2.0));
     }
 
     #[test]
     fn test_minus() {
-        let a = SassNumber::new(5.0, Some("px"));
-        let b = SassNumber::new(3.0, Some("px"));
-        let r = a.minus_num(&b).unwrap();
+        let arena = Bump::new();
+        let a = SassNumber::new(&arena, 5.0, Some("px"));
+        let b = SassNumber::new(&arena, 3.0, Some("px"));
+        let r = a.minus_num(&arena, &b).unwrap();
         assert!(approx(r.value, 2.0));
         assert!(r.has_unit("px"));
     }
 
     #[test]
     fn test_modulo() {
-        let a = SassNumber::new(7.0, Some("px"));
-        let b = SassNumber::new(3.0, Some("px"));
-        let r = a.modulo_num(&b).unwrap();
+        let arena = Bump::new();
+        let a = SassNumber::new(&arena, 7.0, Some("px"));
+        let b = SassNumber::new(&arena, 3.0, Some("px"));
+        let r = a.modulo_num(&arena, &b).unwrap();
         assert!(approx(r.value, 1.0));
     }
 
     #[test]
     fn test_modulo_negative() {
-        let a = SassNumber::new(-7.0, Some("px"));
-        let b = SassNumber::new(3.0, Some("px"));
-        let r = a.modulo_num(&b).unwrap();
+        let arena = Bump::new();
+        let a = SassNumber::new(&arena, -7.0, Some("px"));
+        let b = SassNumber::new(&arena, 3.0, Some("px"));
+        let r = a.modulo_num(&arena, &b).unwrap();
         assert!(approx(r.value, 2.0));
     }
 
     #[test]
     fn test_unary_minus() {
-        let n = SassNumber::new(5.0, Some("px")).unary_minus_num();
+        let arena = Bump::new();
+        let n = SassNumber::new(&arena, 5.0, Some("px")).unary_minus_num(&arena);
         assert!(approx(n.value, -5.0));
         assert!(n.has_unit("px"));
     }
 
     #[test]
     fn test_greater_than() {
-        let a = SassNumber::new(5.0, Some("px"));
-        let b = SassNumber::new(3.0, Some("px"));
+        let arena = Bump::new();
+        let a = SassNumber::new(&arena, 5.0, Some("px"));
+        let b = SassNumber::new(&arena, 3.0, Some("px"));
         assert!(a.greater_than_num(&b).unwrap());
         assert!(!b.greater_than_num(&a).unwrap());
     }
 
     #[test]
     fn test_greater_than_equal() {
-        let a = SassNumber::new(96.0, Some("px"));
-        let b = SassNumber::new(1.0, Some("in"));
+        let arena = Bump::new();
+        let a = SassNumber::new(&arena, 96.0, Some("px"));
+        let b = SassNumber::new(&arena, 1.0, Some("in"));
         assert!(!a.greater_than_num(&b).unwrap());
     }
 
     #[test]
     fn test_multiply_units() {
-        let a = SassNumber::new(2.0, Some("in"));
-        let r = a.multiply_units(6.0, &["px".to_string()], &[]);
+        let arena = Bump::new();
+        let a = SassNumber::new(&arena, 2.0, Some("in"));
+        let r = a.multiply_units(&arena, 6.0, &["px".to_string()], &[]);
         assert!(approx(r.value, 6.0));
         assert_eq!(r.numerator_units.len(), 2);
     }
@@ -1483,11 +1607,11 @@ mod tests {
         let arena = Bump::new();
         let slash = SassNumber {
             value: 1.0,
-            numerator_units: vec![],
-            denominator_units: vec![],
+            numerator_units: allocator_api2::vec::Vec::new_in(&arena),
+            denominator_units: allocator_api2::vec::Vec::new_in(&arena),
             as_slash: Some((
-                arena.alloc(SassNumber::new(1.0, None)),
-                arena.alloc(SassNumber::new(2.0, None)),
+                arena.alloc(SassNumber::new(&arena, 1.0, None)),
+                arena.alloc(SassNumber::new(&arena, 2.0, None)),
             )),
         };
         let v = Value::new_with_arena(&arena, ValueKind::Number(slash));
@@ -1503,7 +1627,8 @@ mod tests {
 
     #[test]
     fn test_value_in_range() {
-        let n = SassNumber::new(5.0, None);
+        let arena = Bump::new();
+        let n = SassNumber::new(&arena, 5.0, None);
         let v = n.value_in_range(0.0, 10.0, Some("test")).unwrap();
         assert!(approx(v, 5.0));
         assert!(n.value_in_range(10.0, 20.0, Some("test")).is_err());
@@ -1511,7 +1636,8 @@ mod tests {
 
     #[test]
     fn test_value_in_range_with_unit() {
-        let n = SassNumber::new(30.0, Some("deg"));
+        let arena = Bump::new();
+        let n = SassNumber::new(&arena, 30.0, Some("deg"));
         let v = n
             .value_in_range_with_unit(0.0, 360.0, "test", "deg")
             .unwrap();
@@ -1523,85 +1649,100 @@ mod tests {
 
     #[test]
     fn test_has_possibly_compatible_units() {
-        assert!(
-            SassNumber::new(5.0, None).has_possibly_compatible_units(&SassNumber::new(10.0, None))
-        );
-        assert!(!SassNumber::new(5.0, None)
-            .has_possibly_compatible_units(&SassNumber::new(10.0, Some("px"))));
-        assert!(SassNumber::new(5.0, Some("px"))
-            .has_possibly_compatible_units(&SassNumber::new(10.0, Some("px"))));
-        assert!(SassNumber::new(5.0, Some("px"))
-            .has_possibly_compatible_units(&SassNumber::new(10.0, Some("in"))));
-        assert!(SassNumber::new(5.0, Some("px"))
-            .has_possibly_compatible_units(&SassNumber::new(10.0, Some("em"))));
-        assert!(!SassNumber::new(5.0, Some("px"))
-            .has_possibly_compatible_units(&SassNumber::new(10.0, Some("deg"))));
-        assert!(SassNumber::new(5.0, Some("deg"))
-            .has_possibly_compatible_units(&SassNumber::new(10.0, Some("rad"))));
-        assert!(SassNumber::new(5.0, Some("s"))
-            .has_possibly_compatible_units(&SassNumber::new(10.0, Some("ms"))));
-        assert!(SassNumber::new(5.0, Some("dpi"))
-            .has_possibly_compatible_units(&SassNumber::new(10.0, Some("dppx"))));
-        assert!(SassNumber::new(5.0, Some("custom"))
-            .has_possibly_compatible_units(&SassNumber::new(10.0, Some("px"))));
-        assert!(SassNumber::new(5.0, Some("custom1"))
-            .has_possibly_compatible_units(&SassNumber::new(10.0, Some("custom2"))));
+        let arena = Bump::new();
+        assert!(SassNumber::new(&arena, 5.0, None)
+            .has_possibly_compatible_units(&SassNumber::new(&arena, 10.0, None)));
+        assert!(!SassNumber::new(&arena, 5.0, None)
+            .has_possibly_compatible_units(&SassNumber::new(&arena, 10.0, Some("px"))));
+        assert!(SassNumber::new(&arena, 5.0, Some("px"))
+            .has_possibly_compatible_units(&SassNumber::new(&arena, 10.0, Some("px"))));
+        assert!(SassNumber::new(&arena, 5.0, Some("px"))
+            .has_possibly_compatible_units(&SassNumber::new(&arena, 10.0, Some("in"))));
+        assert!(SassNumber::new(&arena, 5.0, Some("px"))
+            .has_possibly_compatible_units(&SassNumber::new(&arena, 10.0, Some("em"))));
+        assert!(!SassNumber::new(&arena, 5.0, Some("px"))
+            .has_possibly_compatible_units(&SassNumber::new(&arena, 10.0, Some("deg"))));
+        assert!(SassNumber::new(&arena, 5.0, Some("deg"))
+            .has_possibly_compatible_units(&SassNumber::new(&arena, 10.0, Some("rad"))));
+        assert!(SassNumber::new(&arena, 5.0, Some("s"))
+            .has_possibly_compatible_units(&SassNumber::new(&arena, 10.0, Some("ms"))));
+        assert!(SassNumber::new(&arena, 5.0, Some("dpi"))
+            .has_possibly_compatible_units(&SassNumber::new(&arena, 10.0, Some("dppx"))));
+        assert!(SassNumber::new(&arena, 5.0, Some("custom"))
+            .has_possibly_compatible_units(&SassNumber::new(&arena, 10.0, Some("px"))));
+        assert!(SassNumber::new(&arena, 5.0, Some("custom1"))
+            .has_possibly_compatible_units(&SassNumber::new(&arena, 10.0, Some("custom2"))));
     }
 
     #[test]
     fn test_convert_sass_number() {
-        let n = SassNumber::new(1.0, Some("in"));
-        let result = n.convert(&["px".to_string()], &[], Some("test")).unwrap();
+        let arena = Bump::new();
+        let n = SassNumber::new(&arena, 1.0, Some("in"));
+        let result = n
+            .convert(&arena, &["px".to_string()], &[], Some("test"))
+            .unwrap();
         assert!(approx(result.value, 96.0));
         assert!(result.has_unit("px"));
     }
 
     #[test]
     fn test_coerce_sass_number() {
-        let n = SassNumber::new(5.0, None);
-        let result = n.coerce(&["px".to_string()], &[], Some("test")).unwrap();
+        let arena = Bump::new();
+        let n = SassNumber::new(&arena, 5.0, None);
+        let result = n
+            .coerce(&arena, &["px".to_string()], &[], Some("test"))
+            .unwrap();
         assert!(approx(result.value, 5.0));
         assert!(result.has_unit("px"));
 
-        let m = SassNumber::new(1.0, Some("in"));
-        let result = m.coerce(&["px".to_string()], &[], Some("test")).unwrap();
+        let m = SassNumber::new(&arena, 1.0, Some("in"));
+        let result = m
+            .coerce(&arena, &["px".to_string()], &[], Some("test"))
+            .unwrap();
         assert!(approx(result.value, 96.0));
     }
 
     #[test]
     fn test_coerce_to_match() {
-        let a = SassNumber::new(5.0, None);
-        let b = SassNumber::new(10.0, Some("px"));
-        let result = a.coerce_to_match(&b, Some("a"), Some("b")).unwrap();
+        let arena = Bump::new();
+        let a = SassNumber::new(&arena, 5.0, None);
+        let b = SassNumber::new(&arena, 10.0, Some("px"));
+        let result = a.coerce_to_match(&arena, &b, Some("a"), Some("b")).unwrap();
         assert!(approx(result.value, 5.0));
         assert!(result.has_unit("px"));
 
-        let c = SassNumber::new(1.0, Some("in"));
-        let result = c.coerce_to_match(&b, Some("c"), Some("b")).unwrap();
+        let c = SassNumber::new(&arena, 1.0, Some("in"));
+        let result = c.coerce_to_match(&arena, &b, Some("c"), Some("b")).unwrap();
         assert!(approx(result.value, 96.0));
     }
 
     #[test]
     fn test_convert_to_match() {
-        let a = SassNumber::new(1.0, Some("in"));
-        let b = SassNumber::new(2.0, Some("px"));
-        let result = a.convert_to_match(&b, Some("a"), Some("b")).unwrap();
+        let arena = Bump::new();
+        let a = SassNumber::new(&arena, 1.0, Some("in"));
+        let b = SassNumber::new(&arena, 2.0, Some("px"));
+        let result = a
+            .convert_to_match(&arena, &b, Some("a"), Some("b"))
+            .unwrap();
         assert!(approx(result.value, 96.0));
         assert!(result.has_unit("px"));
 
-        let c = SassNumber::new(5.0, None);
-        assert!(c.convert_to_match(&b, Some("c"), Some("b")).is_err());
+        let c = SassNumber::new(&arena, 5.0, None);
+        assert!(c
+            .convert_to_match(&arena, &b, Some("c"), Some("b"))
+            .is_err());
     }
 
     #[test]
     fn test_coerce_value() {
-        let n = SassNumber::new(5.0, None);
+        let arena = Bump::new();
+        let n = SassNumber::new(&arena, 5.0, None);
         let v = n
             .coerce_value(&["px".to_string()], &[], Some("test"))
             .unwrap();
         assert!(approx(v, 5.0));
 
-        let m = SassNumber::new(1.0, Some("in"));
+        let m = SassNumber::new(&arena, 1.0, Some("in"));
         let v = m
             .coerce_value(&["px".to_string()], &[], Some("test"))
             .unwrap();
@@ -1610,11 +1751,12 @@ mod tests {
 
     #[test]
     fn test_convert_value() {
-        let n = SassNumber::new(5.0, None);
+        let arena = Bump::new();
+        let n = SassNumber::new(&arena, 5.0, None);
         let v = n.convert_value(&[], &[], Some("test")).unwrap();
         assert!(approx(v, 5.0));
 
-        let m = SassNumber::new(1.0, Some("in"));
+        let m = SassNumber::new(&arena, 1.0, Some("in"));
         let v = m
             .convert_value(&["px".to_string()], &[], Some("test"))
             .unwrap();
@@ -1629,12 +1771,13 @@ mod tests {
 
     #[test]
     fn test_assert_int_error_message() {
-        let err = SassNumber::new(2.5, None)
+        let arena = Bump::new();
+        let err = SassNumber::new(&arena, 2.5, None)
             .assert_int(Some("limit"))
             .unwrap_err();
         assert_script_err(err, "2.5 is not an int.", Some("limit"));
 
-        let err = SassNumber::new(2.5, Some("px"))
+        let err = SassNumber::new(&arena, 2.5, Some("px"))
             .assert_int(None)
             .unwrap_err();
         assert_script_err(err, "2.5px is not an int.", None);
@@ -1642,12 +1785,13 @@ mod tests {
 
     #[test]
     fn test_assert_no_units_error_message() {
-        let err = SassNumber::new(5.0, Some("px"))
+        let arena = Bump::new();
+        let err = SassNumber::new(&arena, 5.0, Some("px"))
             .assert_no_units(Some("number"))
             .unwrap_err();
         assert_script_err(err, "Expected 5px to have no units.", Some("number"));
 
-        let err = SassNumber::new(5.0, Some("px"))
+        let err = SassNumber::new(&arena, 5.0, Some("px"))
             .assert_no_units(None)
             .unwrap_err();
         assert_script_err(err, "Expected 5px to have no units.", None);
@@ -1655,7 +1799,8 @@ mod tests {
 
     #[test]
     fn test_assert_unit_error_message() {
-        let err = SassNumber::new(5.0, None)
+        let arena = Bump::new();
+        let err = SassNumber::new(&arena, 5.0, None)
             .assert_unit("px", Some("length"))
             .unwrap_err();
         assert_script_err(err, "Expected 5 to have unit \"px\".", Some("length"));
@@ -1663,12 +1808,13 @@ mod tests {
 
     #[test]
     fn test_value_in_range_error_message() {
-        let err = SassNumber::new(150.0, None)
+        let arena = Bump::new();
+        let err = SassNumber::new(&arena, 150.0, None)
             .value_in_range(0.0, 100.0, Some("amount"))
             .unwrap_err();
         assert_script_err(err, "Expected 150 to be within 0 and 100.", Some("amount"));
 
-        let err = SassNumber::new(150.0, Some("px"))
+        let err = SassNumber::new(&arena, 150.0, Some("px"))
             .value_in_range(0.0, 100.0, None)
             .unwrap_err();
         assert_script_err(err, "Expected 150px to be within 0px and 100px.", None);
@@ -1676,7 +1822,8 @@ mod tests {
 
     #[test]
     fn test_value_in_range_with_unit_error_message() {
-        let err = SassNumber::new(150.0, None)
+        let arena = Bump::new();
+        let err = SassNumber::new(&arena, 150.0, None)
             .value_in_range_with_unit(0.0, 100.0, "alpha", "%")
             .unwrap_err();
         assert_script_err(err, "Expected 150 to be within 0% and 100%.", Some("alpha"));
@@ -1684,15 +1831,24 @@ mod tests {
 
     #[test]
     fn test_convert_value_to_match_error_messages() {
+        let arena = Bump::new();
         // Incompatible units with names.
-        let err = SassNumber::new(1.0, Some("s"))
-            .convert_value_to_match(&SassNumber::new(1.0, Some("px")), Some("x"), Some("y"))
+        let err = SassNumber::new(&arena, 1.0, Some("s"))
+            .convert_value_to_match(
+                &SassNumber::new(&arena, 1.0, Some("px")),
+                Some("x"),
+                Some("y"),
+            )
             .unwrap_err();
         assert_script_err(err, "1s and $y: 1px have incompatible units.", Some("x"));
 
         // One unitless.
-        let err = SassNumber::new(1.0, None)
-            .convert_value_to_match(&SassNumber::new(1.0, Some("px")), Some("x"), Some("y"))
+        let err = SassNumber::new(&arena, 1.0, None)
+            .convert_value_to_match(
+                &SassNumber::new(&arena, 1.0, Some("px")),
+                Some("x"),
+                Some("y"),
+            )
             .unwrap_err();
         assert_script_err(
             err,
@@ -1701,16 +1857,17 @@ mod tests {
         );
 
         // No names.
-        let err = SassNumber::new(1.0, Some("px"))
-            .convert_value_to_match(&SassNumber::new(2.0, Some("s")), None, None)
+        let err = SassNumber::new(&arena, 1.0, Some("px"))
+            .convert_value_to_match(&SassNumber::new(&arena, 2.0, Some("s")), None, None)
             .unwrap_err();
         assert_script_err(err, "1px and 2s have incompatible units.", None);
     }
 
     #[test]
     fn test_coerce_value_to_unit_error_messages() {
+        let arena = Bump::new();
         // Known unit type: lists the compatible units.
-        let err = SassNumber::new(10.0, Some("px"))
+        let err = SassNumber::new(&arena, 10.0, Some("px"))
             .coerce_value_to_unit("rad", Some("number"))
             .unwrap_err();
         assert_script_err(
@@ -1720,7 +1877,7 @@ mod tests {
         );
 
         // Unknown unit.
-        let err = SassNumber::new(5.0, Some("px"))
+        let err = SassNumber::new(&arena, 5.0, Some("px"))
             .coerce_value_to_unit("foo", Some("x"))
             .unwrap_err();
         assert_script_err(err, "Expected 5px to have unit foo.", Some("x"));
@@ -1728,14 +1885,15 @@ mod tests {
 
     #[test]
     fn test_convert_value_error_messages() {
+        let arena = Bump::new();
         // Multiple units.
-        let err = SassNumber::new(5.0, Some("px"))
+        let err = SassNumber::new(&arena, 5.0, Some("px"))
             .convert_value(&["px".to_string(), "s".to_string()], &[], None)
             .unwrap_err();
         assert_script_err(err, "Expected 5px to have units px*s.", None);
 
         // Unitful to unitless.
-        let err = SassNumber::new(5.0, Some("px"))
+        let err = SassNumber::new(&arena, 5.0, Some("px"))
             .convert_value(&[], &[], None)
             .unwrap_err();
         assert_script_err(err, "Expected 5px to have no units.", None);
@@ -1743,28 +1901,32 @@ mod tests {
 
     #[test]
     fn test_coerce_units_error_picks_self_coercion_error() {
+        let arena = Bump::new();
         // Matches Go numCoerceUnits: when both coercions fail, the error from
         // n.CoerceValueToMatch(other) wins — the receiver appears first.
-        let a = SassNumber::new(1.0, Some("px"));
-        let b = SassNumber::new(2.0, Some("s"));
+        let a = SassNumber::new(&arena, 1.0, Some("px"));
+        let b = SassNumber::new(&arena, 2.0, Some("s"));
         let err = a.less_than_num(&b).unwrap_err();
         assert_script_err(err, "1px and 2s have incompatible units.", None);
     }
 
     #[test]
     fn test_number_to_display_string() {
+        let arena = Bump::new();
         assert_eq!(
-            SassNumber::new(12.0, Some("px"))
+            SassNumber::new(&arena, 12.0, Some("px"))
                 .to_display_string()
                 .unwrap(),
             "12px"
         );
         assert_eq!(
-            SassNumber::new(2.5, None).to_display_string().unwrap(),
+            SassNumber::new(&arena, 2.5, None)
+                .to_display_string()
+                .unwrap(),
             "2.5"
         );
         assert_eq!(
-            SassNumber::with_units(5.0, vec!["px".into()], vec!["s".into()])
+            SassNumber::with_units(&arena, 5.0, vec!["px".into()], vec!["s".into()])
                 .to_display_string()
                 .unwrap(),
             "calc(5px / 1s)"

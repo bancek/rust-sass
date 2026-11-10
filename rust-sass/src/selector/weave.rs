@@ -1197,7 +1197,7 @@ pub fn selector_pseudo_is_superselector<'parse>(
     c2_span: FileSpan<'parse>,
     parents: Option<&[ComplexSelectorComponent<'parse>]>,
 ) -> SassResult<bool> {
-    let sel = p.selector.as_deref().ok_or_else(|| SassError::Script {
+    let sel = p.selector.ok_or_else(|| SassError::Script {
         message: format!("Selector {p:?} must have a selector argument"),
         argument_name: None,
     })?;
@@ -1293,7 +1293,7 @@ pub fn selector_pseudo_is_superselector<'parse>(
                         SimpleSelector::Pseudo(ref ps_b) => {
                             if let Some(ref sel_b) = ps_b.selector {
                                 if ps_b.name == p.name {
-                                    if let Selector::List(ref l2) = sel_b.as_ref() {
+                                    if let Selector::List(ref l2) = sel_b {
                                         if list_is_superselector(
                                             l2.0.components,
                                             std::slice::from_ref(c),
@@ -1327,10 +1327,8 @@ pub fn selector_pseudo_is_superselector<'parse>(
             for sb in c2 {
                 if let SimpleSelector::Pseudo(ref ps) = sb {
                     if ps.name == p.name && ps.argument == p.argument {
-                        if let Some(ref sel2) = ps.selector {
-                            if let super::Selector::List(ref l2) = sel2.as_ref() {
-                                return l1.is_superselector(l2);
-                            }
+                        if let Some(super::Selector::List(ref l2)) = ps.selector {
+                            return l1.is_superselector(l2);
                         }
                     }
                 }
@@ -1354,10 +1352,8 @@ fn selector_pseudo_args<'parse>(
     for s in c {
         if let SimpleSelector::Pseudo(ref ps) = s {
             if ps.is_class == is_class && ps.name == name {
-                if let Some(ref sel) = ps.selector {
-                    if let Selector::List(ref list) = sel.as_ref() {
-                        r.push(list);
-                    }
+                if let Some(Selector::List(ref list)) = ps.selector {
+                    r.push(list);
                 }
             }
         }

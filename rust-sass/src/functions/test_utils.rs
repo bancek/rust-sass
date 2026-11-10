@@ -156,12 +156,15 @@ where
 
 /// Build a unitless number value.
 pub fn num<'compile: 'parse, 'parse>(arena: &'compile Bump, v: f64) -> Value<'parse> {
-    Value::new_with_arena(arena, ValueKind::Number(SassNumber::new(v, None)))
+    Value::new_with_arena(arena, ValueKind::Number(SassNumber::new(arena, v, None)))
 }
 
 /// Build a percentage number value.
 pub fn percent<'compile: 'parse, 'parse>(arena: &'compile Bump, v: f64) -> Value<'parse> {
-    Value::new_with_arena(arena, ValueKind::Number(SassNumber::new(v, Some("%"))))
+    Value::new_with_arena(
+        arena,
+        ValueKind::Number(SassNumber::new(arena, v, Some("%"))),
+    )
 }
 
 /// Build an unquoted string value.
@@ -317,7 +320,7 @@ fn expression_default_value<'parse>(
             s.has_quotes,
         )),
         Expression::Number(n) if n.unit.is_none() => {
-            ValueKind::Number(SassNumber::new(n.value, None))
+            ValueKind::Number(SassNumber::new(arena, n.value, None))
         }
         Expression::Boolean(b) => ValueKind::Boolean(SassBoolean::new(b.value)),
         Expression::Null(_) => ValueKind::Null,

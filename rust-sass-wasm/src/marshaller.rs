@@ -205,8 +205,8 @@ fn to_serializable<'parse>(
         },
         ValueKind::Number(n) => SerializableValue::Number {
             value: n.value,
-            numerator_units: n.numerator_units.clone(),
-            denominator_units: n.denominator_units.clone(),
+            numerator_units: n.numerator_units.to_vec(),
+            denominator_units: n.denominator_units.to_vec(),
         },
         ValueKind::Color(c) => SerializableValue::Color {
             space: c.space.name(),
@@ -312,12 +312,12 @@ fn to_serializable_values<'parse>(
     values.iter().map(|v| to_serializable(ctx, v)).collect()
 }
 
-fn calc_arg_to_serializable(arg: &CalcArgument) -> SassResult<SerializableCalcArg> {
+fn calc_arg_to_serializable(arg: &CalcArgument<'_>) -> SassResult<SerializableCalcArg> {
     Ok(match arg {
         CalcArgument::Number(n) => SerializableCalcArg::Number {
             value: n.value,
-            numerator_units: n.numerator_units.clone(),
-            denominator_units: n.denominator_units.clone(),
+            numerator_units: n.numerator_units.to_vec(),
+            denominator_units: n.denominator_units.to_vec(),
         },
         CalcArgument::Calculation(c) => SerializableCalcArg::Calculation {
             name: c.name.clone(),
@@ -391,7 +391,7 @@ pub fn js_to_value<'compile: 'parse, 'parse: 'compile>(
             )
         }
         "number" => {
-            let num = get_number(value)?;
+            let num = get_number(arena, value)?;
             SassValue::new_with_arena(arena, ValueKind::Number(num))
         }
         "color" => {
@@ -546,8 +546,9 @@ fn de_operator(op: &str) -> SassResult<CalculationOperator> {
     })
 }
 
-fn get_number(value: &JsValue) -> SassResult<SassNumber<'static>> {
+fn get_number<'parse>(arena: &'parse Bump, value: &JsValue) -> SassResult<SassNumber<'parse>> {
     Ok(SassNumber::with_units(
+        arena,
         get_f64_required(value, "value")?,
         get_string_array(value, "numeratorUnits")?,
         get_string_array(value, "denominatorUnits")?,
@@ -618,7 +619,7 @@ fn js_calc_arg_to_rust<'compile: 'parse, 'parse: 'compile>(
 ) -> SassResult<CalcArgument<'parse>> {
     let ty = get_str(cv, "type")?;
     Ok(match ty.as_str() {
-        "number" => CalcArgument::Number(get_number(cv)?),
+        "number" => CalcArgument::Number(get_number(arena, cv)?),
         "string" => CalcArgument::String(get_str(cv, "value")?, get_bool(cv, "quoted")?),
         "interpolation" => CalcArgument::String(format!("({})", get_str(cv, "value")?), false),
         "operation" => {
@@ -865,6 +866,7 @@ mod tests {
             SassValue::new_with_arena(
                 &arena,
                 ValueKind::Number(SassNumber::with_units(
+                    &arena,
                     3.0,
                     vec!["px".into()],
                     vec!["s".into()],
@@ -874,7 +876,10 @@ mod tests {
         roundtrip(
             ctx,
             &arena,
-            SassValue::new_with_arena(&arena, ValueKind::Number(SassNumber::new(42.0, None))),
+            SassValue::new_with_arena(
+                &arena,
+                ValueKind::Number(SassNumber::new(&arena, 42.0, None)),
+            ),
         );
     }
 
@@ -916,7 +921,7 @@ mod tests {
                     vec![
                         SassValue::new_with_arena(
                             &arena,
-                            ValueKind::Number(SassNumber::new(1.0, None)),
+                            ValueKind::Number(SassNumber::new(&arena, 1.0, None)),
                         ),
                         SassValue::new_with_arena(
                             &arena,
@@ -957,13 +962,13 @@ mod tests {
                             ),
                             SassValue::new_with_arena(
                                 &arena,
-                                ValueKind::Number(SassNumber::new(1.0, None)),
+                                ValueKind::Number(SassNumber::new(&arena, 1.0, None)),
                             ),
                         ),
                         (
                             SassValue::new_with_arena(
                                 &arena,
-                                ValueKind::Number(SassNumber::new(2.0, None)),
+                                ValueKind::Number(SassNumber::new(&arena, 2.0, None)),
                             ),
                             SassValue::new_with_arena(&arena, ValueKind::Boolean(SASS_TRUE)),
                         ),
@@ -994,7 +999,7 @@ mod tests {
                     &arena,
                     vec![SassValue::new_with_arena(
                         &arena,
-                        ValueKind::Number(SassNumber::new(1.0, None)),
+                        ValueKind::Number(SassNumber::new(&arena, 1.0, None)),
                     )],
                     keywords,
                     ListSeparator::Comma,
@@ -1026,7 +1031,7 @@ mod tests {
                 ValueKind::Calculation(&*arena.alloc(SassCalculation::new_unsimplified(
                     "min",
                     vec![
-                        CalcArgument::Number(SassNumber::new(1.0, Some("px"))),
+                        CalcArgument::Number(SassNumber::new(&arena, 1.0, Some("px"))),
                         CalcArgument::String("var(--x)".into(), false),
                     ],
                 ))),
@@ -1044,7 +1049,7 @@ mod tests {
                 &arena,
                 vec![SassValue::new_with_arena(
                     &arena,
-                    ValueKind::Number(SassNumber::new(7.0, None)),
+                    ValueKind::Number(SassNumber::new(&arena, 7.0, None)),
                 )],
                 IndexMap::new(),
                 ListSeparator::Undecided,
