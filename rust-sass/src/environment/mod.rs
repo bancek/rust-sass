@@ -37,13 +37,13 @@ use crate::arena_map::{ArenaHashMap, ArenaHashSet, ArenaMap};
 
 /// Rebuilds a `HashSet` in the arena (`&Bump` has no `Default`, so `collect()`
 /// would use the global allocator).
-fn arena_collect<'a, T: Clone + std::hash::Hash + Eq>(
-    arena: &'a Bump,
-    set: HashSet<T>,
-) -> ArenaHashSet<'a, T> {
+fn arena_collect_strs<'a, 'p>(arena: &'a Bump, strs: Vec<&'p str>) -> ArenaHashSet<'a, &'p str>
+where
+    'p: 'a,
+{
     let mut out =
         hashbrown::HashSet::with_hasher_in(hashbrown::DefaultHashBuilder::default(), arena);
-    for item in set {
+    for item in strs {
         out.insert(item);
     }
     out
@@ -1390,9 +1390,30 @@ impl<'compile: 'parse, 'parse> Environment<'compile, 'parse> {
                 forwarded_mixins.insert(name.clone());
             }
         }
-        let forwarded_vars = arena_collect(arena, forwarded_vars);
-        let forwarded_funcs = arena_collect(arena, forwarded_funcs);
-        let forwarded_mixins = arena_collect(arena, forwarded_mixins);
+        let forwarded_vars: &'parse ArenaHashSet<'parse, &'parse str> =
+            arena.alloc(arena_collect_strs(
+                arena,
+                forwarded_vars
+                    .iter()
+                    .map(|n| &*arena.alloc_str(n))
+                    .collect::<Vec<&'parse str>>(),
+            ));
+        let forwarded_funcs: &'parse ArenaHashSet<'parse, &'parse str> =
+            arena.alloc(arena_collect_strs(
+                arena,
+                forwarded_funcs
+                    .iter()
+                    .map(|n| &*arena.alloc_str(n))
+                    .collect::<Vec<&'parse str>>(),
+            ));
+        let forwarded_mixins: &'parse ArenaHashSet<'parse, &'parse str> =
+            arena.alloc(arena_collect_strs(
+                arena,
+                forwarded_mixins
+                    .iter()
+                    .map(|n| &*arena.alloc_str(n))
+                    .collect::<Vec<&'parse str>>(),
+            ));
 
         if inner.at_root() {
             // Hide members from modules that have already been imported or
@@ -1402,9 +1423,9 @@ impl<'compile: 'parse, 'parse> Environment<'compile, 'parse> {
                 if let Some(shadowed) = ShadowedModuleView::if_necessary(
                     arena,
                     &mod_,
-                    &forwarded_vars,
-                    &forwarded_funcs,
-                    &forwarded_mixins,
+                    forwarded_vars,
+                    forwarded_funcs,
+                    forwarded_mixins,
                 ) {
                     let node = inner
                         .imported_modules
@@ -1428,9 +1449,9 @@ impl<'compile: 'parse, 'parse> Environment<'compile, 'parse> {
                     if let Some(shadowed) = ShadowedModuleView::if_necessary(
                         arena,
                         &mod_,
-                        &forwarded_vars,
-                        &forwarded_funcs,
-                        &forwarded_mixins,
+                        forwarded_vars,
+                        forwarded_funcs,
+                        forwarded_mixins,
                     ) {
                         let node = fwd.shift_remove(&mod_).unwrap();
                         let is_empty = match shadowed.kind() {
@@ -1474,25 +1495,25 @@ impl<'compile: 'parse, 'parse> Environment<'compile, 'parse> {
 
         // Remove existing member definitions that are now shadowed by the
         // forwarded modules.
-        for name in &forwarded_vars {
-            inner.variable_indices.remove(name.as_str());
+        for name in forwarded_vars.iter() {
+            inner.variable_indices.remove(*name);
             if let Some(last_vars) = inner.variables.last() {
-                last_vars.borrow_mut().shift_remove(name.as_str());
+                last_vars.borrow_mut().shift_remove(*name);
             }
             if let Some(last_nodes) = inner.variable_nodes.last() {
-                last_nodes.borrow_mut().shift_remove(name.as_str());
+                last_nodes.borrow_mut().shift_remove(*name);
             }
         }
-        for name in &forwarded_funcs {
-            inner.function_indices.remove(name.as_str());
+        for name in forwarded_funcs.iter() {
+            inner.function_indices.remove(*name);
             if let Some(last_funcs) = inner.functions.last() {
-                last_funcs.borrow_mut().shift_remove(name.as_str());
+                last_funcs.borrow_mut().shift_remove(*name);
             }
         }
-        for name in &forwarded_mixins {
-            inner.mixin_indices.remove(name.as_str());
+        for name in forwarded_mixins.iter() {
+            inner.mixin_indices.remove(*name);
             if let Some(last_mixins) = inner.mixins.last() {
-                last_mixins.borrow_mut().shift_remove(name.as_str());
+                last_mixins.borrow_mut().shift_remove(*name);
             }
         }
 

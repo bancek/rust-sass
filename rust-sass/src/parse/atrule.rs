@@ -638,11 +638,11 @@ fn forward_rule_impl<'b>(
     let url = url_string_impl(scanner, &state.parser_state)?;
     let url = ArenaUrl::from_owned(state.arena, &url);
     whitespace_impl(scanner, &mut state.parser_state, false)?;
-    let mut prefix: Option<String> = None;
+    let mut prefix: Option<&str> = None;
     if scan_identifier_impl(scanner, "as", false)? {
         whitespace_impl(scanner, &mut state.parser_state, true)?;
         let s = identifier_impl(scanner, &state.parser_state, true, false)?;
-        prefix = Some(s);
+        prefix = Some(&*state.arena.alloc_str(&s));
         scanner.expect_char('*')?;
         whitespace_impl(scanner, &mut state.parser_state, false)?;
     }
@@ -679,10 +679,18 @@ fn forward_rule_impl<'b>(
             url,
             sm,
             shown_vars.unwrap_or_else(|| arena_set(state.arena, HashSet::new())),
-            shown_order_mf.unwrap_or_default(),
-            shown_order_vars.unwrap_or_default(),
+            shown_order_mf
+                .unwrap_or_default()
+                .iter()
+                .map(|s| &*state.arena.alloc_str(s))
+                .collect(),
+            shown_order_vars
+                .unwrap_or_default()
+                .iter()
+                .map(|s| &*state.arena.alloc_str(s))
+                .collect(),
             span,
-            prefix.as_deref(),
+            prefix,
             arena_config(state.arena, configuration),
         ));
     }
@@ -693,7 +701,7 @@ fn forward_rule_impl<'b>(
             hm,
             hidden_vars.unwrap_or_else(|| arena_set(state.arena, HashSet::new())),
             span,
-            prefix.as_deref(),
+            prefix,
             arena_config(state.arena, configuration),
         ));
     }
@@ -701,7 +709,7 @@ fn forward_rule_impl<'b>(
         state.arena,
         url,
         span,
-        prefix.as_deref(),
+        prefix,
         arena_config(state.arena, configuration),
     ))
 }
@@ -759,11 +767,14 @@ fn member_list_impl<'b>(
 
 /// Rebuilds `set` in the compile arena (`&Bump` has no `Default`, so a plain
 /// `collect()` would allocate on the global heap).
-fn arena_set<'parse>(arena: &'parse Bump, set: HashSet<String>) -> ArenaHashSet<'parse, String> {
+fn arena_set<'parse>(
+    arena: &'parse Bump,
+    set: HashSet<String>,
+) -> ArenaHashSet<'parse, &'parse str> {
     let mut out =
         hashbrown::HashSet::with_hasher_in(hashbrown::DefaultHashBuilder::default(), arena);
     for item in set {
-        out.insert(item);
+        out.insert(&*arena.alloc_str(&item));
     }
     out
 }

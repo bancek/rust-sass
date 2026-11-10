@@ -610,11 +610,19 @@ mod tests {
     fn arena_set<'a>(
         arena: &'a Bump,
         names: &[&str],
-    ) -> crate::arena_map::ArenaHashSet<'a, String> {
+    ) -> &'a crate::arena_map::ArenaHashSet<'a, &'a str> {
+        let names: Vec<&'a str> = names.iter().map(|n| &*arena.alloc_str(n)).collect();
+        arena.alloc(arena_set_refs(arena, &names))
+    }
+
+    fn arena_set_refs<'a>(
+        arena: &'a Bump,
+        names: &[&'a str],
+    ) -> crate::arena_map::ArenaHashSet<'a, &'a str> {
         let mut set =
             hashbrown::HashSet::with_hasher_in(hashbrown::DefaultHashBuilder::default(), arena);
         for name in names {
-            set.insert((*name).to_string());
+            set.insert(*name);
         }
         set
     }
@@ -865,9 +873,9 @@ mod tests {
         let sv = ShadowedModuleView::new(
             &arena,
             inner_mod,
-            &blocked,
-            &arena_set(&arena, &[]),
-            &arena_set(&arena, &[]),
+            blocked,
+            arena_set(&arena, &[]),
+            arena_set(&arena, &[]),
         );
 
         assert!(sv.variables.has("a"));
@@ -882,9 +890,9 @@ mod tests {
         let result = ShadowedModuleView::if_necessary(
             &arena,
             &inner_mod,
-            &arena_set(&arena, &[]),
-            &arena_set(&arena, &[]),
-            &arena_set(&arena, &[]),
+            arena_set(&arena, &[]),
+            arena_set(&arena, &[]),
+            arena_set(&arena, &[]),
         );
         assert!(result.is_none());
     }
@@ -900,9 +908,9 @@ mod tests {
         let result = ShadowedModuleView::if_necessary(
             &arena,
             &inner_mod,
-            &blocked,
-            &arena_set(&arena, &[]),
-            &arena_set(&arena, &[]),
+            blocked,
+            arena_set(&arena, &[]),
+            arena_set(&arena, &[]),
         );
         assert!(result.is_some());
     }
@@ -918,9 +926,9 @@ mod tests {
         let sv = ShadowedModuleView::new(
             &arena,
             inner_mod,
-            &blocked,
-            &arena_set(&arena, &[]),
-            &arena_set(&arena, &[]),
+            blocked,
+            arena_set(&arena, &[]),
+            arena_set(&arena, &[]),
         );
         assert!(sv.is_empty().unwrap());
     }
@@ -944,25 +952,40 @@ mod tests {
         let inner_mod = Module::new(&arena, ModuleKind::BuiltIn(inner));
         let blocked = arena_set(&arena, &["b"]);
 
-        let make = |blocked: &crate::arena_map::ArenaHashSet<'_, String>| {
-            Module::new(
+        let first = Module::new(
+            &arena,
+            ModuleKind::Shadowed(ShadowedModuleView::new(
                 &arena,
-                ModuleKind::Shadowed(ShadowedModuleView::new(
-                    &arena,
-                    inner_mod,
-                    blocked,
-                    &arena_set(&arena, &[]),
-                    &arena_set(&arena, &[]),
-                )),
-            )
-        };
-        let first = make(&blocked);
-        let second = make(&blocked);
+                inner_mod,
+                blocked,
+                arena_set(&arena, &[]),
+                arena_set(&arena, &[]),
+            )),
+        );
+        let second = Module::new(
+            &arena,
+            ModuleKind::Shadowed(ShadowedModuleView::new(
+                &arena,
+                inner_mod,
+                blocked,
+                arena_set(&arena, &[]),
+                arena_set(&arena, &[]),
+            )),
+        );
         assert_eq!(first, second);
         assert_eq!(hash_of(&first), hash_of(&second));
 
         let other = arena_set(&arena, &["a"]);
-        let different = make(&other);
+        let different = Module::new(
+            &arena,
+            ModuleKind::Shadowed(ShadowedModuleView::new(
+                &arena,
+                inner_mod,
+                other,
+                arena_set(&arena, &[]),
+                arena_set(&arena, &[]),
+            )),
+        );
         assert_ne!(first, different);
 
         // Shadowing a shadowed view compares the inner view structurally.
@@ -971,9 +994,9 @@ mod tests {
             ModuleKind::Shadowed(ShadowedModuleView::new(
                 &arena,
                 first,
-                &other,
-                &arena_set(&arena, &[]),
-                &arena_set(&arena, &[]),
+                other,
+                arena_set(&arena, &[]),
+                arena_set(&arena, &[]),
             )),
         );
         let nested_again = Module::new(
@@ -981,9 +1004,9 @@ mod tests {
             ModuleKind::Shadowed(ShadowedModuleView::new(
                 &arena,
                 second,
-                &other,
-                &arena_set(&arena, &[]),
-                &arena_set(&arena, &[]),
+                other,
+                arena_set(&arena, &[]),
+                arena_set(&arena, &[]),
             )),
         );
         assert_eq!(nested, nested_again);

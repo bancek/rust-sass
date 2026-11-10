@@ -198,7 +198,7 @@ impl<'p, V: Clone + Debug> MemberMap<V> for RefCellMap<'p, V> {
 /// Dart: `PrefixedMapView` (`util/prefixed_map_view.dart`).
 pub struct PrefixedMapView<'s, V: Clone> {
     pub inner: &'s dyn MemberMap<V>,
-    pub prefix: String,
+    pub prefix: &'s str,
 }
 
 impl<'s, V: Clone> Debug for PrefixedMapView<'s, V> {
@@ -212,12 +212,12 @@ impl<'s, V: Clone> Debug for PrefixedMapView<'s, V> {
 
 impl<'s, V: Clone> MemberMap<V> for PrefixedMapView<'s, V> {
     fn get(&self, key: &str) -> Option<V> {
-        key.strip_prefix(&self.prefix)
+        key.strip_prefix(self.prefix)
             .and_then(|stripped| self.inner.get(stripped))
     }
 
     fn has(&self, key: &str) -> bool {
-        key.starts_with(&self.prefix) && self.inner.has(&key[self.prefix.len()..])
+        key.starts_with(self.prefix) && self.inner.has(&key[self.prefix.len()..])
     }
 
     fn len(&self) -> usize {
@@ -262,11 +262,11 @@ pub struct LimitedMapView<'s, 'a, V: Clone> {
     inner: &'s dyn MemberMap<V>,
     /// Arena-backed, so the view owns no heap data (the view itself lives in
     /// the arena for `@forward` show/hide rules).
-    allowed: &'a ArenaHashSet<'a, String>,
+    allowed: &'a ArenaHashSet<'a, &'a str>,
     /// Safelist order (Dart `LimitedMapView.safelist` iterates the safelist).
     /// `None` for blocklist views (inner order). Stored because `HashSet`
     /// iteration is nondeterministic — `keys`/`entries` must follow it.
-    safelist_order: Option<&'a [String]>,
+    safelist_order: Option<&'a [&'a str]>,
 }
 
 impl<'s, 'a, V: Clone> Debug for LimitedMapView<'s, 'a, V> {
@@ -284,19 +284,14 @@ impl<'s, 'a, V: Clone + Debug> LimitedMapView<'s, 'a, V> {
     pub fn new_safelist(
         arena: &'a Bump,
         inner: &'s dyn MemberMap<V>,
-        safelist: &ArenaHashSet<'_, String>,
+        safelist: &ArenaHashSet<'_, &'a str>,
     ) -> Self {
         // Dart `LimitedMapView.safelist`: `safelist.intersection(MapKeySet(_map))`
         // — iteration follows the SAFEList order, not the inner map's. But the
         // safelist here is a `HashSet` (order lost at parse); the ordered
         // variant below must be used where order matters. This keeps the
         // membership right; order falls back to inner order.
-        let allowed: HashSet<String> = safelist
-            .iter()
-            .filter(|k| inner.has(k.as_str()))
-            .cloned()
-            .collect();
-        let allowed = collect_in(arena, allowed);
+        let allowed = collect_strs_in(arena, safelist.iter().copied().filter(|k| inner.has(k)));
         Self {
             inner,
             allowed: arena.alloc(allowed),
@@ -309,22 +304,15 @@ impl<'s, 'a, V: Clone + Debug> LimitedMapView<'s, 'a, V> {
     pub fn new_safelist_ordered(
         arena: &'a Bump,
         inner: &'s dyn MemberMap<V>,
-        safelist: &[String],
+        safelist: &'a [&'a str],
     ) -> Self {
-        let allowed: HashSet<String> = safelist
-            .iter()
-            .filter(|k| inner.has(k.as_str()))
-            .cloned()
-            .collect();
-        let order: Vec<String> = safelist
-            .iter()
-            .filter(|k| inner.has(k.as_str()))
-            .cloned()
-            .collect();
+        let allowed = collect_strs_in(arena, safelist.iter().copied().filter(|k| inner.has(k)));
+        let order: Vec<&'a str> = safelist.iter().copied().filter(|k| inner.has(k)).collect();
+        let order = arena.alloc_slice_fill_iter(order);
         Self {
             inner,
-            allowed: arena.alloc(collect_in(arena, allowed)),
-            safelist_order: Some(arena.alloc_slice_fill_iter(order)),
+            allowed: arena.alloc(allowed),
+            safelist_order: Some(order),
         }
     }
 
@@ -333,14 +321,14 @@ impl<'s, 'a, V: Clone + Debug> LimitedMapView<'s, 'a, V> {
     pub fn new_blocklist(
         arena: &'a Bump,
         inner: &'s dyn MemberMap<V>,
-        blocklist: &ArenaHashSet<'_, String>,
+        blocklist: &ArenaHashSet<'_, &'a str>,
     ) -> Self {
-        let allowed: HashSet<String> = inner
+        let keys: Vec<String> = inner
             .keys()
             .into_iter()
             .filter(|k| !blocklist.contains(k.as_str()))
             .collect();
-        let allowed = collect_in(arena, allowed);
+        let allowed = collect_strs_in(arena, keys.iter().map(|k| &*arena.alloc_str(k)));
         Self {
             inner,
             allowed: arena.alloc(allowed),
@@ -367,12 +355,12 @@ impl<'s, 'a, V: Clone> MemberMap<V> for LimitedMapView<'s, 'a, V> {
 
     fn keys(&self) -> Vec<String> {
         if let Some(order) = self.safelist_order {
-            return order.to_vec();
+            return order.iter().map(|k| (*k).to_string()).collect();
         }
         self.inner
             .keys()
             .into_iter()
-            .filter(|k| self.allowed.contains(k))
+            .filter(|k| self.allowed.contains(k.as_str()))
             .collect()
     }
 
@@ -380,13 +368,13 @@ impl<'s, 'a, V: Clone> MemberMap<V> for LimitedMapView<'s, 'a, V> {
         if let Some(order) = self.safelist_order {
             return order
                 .iter()
-                .filter_map(|k| self.inner.get(k).map(|v| (k.clone(), v)))
+                .filter_map(|k| self.inner.get(k).map(|v| ((*k).to_string(), v)))
                 .collect();
         }
         self.inner
             .entries()
             .into_iter()
-            .filter(|(k, _)| self.allowed.contains(k))
+            .filter(|(k, _)| self.allowed.contains(k.as_str()))
             .collect()
     }
 }
@@ -541,9 +529,9 @@ impl<'s, V: Clone> MemberMap<V> for PublicMemberMapView<'s, V> {
 pub fn forwarded_map<'a, V: Clone + Debug>(
     arena: &'a Bump,
     inner: &'a dyn MemberMap<V>,
-    prefix: Option<&str>,
-    safelist: Option<&ArenaHashSet<'_, String>>,
-    blocklist: Option<&ArenaHashSet<'_, String>>,
+    prefix: Option<&'a str>,
+    safelist: Option<&'a ArenaHashSet<'_, &'a str>>,
+    blocklist: Option<&'a ArenaHashSet<'_, &'a str>>,
 ) -> &'a dyn MemberMap<V> {
     forwarded_map_ordered(arena, inner, prefix, None, safelist, blocklist)
 }
@@ -553,10 +541,10 @@ pub fn forwarded_map<'a, V: Clone + Debug>(
 pub fn forwarded_map_ordered<'a, V: Clone + Debug>(
     arena: &'a Bump,
     inner: &'a dyn MemberMap<V>,
-    prefix: Option<&str>,
-    safelist_order: Option<&[String]>,
-    safelist: Option<&ArenaHashSet<'_, String>>,
-    blocklist: Option<&ArenaHashSet<'_, String>>,
+    prefix: Option<&'a str>,
+    safelist_order: Option<&'a [&'a str]>,
+    safelist: Option<&'a ArenaHashSet<'_, &'a str>>,
+    blocklist: Option<&'a ArenaHashSet<'_, &'a str>>,
 ) -> &'a dyn MemberMap<V> {
     if prefix.is_none() && safelist.is_none() && blocklist.is_none_or(|b| b.is_empty()) {
         return inner;
@@ -566,7 +554,7 @@ pub fn forwarded_map_ordered<'a, V: Clone + Debug>(
     if let Some(p) = prefix {
         result = arena.alloc(PrefixedMapView {
             inner: result,
-            prefix: p.to_string(),
+            prefix: p,
         });
     }
     if let Some(order) = safelist_order {
@@ -613,7 +601,7 @@ pub fn member_map<'a, V: Clone + Debug>(
 /// Go `needsBlocklist`.
 pub fn needs_blocklist<V: Clone>(
     map: &dyn MemberMap<V>,
-    blocklist: &ArenaHashSet<'_, String>,
+    blocklist: &ArenaHashSet<'_, &str>,
 ) -> bool {
     if blocklist.is_empty() || map.is_empty() {
         return false;
@@ -629,24 +617,30 @@ pub fn map_key_diff<'a, V: Clone>(
     arena: &'a Bump,
     full: &dyn MemberMap<V>,
     filtered: &dyn MemberMap<V>,
-) -> ArenaHashSet<'a, String> {
+) -> ArenaHashSet<'a, &'a str> {
     let full_keys: HashSet<String> = full.keys().into_iter().collect();
     let filtered_keys: HashSet<String> = filtered.keys().into_iter().collect();
-    collect_in(
-        arena,
-        full_keys.difference(&filtered_keys).cloned().collect(),
-    )
+    let diff: Vec<&'a str> = full_keys
+        .difference(&filtered_keys)
+        .map(|k| &*arena.alloc_str(k))
+        .collect();
+    collect_strs_in(arena, diff)
 }
 
 // Rebuilds `set` with the arena allocator (a plain `collect()` would use the
 // global one, since `&Bump` has no `Default`).
-fn collect_in<'a, T: Clone + std::hash::Hash + Eq>(
+/// Collects borrowed strings into an arena set (the caller owns the backing
+/// `&str`s, which already live in the arena).
+fn collect_strs_in<'a, 'p, I: IntoIterator<Item = &'p str>>(
     arena: &'a Bump,
-    set: HashSet<T>,
-) -> ArenaHashSet<'a, T> {
+    items: I,
+) -> ArenaHashSet<'a, &'p str>
+where
+    'p: 'a,
+{
     let mut out =
         hashbrown::HashSet::with_hasher_in(hashbrown::DefaultHashBuilder::default(), arena);
-    for item in set {
+    for item in items {
         out.insert(item);
     }
     out
@@ -661,11 +655,11 @@ mod tests {
     fn arena_set<'a>(
         arena: &'a Bump,
         names: std::collections::HashSet<String>,
-    ) -> ArenaHashSet<'a, String> {
+    ) -> ArenaHashSet<'a, &'a str> {
         let mut set =
             hashbrown::HashSet::with_hasher_in(hashbrown::DefaultHashBuilder::default(), arena);
         for name in names {
-            set.insert(name);
+            set.insert(&*arena.alloc_str(&name));
         }
         set
     }
@@ -721,7 +715,7 @@ mod tests {
         inner_map.insert("b".to_string(), 2);
         inner_map.insert("a".to_string(), 1);
         let inner: &dyn MemberMap<i32> = arena.alloc(IndexMapView { map: inner_map });
-        let order = vec!["a".to_string(), "b".to_string()];
+        let order = ["a", "b"];
         let limited: &dyn MemberMap<i32> =
             arena.alloc(LimitedMapView::new_safelist_ordered(&arena, inner, &order));
         assert_eq!(limited.keys(), vec!["a".to_string(), "b".to_string()]);
@@ -822,7 +816,7 @@ mod tests {
         let inner = make_v(&arena);
         let prefixed: &dyn MemberMap<i32> = arena.alloc(PrefixedMapView {
             inner,
-            prefix: "ns-".into(),
+            prefix: "ns-",
         });
         assert_eq!(prefixed.get("ns-a"), Some(1));
         assert_eq!(prefixed.get("ns-b"), Some(2));
@@ -834,7 +828,7 @@ mod tests {
         let inner = make_v(&arena);
         let prefixed: &dyn MemberMap<i32> = arena.alloc(PrefixedMapView {
             inner,
-            prefix: "ns-".into(),
+            prefix: "ns-",
         });
         assert_eq!(prefixed.get("a"), None);
         assert_eq!(prefixed.get("b"), None);
@@ -846,7 +840,7 @@ mod tests {
         let inner = make_v(&arena);
         let prefixed: &dyn MemberMap<i32> = arena.alloc(PrefixedMapView {
             inner,
-            prefix: "ns-".into(),
+            prefix: "ns-",
         });
         assert_eq!(prefixed.get("n-a"), None);
     }
@@ -857,7 +851,7 @@ mod tests {
         let inner = make_v(&arena);
         let prefixed: &dyn MemberMap<i32> = arena.alloc(PrefixedMapView {
             inner,
-            prefix: "ns-".into(),
+            prefix: "ns-",
         });
         assert!(prefixed.has("ns-a"));
         assert!(!prefixed.has("a"));
@@ -869,7 +863,7 @@ mod tests {
         let inner = make_v(&arena);
         let prefixed: &dyn MemberMap<i32> = arena.alloc(PrefixedMapView {
             inner,
-            prefix: "ns-".into(),
+            prefix: "ns-",
         });
         assert_eq!(prefixed.len(), 5);
     }
@@ -880,7 +874,7 @@ mod tests {
         let inner = make_v(&arena);
         let prefixed: &dyn MemberMap<i32> = arena.alloc(PrefixedMapView {
             inner,
-            prefix: "ns-".into(),
+            prefix: "ns-",
         });
         let keys = prefixed.keys();
         assert_eq!(

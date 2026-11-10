@@ -89,8 +89,8 @@ impl<'parse> ConfiguredValue<'parse> {
 #[derive(Clone, Copy, Debug)]
 pub enum Filter<'parse> {
     Prefix(&'parse str),
-    Safelist(&'parse ArenaHashSet<'parse, String>),
-    Blocklist(&'parse ArenaHashSet<'parse, String>),
+    Safelist(&'parse ArenaHashSet<'parse, &'parse str>),
+    Blocklist(&'parse ArenaHashSet<'parse, &'parse str>),
 }
 
 // === ConfigurationInner ===
@@ -155,12 +155,12 @@ impl<'parse> Configuration<'parse> {
             match f {
                 Filter::Prefix(prefix) => key = format!("{prefix}{key}"),
                 Filter::Safelist(allowed) => {
-                    if !allowed.contains(&key) {
+                    if !allowed.contains(key.as_str()) {
                         return None;
                     }
                 }
                 Filter::Blocklist(blocked) => {
-                    if blocked.contains(&key) {
+                    if blocked.contains(key.as_str()) {
                         return None;
                     }
                 }
@@ -175,12 +175,12 @@ impl<'parse> Configuration<'parse> {
         for f in filters.iter().rev() {
             match f {
                 Filter::Safelist(allowed) => {
-                    if !allowed.contains(&key) {
+                    if !allowed.contains(key.as_str()) {
                         return None;
                     }
                 }
                 Filter::Blocklist(blocked) => {
-                    if blocked.contains(&key) {
+                    if blocked.contains(key.as_str()) {
                         return None;
                     }
                 }
@@ -444,11 +444,11 @@ use Configuration::{Explicit, Implicit};
 
 #[cfg(test)]
 mod tests {
-    fn arena_set<'a>(arena: &'a Bump, names: &[&str]) -> ArenaHashSet<'a, String> {
+    fn arena_set<'a, 'p: 'a>(arena: &'a Bump, names: &[&'p str]) -> ArenaHashSet<'a, &'p str> {
         let mut set =
             hashbrown::HashSet::with_hasher_in(hashbrown::DefaultHashBuilder::default(), arena);
         for name in names {
-            set.insert((*name).to_string());
+            set.insert(*name);
         }
         set
     }
@@ -521,13 +521,13 @@ mod tests {
         rule
     }
 
-    fn forward_with_shown<'p>(arena: &'p Bump, names: &[&str]) -> ForwardRule<'p> {
+    fn forward_with_shown<'p>(arena: &'p Bump, names: &[&'p str]) -> ForwardRule<'p> {
         let mut rule = empty_forward_rule(arena);
         rule.shown_variables = Some(arena.alloc(arena_set(arena, names)));
         rule
     }
 
-    fn forward_with_hidden<'p>(arena: &'p Bump, names: &[&str]) -> ForwardRule<'p> {
+    fn forward_with_hidden<'p>(arena: &'p Bump, names: &[&'p str]) -> ForwardRule<'p> {
         let mut rule = empty_forward_rule(arena);
         rule.hidden_variables = Some(arena.alloc(arena_set(arena, names)));
         rule

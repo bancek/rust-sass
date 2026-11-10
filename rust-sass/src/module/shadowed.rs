@@ -46,9 +46,9 @@ impl<'compile: 'parse, 'parse> ShadowedModuleView<'compile, 'parse> {
     pub fn new(
         arena: &'compile Bump,
         inner: Module<'compile, 'parse>,
-        variables: &ArenaHashSet<'_, String>,
-        functions: &ArenaHashSet<'_, String>,
-        mixins: &ArenaHashSet<'_, String>,
+        variables: &'parse ArenaHashSet<'parse, &'parse str>,
+        functions: &'parse ArenaHashSet<'parse, &'parse str>,
+        mixins: &'parse ArenaHashSet<'parse, &'parse str>,
     ) -> Self {
         ShadowedModuleView {
             variables: Self::maybe_blocklist(arena, inner.variables_view(arena), variables),
@@ -68,7 +68,7 @@ impl<'compile: 'parse, 'parse> ShadowedModuleView<'compile, 'parse> {
     fn maybe_blocklist<V: Clone + Debug + 'parse>(
         arena: &'compile Bump,
         inner_view: &'parse dyn MemberMap<V>,
-        blocklist: &ArenaHashSet<'_, String>,
+        blocklist: &'parse ArenaHashSet<'parse, &'parse str>,
     ) -> &'parse dyn MemberMap<V> {
         if blocklist.is_empty() || !member_map::needs_blocklist(inner_view, blocklist) {
             return inner_view;
@@ -133,16 +133,25 @@ impl<'compile: 'parse, 'parse> ShadowedModuleView<'compile, 'parse> {
     pub fn if_necessary(
         arena: &'compile Bump,
         module: &Module<'compile, 'parse>,
-        variables: &ArenaHashSet<'_, String>,
-        functions: &ArenaHashSet<'_, String>,
-        mixins: &ArenaHashSet<'_, String>,
+        variables: &'parse ArenaHashSet<'parse, &'parse str>,
+        functions: &'parse ArenaHashSet<'parse, &'parse str>,
+        mixins: &'parse ArenaHashSet<'parse, &'parse str>,
     ) -> Option<Module<'compile, 'parse>> {
         let module_vars = module.variables();
         let module_funcs = module.functions();
         let module_mixins = module.mixins();
-        let has_overlap = module_vars.keys().iter().any(|k| variables.contains(k))
-            || module_funcs.keys().iter().any(|k| functions.contains(k))
-            || module_mixins.keys().iter().any(|k| mixins.contains(k));
+        let has_overlap = module_vars
+            .keys()
+            .iter()
+            .any(|k| variables.contains(k.as_str()))
+            || module_funcs
+                .keys()
+                .iter()
+                .any(|k| functions.contains(k.as_str()))
+            || module_mixins
+                .keys()
+                .iter()
+                .any(|k| mixins.contains(k.as_str()));
         if has_overlap {
             Some(Module::new(
                 arena,
@@ -171,20 +180,29 @@ impl<'compile: 'parse, 'parse> ShadowedModuleView<'compile, 'parse> {
     /// the cloned maps and this view's filtered maps.
     pub fn clone_css(&self, arena: &'compile Bump) -> SassResult<Module<'compile, 'parse>> {
         let cloned_inner = self.inner.clone_css(arena)?;
-        let shadowed_vars =
-            member_map::map_key_diff(arena, cloned_inner.variables_view(arena), self.variables);
-        let shadowed_funcs =
-            member_map::map_key_diff(arena, cloned_inner.functions_view(arena), self.functions);
-        let shadowed_mixins =
-            member_map::map_key_diff(arena, cloned_inner.mixins_view(arena), self.mixins);
+        let shadowed_vars = arena.alloc(member_map::map_key_diff(
+            arena,
+            cloned_inner.variables_view(arena),
+            self.variables,
+        ));
+        let shadowed_funcs = arena.alloc(member_map::map_key_diff(
+            arena,
+            cloned_inner.functions_view(arena),
+            self.functions,
+        ));
+        let shadowed_mixins = arena.alloc(member_map::map_key_diff(
+            arena,
+            cloned_inner.mixins_view(arena),
+            self.mixins,
+        ));
         Ok(Module::new(
             arena,
             ModuleKind::Shadowed(Self::new(
                 arena,
                 cloned_inner,
-                &shadowed_vars,
-                &shadowed_funcs,
-                &shadowed_mixins,
+                shadowed_vars,
+                shadowed_funcs,
+                shadowed_mixins,
             )),
         ))
     }
