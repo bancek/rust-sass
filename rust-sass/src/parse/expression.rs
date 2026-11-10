@@ -870,7 +870,7 @@ fn hash_expression_impl<'parse>(
     let start = scanner.state();
     scanner.expect_char('#')?;
     if character::is_digit(scanner.peek_char(0) as u8 as char) {
-        let color = hex_color_contents(scanner, start)?;
+        let color = hex_color_contents(state.arena, scanner, start)?;
         return Ok(Expression::Color(ColorExpression::new(
             state.arena,
             color,
@@ -881,7 +881,7 @@ fn hash_expression_impl<'parse>(
     let identifier = interpolated_identifier_expr_impl(scanner, state)?;
     if is_hex_color(&identifier) {
         scanner.set_state(after_hash);
-        let color = hex_color_contents(scanner, start)?;
+        let color = hex_color_contents(state.arena, scanner, start)?;
         return Ok(Expression::Color(ColorExpression::new(
             state.arena,
             color,
@@ -909,6 +909,7 @@ fn hash_expression_impl<'parse>(
 /// eight-digit forms keep no preserved format because browser support is
 /// still uneven.
 fn hex_color_contents<'parse>(
+    arena: &'parse Bump,
     scanner: &mut SpanScanner<'parse>,
     start: LineScannerState,
 ) -> ParseResult<'parse, SassColor<'parse>> {
@@ -957,10 +958,9 @@ fn hex_color_contents<'parse>(
     // Matches Dart: SassColor.rgbInternal(r, g, b, alpha, SpanColorFormat(span))
     // Matches Go:  NewColorRGBInternal(..., &format) where format is SpanColorFormat
     let format = if a.is_none() {
-        let original = scanner
-            .substring(start.position, Some(scanner.pos()))
-            .to_string();
-        Some(ColorFormat::Preserved(Box::leak(original.into_boxed_str())))
+        Some(ColorFormat::Preserved(arena.alloc_str(
+            scanner.substring(start.position, Some(scanner.pos())),
+        )))
     } else {
         None
     };
@@ -1189,12 +1189,11 @@ fn ident_like<'parse>(
                 // Matches Dart: SassColor.rgbInternal(..., SpanColorFormat(identifier.span))
                 // Matches Go:  NewColorRGBInternal(..., &SpanColorFormat{Span: span})
                 let mut color = color;
-                let original_text = scanner
-                    .substring(start.position, Some(scanner.pos()))
-                    .to_string();
-                color.set_format(Some(ColorFormat::Preserved(Box::leak(
-                    original_text.into_boxed_str(),
-                ))));
+                color.set_format(Some(ColorFormat::Preserved(
+                    state
+                        .arena
+                        .alloc_str(scanner.substring(start.position, Some(scanner.pos()))),
+                )));
                 return Ok(Expression::Color(ColorExpression::new(
                     state.arena,
                     color,

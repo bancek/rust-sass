@@ -888,7 +888,7 @@ impl<'parse> SassColor<'parse> {
         green: Option<f64>,
         blue: Option<f64>,
         alpha: Option<f64>,
-        format: Option<ColorFormat<'static>>,
+        format: Option<ColorFormat<'parse>>,
     ) -> SassResult<Self> {
         if let Some(a) = alpha {
             number::fuzzy_assert_range(a, 0, 1, Some("alpha")).map_err(|e| SassError::Script {
@@ -1267,7 +1267,7 @@ impl<'parse> SassColor<'parse> {
 
     /// Records the source [`ColorFormat`] used for expanded-mode
     /// serialization.
-    pub fn set_format(&mut self, f: Option<ColorFormat<'static>>) {
+    pub fn set_format(&mut self, f: Option<ColorFormat<'parse>>) {
         self.format = f;
     }
 
@@ -1385,14 +1385,14 @@ fn new_color_for_space_no_check(
     new_color_for_space_no_check_fmt(space, c0, c1, c2, alpha, None)
 }
 
-fn new_color_for_space_no_check_fmt(
+fn new_color_for_space_no_check_fmt<'parse>(
     space: ColorSpace,
     c0: Option<f64>,
     c1: Option<f64>,
     c2: Option<f64>,
     alpha: Option<f64>,
-    format: Option<ColorFormat<'static>>,
-) -> SassColor<'static> {
+    format: Option<ColorFormat<'parse>>,
+) -> SassColor<'parse> {
     let c0v = c0.unwrap_or(0.0);
     let c1v = c1.unwrap_or(0.0);
     let c2v = c2.unwrap_or(0.0);
