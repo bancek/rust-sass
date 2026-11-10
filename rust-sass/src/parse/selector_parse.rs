@@ -118,7 +118,7 @@ impl<'compile: 'parse, 'parse, 'warn> SelectorParser<'compile, 'parse, 'warn> {
     pub fn new(arena: &'compile Bump, source: &'parse FileSource<'parse>) -> Self {
         SelectorParser {
             arena,
-            parser: Parser::new(source, Syntax::Scss, None),
+            parser: Parser::new(arena, source, Syntax::Scss, None),
             allow_parent: true,
             plain_css: false,
             logger: None,
@@ -146,7 +146,7 @@ impl<'compile: 'parse, 'parse, 'warn> SelectorParser<'compile, 'parse, 'warn> {
     ) -> Self {
         SelectorParser {
             arena,
-            parser: Parser::new(source, Syntax::Scss, interpolation_map),
+            parser: Parser::new(arena, source, Syntax::Scss, interpolation_map),
             allow_parent,
             plain_css,
             logger,

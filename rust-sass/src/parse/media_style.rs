@@ -308,6 +308,7 @@ mod tests {
         let state = StylesheetState {
             arena,
             parser_state: ParserState {
+                arena,
                 syntax: Syntax::Scss,
                 interpolation_map: None,
                 in_expression: false,

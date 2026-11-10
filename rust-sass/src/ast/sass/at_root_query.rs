@@ -118,7 +118,7 @@ impl AtRootQuery {
         'compile: 'parse,
     {
         let source = FileSource::new_in(arena, contents, None);
-        let mut parser = AtRootQueryParser::new(source, interpolation_map);
+        let mut parser = AtRootQueryParser::new(arena, source, interpolation_map);
         parser.parse().unwrap_or_else(|_| Self::default_query())
     }
 }

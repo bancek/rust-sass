@@ -7,6 +7,8 @@
 // dart-source: lib/src/parse/at_root_query.dart
 // go-source: go/value/parse_at_root_query.go
 
+use bumpalo::Bump;
+
 use crate::ast::sass::interpolation_map::InterpolationMap;
 use std::collections::HashSet;
 
@@ -26,11 +28,12 @@ pub struct AtRootQueryParser<'parse> {
 
 impl<'parse> AtRootQueryParser<'parse> {
     pub fn new(
+        arena: &'parse Bump,
         source: &'parse FileSource<'parse>,
         interpolation_map: Option<&'parse InterpolationMap<'parse>>,
     ) -> Self {
         AtRootQueryParser {
-            parser: Parser::new(source, Syntax::Scss, interpolation_map),
+            parser: Parser::new(arena, source, Syntax::Scss, interpolation_map),
         }
     }
 
@@ -81,7 +84,7 @@ mod tests {
         'parse: 'compile,
     {
         let fs = FileSource::new_in(arena, text, None);
-        AtRootQueryParser::new(fs, None)
+        AtRootQueryParser::new(arena, fs, None)
     }
 
     #[test]

@@ -77,8 +77,8 @@ use crate::parse::anyvalue::{interpolated_declaration_value_impl, DeclarationVal
 use crate::parse::identifier::{interpolated_identifier_expr_impl, single_interpolation_impl};
 use crate::parse::parser::{
     error_impl, escape_character_impl, expect_identifier_impl, identifier_impl,
-    looking_at_identifier, peek_char_or_escape, scan_identifier_impl, span_from_impl,
-    whitespace_impl, whitespace_without_comments_impl, ParseError, ParseResult,
+    identifier_str_impl, looking_at_identifier, peek_char_or_escape, scan_identifier_impl,
+    span_from_impl, whitespace_impl, whitespace_without_comments_impl, ParseError, ParseResult,
 };
 use crate::parse::stylesheet::{StylesheetParser, StylesheetState, Syntax};
 use crate::parse::util::looking_at_interpolated_identifier_impl;
@@ -168,7 +168,8 @@ pub(crate) fn number_impl<'parse>(
     } else if looking_at_identifier(scanner, None)
         && !(scanner.peek_char(0) == '-' as i32 && scanner.peek_char(1) == '-' as i32)
     {
-        let identifier = to_css_identifier(&identifier_impl(scanner, state, false, true)?)?;
+        let identifier =
+            to_css_identifier(identifier_str_impl(arena, scanner, state, false, true)?)?;
         unit = Some(arena.alloc_str(&identifier));
     }
 
@@ -1029,6 +1030,7 @@ fn unicode_range_impl<'parse>(
         let err_span = span_from_impl(
             scanner,
             &ParserState {
+                arena,
                 syntax: Syntax::Scss,
                 interpolation_map: None,
                 in_expression: true,
@@ -1065,6 +1067,7 @@ fn unicode_range_impl<'parse>(
             let s2span = span_from_impl(
                 scanner,
                 &ParserState {
+                    arena,
                     syntax: Syntax::Scss,
                     interpolation_map: None,
                     in_expression: true,
@@ -3410,6 +3413,7 @@ mod tests {
         let state = StylesheetState {
             arena,
             parser_state: ParserState {
+                arena,
                 syntax: Syntax::Scss,
                 interpolation_map: None,
                 in_expression: true,
@@ -3605,6 +3609,7 @@ mod tests {
                 &a,
                 &mut SpanScanner::new(fs),
                 &ParserState {
+                    arena: &a,
                     syntax: Syntax::Scss,
                     interpolation_map: None,
                     in_expression: false
@@ -3627,6 +3632,7 @@ mod tests {
                 &a,
                 &mut SpanScanner::new(fs),
                 &ParserState {
+                    arena: &a,
                     syntax: Syntax::Scss,
                     interpolation_map: None,
                     in_expression: false
@@ -4647,6 +4653,7 @@ mod tests {
                 &a,
                 &mut SpanScanner::new(fs),
                 &ParserState {
+                    arena: &a,
                     syntax: Syntax::Scss,
                     interpolation_map: None,
                     in_expression: false
@@ -4667,6 +4674,7 @@ mod tests {
                 &a,
                 &mut SpanScanner::new(fs),
                 &ParserState {
+                    arena: &a,
                     syntax: Syntax::Scss,
                     interpolation_map: None,
                     in_expression: false
@@ -4687,6 +4695,7 @@ mod tests {
                 &a,
                 &mut SpanScanner::new(fs),
                 &ParserState {
+                    arena: &a,
                     syntax: Syntax::Scss,
                     interpolation_map: None,
                     in_expression: false
@@ -4707,6 +4716,7 @@ mod tests {
                 &a,
                 &mut SpanScanner::new(fs),
                 &ParserState {
+                    arena: &a,
                     syntax: Syntax::Scss,
                     interpolation_map: None,
                     in_expression: false
@@ -4727,6 +4737,7 @@ mod tests {
                 &a,
                 &mut SpanScanner::new(fs),
                 &ParserState {
+                    arena: &a,
                     syntax: Syntax::Scss,
                     interpolation_map: None,
                     in_expression: false
@@ -4747,6 +4758,7 @@ mod tests {
                 &a,
                 &mut SpanScanner::new(fs),
                 &ParserState {
+                    arena: &a,
                     syntax: Syntax::Scss,
                     interpolation_map: None,
                     in_expression: false
@@ -4806,6 +4818,7 @@ mod tests {
             &a,
             &mut SpanScanner::new(fs),
             &ParserState {
+                arena: &a,
                 syntax: Syntax::Scss,
                 interpolation_map: None,
                 in_expression: false
@@ -4822,6 +4835,7 @@ mod tests {
             &a,
             &mut SpanScanner::new(fs),
             &ParserState {
+                arena: &a,
                 syntax: Syntax::Scss,
                 interpolation_map: None,
                 in_expression: false

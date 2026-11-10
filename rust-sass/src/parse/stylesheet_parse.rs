@@ -1143,6 +1143,7 @@ fn make_temp_stylesheet<'b>(state: &ParserState<'b>, arena: &'b Bump) -> Stylesh
     StylesheetState {
         arena,
         parser_state: ParserState {
+            arena,
             syntax: state.syntax.clone(),
             interpolation_map: state.interpolation_map,
             in_expression: state.in_expression,
@@ -1288,6 +1289,7 @@ pub fn parse_signature(
     let source = FileSource::new_in(&arena, signature, None);
     let mut scanner = SpanScanner::new(source);
     let mut state = ParserState {
+        arena: &arena,
         syntax: Syntax::Scss,
         interpolation_map: None,
         in_expression: false,
@@ -1298,6 +1300,7 @@ pub fn parse_signature(
             let mut st = StylesheetState {
                 arena: &arena,
                 parser_state: ParserState {
+                    arena: &arena,
                     syntax: Syntax::Scss,
                     interpolation_map: parser_state.interpolation_map,
                     in_expression: false,
@@ -1427,6 +1430,7 @@ where
     let source = FileSource::new_in(arena, contents, url);
     let mut scanner = SpanScanner::new(source);
     let mut state = ParserState {
+        arena,
         syntax: Syntax::Scss,
         interpolation_map: None,
         in_expression: false,

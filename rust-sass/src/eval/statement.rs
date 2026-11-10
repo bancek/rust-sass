@@ -700,7 +700,7 @@ where
     // Keyframe branch
     if state.in_keyframes {
         let source = FileSource::new_in(arena, &selector_text, None);
-        let mut kp = KeyframeSelectorParser::new_with_map(source, Some(selector_map));
+        let mut kp = KeyframeSelectorParser::new_with_map(arena, source, Some(selector_map));
         let parsed = kp.parse()?;
         let selector_span = selector.span()?;
         let selector: Vec<&'parse str> = parsed.iter().map(|s| &*arena.alloc_str(s)).collect();

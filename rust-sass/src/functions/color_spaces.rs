@@ -807,6 +807,7 @@ where
     let source = FileSource::new_in(arena, s, None);
     let mut scanner = SpanScanner::new(source);
     let state = ParserState {
+        arena,
         syntax: Syntax::Scss,
         interpolation_map: None,
         in_expression: false,

@@ -168,6 +168,7 @@ impl<'parse> StylesheetParser<'parse> {
             state: StylesheetState {
                 arena,
                 parser_state: ParserState {
+                    arena,
                     syntax,
                     interpolation_map,
                     in_expression: false,

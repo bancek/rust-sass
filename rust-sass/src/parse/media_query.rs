@@ -43,7 +43,7 @@ pub struct CssMediaQueryParser<'parse> {
 impl<'parse> CssMediaQueryParser<'parse> {
     pub fn new(arena: &'parse Bump, source: &'parse FileSource<'parse>) -> Self {
         CssMediaQueryParser {
-            parser: Parser::new(source, Syntax::Scss, None),
+            parser: Parser::new(arena, source, Syntax::Scss, None),
             arena,
         }
     }
@@ -58,7 +58,7 @@ impl<'parse> CssMediaQueryParser<'parse> {
         interpolation_map: Option<&'parse InterpolationMap<'parse>>,
     ) -> Self {
         CssMediaQueryParser {
-            parser: Parser::new(source, Syntax::Scss, interpolation_map),
+            parser: Parser::new(arena, source, Syntax::Scss, interpolation_map),
             arena,
         }
     }
