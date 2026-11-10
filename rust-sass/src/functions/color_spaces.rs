@@ -812,15 +812,11 @@ where
         in_expression: false,
     };
 
-    if let Ok(num_expr) = number_impl(&mut scanner, &state) {
+    if let Ok(num_expr) = number_impl(arena, &mut scanner, &state) {
         if scanner.is_done() {
             return Ok(Value::new_with_arena(
                 arena,
-                ValueKind::Number(SassNumber::new(
-                    arena,
-                    num_expr.value,
-                    num_expr.unit.as_deref(),
-                )),
+                ValueKind::Number(SassNumber::new(arena, num_expr.value, num_expr.unit)),
             ));
         }
     }

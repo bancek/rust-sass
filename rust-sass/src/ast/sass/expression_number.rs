@@ -22,13 +22,14 @@ use bumpalo::Bump;
 pub struct NumberExpression<'parse> {
     /// The numeric value.
     pub value: f64,
-    /// The number's unit, or [`None`] if it is unitless.
-    pub unit: Option<String>,
+    /// The number's unit, or [`None`] if it is unitless. Borrowed from the
+    /// compile arena: a literal's unit is allocated once at parse time.
+    pub unit: Option<&'parse str>,
     pub span: FileSpan<'parse>,
 }
 
 impl<'parse> NumberExpression<'parse> {
-    pub fn new(value: f64, span: FileSpan<'parse>, unit: Option<String>) -> Self {
+    pub fn new(value: f64, span: FileSpan<'parse>, unit: Option<&'parse str>) -> Self {
         NumberExpression { value, unit, span }
     }
 
@@ -41,7 +42,7 @@ impl<'parse> NumberExpression<'parse> {
         // formatted outside a compilation, so a throwaway arena backs the
         // temporary `SassNumber` (same pattern as the selector comparison paths).
         let arena = Bump::new();
-        let number = SassNumber::new(&arena, self.value, self.unit.as_deref());
+        let number = SassNumber::new(&arena, self.value, self.unit);
         number.to_display_string()
     }
 }
@@ -72,9 +73,9 @@ mod tests {
         let arena = Bump::new();
         let fs = FileSource::new_in(&arena, "42px", None);
         let span = FileSpan::new(Some(fs), 0, 4);
-        let expr = NumberExpression::new(42.0, span, Some("px".into()));
+        let expr = NumberExpression::new(42.0, span, Some("px"));
         assert_eq!(expr.value, 42.0);
-        assert_eq!(expr.unit.as_deref(), Some("px"));
+        assert_eq!(expr.unit, Some("px"));
     }
 
     #[test]
@@ -101,17 +102,17 @@ mod tests {
         let fs = FileSource::new_in(&arena, "1e1", None);
         let span = FileSpan::new(Some(fs), 0, 3);
 
-        let expr = NumberExpression::new(1.5, span, Some("px".to_string()));
+        let expr = NumberExpression::new(1.5, span, Some("px"));
         assert_eq!(expr.to_display_string().unwrap(), "1.5px");
         let expr = NumberExpression::new(2.0, span, None);
         assert_eq!(expr.to_display_string().unwrap(), "2");
 
         // A unit that would reparse as an exponent keeps Dart's escape.
-        let expr = NumberExpression::new(1.0, span, Some("e1".to_string()));
+        let expr = NumberExpression::new(1.0, span, Some("e1"));
         assert_eq!(expr.to_display_string().unwrap(), "1\\65 1");
 
         // Non-finite values go through the calc() form, as `visitNumber` does.
-        let expr = NumberExpression::new(f64::INFINITY, span, Some("%".to_string()));
+        let expr = NumberExpression::new(f64::INFINITY, span, Some("%"));
         assert_eq!(expr.to_display_string().unwrap(), "calc(infinity * 1%)");
     }
 }

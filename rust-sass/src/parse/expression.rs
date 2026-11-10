@@ -136,6 +136,7 @@ pub(crate) struct Op<'parse> {
 // Uses the source text's float parsing so numbers with many digits do not
 // accumulate floating-point error.
 pub(crate) fn number_impl<'parse>(
+    arena: &'parse Bump,
     scanner: &mut SpanScanner<'parse>,
     state: &ParserState<'parse>,
 ) -> ParseResult<'parse, NumberExpression<'parse>> {
@@ -161,15 +162,14 @@ pub(crate) fn number_impl<'parse>(
         f64::INFINITY
     });
 
-    let mut unit: Option<String> = None;
+    let mut unit: Option<&'parse str> = None;
     if scanner.scan_char('%') {
-        unit = Some("%".to_string());
+        unit = Some("%");
     } else if looking_at_identifier(scanner, None)
         && !(scanner.peek_char(0) == '-' as i32 && scanner.peek_char(1) == '-' as i32)
     {
-        unit = Some(to_css_identifier(&identifier_impl(
-            scanner, state, false, true,
-        )?)?);
+        let identifier = to_css_identifier(&identifier_impl(scanner, state, false, true)?)?;
+        unit = Some(arena.alloc_str(&identifier));
     }
 
     let span = scanner.span_from(start);
@@ -2397,6 +2397,7 @@ fn parse_single<'parse>(
             let n = scanner.peek_char(1);
             if character::is_digit(n as u8 as char) || n == '.' as i32 {
                 return Ok(Expression::Number(number_impl(
+                    state.arena,
                     scanner,
                     &state.parser_state,
                 )?));
@@ -2407,6 +2408,7 @@ fn parse_single<'parse>(
             let n = scanner.peek_char(1);
             if character::is_digit(n as u8 as char) || n == '.' as i32 {
                 return Ok(Expression::Number(number_impl(
+                    state.arena,
                     scanner,
                     &state.parser_state,
                 )?));
@@ -2421,6 +2423,7 @@ fn parse_single<'parse>(
         }
         _ if ch == '.' as i32 => {
             return Ok(Expression::Number(number_impl(
+                state.arena,
                 scanner,
                 &state.parser_state,
             )?));
@@ -2486,6 +2489,7 @@ fn parse_single<'parse>(
         }
         _ if character::is_digit(ch as u8 as char) => {
             return Ok(Expression::Number(number_impl(
+                state.arena,
                 scanner,
                 &state.parser_state,
             )?));
@@ -2742,7 +2746,8 @@ where
             _ if ch == '-' as i32 && acc.single.is_none() => {
                 let n = scanner.peek_char(1);
                 if character::is_digit(n as u8 as char) || n == '.' as i32 {
-                    let nn = Expression::Number(number_impl(scanner, &state.parser_state)?);
+                    let nn =
+                        Expression::Number(number_impl(state.arena, scanner, &state.parser_state)?);
                     add_single(scanner, state, &mut ops, &mut acc, nn, start)?;
                 } else if looking_at_interpolated_identifier_impl(scanner) {
                     let expr = ident_like(scanner, state)?;
@@ -2779,7 +2784,8 @@ where
                     && prev >= 0
                     && character::is_whitespace(prev as u8 as char)
                 {
-                    let nn = Expression::Number(number_impl(scanner, &state.parser_state)?);
+                    let nn =
+                        Expression::Number(number_impl(state.arena, scanner, &state.parser_state)?);
                     add_single(scanner, state, &mut ops, &mut acc, nn, start)?;
                 } else if looking_at_interpolated_identifier_impl(scanner) {
                     let expr = ident_like(scanner, state)?;
@@ -2996,12 +3002,14 @@ where
                 }
             }
             _ if character::is_digit(ch as u8 as char) => {
-                let nn = Expression::Number(number_impl(scanner, &state.parser_state)?);
+                let nn =
+                    Expression::Number(number_impl(state.arena, scanner, &state.parser_state)?);
                 add_single(scanner, state, &mut ops, &mut acc, nn, start)?;
             }
             _ if ch == '.' as i32 && scanner.peek_char(1) == '.' as i32 => break,
             _ if ch == '.' as i32 => {
-                let nn = Expression::Number(number_impl(scanner, &state.parser_state)?);
+                let nn =
+                    Expression::Number(number_impl(state.arena, scanner, &state.parser_state)?);
                 add_single(scanner, state, &mut ops, &mut acc, nn, start)?;
             }
             _ if (ch == 'u' as i32 || ch == 'U' as i32) && scanner.peek_char(1) == '+' as i32 => {
@@ -3594,6 +3602,7 @@ mod tests {
         let fs = FileSource::new_in(&a, "42", None);
         assert_eq!(
             number_impl(
+                &a,
                 &mut SpanScanner::new(fs),
                 &ParserState {
                     syntax: Syntax::Scss,
@@ -3615,6 +3624,7 @@ mod tests {
         let fs = FileSource::new_in(&a, "3.14", None);
         assert_eq!(
             number_impl(
+                &a,
                 &mut SpanScanner::new(fs),
                 &ParserState {
                     syntax: Syntax::Scss,
@@ -4634,6 +4644,7 @@ mod tests {
         let fs = FileSource::new_in(&a, "-42", None);
         assert_eq!(
             number_impl(
+                &a,
                 &mut SpanScanner::new(fs),
                 &ParserState {
                     syntax: Syntax::Scss,
@@ -4653,6 +4664,7 @@ mod tests {
         let fs = FileSource::new_in(&a, "+42", None);
         assert_eq!(
             number_impl(
+                &a,
                 &mut SpanScanner::new(fs),
                 &ParserState {
                     syntax: Syntax::Scss,
@@ -4672,6 +4684,7 @@ mod tests {
         let fs = FileSource::new_in(&a, ".5", None);
         assert_eq!(
             number_impl(
+                &a,
                 &mut SpanScanner::new(fs),
                 &ParserState {
                     syntax: Syntax::Scss,
@@ -4691,6 +4704,7 @@ mod tests {
         let fs = FileSource::new_in(&a, "1e3", None);
         assert_eq!(
             number_impl(
+                &a,
                 &mut SpanScanner::new(fs),
                 &ParserState {
                     syntax: Syntax::Scss,
@@ -4710,6 +4724,7 @@ mod tests {
         let fs = FileSource::new_in(&a, "1e-3", None);
         assert_eq!(
             number_impl(
+                &a,
                 &mut SpanScanner::new(fs),
                 &ParserState {
                     syntax: Syntax::Scss,
@@ -4729,6 +4744,7 @@ mod tests {
         let fs = FileSource::new_in(&a, "1e+3", None);
         assert_eq!(
             number_impl(
+                &a,
                 &mut SpanScanner::new(fs),
                 &ParserState {
                     syntax: Syntax::Scss,
@@ -4787,6 +4803,7 @@ mod tests {
         let a = Bump::new();
         let fs = FileSource::new_in(&a, ".a", None);
         assert!(number_impl(
+            &a,
             &mut SpanScanner::new(fs),
             &ParserState {
                 syntax: Syntax::Scss,
@@ -4802,6 +4819,7 @@ mod tests {
         let a = Bump::new();
         let fs = FileSource::new_in(&a, "1e-", None);
         assert!(number_impl(
+            &a,
             &mut SpanScanner::new(fs),
             &ParserState {
                 syntax: Syntax::Scss,

@@ -1227,7 +1227,7 @@ pub(crate) fn parse_number_impl<'b>(
             },
         )?;
         match expr {
-            Expression::Number(n) => Ok(SassNumber::new(arena, n.value, n.unit.as_deref())),
+            Expression::Number(n) => Ok(SassNumber::new(arena, n.value, n.unit)),
             _ => Err(Box::new(error_impl(
                 "Expected number.",
                 &scanner.empty_span(),

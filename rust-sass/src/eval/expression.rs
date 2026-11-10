@@ -330,7 +330,7 @@ pub(crate) fn evaluate_number_expression<'compile, 'parse>(
 where
     'compile: 'parse,
 {
-    let unit: Option<&str> = expr.unit.as_deref();
+    let unit: Option<&str> = expr.unit;
     Ok(Value::new_with_arena(
         arena,
         ValueKind::Number(SassNumber::new(arena, expr.value, unit)),
@@ -1772,7 +1772,7 @@ mod tests {
         let (config, mut state) = test_visitor(&arena);
         let expr = NumberExpression {
             value: 42.0,
-            unit: Some("px".into()),
+            unit: Some("px"),
             span,
         };
         let result = evaluate_number_expression(&config, &mut state, &arena, &expr).unwrap();

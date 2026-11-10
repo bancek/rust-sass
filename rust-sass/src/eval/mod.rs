@@ -1055,7 +1055,7 @@ mod evaluate_tests {
 
         let expr = Expression::Number(NumberExpression {
             value: 1.0,
-            unit: Some("px".to_string()),
+            unit: Some("px"),
             span: BOGUS_SPAN,
         });
         let result = evaluator.evaluate(&expr).await.unwrap();

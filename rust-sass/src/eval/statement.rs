@@ -4391,7 +4391,7 @@ mod tests {
         let (config, mut state) = test_visitor(&arena);
         let expr = Expression::Number(NumberExpression {
             value: 42.0,
-            unit: Some("px".into()),
+            unit: Some("px"),
             span,
         });
         let node = ReturnRule {
