@@ -104,9 +104,10 @@ where
             )
             .await?;
             match inner {
-                CalcArgument::String(text, _) => {
-                    Ok(CalcArgument::String(format!("({text})"), false))
-                }
+                CalcArgument::String(text, _) => Ok(CalcArgument::String(
+                    arena.alloc_str(&format!("({text})")),
+                    false,
+                )),
                 other => Ok(other),
             }
         }
@@ -248,11 +249,11 @@ where
                     let val = evaluate_expression(config, state, arena, expr).await?;
                     match &*val {
                         ValueKind::String(s) if !s.has_quotes => {
-                            Ok(CalcArgument::String(s.text.to_string(), false))
+                            Ok(CalcArgument::String(s.text, false))
                         }
                         _ => {
                             let display = val.to_display_string()?;
-                            Ok(CalcArgument::String(display, false))
+                            Ok(CalcArgument::String(arena.alloc_str(&display), false))
                         }
                     }
                 }
@@ -263,9 +264,7 @@ where
             match &*val {
                 ValueKind::Number(n) => Ok(CalcArgument::Number(n.clone())),
                 ValueKind::Calculation(c) => Ok(CalcArgument::Calculation(c)),
-                ValueKind::String(s) if !s.has_quotes => {
-                    Ok(CalcArgument::String(s.text.to_string(), false))
-                }
+                ValueKind::String(s) if !s.has_quotes => Ok(CalcArgument::String(s.text, false)),
                 _ => {
                     let span = expr.span()?;
                     let display = val.to_display_string()?;
@@ -282,9 +281,7 @@ where
             match &*val {
                 ValueKind::Number(n) => Ok(CalcArgument::Number(n.clone())),
                 ValueKind::Calculation(c) => Ok(CalcArgument::Calculation(c)),
-                ValueKind::String(s) if !s.has_quotes => {
-                    Ok(CalcArgument::String(s.text.to_string(), false))
-                }
+                ValueKind::String(s) if !s.has_quotes => Ok(CalcArgument::String(s.text, false)),
                 _ => {
                     let span = expr.span()?;
                     let display = val.to_display_string()?;
@@ -370,14 +367,17 @@ where
                     && matches!(content, Expression::Parenthesized(_))
                 {
                     let inner = calc_arg_to_string(element)?;
-                    *element = CalcArgument::String(format!("({inner})"), false);
+                    *element = CalcArgument::String(arena.alloc_str(&format!("({inner})")), false);
                 }
             }
             let mut parts = Vec::new();
             for e in &elements {
                 parts.push(calc_arg_to_string(e)?);
             }
-            Ok(CalcArgument::String(parts.join(" "), false))
+            Ok(CalcArgument::String(
+                arena.alloc_str(&parts.join(" ")),
+                false,
+            ))
         }
         _ => {
             let span = expr.span()?;
@@ -511,7 +511,7 @@ where
             evaluated
                 .first()
                 .cloned()
-                .unwrap_or(CalcArgument::String(String::new(), false)),
+                .unwrap_or(CalcArgument::String("", false)),
             evaluated.get(1).cloned(),
             evaluated.get(2).cloned(),
         ),

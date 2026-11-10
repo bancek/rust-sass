@@ -305,7 +305,7 @@ where
     let calc = assert_calculation(&args[0], Some("calc"))?;
     Ok(Value::new_with_arena(
         arena,
-        ValueKind::String(SassString::new(arena.alloc_str(&calc.name), true)),
+        ValueKind::String(SassString::new(calc.name, true)),
     ))
 }
 
@@ -1207,7 +1207,7 @@ mod tests {
         let calc = mk_calc(
             &arena,
             "calc",
-            vec![CalcArgument::Interpolation("var(--x)".to_string())],
+            vec![CalcArgument::Interpolation("var(--x)")],
         );
         let got = eval_ok(&arena, &calc_args_function(&arena), &[calc]).await;
         let items = got.as_list(&arena).unwrap();
@@ -1221,7 +1221,7 @@ mod tests {
         let calc = mk_calc(
             &arena,
             "calc",
-            vec![CalcArgument::String("100% - 10px".to_string(), false)],
+            vec![CalcArgument::String("100% - 10px", false)],
         );
         let got = eval_ok(&arena, &calc_args_function(&arena), &[calc]).await;
         let items = got.as_list(&arena).unwrap();

@@ -43,7 +43,7 @@ use crate::value::{SassNumber, ValueVisitor};
 #[derive(Clone, Debug)]
 pub struct SassCalculation<'parse> {
     /// The calculation's name, such as `"calc"`.
-    pub name: String,
+    pub name: &'parse str,
     /// The calculation's arguments, in the compile arena (Dart's
     /// unmodifiable `List<Object>`).
     ///
@@ -65,11 +65,11 @@ pub enum CalcArgument<'parse> {
     Calculation(&'parse SassCalculation<'parse>),
     /// A string argument; the `bool` records whether it was quoted.
     /// Only unquoted strings are valid in a simplified calculation.
-    String(String, bool),
+    String(&'parse str, bool),
     /// A binary operation argument.
     Operation(&'parse CalculationOperation<'parse>),
     /// Interpolated text injected into the calculation.
-    Interpolation(String),
+    Interpolation(&'parse str),
 }
 
 /// A binary operation that can appear in a [`SassCalculation`].
@@ -188,7 +188,7 @@ impl<'parse> SassCalculation<'parse> {
         arguments: Vec<CalcArgument<'parse>>,
     ) -> Self {
         SassCalculation {
-            name: name.to_string(),
+            name: arena.alloc_str(name),
             arguments: arena.alloc_slice_fill_iter(arguments),
             cached_hash: Cell::new(None),
         }
@@ -248,7 +248,7 @@ impl<'parse> SassCalculation<'parse> {
             .arguments
             .iter()
             .fold(0i32, |acc, arg| hash_combine(acc, arg.hash_code() as i32));
-        let h = (string_hash_code(&self.name) ^ args_hash) as usize;
+        let h = (string_hash_code(self.name) ^ args_hash) as usize;
         self.cached_hash.set(Some(h));
         h
     }
@@ -336,7 +336,7 @@ pub fn new_calc<'compile: 'parse, 'parse>(
     arena: &'compile Bump,
     argument: CalcArgument<'parse>,
 ) -> SassResult<Value<'parse>> {
-    let v = simplify(argument)?;
+    let v = simplify(arena, argument)?;
     if let CalcArgument::Number(num) = v {
         return Ok(Value::new_with_arena(arena, ValueKind::Number(num)));
     }
@@ -363,7 +363,7 @@ pub fn new_min<'compile: 'parse, 'parse>(
     arena: &'compile Bump,
     args: Vec<CalcArgument<'parse>>,
 ) -> SassResult<Value<'parse>> {
-    let simplified = simplify_arguments(args)?;
+    let simplified = simplify_arguments(arena, args)?;
     if simplified.is_empty() {
         return Err(Box::new(SassError::ArgumentError {
             name: None,
@@ -412,7 +412,7 @@ pub fn new_max<'compile: 'parse, 'parse>(
     arena: &'compile Bump,
     args: Vec<CalcArgument<'parse>>,
 ) -> SassResult<Value<'parse>> {
-    let simplified = simplify_arguments(args)?;
+    let simplified = simplify_arguments(arena, args)?;
     if simplified.is_empty() {
         return Err(Box::new(SassError::ArgumentError {
             name: None,
@@ -460,7 +460,7 @@ pub fn new_hypot<'compile: 'parse, 'parse>(
     arena: &'compile Bump,
     args: Vec<CalcArgument<'parse>>,
 ) -> SassResult<Value<'parse>> {
-    let simplified = simplify_arguments(args)?;
+    let simplified = simplify_arguments(arena, args)?;
     if simplified.is_empty() {
         return Err(Box::new(SassError::ArgumentError {
             name: None,
@@ -603,7 +603,7 @@ pub fn new_abs_internal<'compile: 'parse, 'parse>(
     warn: &dyn WarnLogger<'parse>,
     warn_span: Option<FileSpan<'parse>>,
 ) -> SassResult<Value<'parse>> {
-    let arg = simplify(argument)?;
+    let arg = simplify(arena, argument)?;
     if let CalcArgument::Number(ref num) = arg {
         if num.has_unit("%") {
             let s = num.to_display_string()?;
@@ -645,7 +645,7 @@ pub fn new_exp<'compile: 'parse, 'parse>(
     arena: &'compile Bump,
     argument: CalcArgument<'parse>,
 ) -> SassResult<Value<'parse>> {
-    let arg = simplify(argument)?;
+    let arg = simplify(arena, argument)?;
     if let CalcArgument::Number(ref num) = arg {
         num.assert_no_units(None)?;
         let e = SassNumber::new(arena, E, None);
@@ -672,7 +672,7 @@ pub fn new_sign<'compile: 'parse, 'parse>(
     arena: &'compile Bump,
     argument: CalcArgument<'parse>,
 ) -> SassResult<Value<'parse>> {
-    let arg = simplify(argument)?;
+    let arg = simplify(arena, argument)?;
     if let CalcArgument::Number(ref n) = arg {
         if n.value.is_nan() || n.value == 0.0 {
             return Ok(Value::new_with_arena(arena, ValueKind::Number(n.clone())));
@@ -717,9 +717,9 @@ pub fn new_clamp<'compile: 'parse, 'parse>(
             message: "If value is null, max must also be null.".into(),
         }));
     }
-    let min = simplify(min)?;
-    let value = value.map(simplify).transpose()?;
-    let max = max.map(simplify).transpose()?;
+    let min = simplify(arena, min)?;
+    let value = value.map(|a| simplify(arena, a)).transpose()?;
+    let max = max.map(|a| simplify(arena, a)).transpose()?;
 
     if let CalcArgument::Number(ref min_num) = min {
         if let Some(CalcArgument::Number(ref val_num)) = value {
@@ -778,8 +778,8 @@ pub fn new_pow<'compile: 'parse, 'parse>(
         args.push(exp.clone());
     }
     verify_length(&args, 2)?;
-    let base = simplify(base)?;
-    let exp = exponent.map(simplify).transpose()?;
+    let base = simplify(arena, base)?;
+    let exp = exponent.map(|a| simplify(arena, a)).transpose()?;
     if let CalcArgument::Number(ref base_num) = base {
         if let Some(CalcArgument::Number(ref exp_num)) = exp {
             base_num.assert_no_units(None)?;
@@ -806,8 +806,8 @@ pub fn new_log<'compile: 'parse, 'parse>(
     number: CalcArgument<'parse>,
     base: Option<CalcArgument<'parse>>,
 ) -> SassResult<Value<'parse>> {
-    let number = simplify(number)?;
-    let base = base.map(simplify).transpose()?;
+    let number = simplify(arena, number)?;
+    let base = base.map(|a| simplify(arena, a)).transpose()?;
     if let CalcArgument::Number(ref num) = number {
         if base
             .as_ref()
@@ -850,8 +850,8 @@ pub fn new_atan2<'compile: 'parse, 'parse>(
     y: CalcArgument<'parse>,
     x: Option<CalcArgument<'parse>>,
 ) -> SassResult<Value<'parse>> {
-    let y = simplify(y)?;
-    let x = x.map(simplify).transpose()?;
+    let y = simplify(arena, y)?;
+    let x = x.map(|a| simplify(arena, a)).transpose()?;
     let mut args = vec![y.clone()];
     if let Some(ref xv) = x {
         args.push(xv.clone());
@@ -893,8 +893,8 @@ pub fn new_rem<'compile: 'parse, 'parse>(
     dividend: CalcArgument<'parse>,
     modulus: Option<CalcArgument<'parse>>,
 ) -> SassResult<Value<'parse>> {
-    let dividend = simplify(dividend)?;
-    let modulus = modulus.map(simplify).transpose()?;
+    let dividend = simplify(arena, dividend)?;
+    let modulus = modulus.map(|a| simplify(arena, a)).transpose()?;
     let mut args = vec![dividend.clone()];
     if let Some(ref m) = modulus {
         args.push(m.clone());
@@ -953,8 +953,8 @@ pub fn new_mod<'compile: 'parse, 'parse>(
     dividend: CalcArgument<'parse>,
     modulus: Option<CalcArgument<'parse>>,
 ) -> SassResult<Value<'parse>> {
-    let dividend = simplify(dividend)?;
-    let modulus = modulus.map(simplify).transpose()?;
+    let dividend = simplify(arena, dividend)?;
+    let modulus = modulus.map(|a| simplify(arena, a)).transpose()?;
     let mut args = vec![dividend.clone()];
     if let Some(ref m) = modulus {
         args.push(m.clone());
@@ -1026,9 +1026,12 @@ pub fn new_round_internal<'compile: 'parse, 'parse>(
     warn: &dyn WarnLogger<'parse>,
     warn_span: Option<FileSpan<'parse>>,
 ) -> SassResult<Value<'parse>> {
-    let strategy = simplify(strategy_or_number)?;
-    let number = number_or_step.clone().map(simplify).transpose()?;
-    let step_val = step.map(simplify).transpose()?;
+    let strategy = simplify(arena, strategy_or_number)?;
+    let number = number_or_step
+        .clone()
+        .map(|a| simplify(arena, a))
+        .transpose()?;
+    let step_val = step.map(|a| simplify(arena, a)).transpose()?;
 
     if is_unitless_number(&strategy) && number.is_none() && step_val.is_none() {
         if let CalcArgument::Number(ref n) = strategy {
@@ -1096,7 +1099,7 @@ pub fn new_round_internal<'compile: 'parse, 'parse>(
             .map(|s| matches!(s, CalcArgument::Number(_)))
             .unwrap_or(false)
     {
-        if let CalcArgument::String(ref strat_text, _) = strategy {
+        if let CalcArgument::String(strat_text, _) = strategy {
             if let Some(CalcArgument::Number(ref num)) = number {
                 if let Some(CalcArgument::Number(ref stp)) = step_val {
                     if !num.has_compatible_units(stp) {
@@ -1111,7 +1114,7 @@ pub fn new_round_internal<'compile: 'parse, 'parse>(
                                     arena,
                                     "round",
                                     vec![
-                                        CalcArgument::String(strat_text.clone(), false),
+                                        CalcArgument::String(strat_text, false),
                                         CalcArgument::Number(num.clone()),
                                         CalcArgument::Number(stp.clone()),
                                     ],
@@ -1232,8 +1235,8 @@ pub fn new_calc_size<'parse>(
         args.push(v.clone());
     }
     verify_length(&args, 2)?;
-    let basis = simplify(basis)?;
-    let value = value.map(simplify).transpose()?;
+    let basis = simplify(arena, basis)?;
+    let value = value.map(|a| simplify(arena, a)).transpose()?;
     let mut result_args = vec![basis];
     if let Some(v) = value {
         result_args.push(v);
@@ -1299,8 +1302,8 @@ pub fn operate_internal<'compile: 'parse, 'parse>(
             cached_hash: Cell::new(None),
         })));
     }
-    let left = simplify(left)?;
-    let right = simplify(right)?;
+    let left = simplify(arena, left)?;
+    let right = simplify(arena, right)?;
     if operator == CalculationOperator::Plus || operator == CalculationOperator::Minus {
         if let CalcArgument::Number(ref left_num) = left {
             if let CalcArgument::Number(ref right_num) = right {
@@ -1380,13 +1383,17 @@ pub fn operate_internal<'compile: 'parse, 'parse>(
 // an unquoted string; quoted strings and non-numeric values produce an
 // `Err`; a single-argument `calc()` unwraps (parenthesizing raw text that
 // needs it, such as text containing whitespace, `/`, `*`, or `var(`).
-pub(crate) fn simplify(arg: CalcArgument) -> SassResult<CalcArgument> {
+pub(crate) fn simplify<'parse>(
+    arena: &'parse Bump,
+    arg: CalcArgument<'parse>,
+) -> SassResult<CalcArgument<'parse>> {
     match arg {
         CalcArgument::Number(_) | CalcArgument::Operation(_) => Ok(arg),
-        CalcArgument::Interpolation(value) => {
-            Ok(CalcArgument::String(format!("({})", value), false))
-        }
-        CalcArgument::String(ref s, has_quotes) => {
+        CalcArgument::Interpolation(value) => Ok(CalcArgument::String(
+            arena.alloc_str(&format!("({value})")),
+            false,
+        )),
+        CalcArgument::String(s, has_quotes) => {
             if has_quotes {
                 Err(Box::new(SassError::Script {
                     message: format!("Quoted string \"{}\" can't be used in a calculation.", s),
@@ -1398,9 +1405,12 @@ pub(crate) fn simplify(arg: CalcArgument) -> SassResult<CalcArgument> {
         }
         CalcArgument::Calculation(c) => {
             if c.name == "calc" && c.arguments.len() == 1 {
-                if let CalcArgument::String(ref s, false) = c.arguments[0] {
+                if let CalcArgument::String(s, false) = c.arguments[0] {
                     if needs_parentheses(s) {
-                        return Ok(CalcArgument::String(format!("({})", s), false));
+                        return Ok(CalcArgument::String(
+                            arena.alloc_str(&format!("({s})")),
+                            false,
+                        ));
                     }
                 }
                 return Ok(c.arguments[0].clone());
@@ -1411,10 +1421,13 @@ pub(crate) fn simplify(arg: CalcArgument) -> SassResult<CalcArgument> {
 }
 
 // Returns `args` with each argument simplified.
-pub(crate) fn simplify_arguments(args: Vec<CalcArgument>) -> SassResult<Vec<CalcArgument>> {
+pub(crate) fn simplify_arguments<'parse>(
+    arena: &'parse Bump,
+    args: Vec<CalcArgument<'parse>>,
+) -> SassResult<Vec<CalcArgument<'parse>>> {
     let mut result = Vec::with_capacity(args.len());
     for arg in args {
-        result.push(simplify(arg)?);
+        result.push(simplify(arena, arg)?);
     }
     Ok(result)
 }
@@ -1471,10 +1484,10 @@ pub(crate) fn verify_compatible_numbers(args: &[CalcArgument]) -> SassResult<()>
 pub(crate) fn calc_arg_to_string(arg: &CalcArgument) -> SassResult<String> {
     match arg {
         CalcArgument::Number(n) => n.to_display_string(),
-        CalcArgument::String(s, _) => Ok(s.clone()),
+        CalcArgument::String(s, _) => Ok((*s).to_string()),
         CalcArgument::Calculation(c) => c.to_display_string(),
         CalcArgument::Operation(op) => op.to_display_string(),
-        CalcArgument::Interpolation(s) => Ok(s.clone()),
+        CalcArgument::Interpolation(s) => Ok((*s).to_string()),
     }
 }
 
@@ -1537,11 +1550,11 @@ fn is_unitless_number(arg: &CalcArgument) -> bool {
 // Whether `arg` is an unquoted rounding-strategy string (`nearest`, `up`,
 // `down`, or `to-zero`). Quoted strings never count as strategies.
 fn is_rounding_strategy(arg: &CalcArgument) -> bool {
-    if let CalcArgument::String(ref s, has_quotes) = arg {
+    if let CalcArgument::String(s, has_quotes) = arg {
         if *has_quotes {
             return false;
         }
-        return s == "nearest" || s == "up" || s == "down" || s == "to-zero";
+        return *s == "nearest" || *s == "up" || *s == "down" || *s == "to-zero";
     }
     false
 }
@@ -1550,7 +1563,7 @@ fn is_rounding_strategy(arg: &CalcArgument) -> bool {
 // `if(` prefix, case-insensitive): arguments the CSS engine resolves later,
 // so calculations containing them stay symbolic.
 fn is_special_variable_string(arg: &CalcArgument) -> bool {
-    if let CalcArgument::String(ref s, has_quotes) = arg {
+    if let CalcArgument::String(s, has_quotes) = arg {
         if *has_quotes {
             return false;
         }
@@ -1571,7 +1584,7 @@ fn single_argument<'compile: 'parse, 'parse>(
     f: fn(&'parse Bump, &SassNumber<'parse>) -> SassResult<SassNumber<'parse>>,
     forbid_units: bool,
 ) -> SassResult<Value<'parse>> {
-    let arg = simplify(arg)?;
+    let arg = simplify(arena, arg)?;
     if let CalcArgument::Number(ref num) = arg {
         if forbid_units {
             num.assert_no_units(None)?;
@@ -1929,7 +1942,7 @@ mod tests {
     #[test]
     fn test_new_abs_non_number() {
         let bump = Bump::new();
-        let v = new_abs(&bump, CalcArgument::String("x".to_string(), false)).unwrap();
+        let v = new_abs(&bump, CalcArgument::String("x", false)).unwrap();
         match &*v {
             ValueKind::Calculation(_) => {}
             _ => panic!("expected Calculation"),
@@ -1977,14 +1990,14 @@ mod tests {
     #[test]
     fn test_new_calc_with_quoted_string_errors() {
         let bump = Bump::new();
-        let result = new_calc(&bump, CalcArgument::String("hello".to_string(), true));
+        let result = new_calc(&bump, CalcArgument::String("hello", true));
         assert!(result.is_err(), "expected error for quoted string in calc");
     }
 
     #[test]
     fn test_new_min_with_quoted_string_errors() {
         let bump = Bump::new();
-        let result = new_min(&bump, vec![CalcArgument::String("hello".to_string(), true)]);
+        let result = new_min(&bump, vec![CalcArgument::String("hello", true)]);
         assert!(result.is_err(), "expected error for quoted string in min");
     }
 
@@ -2042,17 +2055,17 @@ mod tests {
 
     #[test]
     fn test_quoted_strategy_is_not_rounding() {
-        let q = CalcArgument::String("nearest".to_string(), true);
+        let q = CalcArgument::String("nearest", true);
         assert!(!is_rounding_strategy(&q));
-        let uq = CalcArgument::String("nearest".to_string(), false);
+        let uq = CalcArgument::String("nearest", false);
         assert!(is_rounding_strategy(&uq));
     }
 
     #[test]
     fn test_quoted_string_not_special_variable() {
-        let q = CalcArgument::String("var(--x)".to_string(), true);
+        let q = CalcArgument::String("var(--x)", true);
         assert!(!is_special_variable_string(&q));
-        let uq = CalcArgument::String("var(--x)".to_string(), false);
+        let uq = CalcArgument::String("var(--x)", false);
         assert!(is_special_variable_string(&uq));
     }
 

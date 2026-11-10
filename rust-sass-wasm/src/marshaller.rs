@@ -256,7 +256,7 @@ fn to_serializable<'parse>(
             SerializableValue::Map { entries }
         }
         ValueKind::Calculation(c) => SerializableValue::Calculation {
-            name: c.name.clone(),
+            name: c.name.to_string(),
             arguments: c
                 .arguments
                 .iter()
@@ -320,7 +320,7 @@ fn calc_arg_to_serializable(arg: &CalcArgument<'_>) -> SassResult<SerializableCa
             denominator_units: n.denominator_units.to_vec(),
         },
         CalcArgument::Calculation(c) => SerializableCalcArg::Calculation {
-            name: c.name.clone(),
+            name: c.name.to_string(),
             arguments: c
                 .arguments
                 .iter()
@@ -328,10 +328,12 @@ fn calc_arg_to_serializable(arg: &CalcArgument<'_>) -> SassResult<SerializableCa
                 .collect::<SassResult<_>>()?,
         },
         CalcArgument::String(s, quoted) => SerializableCalcArg::String {
-            value: s.clone(),
+            value: (*s).to_string(),
             quoted: *quoted,
         },
-        CalcArgument::Interpolation(s) => SerializableCalcArg::Interpolation { value: s.clone() },
+        CalcArgument::Interpolation(s) => SerializableCalcArg::Interpolation {
+            value: (*s).to_string(),
+        },
         CalcArgument::Operation(op) => SerializableCalcArg::Operation {
             operator: operator_str(op.operator),
             left: Box::new(calc_arg_to_serializable(&op.left)?),
@@ -620,8 +622,14 @@ fn js_calc_arg_to_rust<'compile: 'parse, 'parse: 'compile>(
     let ty = get_str(cv, "type")?;
     Ok(match ty.as_str() {
         "number" => CalcArgument::Number(get_number(arena, cv)?),
-        "string" => CalcArgument::String(get_str(cv, "value")?, get_bool(cv, "quoted")?),
-        "interpolation" => CalcArgument::String(format!("({})", get_str(cv, "value")?), false),
+        "string" => {
+            let value = get_str(cv, "value")?;
+            CalcArgument::String(&*arena.alloc_str(&value), get_bool(cv, "quoted")?)
+        }
+        "interpolation" => {
+            let value = get_str(cv, "value")?;
+            CalcArgument::String(&*arena.alloc_str(&format!("({value})")), false)
+        }
         "operation" => {
             let operator = de_operator(&get_str(cv, "operator")?)?;
             let left = js_calc_arg_to_rust(ctx, arena, &get(cv, "left")?, host_function)?;
@@ -1020,7 +1028,7 @@ mod tests {
                 ValueKind::Calculation(&*arena.alloc(SassCalculation::new_unsimplified(
                     &arena,
                     "calc",
-                    vec![CalcArgument::String("var(--x)".into(), false)],
+                    vec![CalcArgument::String("var(--x)", false)],
                 ))),
             ),
         );
@@ -1034,7 +1042,7 @@ mod tests {
                     "min",
                     vec![
                         CalcArgument::Number(SassNumber::new(&arena, 1.0, Some("px"))),
-                        CalcArgument::String("var(--x)".into(), false),
+                        CalcArgument::String("var(--x)", false),
                     ],
                 ))),
             ),

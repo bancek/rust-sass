@@ -299,7 +299,7 @@ impl<'compile: 'parse, 'parse: 'compile> Protofier<'compile, 'parse> {
             arguments.push(self.protofy_calculation_value(arg)?);
         }
         Ok(pv::Calculation {
-            name: c.name.clone(),
+            name: c.name.to_string(),
             arguments,
         })
     }
@@ -317,8 +317,10 @@ impl<'compile: 'parse, 'parse: 'compile> Protofier<'compile, 'parse> {
             CalcArgument::Calculation(c) => {
                 calculation_value::Value::Calculation(self.protofy_calculation(c)?)
             }
-            CalcArgument::String(s, _quoted) => calculation_value::Value::String(s.clone()),
-            CalcArgument::Interpolation(s) => calculation_value::Value::Interpolation(s.clone()),
+            CalcArgument::String(s, _quoted) => calculation_value::Value::String((*s).to_string()),
+            CalcArgument::Interpolation(s) => {
+                calculation_value::Value::Interpolation((*s).to_string())
+            }
             CalcArgument::Operation(op) => {
                 calculation_value::Value::Operation(Box::new(calculation::CalculationOperation {
                     operator: protofy_calculation_operator(op.operator)?,
@@ -399,10 +401,13 @@ impl<'compile: 'parse, 'parse: 'compile> Protofier<'compile, 'parse> {
                     n.denominators.clone(),
                 )))
             }
-            calculation_value::Value::String(s) => Ok(CalcArgument::String(s.clone(), false)),
-            calculation_value::Value::Interpolation(s) => {
-                Ok(CalcArgument::String(format!("({s})"), false))
+            calculation_value::Value::String(s) => {
+                Ok(CalcArgument::String(&*self.ctx.arena.alloc_str(s), false))
             }
+            calculation_value::Value::Interpolation(s) => Ok(CalcArgument::String(
+                &*self.ctx.arena.alloc_str(&format!("({s})")),
+                false,
+            )),
             calculation_value::Value::Operation(op) => {
                 let operator = deprotofy_calculation_operator(op.operator)?;
                 let left = self.deprotofy_calculation_value(
@@ -916,7 +921,7 @@ mod tests {
                 ValueKind::Calculation(&*arena.alloc(SassCalculation::new_unsimplified(
                     &arena,
                     "calc",
-                    vec![CalcArgument::String("var(--x)".into(), false)],
+                    vec![CalcArgument::String("var(--x)", false)],
                 ))),
             ),
         );
@@ -929,7 +934,7 @@ mod tests {
                     "min",
                     vec![
                         CalcArgument::Number(SassNumber::new(&arena, 1.0, Some("px"))),
-                        CalcArgument::String("var(--x)".into(), false),
+                        CalcArgument::String("var(--x)", false),
                     ],
                 ))),
             ),
