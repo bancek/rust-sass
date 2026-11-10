@@ -1018,6 +1018,7 @@ mod tests {
             SassValue::new_with_arena(
                 &arena,
                 ValueKind::Calculation(&*arena.alloc(SassCalculation::new_unsimplified(
+                    &arena,
                     "calc",
                     vec![CalcArgument::String("var(--x)".into(), false)],
                 ))),
@@ -1029,6 +1030,7 @@ mod tests {
             SassValue::new_with_arena(
                 &arena,
                 ValueKind::Calculation(&*arena.alloc(SassCalculation::new_unsimplified(
+                    &arena,
                     "min",
                     vec![
                         CalcArgument::Number(SassNumber::new(&arena, 1.0, Some("px"))),

@@ -128,13 +128,23 @@ pub(crate) fn visit_number_impl(
         return Ok(());
     }
     if value.value.is_infinite() || value.value.is_nan() {
-        let calc =
-            SassCalculation::new_unsimplified("calc", vec![CalcArgument::Number(value.clone())]);
+        // Serialization has no arena; the synthetic number gets a throwaway
+        // one with the same scope as the temporary calculation.
+        let arena = bumpalo::Bump::new();
+        let calc = SassCalculation::new_unsimplified(
+            &arena,
+            "calc",
+            vec![CalcArgument::Number(value.clone())],
+        );
         return visit_calculation_impl(buf, state, &calc);
     }
     if value.has_complex_units() {
-        let calc =
-            SassCalculation::new_unsimplified("calc", vec![CalcArgument::Number(value.clone())]);
+        let arena = bumpalo::Bump::new();
+        let calc = SassCalculation::new_unsimplified(
+            &arena,
+            "calc",
+            vec![CalcArgument::Number(value.clone())],
+        );
         return visit_calculation_impl(buf, state, &calc);
     }
     state.write_number(buf, value.value);
@@ -180,7 +190,7 @@ pub(crate) fn visit_calculation_impl(
     let sep = state.comma_sep();
     write!(buf, "{}", value.name).unwrap();
     buf.write_char('(').unwrap();
-    write_between(buf, &value.arguments, sep, |buf, arg| {
+    write_between(buf, value.arguments, sep, |buf, arg| {
         write_calculation_value(buf, state, arg)
     })?;
     buf.write_char(')').unwrap();

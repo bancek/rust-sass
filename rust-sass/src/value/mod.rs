@@ -2512,7 +2512,7 @@ mod tests {
         let mut v = TestVisitor {
             visited: &mut visited,
         };
-        let c = arena.alloc(SassCalculation::new_unsimplified("calc", vec![]));
+        let c = arena.alloc(SassCalculation::new_unsimplified(&arena, "calc", vec![]));
         Value::new_with_arena(&arena, ValueKind::Calculation(c))
             .accept(&mut v)
             .unwrap();

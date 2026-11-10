@@ -1149,6 +1149,7 @@ mod tests {
             &arena,
             ValueKind::Calculation(&*arena.alloc(
                 rust_sass::value::SassCalculation::new_unsimplified(
+                    &arena,
                     "calc",
                     vec![rust_sass::value::CalcArgument::Number(SassNumber::new(
                         &arena, 1.0, None,

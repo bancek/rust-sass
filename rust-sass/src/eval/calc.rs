@@ -490,7 +490,7 @@ where
         return Ok(Value::new_with_arena(
             arena,
             ValueKind::Calculation(
-                &*arena.alloc(SassCalculation::new_unsimplified(&name, evaluated)),
+                &*arena.alloc(SassCalculation::new_unsimplified(arena, &name, evaluated)),
             ),
         ));
     }

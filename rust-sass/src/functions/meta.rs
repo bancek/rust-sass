@@ -335,7 +335,7 @@ where
 {
     let calc = assert_calculation(&args[0], Some("calc"))?;
     let mut result: Vec<Value<'parse>> = Vec::with_capacity(calc.arguments.len());
-    for arg in &calc.arguments {
+    for arg in calc.arguments {
         // Value-typed arguments pass through unchanged; other arguments are
         // stringified (Go: fmt "%v" via String(), Dart: argument.toString()).
         result.push(match arg {
@@ -518,7 +518,9 @@ mod tests {
     ) -> Value<'parse> {
         Value::new_with_arena(
             arena,
-            ValueKind::Calculation(&*arena.alloc(SassCalculation::new_unsimplified(name, args))),
+            ValueKind::Calculation(
+                &*arena.alloc(SassCalculation::new_unsimplified(arena, name, args)),
+            ),
         )
     }
 
@@ -1230,6 +1232,7 @@ mod tests {
     async fn test_calc_args_nested_calculation() {
         let arena = Bump::new();
         let inner = SassCalculation::new_unsimplified(
+            &arena,
             "calc",
             vec![CalcArgument::Number(SassNumber::new(
                 &arena,

@@ -44,11 +44,12 @@ use crate::value::{SassNumber, ValueVisitor};
 pub struct SassCalculation<'parse> {
     /// The calculation's name, such as `"calc"`.
     pub name: String,
-    /// The calculation's arguments.
+    /// The calculation's arguments, in the compile arena (Dart's
+    /// unmodifiable `List<Object>`).
     ///
     /// Each argument is either a [`SassNumber`][super::SassNumber], a
     /// [`SassCalculation`], an unquoted string, or a [`CalculationOperation`].
-    pub arguments: Vec<CalcArgument<'parse>>,
+    pub arguments: &'parse [CalcArgument<'parse>],
     cached_hash: Cell<Option<usize>>,
 }
 
@@ -178,10 +179,17 @@ impl<'parse> CalcArgument<'parse> {
 impl<'parse> SassCalculation<'parse> {
     // Creates a calculation with the given `name` and `arguments` without
     // simplifying. Internal-only in Dart (`@internal unsimplified`).
-    pub fn new_unsimplified(name: &str, arguments: Vec<CalcArgument<'parse>>) -> Self {
+    //
+    // The arguments are copied into the compile arena, matching Dart's
+    // unmodifiable `List<Object>`.
+    pub fn new_unsimplified<'compile: 'parse>(
+        arena: &'compile Bump,
+        name: &str,
+        arguments: Vec<CalcArgument<'parse>>,
+    ) -> Self {
         SassCalculation {
             name: name.to_string(),
-            arguments,
+            arguments: arena.alloc_slice_fill_iter(arguments),
             cached_hash: Cell::new(None),
         }
     }
@@ -278,10 +286,11 @@ impl<'parse> CalculationOperation<'parse> {
     /// Serializes this operation by wrapping it in a nameless calculation and
     /// stripping the outer parentheses.
     pub fn to_display_string(&self) -> SassResult<String> {
-        // Renders without allocating: the operation is serialized directly by
-        // a nameless calculation that borrows `self`.
+        // Renders without allocating in the compile arena: the operation is
+        // serialized by a nameless calculation that borrows `self`.
+        let arena = Bump::new();
         let parenthesized =
-            SassCalculation::new_unsimplified("", vec![CalcArgument::Operation(self)])
+            SassCalculation::new_unsimplified(&arena, "", vec![CalcArgument::Operation(self)])
                 .to_display_string()?;
         Ok(parenthesized[1..parenthesized.len() - 1].to_string())
     }
@@ -336,7 +345,11 @@ pub fn new_calc<'compile: 'parse, 'parse>(
     }
     Ok(Value::new_with_arena(
         arena,
-        ValueKind::Calculation(&*arena.alloc(SassCalculation::new_unsimplified("calc", vec![v]))),
+        ValueKind::Calculation(&*arena.alloc(SassCalculation::new_unsimplified(
+            arena,
+            "calc",
+            vec![v],
+        ))),
     ))
 }
 
@@ -383,7 +396,9 @@ pub fn new_min<'compile: 'parse, 'parse>(
     verify_compatible_numbers(&simplified)?;
     Ok(Value::new_with_arena(
         arena,
-        ValueKind::Calculation(&*arena.alloc(SassCalculation::new_unsimplified("min", simplified))),
+        ValueKind::Calculation(
+            &*arena.alloc(SassCalculation::new_unsimplified(arena, "min", simplified)),
+        ),
     ))
 }
 
@@ -430,7 +445,9 @@ pub fn new_max<'compile: 'parse, 'parse>(
     verify_compatible_numbers(&simplified)?;
     Ok(Value::new_with_arena(
         arena,
-        ValueKind::Calculation(&*arena.alloc(SassCalculation::new_unsimplified("max", simplified))),
+        ValueKind::Calculation(
+            &*arena.alloc(SassCalculation::new_unsimplified(arena, "max", simplified)),
+        ),
     ))
 }
 
@@ -456,18 +473,18 @@ pub fn new_hypot<'compile: 'parse, 'parse>(
         _ => {
             return Ok(Value::new_with_arena(
                 arena,
-                ValueKind::Calculation(
-                    &*arena.alloc(SassCalculation::new_unsimplified("hypot", simplified)),
-                ),
+                ValueKind::Calculation(&*arena.alloc(SassCalculation::new_unsimplified(
+                    arena, "hypot", simplified,
+                ))),
             ));
         }
     };
     if first.has_unit("%") {
         return Ok(Value::new_with_arena(
             arena,
-            ValueKind::Calculation(
-                &*arena.alloc(SassCalculation::new_unsimplified("hypot", simplified)),
-            ),
+            ValueKind::Calculation(&*arena.alloc(SassCalculation::new_unsimplified(
+                arena, "hypot", simplified,
+            ))),
         ));
     }
     let mut subtotal = 0.0f64;
@@ -476,9 +493,9 @@ pub fn new_hypot<'compile: 'parse, 'parse>(
             if !num.has_compatible_units(first) {
                 return Ok(Value::new_with_arena(
                     arena,
-                    ValueKind::Calculation(
-                        &*arena.alloc(SassCalculation::new_unsimplified("hypot", simplified)),
-                    ),
+                    ValueKind::Calculation(&*arena.alloc(SassCalculation::new_unsimplified(
+                        arena, "hypot", simplified,
+                    ))),
                 ));
             }
             // Matches Dart: convertValueToMatch(first, "numbers[i+1]",
@@ -492,9 +509,9 @@ pub fn new_hypot<'compile: 'parse, 'parse>(
         } else {
             return Ok(Value::new_with_arena(
                 arena,
-                ValueKind::Calculation(
-                    &*arena.alloc(SassCalculation::new_unsimplified("hypot", simplified)),
-                ),
+                ValueKind::Calculation(&*arena.alloc(SassCalculation::new_unsimplified(
+                    arena, "hypot", simplified,
+                ))),
             ));
         }
     }
@@ -615,7 +632,11 @@ pub fn new_abs_internal<'compile: 'parse, 'parse>(
     }
     Ok(Value::new_with_arena(
         arena,
-        ValueKind::Calculation(&*arena.alloc(SassCalculation::new_unsimplified("abs", vec![arg]))),
+        ValueKind::Calculation(&*arena.alloc(SassCalculation::new_unsimplified(
+            arena,
+            "abs",
+            vec![arg],
+        ))),
     ))
 }
 
@@ -635,7 +656,11 @@ pub fn new_exp<'compile: 'parse, 'parse>(
     }
     Ok(Value::new_with_arena(
         arena,
-        ValueKind::Calculation(&*arena.alloc(SassCalculation::new_unsimplified("exp", vec![arg]))),
+        ValueKind::Calculation(&*arena.alloc(SassCalculation::new_unsimplified(
+            arena,
+            "exp",
+            vec![arg],
+        ))),
     ))
 }
 
@@ -667,7 +692,11 @@ pub fn new_sign<'compile: 'parse, 'parse>(
     }
     Ok(Value::new_with_arena(
         arena,
-        ValueKind::Calculation(&*arena.alloc(SassCalculation::new_unsimplified("sign", vec![arg]))),
+        ValueKind::Calculation(&*arena.alloc(SassCalculation::new_unsimplified(
+            arena,
+            "sign",
+            vec![arg],
+        ))),
     ))
 }
 
@@ -729,7 +758,9 @@ pub fn new_clamp<'compile: 'parse, 'parse>(
     verify_length(&args, 3)?;
     Ok(Value::new_with_arena(
         arena,
-        ValueKind::Calculation(&*arena.alloc(SassCalculation::new_unsimplified("clamp", args))),
+        ValueKind::Calculation(
+            &*arena.alloc(SassCalculation::new_unsimplified(arena, "clamp", args)),
+        ),
     ))
 }
 
@@ -761,7 +792,9 @@ pub fn new_pow<'compile: 'parse, 'parse>(
     }
     Ok(Value::new_with_arena(
         arena,
-        ValueKind::Calculation(&*arena.alloc(SassCalculation::new_unsimplified("pow", args))),
+        ValueKind::Calculation(
+            &*arena.alloc(SassCalculation::new_unsimplified(arena, "pow", args)),
+        ),
     ))
 }
 
@@ -801,7 +834,9 @@ pub fn new_log<'compile: 'parse, 'parse>(
     }
     Ok(Value::new_with_arena(
         arena,
-        ValueKind::Calculation(&*arena.alloc(SassCalculation::new_unsimplified("log", args))),
+        ValueKind::Calculation(
+            &*arena.alloc(SassCalculation::new_unsimplified(arena, "log", args)),
+        ),
     ))
 }
 
@@ -829,7 +864,7 @@ pub fn new_atan2<'compile: 'parse, 'parse>(
                 return Ok(Value::new_with_arena(
                     arena,
                     ValueKind::Calculation(
-                        &*arena.alloc(SassCalculation::new_unsimplified("atan2", args)),
+                        &*arena.alloc(SassCalculation::new_unsimplified(arena, "atan2", args)),
                     ),
                 ));
             }
@@ -841,7 +876,9 @@ pub fn new_atan2<'compile: 'parse, 'parse>(
     }
     Ok(Value::new_with_arena(
         arena,
-        ValueKind::Calculation(&*arena.alloc(SassCalculation::new_unsimplified("atan2", args))),
+        ValueKind::Calculation(
+            &*arena.alloc(SassCalculation::new_unsimplified(arena, "atan2", args)),
+        ),
     ))
 }
 
@@ -870,7 +907,7 @@ pub fn new_rem<'compile: 'parse, 'parse>(
                 return Ok(Value::new_with_arena(
                     arena,
                     ValueKind::Calculation(
-                        &*arena.alloc(SassCalculation::new_unsimplified("rem", args)),
+                        &*arena.alloc(SassCalculation::new_unsimplified(arena, "rem", args)),
                     ),
                 ));
             }
@@ -900,7 +937,9 @@ pub fn new_rem<'compile: 'parse, 'parse>(
     }
     Ok(Value::new_with_arena(
         arena,
-        ValueKind::Calculation(&*arena.alloc(SassCalculation::new_unsimplified("rem", args))),
+        ValueKind::Calculation(
+            &*arena.alloc(SassCalculation::new_unsimplified(arena, "rem", args)),
+        ),
     ))
 }
 
@@ -928,7 +967,7 @@ pub fn new_mod<'compile: 'parse, 'parse>(
                 return Ok(Value::new_with_arena(
                     arena,
                     ValueKind::Calculation(
-                        &*arena.alloc(SassCalculation::new_unsimplified("mod", args)),
+                        &*arena.alloc(SassCalculation::new_unsimplified(arena, "mod", args)),
                     ),
                 ));
             }
@@ -940,7 +979,9 @@ pub fn new_mod<'compile: 'parse, 'parse>(
     }
     Ok(Value::new_with_arena(
         arena,
-        ValueKind::Calculation(&*arena.alloc(SassCalculation::new_unsimplified("mod", args))),
+        ValueKind::Calculation(
+            &*arena.alloc(SassCalculation::new_unsimplified(arena, "mod", args)),
+        ),
     ))
 }
 
@@ -1025,6 +1066,7 @@ pub fn new_round_internal<'compile: 'parse, 'parse>(
                     return Ok(Value::new_with_arena(
                         arena,
                         ValueKind::Calculation(&*arena.alloc(SassCalculation::new_unsimplified(
+                            arena,
                             "round",
                             vec![
                                 CalcArgument::Number(strat_num.clone()),
@@ -1066,6 +1108,7 @@ pub fn new_round_internal<'compile: 'parse, 'parse>(
                             arena,
                             ValueKind::Calculation(&*arena.alloc(
                                 SassCalculation::new_unsimplified(
+                                    arena,
                                     "round",
                                     vec![
                                         CalcArgument::String(strat_text.clone(), false),
@@ -1098,6 +1141,7 @@ pub fn new_round_internal<'compile: 'parse, 'parse>(
         return Ok(Value::new_with_arena(
             arena,
             ValueKind::Calculation(&*arena.alloc(SassCalculation::new_unsimplified(
+                arena,
                 "round",
                 vec![strategy, number.unwrap()],
             ))),
@@ -1118,9 +1162,11 @@ pub fn new_round_internal<'compile: 'parse, 'parse>(
     if !is_rounding_strategy(&strategy) && number.is_none() && step_val.is_none() {
         return Ok(Value::new_with_arena(
             arena,
-            ValueKind::Calculation(
-                &*arena.alloc(SassCalculation::new_unsimplified("round", vec![strategy])),
-            ),
+            ValueKind::Calculation(&*arena.alloc(SassCalculation::new_unsimplified(
+                arena,
+                "round",
+                vec![strategy],
+            ))),
         ));
     }
     if !is_rounding_strategy(&strategy) && step_val.is_none() {
@@ -1128,6 +1174,7 @@ pub fn new_round_internal<'compile: 'parse, 'parse>(
             return Ok(Value::new_with_arena(
                 arena,
                 ValueKind::Calculation(&*arena.alloc(SassCalculation::new_unsimplified(
+                    arena,
                     "round",
                     vec![strategy, num],
                 ))),
@@ -1146,6 +1193,7 @@ pub fn new_round_internal<'compile: 'parse, 'parse>(
         return Ok(Value::new_with_arena(
             arena,
             ValueKind::Calculation(&*arena.alloc(SassCalculation::new_unsimplified(
+                arena,
                 "round",
                 vec![strategy, number.unwrap(), step_val.unwrap()],
             ))),
@@ -1190,7 +1238,11 @@ pub fn new_calc_size<'parse>(
     if let Some(v) = value {
         result_args.push(v);
     }
-    Ok(arena.alloc(SassCalculation::new_unsimplified("calc-size", result_args)))
+    Ok(arena.alloc(SassCalculation::new_unsimplified(
+        arena,
+        "calc-size",
+        result_args,
+    )))
 }
 
 /// Creates and simplifies a [`CalculationOperation`] with the given
@@ -1531,7 +1583,11 @@ fn single_argument<'compile: 'parse, 'parse>(
     }
     Ok(Value::new_with_arena(
         arena,
-        ValueKind::Calculation(&*arena.alloc(SassCalculation::new_unsimplified(name, vec![arg]))),
+        ValueKind::Calculation(&*arena.alloc(SassCalculation::new_unsimplified(
+            arena,
+            name,
+            vec![arg],
+        ))),
     ))
 }
 
@@ -1789,6 +1845,7 @@ mod tests {
     fn test_calculation_is_special_number() {
         let arena = Bump::new();
         let c = SassCalculation::new_unsimplified(
+            &arena,
             "calc",
             vec![CalcArgument::Number(SassNumber::new(&arena, 1.0, None))],
         );
@@ -1799,6 +1856,7 @@ mod tests {
     fn test_calculation_is_truthy() {
         let arena = Bump::new();
         let c = SassCalculation::new_unsimplified(
+            &arena,
             "calc",
             vec![CalcArgument::Number(SassNumber::new(&arena, 1.0, None))],
         );
@@ -1809,15 +1867,18 @@ mod tests {
     fn test_calculation_equals() {
         let arena = Bump::new();
         let c1 = SassCalculation::new_unsimplified(
+            &arena,
             "calc",
             vec![CalcArgument::Number(SassNumber::new(&arena, 1.0, None))],
         );
         let c2 = SassCalculation::new_unsimplified(
+            &arena,
             "calc",
             vec![CalcArgument::Number(SassNumber::new(&arena, 1.0, None))],
         );
         assert!(c1.equals(&c2));
         let c3 = SassCalculation::new_unsimplified(
+            &arena,
             "min",
             vec![CalcArgument::Number(SassNumber::new(&arena, 1.0, None))],
         );
@@ -1828,10 +1889,12 @@ mod tests {
     fn test_calculation_hash_code() {
         let arena = Bump::new();
         let c1 = SassCalculation::new_unsimplified(
+            &arena,
             "calc",
             vec![CalcArgument::Number(SassNumber::new(&arena, 1.0, None))],
         );
         let c2 = SassCalculation::new_unsimplified(
+            &arena,
             "calc",
             vec![CalcArgument::Number(SassNumber::new(&arena, 1.0, None))],
         );

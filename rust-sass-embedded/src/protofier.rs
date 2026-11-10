@@ -295,7 +295,7 @@ impl<'compile: 'parse, 'parse: 'compile> Protofier<'compile, 'parse> {
 
     fn protofy_calculation(&mut self, c: &SassCalculation) -> SassResult<pv::Calculation> {
         let mut arguments = Vec::with_capacity(c.arguments.len());
-        for arg in &c.arguments {
+        for arg in c.arguments {
             arguments.push(self.protofy_calculation_value(arg)?);
         }
         Ok(pv::Calculation {
@@ -914,6 +914,7 @@ mod tests {
             SassValue::new_with_arena(
                 &arena,
                 ValueKind::Calculation(&*arena.alloc(SassCalculation::new_unsimplified(
+                    &arena,
                     "calc",
                     vec![CalcArgument::String("var(--x)".into(), false)],
                 ))),
@@ -924,6 +925,7 @@ mod tests {
             SassValue::new_with_arena(
                 &arena,
                 ValueKind::Calculation(&*arena.alloc(SassCalculation::new_unsimplified(
+                    &arena,
                     "min",
                     vec![
                         CalcArgument::Number(SassNumber::new(&arena, 1.0, Some("px"))),
