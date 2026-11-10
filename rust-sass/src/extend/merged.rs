@@ -85,10 +85,7 @@ pub fn merge_extensions<'compile: 'parse, 'parse>(
         return Ok(*right);
     }
 
-    let media_context = left
-        .media_context()
-        .or_else(|| right.media_context())
-        .cloned();
+    let media_context = left.media_context().or_else(|| right.media_context());
 
     let base_ext = BaseExtension::new(
         arena,
@@ -221,7 +218,7 @@ mod tests {
             extender.clone(),
             target.clone(),
             BOGUS_SPAN,
-            Some(mc.clone()),
+            Some(&mc),
             false,
         );
         let right = BaseExtension::new(
@@ -229,7 +226,7 @@ mod tests {
             extender.clone(),
             target.clone(),
             BOGUS_SPAN,
-            Some(mc),
+            Some(&mc),
             false,
         );
         let merged = merge_extensions(&arena, &left, &right).unwrap();
@@ -269,7 +266,7 @@ mod tests {
             extender.clone(),
             target.clone(),
             left_span,
-            Some(mc1),
+            Some(&mc1),
             false,
         );
         let right = BaseExtension::new(
@@ -277,7 +274,7 @@ mod tests {
             extender.clone(),
             target.clone(),
             right_span,
-            Some(mc2),
+            Some(&mc2),
             false,
         );
         let err = merge_extensions(&arena, &left, &right).unwrap_err();

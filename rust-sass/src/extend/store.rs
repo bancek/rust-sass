@@ -485,7 +485,7 @@ impl<'parse> DefaultExtensionStore<'parse> {
                 arena,
                 &sel,
                 &self.extensions,
-                media_ctx.as_ref(),
+                media_ctx.as_deref(),
                 &mut self.originals,
                 &self.source_specificity,
                 self.mode,
@@ -522,6 +522,7 @@ impl<'parse> DefaultExtensionStore<'parse> {
         let existing_ext_ok = self.extensions_by_extender.contains_key(target);
 
         let mut new_exts: Vec<(ComplexSelector<'parse>, Extension<'parse>)> = Vec::new();
+        let media_ctx = media_ctx.map(|ctx| &*arena.alloc_slice_clone(&ctx));
 
         for complex in extender.0.components {
             if complex.is_useless() {
@@ -534,7 +535,7 @@ impl<'parse> DefaultExtensionStore<'parse> {
                 complex.clone(),
                 target.clone(),
                 extend.span,
-                media_ctx.clone(),
+                media_ctx,
                 extend.is_optional,
             );
 
@@ -995,7 +996,7 @@ fn extend_list<'compile: 'parse, 'parse>(
         SimpleSelector<'parse>,
         ArenaMap<'parse, ComplexSelector<'parse>, Extension<'parse>>,
     >,
-    media_qc: Option<&Vec<CssMediaQuery>>,
+    media_qc: Option<&[CssMediaQuery<'parse>]>,
     originals: &mut ArenaSet<'parse, ComplexSelector<'parse>>,
     source_specificity: &ArenaMap<'parse, SimpleSelector<'parse>, usize>,
     mode: ExtendMode,
@@ -1006,7 +1007,7 @@ fn extend_list<'compile: 'parse, 'parse>(
             arena,
             complex.clone(),
             exts,
-            media_qc.cloned(),
+            media_qc,
             originals,
             source_specificity,
             mode,
@@ -1049,7 +1050,7 @@ fn extend_complex<'compile: 'parse, 'parse>(
         SimpleSelector<'parse>,
         ArenaMap<'parse, ComplexSelector<'parse>, Extension<'parse>>,
     >,
-    media_query_context: Option<Vec<CssMediaQuery>>,
+    media_query_context: Option<&[CssMediaQuery<'parse>]>,
     originals: &mut ArenaSet<'parse, ComplexSelector<'parse>>,
     source_specificity: &ArenaMap<'parse, SimpleSelector<'parse>, usize>,
     mode: ExtendMode,
@@ -1152,7 +1153,7 @@ fn extend_compound<'compile: 'parse, 'parse>(
         SimpleSelector<'parse>,
         ArenaMap<'parse, ComplexSelector<'parse>, Extension<'parse>>,
     >,
-    media_ctx: &Option<Vec<CssMediaQuery>>,
+    media_ctx: &Option<&[CssMediaQuery<'parse>]>,
     in_original: bool,
     source_specificity: &ArenaMap<'parse, SimpleSelector<'parse>, usize>,
     mode: ExtendMode,
@@ -1330,7 +1331,7 @@ fn extend_simple<'compile: 'parse, 'parse>(
         SimpleSelector<'parse>,
         ArenaMap<'parse, ComplexSelector<'parse>, Extension<'parse>>,
     >,
-    media_ctx: &Option<Vec<CssMediaQuery>>,
+    media_ctx: &Option<&[CssMediaQuery<'parse>]>,
     targets_used: &mut Option<HashSet<SimpleSelector<'parse>>>,
     source_specificity: &ArenaMap<'parse, SimpleSelector<'parse>, usize>,
     mode: ExtendMode,
@@ -1394,7 +1395,7 @@ fn extend_pseudo<'compile: 'parse, 'parse>(
         SimpleSelector<'parse>,
         ArenaMap<'parse, ComplexSelector<'parse>, Extension<'parse>>,
     >,
-    media_ctx: &Option<Vec<CssMediaQuery>>,
+    media_ctx: &Option<&[CssMediaQuery<'parse>]>,
     source_specificity: &ArenaMap<'parse, SimpleSelector<'parse>, usize>,
     mode: ExtendMode,
 ) -> SassResult<Option<Vec<SimpleSelector<'parse>>>> {
@@ -1418,7 +1419,7 @@ fn extend_pseudo<'compile: 'parse, 'parse>(
         arena,
         sel_list,
         exts,
-        media_ctx.as_ref(),
+        media_ctx.as_deref(),
         &mut originals,
         source_specificity,
         mode,
@@ -1503,7 +1504,7 @@ fn extend_pseudo<'compile: 'parse, 'parse>(
 fn unify_extenders<'compile: 'parse, 'parse>(
     arena: &'compile Bump,
     extenders: &[Extender<'parse>],
-    media_ctx: &Option<Vec<CssMediaQuery>>,
+    media_ctx: &Option<&[CssMediaQuery<'parse>]>,
     span: FileSpan<'parse>,
 ) -> SassResult<Option<Vec<ComplexSelector<'parse>>>> {
     let mut to_unify: Vec<ComplexSelector<'parse>> = Vec::new();
@@ -1646,7 +1647,7 @@ fn extend_existing_extensions<'compile: 'parse, 'parse>(
     > = ArenaMap::new_in(arena);
     for extension in extensions_list {
         let target_clone = extension.target().clone();
-        let target_medias = extension.media_context().cloned();
+        let target_medias = extension.media_context();
         let old_selector = extension.extender_selector().clone();
 
         let selectors = match extend_complex(
@@ -1761,7 +1762,7 @@ fn extend_existing_selectors<'compile: 'parse, 'parse>(
             arena,
             &old_value,
             new_exts,
-            mc.as_ref(),
+            mc.as_deref(),
             originals,
             source_specificity,
             mode,
