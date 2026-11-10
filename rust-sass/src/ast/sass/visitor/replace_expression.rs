@@ -370,7 +370,7 @@ impl<'parse> IfConditionExpressionVisitor<'parse> for ReplaceExpressionVisitor<'
     ) -> SassResult<IfConditionExpression<'parse>> {
         let expr = node.expression.accept(self)?;
         Ok(IfConditionExpression::Parenthesized(
-            IfConditionParenthesized::new(expr, node.span),
+            IfConditionParenthesized::new(self.arena, expr, node.span),
         ))
     }
 
@@ -380,7 +380,7 @@ impl<'parse> IfConditionExpressionVisitor<'parse> for ReplaceExpressionVisitor<'
     ) -> SassResult<IfConditionExpression<'parse>> {
         let expr = node.expression.accept(self)?;
         Ok(IfConditionExpression::Negation(IfConditionNegation::new(
-            expr, node.span,
+            self.arena, expr, node.span,
         )))
     }
 
@@ -409,7 +409,7 @@ impl<'parse> IfConditionExpressionVisitor<'parse> for ReplaceExpressionVisitor<'
         let name = Self::replace_interpolation(self, arena, &node.name)?;
         let arena = self.arena;
         let arguments = Self::replace_interpolation(self, arena, &node.arguments)?;
-        Ok(IfConditionExpression::Function(Box::new(
+        Ok(IfConditionExpression::Function(self.arena.alloc(
             IfConditionFunction::new(name, arguments, node.span),
         )))
     }
@@ -420,7 +420,7 @@ impl<'parse> IfConditionExpressionVisitor<'parse> for ReplaceExpressionVisitor<'
     ) -> SassResult<IfConditionExpression<'parse>> {
         let expr = node.expression.accept(self)?;
         Ok(IfConditionExpression::Sass(IfConditionSass::new(
-            expr, node.span,
+            self.arena, expr, node.span,
         )))
     }
 

@@ -1677,6 +1677,7 @@ fn if_condition<'parse>(
         whitespace_impl(scanner, &mut state.parser_state, true)?;
         let group = if_group(scanner, state)?;
         return Ok(IfConditionExpression::Negation(IfConditionNegation::new(
+            state.arena,
             group,
             scanner.span_from(start),
         )));
@@ -1787,7 +1788,7 @@ fn if_group<'parse>(
         whitespace_impl(scanner, &mut state.parser_state, true)?;
         scanner.expect_char(')')?;
         return Ok(IfConditionExpression::Parenthesized(
-            IfConditionParenthesized::new(expr, scanner.span_from(start)),
+            IfConditionParenthesized::new(state.arena, expr, scanner.span_from(start)),
         ));
     }
     let is_sass = scan_identifier_impl(scanner, "sass", true)?;
@@ -1813,6 +1814,7 @@ fn if_group<'parse>(
             )));
         }
         return Ok(IfConditionExpression::Sass(IfConditionSass::new(
+            state.arena,
             expr,
             scanner.span_from(start),
         )));
@@ -1856,7 +1858,7 @@ fn if_group<'parse>(
     )?;
     whitespace_impl(scanner, &mut state.parser_state, true)?;
     scanner.expect_char(')')?;
-    Ok(IfConditionExpression::Function(Box::new(
+    Ok(IfConditionExpression::Function(state.arena.alloc(
         IfConditionFunction::new(identifier, expression, scanner.span_from(start)),
     )))
 }
@@ -1936,9 +1938,11 @@ fn try_arbitrary_substitution<'parse>(
     scanner.expect_char(')')?;
 
     let span = scanner.span_from(start);
-    Ok(Some(IfConditionExpression::Function(Box::new(
-        IfConditionFunction::new(name, arguments, span),
-    ))))
+    Ok(Some(IfConditionExpression::Function(
+        state
+            .arena
+            .alloc(IfConditionFunction::new(name, arguments, span)),
+    )))
 }
 
 /// Consumes the remainder of a would-be `if()` operation as raw text.

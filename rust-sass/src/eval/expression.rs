@@ -1216,12 +1216,12 @@ where
 {
     match condition {
         IfConditionExpression::Sass(sass) => {
-            let val = evaluate_expression(config, state, arena, &sass.expression).await?;
+            let val = evaluate_expression(config, state, arena, sass.expression).await?;
             Ok(IfCondResult::Bool(val.is_truthy()))
         }
         IfConditionExpression::Negation(neg) => {
             let inner = box_rec_in!(
-                evaluate_if_condition(config, state, arena, &neg.expression),
+                evaluate_if_condition(config, state, arena, neg.expression),
                 arena,
             )
             .await?;
@@ -1232,7 +1232,7 @@ where
         }
         IfConditionExpression::Parenthesized(p) => {
             let inner = box_rec_in!(
-                evaluate_if_condition(config, state, arena, &p.expression),
+                evaluate_if_condition(config, state, arena, p.expression),
                 arena,
             )
             .await?;

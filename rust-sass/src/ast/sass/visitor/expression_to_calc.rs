@@ -351,6 +351,7 @@ mod tests {
         let branches = vec![
             IfBranch {
                 condition: Some(IfConditionExpression::Sass(IfConditionSass::new(
+                    &arena,
                     Expression::Boolean(BooleanExpression::new(true, span)),
                     span,
                 ))),

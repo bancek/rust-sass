@@ -21,6 +21,7 @@ use std::cell::{Ref, RefCell};
 
 use indexmap::IndexMap;
 
+use crate::arena_map::ArenaMap;
 use bumpalo::Bump;
 
 use crate::arena_map::{ArenaHashSet, ArenaVec};
@@ -99,7 +100,9 @@ pub enum Filter<'parse> {
 /// `remove` mutates it, which is how a used configuration variable is marked
 /// even when viewed through filters.
 pub struct ConfigurationInner<'parse> {
-    values: IndexMap<String, ConfiguredValue<'parse>>,
+    /// Variable names are borrowed from the compile arena, so configuring a
+    /// module does not leak a `String` per key.
+    values: ArenaMap<'parse, &'parse str, ConfiguredValue<'parse>>,
 }
 
 // === Configuration enum ===
@@ -198,7 +201,7 @@ impl<'parse> Configuration<'parse> {
     pub fn empty<'compile: 'parse>(arena: &'compile Bump) -> Self {
         Implicit {
             inner: arena.alloc(RefCell::new(ConfigurationInner {
-                values: IndexMap::new(),
+                values: ArenaMap::new_in(arena),
             })),
             filters: ArenaVec::new_in(arena),
         }
@@ -209,8 +212,16 @@ impl<'parse> Configuration<'parse> {
         arena: &'compile Bump,
         values: IndexMap<String, ConfiguredValue<'parse>>,
     ) -> Self {
+        let values = values
+            .into_iter()
+            .map(|(name, value)| (&*arena.alloc_str(&name), value))
+            .collect::<Vec<_>>();
+        let mut values_map = ArenaMap::new_in(arena);
+        for (name, value) in values {
+            values_map.insert(name, value);
+        }
         Implicit {
-            inner: arena.alloc(RefCell::new(ConfigurationInner { values })),
+            inner: arena.alloc(RefCell::new(ConfigurationInner { values: values_map })),
             filters: ArenaVec::new_in(arena),
         }
     }
@@ -222,8 +233,16 @@ impl<'parse> Configuration<'parse> {
         values: IndexMap<String, ConfiguredValue<'parse>>,
         node_span: FileSpan<'parse>,
     ) -> Self {
+        let values = values
+            .into_iter()
+            .map(|(name, value)| (&*arena.alloc_str(&name), value))
+            .collect::<Vec<_>>();
+        let mut values_map = ArenaMap::new_in(arena);
+        for (name, value) in values {
+            values_map.insert(name, value);
+        }
         Explicit {
-            inner: arena.alloc(RefCell::new(ConfigurationInner { values })),
+            inner: arena.alloc(RefCell::new(ConfigurationInner { values: values_map })),
             filters: ArenaVec::new_in(arena),
             node_span,
         }
@@ -272,8 +291,8 @@ impl<'parse> Configuration<'parse> {
         // Safe: we return a Ref that borrows the RefCell guard
         // But we can't return Ref with a borrowed key... need a different approach.
         // Let's use index lookup.
-        if inner.values.contains_key(&transformed) {
-            Some(Ref::map(inner, |i| &i.values[&transformed]))
+        if inner.values.contains_key(transformed.as_str()) {
+            Some(Ref::map(inner, |i| &i.values[transformed.as_str()]))
         } else {
             None
         }
@@ -287,7 +306,10 @@ impl<'parse> Configuration<'parse> {
             return None;
         }
         let transformed = Self::apply_forward(name, self.filters_slice())?;
-        self.inner().borrow_mut().values.swap_remove(&transformed)
+        self.inner()
+            .borrow_mut()
+            .values
+            .swap_remove(transformed.as_str())
     }
 
     /// A map from variable names (without `$`) to values, filtered to what
@@ -297,10 +319,23 @@ impl<'parse> Configuration<'parse> {
         let inner = self.inner().borrow();
         let filters = self.filters_slice();
         if filters.is_empty() {
-            return inner.values.clone();
+            return inner
+                .values
+                .iter()
+                .map(|(key, val)| {
+                    (
+                        key.to_string(),
+                        ConfiguredValue {
+                            value: val.value,
+                            configuration_span: val.configuration_span,
+                            assignment_span: val.assignment_span,
+                        },
+                    )
+                })
+                .collect();
         }
         let mut result = IndexMap::new();
-        for (key, val) in &inner.values {
+        for (key, val) in inner.values.iter() {
             if let Some(visible_key) = Self::apply_backward(key, filters) {
                 result.insert(
                     visible_key,
@@ -320,7 +355,7 @@ impl<'parse> Configuration<'parse> {
         let inner = self.inner().borrow();
         let filters = self.filters_slice();
         if filters.is_empty() {
-            return inner.values.keys().cloned().collect();
+            return inner.values.keys().map(|k| k.to_string()).collect();
         }
         let mut result = Vec::new();
         for key in inner.values.keys() {
@@ -390,9 +425,9 @@ impl<'parse> Configuration<'parse> {
         let inner = self.inner().borrow();
         let filters = self.filters_slice();
         let mut parts: Vec<String> = Vec::new();
-        for (key, val) in &inner.values {
+        for (key, val) in inner.values.iter() {
             let display_key = if filters.is_empty() {
-                key.clone()
+                key.to_string()
             } else if let Some(k) = Self::apply_backward(key, filters) {
                 k
             } else {
