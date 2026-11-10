@@ -36,7 +36,7 @@ impl<'parse> SassReference<'parse> {
         match self {
             SassReference::VariableExpression(ve) => ve.name,
             SassReference::FunctionExpression(fe) => fe.name,
-            SassReference::IncludeRule(ir) => &ir.name,
+            SassReference::IncludeRule(ir) => ir.name,
         }
     }
 
@@ -57,7 +57,7 @@ impl<'parse> SassReference<'parse> {
         match self {
             SassReference::VariableExpression(ve) => ve.namespace,
             SassReference::FunctionExpression(fe) => fe.namespace,
-            SassReference::IncludeRule(ir) => ir.namespace.as_deref(),
+            SassReference::IncludeRule(ir) => ir.namespace,
         }
     }
 

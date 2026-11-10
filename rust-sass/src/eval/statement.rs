@@ -1895,7 +1895,7 @@ where
                     },
                 );
                 state.env.set_local_variable(
-                    &node.variable,
+                    node.variable,
                     Value::new_with_arena(arena, ValueKind::Number(unit_num)),
                     var_span,
                 );
@@ -1942,7 +1942,7 @@ where
     // _environment.getMixin(node.name, namespace: node.namespace))` — the
     // missing-module `Script` from `get_module` gains its span here.
     let mixin = add_exception_span(config, state, node.span, None, async |_cfg, st| {
-        st.env.get_mixin(&node.name, node.namespace.as_deref())
+        st.env.get_mixin(node.name, node.namespace)
     })
     .await?
     .ok_or_else(|| exception(state, "Undefined mixin.".into(), Some(node.span)))?;
@@ -1969,7 +1969,7 @@ where
     // Go's pattern (evaluate_statement.go:1737-1757).
     let content = node.content.as_ref().map(|content_block| {
         let content_callable = UserDefinedCallable::new(
-            CallableDeclaration::ContentBlock(content_block.clone().as_ref().clone()),
+            CallableDeclaration::ContentBlock((*content_block).clone()),
             state.env.closure(arena),
             state.in_dependency,
         );
@@ -4177,17 +4177,17 @@ where
                 if node.variables.len() == 1 {
                     state
                         .env
-                        .set_local_variable(&node.variables[0], cleaned, span);
+                        .set_local_variable(node.variables[0], cleaned, span);
                 } else {
                     let sub_items = cleaned.as_list(arena)?;
                     let min_len = node.variables.len().min(sub_items.len());
                     for (vi, sub_item) in sub_items.iter().take(min_len).enumerate() {
                         let sub = without_slash(config, state, arena, *sub_item, span)?;
-                        state.env.set_local_variable(&node.variables[vi], sub, span);
+                        state.env.set_local_variable(node.variables[vi], sub, span);
                     }
                     for vi in min_len..node.variables.len() {
                         state.env.set_local_variable(
-                            &node.variables[vi],
+                            node.variables[vi],
                             Value::new_with_arena(arena, ValueKind::Null),
                             span,
                         );
@@ -4518,7 +4518,7 @@ mod tests {
             span,
         });
         let rule = ForRule {
-            variable: "i".into(),
+            variable: "i",
             from: Expression::Number(NumberExpression {
                 value: 1.0,
                 unit: None,
@@ -4564,7 +4564,7 @@ mod tests {
             false,
         );
         let rule = EachRule {
-            variables: vec!["x".into()],
+            variables: &["x"],
             list: Expression::Value(ValueExpression {
                 value: Value::new_with_arena(&arena, ValueKind::List(list)),
                 span,

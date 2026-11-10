@@ -1333,7 +1333,7 @@ fn each_rule_impl<'b>(
             until: None,
         },
     )?;
-    let vars = variables.clone();
+    let vars: Vec<String> = variables.clone();
     let l = list.clone();
     let result = with_children_impl(
         scanner,
@@ -1342,7 +1342,11 @@ fn each_rule_impl<'b>(
         start,
         |_, children, span| {
             Ok(EachRule::new(
-                vars,
+                arena.alloc_slice_fill_iter(
+                    vars.iter()
+                        .map(|v| &*arena.alloc_str(v))
+                        .collect::<Vec<&'b str>>(),
+                ),
                 l,
                 arena_statements(arena, children),
                 span,
@@ -1446,7 +1450,7 @@ pub(crate) fn for_rule_impl<'b>(
         start,
         |_, children, span| {
             Ok(ForRule::new(
-                v,
+                arena.alloc_str(&v),
                 f,
                 t,
                 arena_statements(arena, children),
@@ -1695,7 +1699,7 @@ pub(crate) fn include_rule_impl<'b>(
     let ns = if namespace.is_empty() {
         None
     } else {
-        Some(namespace)
+        Some(&*state.arena.alloc_str(&namespace))
     };
     let span = if let Some(ref content) = content {
         let content_span = content.span()?;
@@ -1708,7 +1712,14 @@ pub(crate) fn include_rule_impl<'b>(
             span_from_to_impl(scanner, &state.parser_state, start, Some(&start))?.file_span()?;
         span_from.expand(&Span::File(arguments_span))?
     };
-    Ok(IncludeRule::new(name, arguments, span, ns, content))
+    Ok(IncludeRule::new(
+        arena,
+        arena.alloc_str(&name),
+        arguments,
+        span,
+        ns,
+        content.map(|cb| &*arena.alloc(cb)),
+    ))
 }
 
 // ======================================================================

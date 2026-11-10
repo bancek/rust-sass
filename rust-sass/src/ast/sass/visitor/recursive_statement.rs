@@ -118,7 +118,7 @@ impl<'parse> StatementVisitor<'parse> for RecursiveStatementVisitor {
     }
 
     fn visit_include_rule(&mut self, node: &IncludeRule<'parse>) -> SassResult<()> {
-        if let Some(ref content) = node.content {
+        if let Some(content) = node.content {
             self.visit_content_block(content)?;
         }
         Ok(())
@@ -374,11 +374,12 @@ mod tests {
         let cb = ContentBlock::new(params, &[], test_span(&arena, "{ }"));
         let args = ArgumentList::empty(test_span(&arena, ""));
         let ir = IncludeRule::new(
-            "foo".into(),
+            &arena,
+            "foo",
             args,
             test_span(&arena, "+foo"),
             None,
-            Some(cb),
+            Some(&cb),
         );
         Statement::IncludeRule(ir).accept(&mut v).unwrap();
     }
@@ -388,7 +389,7 @@ mod tests {
         let arena = Bump::new();
         let mut v = RecursiveStatementVisitor::new();
         let args = ArgumentList::empty(test_span(&arena, ""));
-        let ir = IncludeRule::new("foo".into(), args, test_span(&arena, "+foo"), None, None);
+        let ir = IncludeRule::new(&arena, "foo", args, test_span(&arena, "+foo"), None, None);
         Statement::IncludeRule(ir).accept(&mut v).unwrap();
     }
 
@@ -534,7 +535,7 @@ mod tests {
         ));
         let child = var_decl(&arena, "x");
         let er = EachRule::new(
-            vec!["x".into()],
+            &["x"],
             list,
             arena_statements(&arena, vec![child]),
             test_span(&arena, "@each $x in (a, b) { }"),
@@ -549,7 +550,7 @@ mod tests {
         let from = Expression::Number(NumberExpression::new(1.0, test_span(&arena, "1"), None));
         let to = Expression::Number(NumberExpression::new(3.0, test_span(&arena, "3"), None));
         let fr = ForRule::new(
-            "i".into(),
+            "i",
             from,
             to,
             &[],

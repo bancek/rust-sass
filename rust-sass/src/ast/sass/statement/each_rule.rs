@@ -25,7 +25,7 @@ use crate::ast::sass::statement::Statement;
 pub struct EachRule<'parse> {
     pub children: &'parse [Statement<'parse>],
     /// The variables assigned for each iteration.
-    pub variables: Vec<String>,
+    pub variables: &'parse [&'parse str],
     /// The expression whose value this iterates through.
     pub list: Expression<'parse>,
     pub span: FileSpan<'parse>,
@@ -33,7 +33,7 @@ pub struct EachRule<'parse> {
 
 impl<'parse> EachRule<'parse> {
     pub fn new(
-        variables: Vec<String>,
+        variables: &'parse [&'parse str],
         list: Expression<'parse>,
         children: &'parse [Statement<'parse>],
         span: FileSpan<'parse>,
@@ -106,7 +106,7 @@ mod tests {
         let arena = Bump::new();
         let span = make_span(&arena, "@each $v in list { }");
         let list = Expression::Boolean(BooleanExpression::new(true, span));
-        let rule = EachRule::new(vec!["v".into()], list, &[], span);
+        let rule = EachRule::new(&["v"], list, &[], span);
         assert_eq!(rule.variables.len(), 1);
     }
 
@@ -115,7 +115,7 @@ mod tests {
         let arena = Bump::new();
         let span = make_span(&arena, "@each $v in true { }");
         let list = Expression::Boolean(BooleanExpression::new(true, span));
-        let rule = EachRule::new(vec!["v".into()], list, &[], span);
+        let rule = EachRule::new(&["v"], list, &[], span);
         let s = format!("{rule}");
         assert!(s.contains("@each"), "got {s:?}");
         assert!(s.contains("$v"), "got {s:?}");
@@ -126,7 +126,7 @@ mod tests {
         let arena = Bump::new();
         let span = make_span(&arena, "@each $v in list { }");
         let list = Expression::Boolean(BooleanExpression::new(true, span));
-        let rule = EachRule::new(vec!["v".into()], list, &[], span);
+        let rule = EachRule::new(&["v"], list, &[], span);
         assert_eq!(rule.span().unwrap(), span);
     }
 }

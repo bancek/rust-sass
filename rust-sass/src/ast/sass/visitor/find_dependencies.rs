@@ -202,7 +202,7 @@ impl<'parse> StatementVisitor<'parse> for FindDependenciesVisitor<'parse> {
         if node.name != "load-css" {
             return Ok(());
         }
-        let ns = node.namespace.as_deref().unwrap_or("");
+        let ns = node.namespace.unwrap_or("");
         if !self.meta_namespaces.contains(ns) {
             return Ok(());
         }
@@ -381,13 +381,7 @@ mod tests {
             None,
             None,
         );
-        let inc = IncludeRule::new(
-            "load-css".into(),
-            args,
-            include_span,
-            Some("meta".into()),
-            None,
-        );
+        let inc = IncludeRule::new(&arena, "load-css", args, include_span, Some("meta"), None);
 
         let ss = Stylesheet::new(
             &arena,

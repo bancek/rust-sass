@@ -140,7 +140,7 @@ impl<'parse> StatementVisitor<'parse> for StatementSearchVisitor<'_> {
     }
 
     fn visit_include_rule(&mut self, node: &IncludeRule<'parse>) -> SassResult<bool> {
-        if let Some(ref content) = node.content {
+        if let Some(content) = node.content {
             return self.visit_content_block(content);
         }
         Ok(false)
@@ -291,11 +291,12 @@ mod tests {
         let cb = ContentBlock::new(params, &[], test_span(&arena, "{ }"));
         let args = ArgumentList::empty(test_span(&arena, ""));
         let ir = IncludeRule::new(
-            "foo".into(),
+            &arena,
+            "foo",
             args,
             test_span(&arena, "+foo"),
             None,
-            Some(cb),
+            Some(&cb),
         );
         let result = Statement::IncludeRule(ir).accept(&mut v).unwrap();
         assert!(!result);
@@ -306,7 +307,7 @@ mod tests {
         let arena = Bump::new();
         let mut v = StatementSearchVisitor::new();
         let args = ArgumentList::empty(test_span(&arena, ""));
-        let ir = IncludeRule::new("foo".into(), args, test_span(&arena, "+foo"), None, None);
+        let ir = IncludeRule::new(&arena, "foo", args, test_span(&arena, "+foo"), None, None);
         let result = Statement::IncludeRule(ir).accept(&mut v).unwrap();
         assert!(!result);
     }

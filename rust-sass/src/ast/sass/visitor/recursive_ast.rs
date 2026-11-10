@@ -262,7 +262,7 @@ impl<'parse> StatementVisitor<'parse> for RecursiveAstVisitor {
 
     fn visit_include_rule(&mut self, node: &IncludeRule<'parse>) -> SassResult<()> {
         self.visit_argument_list(&node.arguments)?;
-        if let Some(ref content) = node.content {
+        if let Some(content) = node.content {
             self.visit_content_block(content)?;
         }
         Ok(())
@@ -698,7 +698,7 @@ mod tests {
             None,
             None,
         );
-        let ir = IncludeRule::new("foo".into(), args, span, None, None);
+        let ir = IncludeRule::new(&arena, "foo", args, span, None, None);
         Statement::IncludeRule(ir).accept(&mut v).unwrap();
     }
 
