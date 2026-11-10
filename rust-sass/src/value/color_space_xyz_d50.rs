@@ -26,7 +26,7 @@ pub(crate) fn xyz_d50_convert(
     c1: Option<f64>,
     c2: Option<f64>,
     alpha: Option<f64>,
-) -> SassResult<SassColor> {
+) -> SassResult<SassColor<'static>> {
     xyz_d50_convert_internal(dest, c0, c1, c2, alpha, None)
 }
 
@@ -43,7 +43,7 @@ pub(crate) fn xyz_d50_convert_internal(
     z: Option<f64>,
     alpha: Option<f64>,
     opts: Option<&XyzD50ConvertOpts>,
-) -> SassResult<SassColor> {
+) -> SassResult<SassColor<'static>> {
     // Analogous missingness normalization (#2810): missing `a`+`b` imply
     // missing chroma+hue and vice versa; an all-missing source converts to
     // an all-missing destination.

@@ -24,7 +24,7 @@ pub(crate) fn prophoto_rgb_convert(
     c1: Option<f64>,
     c2: Option<f64>,
     alpha: Option<f64>,
-) -> SassResult<SassColor> {
+) -> SassResult<SassColor<'static>> {
     convert_linear(ColorSpace::ProphotoRgb, dest, c0, c1, c2, alpha, None)
 }
 

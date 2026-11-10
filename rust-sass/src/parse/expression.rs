@@ -911,7 +911,7 @@ fn hash_expression_impl<'parse>(
 fn hex_color_contents<'parse>(
     scanner: &mut SpanScanner<'parse>,
     start: LineScannerState,
-) -> ParseResult<'parse, SassColor> {
+) -> ParseResult<'parse, SassColor<'parse>> {
     let d1 = hex_digit(scanner)?;
     let d2 = hex_digit(scanner)?;
     let d3 = hex_digit(scanner)?;
@@ -1248,7 +1248,7 @@ fn ident_like<'parse>(
 }
 
 // Looks up a CSS named color (Dart's `colorsByName`).
-fn named_color(name: &str) -> Option<SassColor> {
+fn named_color(name: &str) -> Option<SassColor<'static>> {
     // Literal color table; a named alias would be single-use indirection.
     #[allow(clippy::type_complexity)]
     static PAIRS: &[(&str, (u8, u8, u8, f64))] = &[

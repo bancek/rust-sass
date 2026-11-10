@@ -25,7 +25,7 @@ pub(crate) fn lch_convert(
     c1: Option<f64>,
     c2: Option<f64>,
     alpha: Option<f64>,
-) -> SassResult<SassColor> {
+) -> SassResult<SassColor<'static>> {
     let chv = c1.unwrap_or(0.0);
     let hv = c2.unwrap_or(0.0);
     let hue_radians = hv * PI / 180.0;

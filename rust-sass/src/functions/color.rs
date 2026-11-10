@@ -439,7 +439,7 @@ where
                 // Matches Dart: to-space routes through _colorInSpace, which
                 // returns the color unchanged for $space: null.
                 if matches!(&*args[1], ValueKind::Null) {
-                    return Ok(Value::new_with_arena(arena, ValueKind::Color(col.clone())));
+                    return Ok(Value::new_with_arena(arena, ValueKind::Color(*col)));
                 }
                 let s = value::assert_string(&args[1], Some("space"))?;
                 s.assert_unquoted()
@@ -607,7 +607,7 @@ where
                     .map_err(|e| wrap_unquoted_err(e, "method"))?;
                 let method = GamutMapMethod::from_name_with_arg(method_s.text, None)?;
                 if !space.is_bounded() {
-                    return Ok(Value::new_with_arena(arena, ValueKind::Color(col.clone())));
+                    return Ok(Value::new_with_arena(arena, ValueKind::Color(*col)));
                 }
                 let space_converted = col.to_space(space, None)?;
                 let gamut_color = space_converted.to_gamut(method)?;

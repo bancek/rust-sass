@@ -398,10 +398,7 @@ pub(crate) fn evaluate_color_expression<'compile, 'parse>(
 where
     'compile: 'parse,
 {
-    Ok(Value::new_with_arena(
-        arena,
-        ValueKind::Color((*expr.value).clone()),
-    ))
+    Ok(Value::new_with_arena(arena, ValueKind::Color(*expr.value)))
 }
 
 // ===========================================================================

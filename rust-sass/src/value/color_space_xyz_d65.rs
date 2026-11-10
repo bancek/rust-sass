@@ -24,7 +24,7 @@ pub(crate) fn xyz_d65_convert(
     c1: Option<f64>,
     c2: Option<f64>,
     alpha: Option<f64>,
-) -> SassResult<SassColor> {
+) -> SassResult<SassColor<'static>> {
     convert_linear(ColorSpace::XyzD65, dest, c0, c1, c2, alpha, None)
 }
 

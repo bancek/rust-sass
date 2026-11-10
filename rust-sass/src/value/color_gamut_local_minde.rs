@@ -44,7 +44,9 @@ fn delta_eok(c1: &SassColor, c2: &SassColor) -> SassResult<f64> {
 // intentionally skips the in-gamut check once a below-threshold clip has been
 // seen, per the csswg discussion Dart links — `min_in_gamut = false` implies
 // the candidate is out of gamut.
-pub(crate) fn local_minde_gamut_map(color: &SassColor) -> SassResult<SassColor> {
+pub(crate) fn local_minde_gamut_map<'parse>(
+    color: &SassColor<'parse>,
+) -> SassResult<SassColor<'parse>> {
     // Thresholds from the gamut-mapping algorithm.
     const JND: f64 = 0.02;
     const EPSILON: f64 = 0.0001;

@@ -205,7 +205,7 @@ pub(crate) fn lab_to_lch(
     alpha: Option<f64>,
     missing_chroma: bool,
     missing_hue: bool,
-) -> SassResult<SassColor> {
+) -> SassResult<SassColor<'static>> {
     // Analogous missingness: null `a`+`b` imply missing chroma+hue (#2810).
     let missing_chroma = missing_chroma || (a.is_none() && b.is_none());
     let missing_hue = missing_hue || (a.is_none() && b.is_none());

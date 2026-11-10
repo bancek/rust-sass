@@ -89,7 +89,7 @@ pub enum ValueKind<'parse> {
     Null,
     String(SassString<'parse>),
     Number(SassNumber<'parse>),
-    Color(SassColor),
+    Color(SassColor<'parse>),
     List(SassList<'parse>),
     ArgumentList(SassArgumentList<'parse>),
     Map(SassMap<'parse>),
@@ -922,7 +922,7 @@ pub fn assert_string<'v, 'parse>(
 pub fn assert_color<'v, 'parse>(
     v: &'v ValueKind<'parse>,
     name: Option<&str>,
-) -> SassResult<&'v SassColor> {
+) -> SassResult<&'v SassColor<'parse>> {
     match v {
         ValueKind::Color(c) => Ok(c),
         _ => Err(Box::new(SassError::Script {

@@ -21,12 +21,12 @@ use crate::ast::sass::interpolation::Interpolation;
 #[derive(Clone, Debug)]
 pub struct ColorExpression<'parse> {
     /// The value of this color.
-    pub value: &'parse SassColor,
+    pub value: &'parse SassColor<'parse>,
     pub span: FileSpan<'parse>,
 }
 
 impl<'parse> ColorExpression<'parse> {
-    pub fn new(arena: &'parse Bump, value: SassColor, span: FileSpan<'parse>) -> Self {
+    pub fn new(arena: &'parse Bump, value: SassColor<'parse>, span: FileSpan<'parse>) -> Self {
         ColorExpression {
             value: arena.alloc(value),
             span,

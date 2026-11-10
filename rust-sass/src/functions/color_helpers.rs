@@ -45,14 +45,14 @@ pub(crate) fn wrap_unquoted_err(e: Box<SassError>, name: &str) -> Box<SassError>
 /// Ports Dart's `_colorInSpace` (color.dart:1623), including the
 /// `legacyMissing` flag: when `false`, missing channels in legacy spaces
 /// convert to zero on conversion (used by `to-space`/`to-gamut` callers).
-pub fn color_in_space(
-    color: &SassColor,
-    space_val: &Value<'_>,
+pub fn color_in_space<'parse>(
+    color: &SassColor<'parse>,
+    space_val: &Value<'parse>,
     legacy_missing: Option<bool>,
-) -> SassResult<SassColor> {
+) -> SassResult<SassColor<'parse>> {
     let lm = legacy_missing.unwrap_or(true);
     if matches!(&**space_val, ValueKind::Null) {
-        return Ok(color.clone());
+        return Ok(*color);
     }
     let s = value::assert_string(space_val, Some("space"))?;
     s.assert_unquoted()
@@ -70,9 +70,9 @@ pub fn color_in_space(
 /// Ports Dart's `toXyzNoMissing` local helper inside the `same()` closure
 /// (color.dart:719): the three pattern arms (already clean, xyz-d65 with
 /// missing, other space via manual `convert`).
-pub fn to_xyz_no_missing(col: &SassColor) -> SassResult<SassColor> {
+pub fn to_xyz_no_missing<'parse>(col: &SassColor<'parse>) -> SassResult<SassColor<'parse>> {
     if col.space == ColorSpace::XyzD65 && !col.has_missing_channel() {
-        return Ok(col.clone());
+        return Ok(*col);
     }
     if col.space == ColorSpace::XyzD65 {
         return SassColor::xyz_d65(col.channel0, col.channel1, col.channel2, col.alpha);
@@ -317,7 +317,7 @@ where
 pub fn channel_function<'compile, 'parse>(
     name: &str,
     space: ColorSpace,
-    getter: fn(&SassColor) -> SassResult<f64>,
+    getter: fn(&SassColor<'parse>) -> SassResult<f64>,
     arena: &'compile Bump,
 ) -> BuiltInCallable<'compile, 'parse>
 where
@@ -335,7 +335,7 @@ where
 pub fn channel_function_with_unit<'compile, 'parse>(
     name: &str,
     space: ColorSpace,
-    getter: fn(&SassColor) -> SassResult<f64>,
+    getter: fn(&SassColor<'parse>) -> SassResult<f64>,
     unit: &str,
     arena: &'compile Bump,
 ) -> BuiltInCallable<'compile, 'parse>
@@ -357,7 +357,7 @@ where
 pub fn channel_function_global<'compile, 'parse>(
     name: &str,
     space: ColorSpace,
-    getter: fn(&SassColor) -> SassResult<f64>,
+    getter: fn(&SassColor<'parse>) -> SassResult<f64>,
     arena: &'compile Bump,
 ) -> BuiltInCallable<'compile, 'parse>
 where
@@ -377,7 +377,7 @@ where
 pub fn channel_function_global_with_unit<'compile, 'parse>(
     name: &str,
     space: ColorSpace,
-    getter: fn(&SassColor) -> SassResult<f64>,
+    getter: fn(&SassColor<'parse>) -> SassResult<f64>,
     unit: &str,
     arena: &'compile Bump,
 ) -> BuiltInCallable<'compile, 'parse>
@@ -393,7 +393,7 @@ where
 fn new_built_in_channel_function<'compile, 'parse>(
     name: &str,
     space: ColorSpace,
-    getter: fn(&SassColor) -> SassResult<f64>,
+    getter: fn(&SassColor<'parse>) -> SassResult<f64>,
     unit: &str,
     global: bool,
     arena: &'compile Bump,

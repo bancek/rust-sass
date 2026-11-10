@@ -701,7 +701,7 @@ mod tests {
         assert!(ctx.protocol_error.borrow().is_none());
     }
 
-    fn rgb(r: f64, g: f64, b: f64, a: f64) -> SassColor {
+    fn rgb(r: f64, g: f64, b: f64, a: f64) -> SassColor<'static> {
         SassColor::for_space(
             ColorSpace::from_name("rgb", None).unwrap(),
             [r, g, b],

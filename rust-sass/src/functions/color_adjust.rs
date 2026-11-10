@@ -231,7 +231,7 @@ fn adjust_color_impl<'compile, 'parse>(
     color: &SassColor,
     channel_args: &[Option<&SassNumber>],
     alpha_arg: Option<&SassNumber>,
-) -> SassResult<SassColor>
+) -> SassResult<SassColor<'parse>>
 where
     'compile: 'parse,
 {
@@ -285,11 +285,11 @@ where
 /// Each channel (and alpha) goes through [`scale_channel_impl`].
 ///
 /// Ports Dart's `_scaleColor` (color.dart:1154).
-fn scale_color_impl(
-    color: &SassColor,
+fn scale_color_impl<'parse>(
+    color: &SassColor<'parse>,
     channel_args: &[Option<&SassNumber>],
     alpha_arg: Option<&SassNumber>,
-) -> SassResult<SassColor> {
+) -> SassResult<SassColor<'parse>> {
     let chs = color.space.channels_linear();
     let scaled_alpha = if let Some(a) = alpha_arg {
         scale_channel_impl(color, &ALPHA_CHANNEL, color.alpha_or_nil(), Some(a))?
@@ -320,7 +320,7 @@ fn change_color_impl<'compile, 'parse>(
     color: &SassColor,
     channel_args: &[Option<Value<'parse>>],
     alpha_val: Option<&Value<'parse>>,
-) -> SassResult<SassColor>
+) -> SassResult<SassColor<'parse>>
 where
     'compile: 'parse,
 {
@@ -402,7 +402,7 @@ where
         false,
     )?;
     match &*result {
-        ValueKind::Color(c) => Ok(c.clone()),
+        ValueKind::Color(c) => Ok(*c),
         _ => panic!("expected Color"),
     }
 }
@@ -556,7 +556,7 @@ where
         if let Some(s) = sniff_legacy_color_space(&keywords) {
             original_color.to_space(s, Some(false))?
         } else {
-            original_color.clone()
+            *original_color
         }
     } else {
         color_in_space(

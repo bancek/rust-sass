@@ -727,7 +727,7 @@ pub(crate) fn convert_linear(
     c2: Option<f64>,
     alpha: Option<f64>,
     opts: Option<&ConvertLinearOpts>,
-) -> SassResult<SassColor> {
+) -> SassResult<SassColor<'static>> {
     if dst == src {
         return Ok(new_color_for_space_internal_no_check(
             dst, c0, c1, c2, alpha,
@@ -855,7 +855,7 @@ pub(crate) fn convert_color(
     alpha: f64,
     missing: [bool; 4],
     _extra_missing: Option<bool>,
-) -> SassResult<SassColor> {
+) -> SassResult<SassColor<'static>> {
     let c0p = if missing[0] { None } else { Some(c0) };
     let c1p = if missing[1] { None } else { Some(c1) };
     let c2p = if missing[2] { None } else { Some(c2) };

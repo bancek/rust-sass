@@ -196,7 +196,7 @@ pub(crate) static NAME_BY_NAME: LazyLock<HashMap<&'static str, (u8, u8, u8, f64)
     });
 
 /// Looks up a named color by (lowercase) name.
-pub fn lookup_name(name: &str) -> Option<SassColor> {
+pub fn lookup_name(name: &str) -> Option<SassColor<'static>> {
     NAME_BY_NAME
         .get(name)
         .map(|(r, g, b, a)| SassColor::rgb(f64::from(*r), f64::from(*g), f64::from(*b), *a))

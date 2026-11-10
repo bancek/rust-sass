@@ -26,7 +26,7 @@ pub(crate) fn srgb_linear_convert(
     c1: Option<f64>,
     c2: Option<f64>,
     alpha: Option<f64>,
-) -> SassResult<SassColor> {
+) -> SassResult<SassColor<'static>> {
     if matches!(
         dest,
         ColorSpace::Srgb | ColorSpace::Rgb | ColorSpace::Hsl | ColorSpace::Hwb

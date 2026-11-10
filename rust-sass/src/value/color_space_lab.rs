@@ -24,7 +24,7 @@ pub(crate) fn lab_convert(
     c1: Option<f64>,
     c2: Option<f64>,
     alpha: Option<f64>,
-) -> SassResult<SassColor> {
+) -> SassResult<SassColor<'static>> {
     lab_convert_internal(dest, c0, c1, c2, alpha, None)
 }
 
@@ -41,7 +41,7 @@ pub(crate) fn lab_convert_internal(
     b: Option<f64>,
     alpha: Option<f64>,
     opts: Option<&LabConvertOpts>,
-) -> SassResult<SassColor> {
+) -> SassResult<SassColor<'static>> {
     // Analogous missingness: null `a`+`b` imply missing chroma+hue and vice
     // versa (#2810).
     let (mut a, mut b) = (a, b);

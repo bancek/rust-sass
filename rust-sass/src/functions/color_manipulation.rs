@@ -72,7 +72,7 @@ fn new_color_for_space_internal(
     c1: Option<f64>,
     c2: Option<f64>,
     alpha: Option<f64>,
-) -> SassResult<SassColor> {
+) -> SassResult<SassColor<'static>> {
     SassColor::new_color_for_space_internal(space, c0, c1, c2, alpha)
 }
 
@@ -819,10 +819,7 @@ where
     weight.value_in_range(0.0, 100.0, Some("weight"))?;
     let w = weight.value / 100.0;
     if nu::fuzzy_equals(w, 0.0) {
-        return Ok(Value::new_with_arena(
-            arena,
-            ValueKind::Color(color.clone()),
-        ));
+        return Ok(Value::new_with_arena(arena, ValueKind::Color(*color)));
     }
     let in_space = color.to_space(space, None)?;
     let chs = color_space_chs(space);

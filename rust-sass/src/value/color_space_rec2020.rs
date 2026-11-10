@@ -23,7 +23,7 @@ pub(crate) fn rec2020_convert(
     c1: Option<f64>,
     c2: Option<f64>,
     alpha: Option<f64>,
-) -> SassResult<SassColor> {
+) -> SassResult<SassColor<'static>> {
     convert_linear(ColorSpace::Rec2020, dest, c0, c1, c2, alpha, None)
 }
 
