@@ -42,7 +42,7 @@ pub struct VariableDeclaration<'parse> {
     /// Whether this assignment always targets the global scope.
     pub is_global: bool,
     /// The comment immediately preceding this declaration, if any.
-    pub comment: Option<Box<SilentComment<'parse>>>,
+    pub comment: Option<&'parse SilentComment<'parse>>,
 }
 
 impl<'parse> VariableDeclaration<'parse> {
@@ -57,7 +57,7 @@ impl<'parse> VariableDeclaration<'parse> {
         namespace: Option<&str>,
         guarded: bool,
         global: bool,
-        comment: Option<SilentComment<'parse>>,
+        comment: Option<&'parse SilentComment<'parse>>,
     ) -> SassResult<Self> {
         if namespace.is_some() && global {
             return Err(Box::new(SassError::from(ArgumentError {
@@ -72,7 +72,7 @@ impl<'parse> VariableDeclaration<'parse> {
             namespace: namespace.map(|ns| &*arena.alloc_str(ns)),
             guarded,
             is_global: global,
-            comment: comment.map(Box::new),
+            comment,
         })
     }
 

@@ -79,8 +79,8 @@ impl<'parse> CallableDeclaration<'parse> {
     /// Content blocks never have one (Dart passes no comment to super).
     pub fn comment(&self) -> Option<&SilentComment<'parse>> {
         match self {
-            CallableDeclaration::Mixin(m) => m.comment.as_deref(),
-            CallableDeclaration::Function(f) => f.comment.as_deref(),
+            CallableDeclaration::Mixin(m) => m.comment,
+            CallableDeclaration::Function(f) => f.comment,
             CallableDeclaration::ContentBlock(_) => None,
         }
     }

@@ -293,7 +293,7 @@ pub(crate) fn variable_declaration_without_namespace_impl<'b>(
         namespace.as_deref(),
         guarded,
         global,
-        preceding_comment.map(|b| *b),
+        preceding_comment,
     )
     .map_err(|e| Box::new(ParseError::Sass(e)))?;
     if global {

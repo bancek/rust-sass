@@ -35,7 +35,7 @@ pub struct FunctionRule<'parse> {
     pub children: &'parse [Statement<'parse>],
     pub span: FileSpan<'parse>,
     /// The comment immediately preceding this declaration, if any.
-    pub comment: Option<Box<SilentComment<'parse>>>,
+    pub comment: Option<&'parse SilentComment<'parse>>,
     pub is_plain_css_function: bool,
     pub namespace: Option<&'parse str>,
 }
@@ -47,7 +47,7 @@ impl<'parse> FunctionRule<'parse> {
         parameters: ParameterList<'parse>,
         children: &'parse [Statement<'parse>],
         span: FileSpan<'parse>,
-        comment: Option<SilentComment<'parse>>,
+        comment: Option<&'parse SilentComment<'parse>>,
     ) -> Self {
         let name = arena.alloc_str(&original_name.replace('_', "-"));
         FunctionRule {
@@ -56,7 +56,7 @@ impl<'parse> FunctionRule<'parse> {
             parameters,
             children,
             span,
-            comment: comment.map(Box::new),
+            comment,
             is_plain_css_function: false,
             namespace: None,
         }

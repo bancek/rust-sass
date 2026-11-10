@@ -38,7 +38,7 @@ pub struct MixinRule<'parse> {
     pub children: &'parse [Statement<'parse>],
     pub span: FileSpan<'parse>,
     /// The comment immediately preceding this declaration, if any.
-    pub comment: Option<Box<SilentComment<'parse>>>,
+    pub comment: Option<&'parse SilentComment<'parse>>,
     pub namespace: Option<&'parse str>,
     /// Lazily computed cache for `has_content()`.
     /// Matches Dart: `late final bool hasContent` / Go: `hasContent` +
@@ -53,7 +53,7 @@ impl<'parse> MixinRule<'parse> {
         parameters: ParameterList<'parse>,
         children: &'parse [Statement<'parse>],
         span: FileSpan<'parse>,
-        comment: Option<SilentComment<'parse>>,
+        comment: Option<&'parse SilentComment<'parse>>,
     ) -> Self {
         let name = arena.alloc_str(&original_name.replace('_', "-"));
         MixinRule {
@@ -62,7 +62,7 @@ impl<'parse> MixinRule<'parse> {
             parameters,
             children,
             span,
-            comment: comment.map(Box::new),
+            comment,
             namespace: None,
             has_content: Cell::new(None),
         }

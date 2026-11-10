@@ -1175,7 +1175,7 @@ pub(crate) fn mixin_rule_impl<'b>(
     state.in_mixin = true;
     let n = name.clone();
     let p = parameters.clone();
-    let comment = preceding_comment.map(|b| *b);
+    let comment = preceding_comment;
     let result = with_children_impl(
         scanner,
         state,
@@ -1274,7 +1274,7 @@ fn function_rule_impl<'b>(
     whitespace_impl(scanner, &mut state.parser_state, false)?;
     let n = name.clone();
     let p = parameters.clone();
-    let comment = preceding_comment.map(|b| *b);
+    let comment = preceding_comment;
     with_children_impl(
         scanner,
         state,

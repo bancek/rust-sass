@@ -142,7 +142,7 @@ pub struct StylesheetState<'parse> {
     pub warnings: Vec<ParseTimeWarning<'parse>>,
     /// The most recently seen silent comment, attached to the next
     /// declaration that opts into it. Matches Dart: `lastSilentComment`.
-    pub last_silent_comment: Option<Box<SilentComment<'parse>>>,
+    pub last_silent_comment: Option<&'parse SilentComment<'parse>>,
 }
 
 pub struct StylesheetParser<'parse> {
