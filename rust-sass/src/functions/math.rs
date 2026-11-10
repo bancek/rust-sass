@@ -218,11 +218,11 @@ where
                 let number = assert_number(&args[0], Some("number"))?;
                 Ok(Value::new_with_arena(
                     arena,
-                    ValueKind::Number(SassNumber::with_units(
+                    ValueKind::Number(SassNumber::with_units_refs(
                         arena,
                         transform(number.value)?,
-                        number.numerator_units.to_vec(),
-                        number.denominator_units.to_vec(),
+                        &number.numerator_units,
+                        &number.denominator_units,
                     )),
                 ))
             },
@@ -306,11 +306,11 @@ where
                 }
                 Ok(Value::new_with_arena(
                     arena,
-                    ValueKind::Number(SassNumber::with_units(
+                    ValueKind::Number(SassNumber::with_units_refs(
                         arena,
                         abs(number.value),
-                        number.numerator_units.to_vec(),
-                        number.denominator_units.to_vec(),
+                        &number.numerator_units,
+                        &number.denominator_units,
                     )),
                 ))
             },
@@ -758,11 +758,11 @@ where
                 }
                 Ok(Value::new_with_arena(
                     arena,
-                    ValueKind::Number(SassNumber::with_units(
+                    ValueKind::Number(SassNumber::with_units_refs(
                         arena,
                         sqrt(subtotal),
-                        parsed[0].numerator_units.to_vec(),
-                        parsed[0].denominator_units.to_vec(),
+                        &parsed[0].numerator_units,
+                        &parsed[0].denominator_units,
                     )),
                 ))
             },
@@ -978,7 +978,7 @@ fn unit_string(n: &SassNumber) -> String {
 /// counterpart of its own.
 ///
 /// Matches Go: joinStrings
-fn join_strings(strs: &[String], sep: &str) -> String {
+fn join_strings(strs: &[&str], sep: &str) -> String {
     let mut result = String::new();
     for (i, s) in strs.iter().enumerate() {
         if i > 0 {
@@ -3123,11 +3123,8 @@ mod tests {
     #[rust_sass_macros::maybe_test]
     async fn test_math_join_strings() {
         assert_eq!(join_strings(&[], "*"), "");
-        assert_eq!(join_strings(&["a".to_string()], "*"), "a");
-        assert_eq!(
-            join_strings(&["a".to_string(), "b".to_string(), "c".to_string()], "*"),
-            "a*b*c"
-        );
+        assert_eq!(join_strings(&["a"], "*"), "a");
+        assert_eq!(join_strings(&["a", "b", "c"], "*"), "a*b*c");
     }
 
     // --- comparable (global) ---

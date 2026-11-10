@@ -205,8 +205,16 @@ fn to_serializable<'parse>(
         },
         ValueKind::Number(n) => SerializableValue::Number {
             value: n.value,
-            numerator_units: n.numerator_units.to_vec(),
-            denominator_units: n.denominator_units.to_vec(),
+            numerator_units: n
+                .numerator_units
+                .iter()
+                .map(|u| (*u).to_string())
+                .collect::<Vec<String>>(),
+            denominator_units: n
+                .denominator_units
+                .iter()
+                .map(|u| (*u).to_string())
+                .collect::<Vec<String>>(),
         },
         ValueKind::Color(c) => SerializableValue::Color {
             space: c.space.name(),
@@ -316,8 +324,16 @@ fn calc_arg_to_serializable(arg: &CalcArgument<'_>) -> SassResult<SerializableCa
     Ok(match arg {
         CalcArgument::Number(n) => SerializableCalcArg::Number {
             value: n.value,
-            numerator_units: n.numerator_units.to_vec(),
-            denominator_units: n.denominator_units.to_vec(),
+            numerator_units: n
+                .numerator_units
+                .iter()
+                .map(|u| (*u).to_string())
+                .collect::<Vec<String>>(),
+            denominator_units: n
+                .denominator_units
+                .iter()
+                .map(|u| (*u).to_string())
+                .collect::<Vec<String>>(),
         },
         CalcArgument::Calculation(c) => SerializableCalcArg::Calculation {
             name: c.name.to_string(),

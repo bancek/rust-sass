@@ -50,9 +50,9 @@ pub struct SassNumber<'parse> {
     /// Arena-backed because numbers live in the arena, which never runs
     /// destructors; a `Vec<String>` here would leak on every arithmetic
     /// operation. Build with [`SassNumber::with_units`].
-    pub numerator_units: ArenaVec<String, &'parse Bump>,
+    pub numerator_units: ArenaVec<&'parse str, &'parse Bump>,
     /// This number's denominator units, allocated in the compile arena.
-    pub denominator_units: ArenaVec<String, &'parse Bump>,
+    pub denominator_units: ArenaVec<&'parse str, &'parse Bump>,
     // The representation of this number as two slash-separated numbers, if it
     // has one.
     //
@@ -62,16 +62,26 @@ pub struct SassNumber<'parse> {
 }
 
 /// Moves `units` into an arena-backed list.
-fn arena_units<'parse>(arena: &'parse Bump, units: Vec<String>) -> ArenaVec<String, &'parse Bump> {
-    let mut list: ArenaVec<String, &'parse Bump> = ArenaVec::new_in(arena);
-    list.extend(units);
+fn arena_units<'parse>(
+    arena: &'parse Bump,
+    units: Vec<String>,
+) -> ArenaVec<&'parse str, &'parse Bump> {
+    let mut list: ArenaVec<&'parse str, &'parse Bump> = ArenaVec::new_in(arena);
+    for unit in units {
+        list.push(&*arena.alloc_str(&unit));
+    }
     list
 }
 
 /// Copies `units` into an arena-backed list.
-fn copy_units<'parse>(arena: &'parse Bump, units: &[String]) -> ArenaVec<String, &'parse Bump> {
-    let mut list: ArenaVec<String, &'parse Bump> = ArenaVec::with_capacity_in(units.len(), arena);
-    list.extend(units.iter().cloned());
+fn copy_units<'parse>(
+    arena: &'parse Bump,
+    units: &[&'parse str],
+) -> ArenaVec<&'parse str, &'parse Bump> {
+    let mut list: ArenaVec<&'parse str, &'parse Bump> = ArenaVec::new_in(arena);
+    for unit in units {
+        list.push(*unit);
+    }
     list
 }
 
@@ -83,7 +93,7 @@ impl<'parse> SassNumber<'parse> {
     pub fn new(arena: &'parse Bump, value: f64, unit: Option<&str>) -> Self {
         let mut numerator_units = ArenaVec::new_in(arena);
         if let Some(u) = unit {
-            numerator_units.push(u.to_string());
+            numerator_units.push(&*arena.alloc_str(u));
         }
         SassNumber {
             value,
@@ -104,27 +114,60 @@ impl<'parse> SassNumber<'parse> {
         num_units: Vec<String>,
         den_units: Vec<String>,
     ) -> Self {
-        let mut num = arena_units(arena, num_units);
+        let mut num = ArenaVec::new_in(arena);
+        for unit in &num_units {
+            num.push(&*arena.alloc_str(unit));
+        }
+        let mut den = ArenaVec::new_in(arena);
+        for unit in &den_units {
+            den.push(&*arena.alloc_str(unit));
+        }
+        Self::with_units_vec_in(arena, value, num, den)
+    }
+
+    /// Arena-backed twin of [`with_units`](Self::with_units): takes the unit
+    /// names as `&'parse str`, avoiding a `String` round-trip.
+    pub fn with_units_refs(
+        arena: &'parse Bump,
+        value: f64,
+        num_units: &[&'parse str],
+        den_units: &[&'parse str],
+    ) -> Self {
+        Self::with_units_vec_in(
+            arena,
+            value,
+            copy_units(arena, num_units),
+            copy_units(arena, den_units),
+        )
+    }
+
+    /// Simplifies already-arena-backed unit lists (the shared body of
+    /// [`with_units`](Self::with_units) and [`with_units_refs`](Self::with_units_refs)).
+    fn with_units_vec_in(
+        arena: &'parse Bump,
+        value: f64,
+        mut numerators: ArenaVec<&'parse str, &'parse Bump>,
+        den_units: ArenaVec<&'parse str, &'parse Bump>,
+    ) -> Self {
         let mut den = ArenaVec::new_in(arena);
         let mut val = value;
-        let remaining_den = den_units;
-        for rden in remaining_den {
+        for rden in den_units.iter() {
             let mut simplified = false;
-            for i in 0..num.len() {
-                if let Some(factor) = conversion_factor(&rden, &num[i]) {
+            for i in 0..numerators.len() {
+                if let Some(factor) = conversion_factor(rden, numerators[i]) {
                     val *= factor;
-                    num.remove(i);
+                    numerators.remove(i);
                     simplified = true;
                     break;
                 }
             }
             if !simplified {
-                den.push(rden);
+                den.push(*rden);
             }
         }
         SassNumber {
             value: val,
-            numerator_units: num,
+            numerator_units: numerators,
             denominator_units: den,
             as_slash: None,
         }
@@ -270,7 +313,7 @@ impl<'parse> SassNumber<'parse> {
         if self.has_complex_units() {
             return false;
         }
-        conversion_factor(unit, &self.numerator_units[0]).is_some()
+        conversion_factor(unit, self.numerator_units[0]).is_some()
     }
 
     // Returns whether this number can be compared to `other`.
@@ -339,12 +382,12 @@ impl<'parse> SassNumber<'parse> {
 
     /// A shorthand for [`convert_value`](Self::convert_value) with only one numerator unit.
     pub fn convert_value_to_unit(&self, unit: &str, name: Option<&str>) -> SassResult<f64> {
-        self.coerce_or_convert_value(&[unit.to_string()], &[], false, name, None, None)
+        self.coerce_or_convert_value(&[unit], &[], false, name, None, None)
     }
 
     /// A shorthand for [`coerce_value`](Self::coerce_value) with only one numerator unit.
     pub fn coerce_value_to_unit(&self, unit: &str, name: Option<&str>) -> SassResult<f64> {
-        self.coerce_or_convert_value(&[unit.to_string()], &[], true, name, None, None)
+        self.coerce_or_convert_value(&[unit], &[], true, name, None, None)
     }
 
     /// Builds the error for incompatible unit conversions.
@@ -352,8 +395,8 @@ impl<'parse> SassNumber<'parse> {
     /// Matches Go: numCompatibilityError
     fn compatibility_error(
         &self,
-        new_numerators: &[String],
-        new_denominators: &[String],
+        new_numerators: &[&str],
+        new_denominators: &[&str],
         name: Option<&str>,
         other: Option<&SassNumber>,
         other_name: Option<&str>,
@@ -393,7 +436,7 @@ impl<'parse> SassNumber<'parse> {
             });
         }
         if new_numerators.len() == 1 && new_denominators.is_empty() {
-            if let Some(typ) = type_by_unit(&new_numerators[0]) {
+            if let Some(typ) = type_by_unit(new_numerators[0]) {
                 let n_str = match self.to_display_string() {
                     Ok(s) => s,
                     Err(e) => return e,
@@ -436,8 +479,8 @@ impl<'parse> SassNumber<'parse> {
     /// reporting.
     pub fn coerce_or_convert_value(
         &self,
-        new_numerators: &[String],
-        new_denominators: &[String],
+        new_numerators: &[&str],
+        new_denominators: &[&str],
         coerce_unitless: bool,
         name: Option<&str>,
         other: Option<&SassNumber>,
@@ -454,12 +497,12 @@ impl<'parse> SassNumber<'parse> {
         }
 
         let mut v = self.value;
-        let mut old_numerators: Vec<String> = self.numerator_units.to_vec();
+        let mut old_numerators: Vec<&str> = self.numerator_units.to_vec();
 
         for new_num in new_numerators {
             let mut found = false;
             for i in 0..old_numerators.len() {
-                if let Some(factor) = conversion_factor(new_num, &old_numerators[i]) {
+                if let Some(factor) = conversion_factor(new_num, old_numerators[i]) {
                     v *= factor;
                     old_numerators.remove(i);
                     found = true;
@@ -477,11 +520,11 @@ impl<'parse> SassNumber<'parse> {
             }
         }
 
-        let mut old_denominators: Vec<String> = self.denominator_units.to_vec();
+        let mut old_denominators: Vec<&str> = self.denominator_units.to_vec();
         for new_den in new_denominators {
             let mut found = false;
             for i in 0..old_denominators.len() {
-                if let Some(factor) = conversion_factor(new_den, &old_denominators[i]) {
+                if let Some(factor) = conversion_factor(new_den, old_denominators[i]) {
                     v /= factor;
                     old_denominators.remove(i);
                     found = true;
@@ -751,11 +794,11 @@ impl<'parse> SassNumber<'parse> {
     ) -> SassResult<SassNumber<'parse>> {
         if !self.has_units() {
             if other.has_units() {
-                return Ok(SassNumber::with_units(
+                return Ok(SassNumber::with_units_refs(
                     arena,
                     self.value / other.value,
-                    other.denominator_units.to_vec(),
-                    other.numerator_units.to_vec(),
+                    &other.denominator_units,
+                    &other.numerator_units,
                 ));
             }
             return Ok(SassNumber::new(arena, self.value / other.value, None));
@@ -945,16 +988,16 @@ impl<'parse> SassNumber<'parse> {
     pub fn convert(
         &self,
         arena: &'parse Bump,
-        new_numerators: &[String],
-        new_denominators: &[String],
+        new_numerators: &[&'parse str],
+        new_denominators: &[&'parse str],
         name: Option<&str>,
     ) -> SassResult<SassNumber<'parse>> {
         let val = self.convert_value(new_numerators, new_denominators, name)?;
-        Ok(SassNumber::with_units(
+        Ok(SassNumber::with_units_refs(
             arena,
             val,
-            new_numerators.to_vec(),
-            new_denominators.to_vec(),
+            new_numerators,
+            new_denominators,
         ))
     }
 
@@ -971,24 +1014,24 @@ impl<'parse> SassNumber<'parse> {
     pub fn coerce(
         &self,
         arena: &'parse Bump,
-        new_numerators: &[String],
-        new_denominators: &[String],
+        new_numerators: &[&'parse str],
+        new_denominators: &[&'parse str],
         name: Option<&str>,
     ) -> SassResult<SassNumber<'parse>> {
         if !self.has_units() {
-            return Ok(SassNumber::with_units(
+            return Ok(SassNumber::with_units_refs(
                 arena,
                 self.value,
-                new_numerators.to_vec(),
-                new_denominators.to_vec(),
+                new_numerators,
+                new_denominators,
             ));
         }
         let val = self.coerce_value(new_numerators, new_denominators, name)?;
-        Ok(SassNumber::with_units(
+        Ok(SassNumber::with_units_refs(
             arena,
             val,
-            new_numerators.to_vec(),
-            new_denominators.to_vec(),
+            new_numerators,
+            new_denominators,
         ))
     }
 
@@ -1021,11 +1064,11 @@ impl<'parse> SassNumber<'parse> {
             Some(other),
             other_name,
         )?;
-        Ok(SassNumber::with_units(
+        Ok(SassNumber::with_units_refs(
             arena,
             val,
-            other.numerator_units.to_vec(),
-            other.denominator_units.to_vec(),
+            &other.numerator_units,
+            &other.denominator_units,
         ))
     }
 
@@ -1054,11 +1097,11 @@ impl<'parse> SassNumber<'parse> {
             Some(other),
             other_name,
         )?;
-        Ok(SassNumber::with_units(
+        Ok(SassNumber::with_units_refs(
             arena,
             val,
-            other.numerator_units.to_vec(),
-            other.denominator_units.to_vec(),
+            &other.numerator_units,
+            &other.denominator_units,
         ))
     }
 
@@ -1072,8 +1115,8 @@ impl<'parse> SassNumber<'parse> {
     /// (without `$`) used for error reporting.
     pub fn coerce_value(
         &self,
-        new_numerators: &[String],
-        new_denominators: &[String],
+        new_numerators: &[&str],
+        new_denominators: &[&str],
         name: Option<&str>,
     ) -> SassResult<f64> {
         if !self.has_units() {
@@ -1089,8 +1132,8 @@ impl<'parse> SassNumber<'parse> {
     /// is the argument name (without `$`) used for error reporting.
     pub fn convert_value(
         &self,
-        new_numerators: &[String],
-        new_denominators: &[String],
+        new_numerators: &[&str],
+        new_denominators: &[&str],
         name: Option<&str>,
     ) -> SassResult<f64> {
         if !self.has_units() && new_numerators.is_empty() && new_denominators.is_empty() {
@@ -1107,55 +1150,50 @@ impl<'parse> SassNumber<'parse> {
         &self,
         arena: &'parse Bump,
         n: f64,
-        other_numerators: &[String],
-        other_denominators: &[String],
+        other_numerators: &[&'parse str],
+        other_denominators: &[&'parse str],
     ) -> SassNumber<'parse> {
         if other_numerators.is_empty() && other_denominators.is_empty() {
-            return SassNumber::with_units(
+            return SassNumber::with_units_refs(
                 arena,
                 n,
-                self.numerator_units.to_vec(),
-                self.denominator_units.to_vec(),
+                &self.numerator_units,
+                &self.denominator_units,
             );
         }
         if self.numerator_units.is_empty() && self.denominator_units.is_empty() {
-            return SassNumber::with_units(
-                arena,
-                n,
-                other_numerators.to_vec(),
-                other_denominators.to_vec(),
-            );
+            return SassNumber::with_units_refs(arena, n, other_numerators, other_denominators);
         }
         if self.numerator_units.is_empty()
             && other_denominators.is_empty()
             && !units_are_convertible(&self.denominator_units, other_numerators)
         {
-            return SassNumber::with_units(
+            return SassNumber::with_units_refs(
                 arena,
                 n,
-                other_numerators.to_vec(),
-                self.denominator_units.to_vec(),
+                other_numerators,
+                &self.denominator_units,
             );
         }
         if self.denominator_units.is_empty()
             && other_numerators.is_empty()
             && !units_are_convertible(&self.numerator_units, other_denominators)
         {
-            return SassNumber::with_units(
+            return SassNumber::with_units_refs(
                 arena,
                 n,
-                self.numerator_units.to_vec(),
-                other_denominators.to_vec(),
+                &self.numerator_units,
+                other_denominators,
             );
         }
         let mut val = n;
-        let mut mutable_other_den: Vec<String> = other_denominators.to_vec();
-        let mut new_numerators: Vec<String> = vec![];
+        let mut mutable_other_den: Vec<&'parse str> = other_denominators.to_vec();
+        let mut new_numerators: Vec<&'parse str> = vec![];
 
         for num in &self.numerator_units {
             let mut found = false;
             for i in 0..mutable_other_den.len() {
-                if let Some(factor) = conversion_factor(num, &mutable_other_den[i]) {
+                if let Some(factor) = conversion_factor(num, mutable_other_den[i]) {
                     val /= factor;
                     mutable_other_den.remove(i);
                     found = true;
@@ -1163,15 +1201,15 @@ impl<'parse> SassNumber<'parse> {
                 }
             }
             if !found {
-                new_numerators.push(num.clone());
+                new_numerators.push(*num);
             }
         }
 
-        let mut mutable_den: Vec<String> = self.denominator_units.to_vec();
+        let mut mutable_den: Vec<&'parse str> = self.denominator_units.to_vec();
         for num in other_numerators {
             let mut found = false;
             for i in 0..mutable_den.len() {
-                if let Some(factor) = conversion_factor(num, &mutable_den[i]) {
+                if let Some(factor) = conversion_factor(num, mutable_den[i]) {
                     val /= factor;
                     mutable_den.remove(i);
                     found = true;
@@ -1179,12 +1217,12 @@ impl<'parse> SassNumber<'parse> {
                 }
             }
             if !found {
-                new_numerators.push(num.clone());
+                new_numerators.push(*num);
             }
         }
 
         mutable_den.extend(mutable_other_den);
-        SassNumber::with_units(arena, val, new_numerators, mutable_den)
+        SassNumber::with_units_refs(arena, val, &new_numerators, &mutable_den)
     }
 }
 
@@ -1229,7 +1267,7 @@ mod tests {
         let n = SassNumber::new(&arena, 10.0, Some("px"));
         assert!(n.has_units());
         assert!(!n.has_complex_units());
-        assert_eq!(n.numerator_units.as_slice(), &["px".to_string()]);
+        assert_eq!(n.numerator_units.as_slice(), &["px"]);
     }
 
     #[test]
@@ -1250,7 +1288,7 @@ mod tests {
             vec!["px".to_string()],
         );
         assert!(!n.has_complex_units());
-        assert!(n.has_unit("in") || n.numerator_units.contains(&"in".to_string()));
+        assert!(n.has_unit("in") || n.numerator_units.contains(&"in"));
     }
 
     #[test]
@@ -1590,7 +1628,7 @@ mod tests {
     fn test_multiply_units() {
         let arena = Bump::new();
         let a = SassNumber::new(&arena, 2.0, Some("in"));
-        let r = a.multiply_units(&arena, 6.0, &["px".to_string()], &[]);
+        let r = a.multiply_units(&arena, 6.0, &["px"], &[]);
         assert!(approx(r.value, 6.0));
         assert_eq!(r.numerator_units.len(), 2);
     }
@@ -1678,9 +1716,7 @@ mod tests {
     fn test_convert_sass_number() {
         let arena = Bump::new();
         let n = SassNumber::new(&arena, 1.0, Some("in"));
-        let result = n
-            .convert(&arena, &["px".to_string()], &[], Some("test"))
-            .unwrap();
+        let result = n.convert(&arena, &["px"], &[], Some("test")).unwrap();
         assert!(approx(result.value, 96.0));
         assert!(result.has_unit("px"));
     }
@@ -1689,16 +1725,12 @@ mod tests {
     fn test_coerce_sass_number() {
         let arena = Bump::new();
         let n = SassNumber::new(&arena, 5.0, None);
-        let result = n
-            .coerce(&arena, &["px".to_string()], &[], Some("test"))
-            .unwrap();
+        let result = n.coerce(&arena, &["px"], &[], Some("test")).unwrap();
         assert!(approx(result.value, 5.0));
         assert!(result.has_unit("px"));
 
         let m = SassNumber::new(&arena, 1.0, Some("in"));
-        let result = m
-            .coerce(&arena, &["px".to_string()], &[], Some("test"))
-            .unwrap();
+        let result = m.coerce(&arena, &["px"], &[], Some("test")).unwrap();
         assert!(approx(result.value, 96.0));
     }
 
@@ -1737,15 +1769,11 @@ mod tests {
     fn test_coerce_value() {
         let arena = Bump::new();
         let n = SassNumber::new(&arena, 5.0, None);
-        let v = n
-            .coerce_value(&["px".to_string()], &[], Some("test"))
-            .unwrap();
+        let v = n.coerce_value(&["px"], &[], Some("test")).unwrap();
         assert!(approx(v, 5.0));
 
         let m = SassNumber::new(&arena, 1.0, Some("in"));
-        let v = m
-            .coerce_value(&["px".to_string()], &[], Some("test"))
-            .unwrap();
+        let v = m.coerce_value(&["px"], &[], Some("test")).unwrap();
         assert!(approx(v, 96.0));
     }
 
@@ -1757,14 +1785,10 @@ mod tests {
         assert!(approx(v, 5.0));
 
         let m = SassNumber::new(&arena, 1.0, Some("in"));
-        let v = m
-            .convert_value(&["px".to_string()], &[], Some("test"))
-            .unwrap();
+        let v = m.convert_value(&["px"], &[], Some("test")).unwrap();
         assert!(approx(v, 96.0));
 
-        assert!(n
-            .convert_value(&["px".to_string()], &[], Some("test"))
-            .is_err());
+        assert!(n.convert_value(&["px"], &[], Some("test")).is_err());
     }
 
     // --- Exact error message tests (locked in Go: number_test.go) ---
@@ -1888,7 +1912,7 @@ mod tests {
         let arena = Bump::new();
         // Multiple units.
         let err = SassNumber::new(&arena, 5.0, Some("px"))
-            .convert_value(&["px".to_string(), "s".to_string()], &[], None)
+            .convert_value(&["px", "s"], &[], None)
             .unwrap_err();
         assert_script_err(err, "Expected 5px to have units px*s.", None);
 

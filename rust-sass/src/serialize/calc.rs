@@ -107,8 +107,8 @@ pub(crate) fn write_calculation_value(
 pub(crate) fn write_calc_units(
     buf: &mut SourceMapBuffer<'_>,
     state: &SerializeState,
-    num_units: &[String],
-    den_units: &[String],
+    num_units: &[&str],
+    den_units: &[&str],
     negative: bool,
 ) {
     let mut negative = negative;

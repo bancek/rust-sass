@@ -517,11 +517,11 @@ pub fn new_hypot<'compile: 'parse, 'parse>(
     }
     Ok(Value::new_with_arena(
         arena,
-        ValueKind::Number(SassNumber::with_units(
+        ValueKind::Number(SassNumber::with_units_refs(
             arena,
             subtotal.sqrt(),
-            first.numerator_units.to_vec(),
-            first.denominator_units.to_vec(),
+            &first.numerator_units,
+            &first.denominator_units,
         )),
     ))
 }
@@ -622,11 +622,11 @@ pub fn new_abs_internal<'compile: 'parse, 'parse>(
         let val = num_abs(num);
         return Ok(Value::new_with_arena(
             arena,
-            ValueKind::Number(SassNumber::with_units(
+            ValueKind::Number(SassNumber::with_units_refs(
                 arena,
                 val,
-                num.numerator_units.to_vec(),
-                num.denominator_units.to_vec(),
+                &num.numerator_units,
+                &num.denominator_units,
             )),
         ));
     }
@@ -681,11 +681,11 @@ pub fn new_sign<'compile: 'parse, 'parse>(
             let val = number::sign_including_zero(n.value);
             return Ok(Value::new_with_arena(
                 arena,
-                ValueKind::Number(SassNumber::with_units(
+                ValueKind::Number(SassNumber::with_units_refs(
                     arena,
                     val,
-                    n.numerator_units.to_vec(),
-                    n.denominator_units.to_vec(),
+                    &n.numerator_units,
+                    &n.denominator_units,
                 )),
             ));
         }
@@ -1610,11 +1610,11 @@ fn match_units<'parse>(
     value: f64,
     number: &SassNumber<'parse>,
 ) -> SassNumber<'parse> {
-    SassNumber::with_units(
+    SassNumber::with_units_refs(
         arena,
         value,
-        number.numerator_units.to_vec(),
-        number.denominator_units.to_vec(),
+        &number.numerator_units,
+        &number.denominator_units,
     )
 }
 
@@ -1638,11 +1638,11 @@ fn round_with_step<'parse>(
         || number.value.is_nan()
         || step.value.is_nan()
     {
-        return Ok(SassNumber::with_units(
+        return Ok(SassNumber::with_units_refs(
             arena,
             f64::NAN,
-            number.numerator_units.to_vec(),
-            number.denominator_units.to_vec(),
+            &number.numerator_units,
+            &number.denominator_units,
         ));
     }
     if number.value.is_infinite() {
@@ -1653,60 +1653,60 @@ fn round_with_step<'parse>(
             _ if number.value == 0.0 => Ok(number.clone()),
             "nearest" | "to-zero" => {
                 if number.value > 0.0 {
-                    Ok(SassNumber::with_units(
+                    Ok(SassNumber::with_units_refs(
                         arena,
                         0.0,
-                        number.numerator_units.to_vec(),
-                        number.denominator_units.to_vec(),
+                        &number.numerator_units,
+                        &number.denominator_units,
                     ))
                 } else {
-                    Ok(SassNumber::with_units(
+                    Ok(SassNumber::with_units_refs(
                         arena,
                         -0.0,
-                        number.numerator_units.to_vec(),
-                        number.denominator_units.to_vec(),
+                        &number.numerator_units,
+                        &number.denominator_units,
                     ))
                 }
             }
             "up" => {
                 if number.value > 0.0 {
-                    Ok(SassNumber::with_units(
+                    Ok(SassNumber::with_units_refs(
                         arena,
                         f64::INFINITY,
-                        number.numerator_units.to_vec(),
-                        number.denominator_units.to_vec(),
+                        &number.numerator_units,
+                        &number.denominator_units,
                     ))
                 } else {
-                    Ok(SassNumber::with_units(
+                    Ok(SassNumber::with_units_refs(
                         arena,
                         -0.0,
-                        number.numerator_units.to_vec(),
-                        number.denominator_units.to_vec(),
+                        &number.numerator_units,
+                        &number.denominator_units,
                     ))
                 }
             }
             "down" => {
                 if number.value < 0.0 {
-                    Ok(SassNumber::with_units(
+                    Ok(SassNumber::with_units_refs(
                         arena,
                         f64::NEG_INFINITY,
-                        number.numerator_units.to_vec(),
-                        number.denominator_units.to_vec(),
+                        &number.numerator_units,
+                        &number.denominator_units,
                     ))
                 } else {
-                    Ok(SassNumber::with_units(
+                    Ok(SassNumber::with_units_refs(
                         arena,
                         0.0,
-                        number.numerator_units.to_vec(),
-                        number.denominator_units.to_vec(),
+                        &number.numerator_units,
+                        &number.denominator_units,
                     ))
                 }
             }
-            _ => Ok(SassNumber::with_units(
+            _ => Ok(SassNumber::with_units_refs(
                 arena,
                 f64::NAN,
-                number.numerator_units.to_vec(),
-                number.denominator_units.to_vec(),
+                &number.numerator_units,
+                &number.denominator_units,
             )),
         };
     }
@@ -1736,11 +1736,11 @@ fn round_with_step<'parse>(
         }
         _ => f64::NAN,
     };
-    Ok(SassNumber::with_units(
+    Ok(SassNumber::with_units_refs(
         arena,
         result,
-        number.numerator_units.to_vec(),
-        number.denominator_units.to_vec(),
+        &number.numerator_units,
+        &number.denominator_units,
     ))
 }
 

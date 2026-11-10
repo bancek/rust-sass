@@ -198,12 +198,7 @@ where
 ///
 /// Ports Dart's `_forcePercent` (color.dart:1913).
 pub fn force_percent<'parse>(arena: &'parse Bump, n: &SassNumber<'parse>) -> SassNumber<'parse> {
-    SassNumber::with_units(
-        arena,
-        n.value,
-        vec!["%".into()],
-        n.denominator_units.to_vec(),
-    )
+    SassNumber::with_units_refs(arena, n.value, &["%"], &n.denominator_units)
 }
 
 /// Returns whether `v` is a proprietary Microsoft filter invocation.

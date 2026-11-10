@@ -311,8 +311,16 @@ impl<'compile: 'parse, 'parse: 'compile> Protofier<'compile, 'parse> {
         let oneof = match arg {
             CalcArgument::Number(n) => calculation_value::Value::Number(pv::Number {
                 value: n.value,
-                numerators: n.numerator_units.to_vec(),
-                denominators: n.denominator_units.to_vec(),
+                numerators: n
+                    .numerator_units
+                    .iter()
+                    .map(|u| (*u).to_string())
+                    .collect::<Vec<String>>(),
+                denominators: n
+                    .denominator_units
+                    .iter()
+                    .map(|u| (*u).to_string())
+                    .collect::<Vec<String>>(),
             }),
             CalcArgument::Calculation(c) => {
                 calculation_value::Value::Calculation(self.protofy_calculation(c)?)
@@ -483,8 +491,16 @@ impl<'compile: 'parse, 'parse: 'compile> ValueVisitor<'parse> for Protofier<'com
     fn visit_number(&mut self, value: &SassNumber<'_>) -> SassResult<pv::Value> {
         Ok(pv::Value::Number(pv::Number {
             value: value.value,
-            numerators: value.numerator_units.to_vec(),
-            denominators: value.denominator_units.to_vec(),
+            numerators: value
+                .numerator_units
+                .iter()
+                .map(|u| (*u).to_string())
+                .collect::<Vec<String>>(),
+            denominators: value
+                .denominator_units
+                .iter()
+                .map(|u| (*u).to_string())
+                .collect::<Vec<String>>(),
         }))
     }
 

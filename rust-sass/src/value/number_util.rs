@@ -291,7 +291,7 @@ pub fn canonical_multiplier_for_unit(unit: &str) -> f64 {
 /// == Y * canonical_multiplier_for_list(units2)`.
 ///
 /// Matches Dart: SassNumber._canonicalMultiplier (number.dart).
-pub fn canonical_multiplier_for_list(units: &[String]) -> f64 {
+pub fn canonical_multiplier_for_list(units: &[&str]) -> f64 {
     units
         .iter()
         .fold(1.0, |m, u| m * canonical_multiplier_for_unit(u))
@@ -304,15 +304,15 @@ pub fn canonical_multiplier_for_list(units: &[String]) -> f64 {
 /// pass through unchanged.
 ///
 /// Matches Dart: SassNumber._canonicalizeUnitList (number.dart).
-pub fn canonicalize_unit_list(units: &[String]) -> Vec<String> {
+pub fn canonicalize_unit_list<'a>(units: &[&'a str]) -> Vec<&'a str> {
     if units.is_empty() {
         return vec![];
     }
-    let mut result: Vec<String> = units
+    let mut result: Vec<&'a str> = units
         .iter()
         .map(|u| match type_by_unit(u) {
-            Some(typ) => units_by_type(typ)[0].to_string(),
-            None => u.clone(),
+            Some(typ) => units_by_type(typ)[0],
+            None => *u,
         })
         .collect();
     result.sort();
@@ -326,7 +326,7 @@ pub fn canonicalize_unit_list(units: &[String]) -> Vec<String> {
 /// while the method renders it as `""`.
 ///
 /// Matches Dart: SassNumber._unitString (number.dart).
-pub fn unit_string(numerators: &[String], denominators: &[String]) -> String {
+pub fn unit_string(numerators: &[&str], denominators: &[&str]) -> String {
     match (numerators.is_empty(), denominators.is_empty()) {
         (true, true) => String::new(),
         (true, false) if denominators.len() == 1 => format!("{}^-1", denominators[0]),
@@ -342,7 +342,7 @@ pub fn unit_string(numerators: &[String], denominators: &[String]) -> String {
 /// Order-sensitive slice equality for unit lists.
 ///
 /// Matches Dart's `listEquals` use in `_coerceOrConvertValue` (number.dart).
-pub fn slice_equal(a: &[String], b: &[String]) -> bool {
+pub fn slice_equal(a: &[&str], b: &[&str]) -> bool {
     a == b
 }
 
@@ -350,11 +350,11 @@ pub fn slice_equal(a: &[String], b: &[String]) -> bool {
 /// unit in `units2`.
 ///
 /// Matches Dart: SassNumber._areAnyConvertible (number.dart).
-pub fn units_are_convertible(units1: &[String], units2: &[String]) -> bool {
+pub fn units_are_convertible(units1: &[&str], units2: &[&str]) -> bool {
     for u1 in units1 {
-        if let Some(m) = CONVERSION_FACTORS.get(u1.as_str()) {
+        if let Some(m) = CONVERSION_FACTORS.get(*u1) {
             for u2 in units2 {
-                if m.contains_key(u2.as_str()) {
+                if m.contains_key(*u2) {
                     return true;
                 }
             }
@@ -407,13 +407,13 @@ mod tests {
     #[test]
     fn test_canonical_multiplier_for_list() {
         assert_eq!(canonical_multiplier_for_list(&[]), 1.0);
-        let m = canonical_multiplier_for_list(&["px".to_string()]);
+        let m = canonical_multiplier_for_list(&["px"]);
         assert_eq!(m, canonical_multiplier_for_unit("px"));
     }
 
     #[test]
     fn test_canonicalize_unit_list() {
-        let result = canonicalize_unit_list(&["px".to_string(), "pt".to_string()]);
+        let result = canonicalize_unit_list(&["px", "pt"]);
         assert_eq!(result.len(), 2);
         assert_eq!(result[0], result[1], "both should be canonical form (in)");
         assert!(canonicalize_unit_list(&[]).is_empty());
@@ -431,33 +431,25 @@ mod tests {
             (&["s", "ms"], &[], "s*ms"),
         ];
         for (num, den, expected) in tests {
-            let num: Vec<String> = num.iter().map(|s| s.to_string()).collect();
-            let den: Vec<String> = den.iter().map(|s| s.to_string()).collect();
-            assert_eq!(unit_string(&num, &den), *expected);
+            assert_eq!(unit_string(num, den), *expected);
         }
     }
 
     #[test]
     fn test_slice_equal() {
-        assert!(slice_equal(
-            &["a".to_string(), "b".to_string()],
-            &["a".to_string(), "b".to_string()]
-        ));
-        assert!(!slice_equal(
-            &["a".to_string()],
-            &["a".to_string(), "b".to_string()]
-        ));
+        assert!(slice_equal(&["a", "b"], &["a", "b"]));
+        assert!(!slice_equal(&["a"], &["a", "b"]));
     }
 
     #[test]
     fn test_units_are_convertible() {
-        let px = &["px".to_string()];
-        let inch = &["in".to_string()];
-        let deg = &["deg".to_string()];
+        let px = &["px"];
+        let inch = &["in"];
+        let deg = &["deg"];
         assert!(units_are_convertible(px, inch));
         assert!(units_are_convertible(px, px));
         assert!(!units_are_convertible(px, deg));
-        assert!(units_are_convertible(deg, &["rad".to_string()]));
+        assert!(units_are_convertible(deg, &["rad"]));
     }
 
     #[test]

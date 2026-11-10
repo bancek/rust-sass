@@ -133,11 +133,11 @@ pub fn abs_number<'parse>(
     arena: &'parse Bump,
     number: &SassNumber<'parse>,
 ) -> SassResult<SassNumber<'parse>> {
-    Ok(SassNumber::with_units(
+    Ok(SassNumber::with_units_refs(
         arena,
         abs(number.value),
-        number.numerator_units.to_vec(),
-        number.denominator_units.to_vec(),
+        &number.numerator_units,
+        &number.denominator_units,
     ))
 }
 

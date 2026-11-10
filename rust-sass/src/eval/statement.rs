@@ -1891,7 +1891,7 @@ where
                     if from_units.is_empty() && from_denom.is_empty() {
                         None
                     } else {
-                        Some(&from_units[0])
+                        Some(from_units[0])
                     },
                 );
                 state.env.set_local_variable(
@@ -5520,7 +5520,7 @@ mod tests {
         compile_string("a { @warn \"hi\"; }", io, opts, &arena)
             .await
             .unwrap();
-        assert_eq!(logger.messages(), vec!["hi".to_string()]);
+        assert_eq!(logger.messages(), vec!["hi"]);
 
         let arena = Bump::new();
         let io: Rc<dyn Io> = Rc::new(VirtualIo::new());
