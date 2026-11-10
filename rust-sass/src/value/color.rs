@@ -78,21 +78,22 @@ pub struct SassColor {
     pub missing: u8,
     /// The format this color was originally written in, if one is preserved
     /// for expanded-mode serialization.
-    pub format: Option<ColorFormat>,
+    pub format: Option<ColorFormat<'static>>,
 }
 
 /// The source format a color was defined in.
 ///
 /// When a color is serialized in expanded mode it keeps its original format.
-#[derive(Clone, Debug, PartialEq)]
-pub enum ColorFormat {
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum ColorFormat<'parse> {
     /// A color defined with the `rgb()` or `rgba()` functions.
     RgbFunction,
     /// A color serialized as the exact text it was written with.
     ///
-    /// Dart tracks this as a source span to avoid a substring allocation;
-    /// the Rust port stores the text itself.
-    Preserved(String),
+    /// Dart tracks this as a source span to avoid a substring allocation; the
+    /// port borrows the text from the compile arena instead, so recording a
+    /// colour's source text does not allocate.
+    Preserved(&'parse str),
 }
 
 /// A SassScript color space.
@@ -887,7 +888,7 @@ impl SassColor {
         green: Option<f64>,
         blue: Option<f64>,
         alpha: Option<f64>,
-        format: Option<ColorFormat>,
+        format: Option<ColorFormat<'static>>,
     ) -> SassResult<SassColor> {
         if let Some(a) = alpha {
             number::fuzzy_assert_range(a, 0, 1, Some("alpha")).map_err(|e| SassError::Script {
@@ -1266,7 +1267,7 @@ impl SassColor {
 
     /// Records the source [`ColorFormat`] used for expanded-mode
     /// serialization.
-    pub fn set_format(&mut self, f: Option<ColorFormat>) {
+    pub fn set_format(&mut self, f: Option<ColorFormat<'static>>) {
         self.format = f;
     }
 
@@ -1390,7 +1391,7 @@ fn new_color_for_space_no_check_fmt(
     c1: Option<f64>,
     c2: Option<f64>,
     alpha: Option<f64>,
-    format: Option<ColorFormat>,
+    format: Option<ColorFormat<'static>>,
 ) -> SassColor {
     let c0v = c0.unwrap_or(0.0);
     let c1v = c1.unwrap_or(0.0);

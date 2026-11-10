@@ -669,7 +669,7 @@ mod tests {
             Some(0.0),
             Some(0.0),
             Some(1.0),
-            Some(ColorFormat::Preserved("#f00".into())),
+            Some(ColorFormat::Preserved("#f00")),
         )
         .unwrap();
         assert_eq!(cs(&c), "#f00");

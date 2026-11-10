@@ -39,7 +39,7 @@ pub(crate) fn clip_gamut_map(c: &SassColor) -> SassColor {
         channel2: new_ch[2],
         alpha: c.alpha,
         missing: new_missing,
-        format: c.format.clone(),
+        format: c.format,
     }
 }
 

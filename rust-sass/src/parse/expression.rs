@@ -960,7 +960,7 @@ fn hex_color_contents<'parse>(
         let original = scanner
             .substring(start.position, Some(scanner.pos()))
             .to_string();
-        Some(ColorFormat::Preserved(original))
+        Some(ColorFormat::Preserved(Box::leak(original.into_boxed_str())))
     } else {
         None
     };
@@ -1192,7 +1192,9 @@ fn ident_like<'parse>(
                 let original_text = scanner
                     .substring(start.position, Some(scanner.pos()))
                     .to_string();
-                color.set_format(Some(ColorFormat::Preserved(original_text)));
+                color.set_format(Some(ColorFormat::Preserved(Box::leak(
+                    original_text.into_boxed_str(),
+                ))));
                 return Ok(Expression::Color(ColorExpression::new(
                     state.arena,
                     color,
