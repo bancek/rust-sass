@@ -1070,7 +1070,7 @@ where
         }
         SupportsCondition::Negation(neg) => {
             let inner = box_rec_in!(
-                parenthesize_supports_condition(config, state, arena, &neg.condition, None),
+                parenthesize_supports_condition(config, state, arena, neg.condition, None),
                 arena,
             )
             .await?;

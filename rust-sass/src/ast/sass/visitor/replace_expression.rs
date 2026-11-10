@@ -126,9 +126,9 @@ impl<'parse> ReplaceExpressionVisitor<'parse> {
                 )))
             }
             SupportsCondition::Negation(neg) => {
-                let inner = Self::replace_supports_condition(visitor, &neg.condition, arena)?;
+                let inner = Self::replace_supports_condition(visitor, neg.condition, arena)?;
                 Ok(SupportsCondition::Negation(SupportsNegation::new(
-                    inner, neg.span,
+                    arena, inner, neg.span,
                 )))
             }
             SupportsCondition::Interpolation(interp) => {

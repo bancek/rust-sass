@@ -118,7 +118,9 @@ pub(crate) fn supports_condition_in_parens_impl<'b>(
         scanner.expect_char(')')?;
         let span = span_from_impl(scanner, &state.parser_state, start)?.file_span()?;
         return Ok(SupportsCondition::Negation(SupportsNegation::new(
-            condition, span,
+            state.arena,
+            condition,
+            span,
         )));
     } else if scanner.peek_char(0) == '(' as i32 {
         let condition = supports_condition_impl(scanner, state, true)?;
@@ -288,7 +290,9 @@ pub(crate) fn supports_condition_impl<'b>(
         let condition = supports_condition_in_parens_impl(scanner, state)?;
         let span = span_from_impl(scanner, &state.parser_state, start)?.file_span()?;
         return Ok(SupportsCondition::Negation(SupportsNegation::new(
-            condition, span,
+            state.arena,
+            condition,
+            span,
         )));
     }
 
@@ -339,7 +343,9 @@ pub(crate) fn import_supports_query_impl<'b>(
         let condition = supports_condition_in_parens_impl(scanner, state)?;
         let span = span_from_impl(scanner, &state.parser_state, start)?.file_span()?;
         return Ok(SupportsCondition::Negation(SupportsNegation::new(
-            condition, span,
+            state.arena,
+            condition,
+            span,
         )));
     } else if scanner.peek_char(0) == '(' as i32 {
         return supports_condition_impl(scanner, state, true);

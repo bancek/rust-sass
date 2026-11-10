@@ -71,7 +71,7 @@ impl<'parse> SupportsCondition<'parse> {
             Self::Declaration(c) => Self::Declaration(c.with_span(span)),
             Self::Function(c) => Self::Function(c.with_span(span)),
             Self::Interpolation(c) => Self::Interpolation(c.with_span(span)),
-            Self::Negation(c) => Self::Negation(c.with_span(span)),
+            Self::Negation(c) => Self::Negation(c.with_span(arena, span)),
             Self::Operation(c) => Self::Operation(c.with_span(arena, span)),
         }
     }

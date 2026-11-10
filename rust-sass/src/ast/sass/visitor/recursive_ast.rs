@@ -125,7 +125,7 @@ impl RecursiveAstVisitor {
                 self.visit_supports_condition(op.right)?;
             }
             SupportsCondition::Negation(neg) => {
-                self.visit_supports_condition(&neg.condition)?;
+                self.visit_supports_condition(neg.condition)?;
             }
             SupportsCondition::Interpolation(interp) => {
                 self.visit_expression(&interp.expression)?;
@@ -813,6 +813,7 @@ mod tests {
             test_span(&arena, "(a: b)"),
         ));
         let neg = SupportsCondition::Negation(SupportsNegation::new(
+            &arena,
             decl,
             test_span(&arena, "not (a: b)"),
         ));
