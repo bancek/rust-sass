@@ -124,7 +124,7 @@ pub(crate) fn supports_condition_in_parens_impl<'b>(
         let condition = supports_condition_impl(scanner, state, true)?;
         scanner.expect_char(')')?;
         let span = span_from_impl(scanner, &state.parser_state, start)?.file_span()?;
-        return Ok(condition.with_span(span));
+        return Ok(condition.with_span(state.arena, span));
     }
 
     // Branch C: Expression → Declaration or Unified Fallback
@@ -163,7 +163,9 @@ pub(crate) fn supports_condition_in_parens_impl<'b>(
     if let Some(op) = try_supports_operation_impl(scanner, state, &identifier, name_start)? {
         scanner.expect_char(')')?;
         let op_span = span_from_impl(scanner, &state.parser_state, start)?.file_span()?;
-        return Ok(SupportsCondition::Operation(op.with_span(op_span)));
+        return Ok(SupportsCondition::Operation(
+            op.with_span(state.arena, op_span),
+        ));
     }
 
     let mut contents = InterpolationBuffer::new();
@@ -250,13 +252,14 @@ fn try_supports_operation_impl<'b>(
             SupportsCondition::Interpolation(SupportsInterpolation::new(expr.clone(), interp_span));
         operation = Some(if let Some(prev) = operation {
             SupportsOperation::new(
+                state.arena,
                 SupportsCondition::Operation(prev),
                 right,
                 operator.unwrap(),
                 op_span,
             )
         } else {
-            SupportsOperation::new(side, right, operator.unwrap(), op_span)
+            SupportsOperation::new(state.arena, side, right, operator.unwrap(), op_span)
         });
         whitespace_impl(scanner, &mut state.parser_state, true)?;
     }
@@ -306,6 +309,7 @@ pub(crate) fn supports_condition_impl<'b>(
         let right = supports_condition_in_parens_impl(scanner, state)?;
         let span = span_from_impl(scanner, &state.parser_state, start)?.file_span()?;
         condition = SupportsCondition::Operation(SupportsOperation::new(
+            state.arena,
             condition,
             right,
             operator.unwrap(),

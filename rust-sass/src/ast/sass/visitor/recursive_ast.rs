@@ -121,8 +121,8 @@ impl RecursiveAstVisitor {
     fn visit_supports_condition(&mut self, condition: &SupportsCondition<'_>) -> SassResult<()> {
         match condition {
             SupportsCondition::Operation(op) => {
-                self.visit_supports_condition(&op.left)?;
-                self.visit_supports_condition(&op.right)?;
+                self.visit_supports_condition(op.left)?;
+                self.visit_supports_condition(op.right)?;
             }
             SupportsCondition::Negation(neg) => {
                 self.visit_supports_condition(&neg.condition)?;

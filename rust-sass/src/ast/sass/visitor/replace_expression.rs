@@ -111,12 +111,14 @@ impl<'parse> ReplaceExpressionVisitor<'parse> {
     pub fn replace_supports_condition<V: ExpressionVisitor<'parse, Output = Expression<'parse>>>(
         visitor: &mut V,
         condition: &SupportsCondition<'parse>,
+        arena: &'parse Bump,
     ) -> SassResult<SupportsCondition<'parse>> {
         match condition {
             SupportsCondition::Operation(op) => {
-                let left = Self::replace_supports_condition(visitor, &op.left)?;
-                let right = Self::replace_supports_condition(visitor, &op.right)?;
+                let left = Self::replace_supports_condition(visitor, op.left, arena)?;
+                let right = Self::replace_supports_condition(visitor, op.right, arena)?;
                 Ok(SupportsCondition::Operation(SupportsOperation::new(
+                    arena,
                     left,
                     right,
                     op.operator,
@@ -124,7 +126,7 @@ impl<'parse> ReplaceExpressionVisitor<'parse> {
                 )))
             }
             SupportsCondition::Negation(neg) => {
-                let inner = Self::replace_supports_condition(visitor, &neg.condition)?;
+                let inner = Self::replace_supports_condition(visitor, &neg.condition, arena)?;
                 Ok(SupportsCondition::Negation(SupportsNegation::new(
                     inner, neg.span,
                 )))
@@ -332,7 +334,7 @@ impl<'parse> ExpressionVisitor<'parse> for ReplaceExpressionVisitor<'parse> {
         &mut self,
         node: &SupportsExpression<'parse>,
     ) -> SassResult<Expression<'parse>> {
-        let cond = Self::replace_supports_condition(self, node.condition)?;
+        let cond = Self::replace_supports_condition(self, node.condition, self.arena)?;
         Ok(Expression::Supports(SupportsExpression::new(
             self.arena, cond,
         )))
@@ -665,12 +667,14 @@ mod tests {
             test_span(&arena, "(c: d)"),
         ));
         let cond = SupportsCondition::Operation(SupportsOperation::new(
+            &arena,
             left,
             right,
             BooleanOperator::And,
             test_span(&arena, "(a: b) and (c: d)"),
         ));
-        let result = ReplaceExpressionVisitor::replace_supports_condition(&mut v, &cond).unwrap();
+        let result =
+            ReplaceExpressionVisitor::replace_supports_condition(&mut v, &cond, &arena).unwrap();
         assert!(matches!(result, SupportsCondition::Operation(_)));
     }
 
@@ -690,7 +694,7 @@ mod tests {
             args,
             test_span(&arena, "unknown-fn(1)"),
         ));
-        let err = ReplaceExpressionVisitor::replace_supports_condition(&mut v, &cond)
+        let err = ReplaceExpressionVisitor::replace_supports_condition(&mut v, &cond, &arena)
             .expect_err("SupportsFunction must error, not panic");
         match *err {
             SassError::Sass { message, .. } => assert!(
@@ -704,7 +708,7 @@ mod tests {
             Interpolation::plain(&arena, "x".into(), test_span(&arena, "x")),
             test_span(&arena, "(x)"),
         ));
-        let err = ReplaceExpressionVisitor::replace_supports_condition(&mut v, &anything)
+        let err = ReplaceExpressionVisitor::replace_supports_condition(&mut v, &anything, &arena)
             .expect_err("SupportsAnything must error, not panic");
         match *err {
             SassError::Sass { message, .. } => assert!(

@@ -65,14 +65,14 @@ impl<'parse> SupportsCondition<'parse> {
     }
 
     // Returns a copy of this condition with `span` as its span.
-    pub fn with_span(&self, span: FileSpan<'parse>) -> Self {
+    pub fn with_span(&self, arena: &'parse Bump, span: FileSpan<'parse>) -> Self {
         match self {
             Self::Anything(c) => Self::Anything(c.with_span(span)),
             Self::Declaration(c) => Self::Declaration(c.with_span(span)),
             Self::Function(c) => Self::Function(c.with_span(span)),
             Self::Interpolation(c) => Self::Interpolation(c.with_span(span)),
             Self::Negation(c) => Self::Negation(c.with_span(span)),
-            Self::Operation(c) => Self::Operation(c.with_span(span)),
+            Self::Operation(c) => Self::Operation(c.with_span(arena, span)),
         }
     }
 }

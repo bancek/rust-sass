@@ -1078,12 +1078,12 @@ where
         }
         SupportsCondition::Operation(op) => {
             let left = box_rec_in!(
-                parenthesize_supports_condition(config, state, arena, &op.left, Some(op.operator)),
+                parenthesize_supports_condition(config, state, arena, op.left, Some(op.operator)),
                 arena,
             )
             .await?;
             let right = box_rec_in!(
-                parenthesize_supports_condition(config, state, arena, &op.right, Some(op.operator)),
+                parenthesize_supports_condition(config, state, arena, op.right, Some(op.operator)),
                 arena,
             )
             .await?;

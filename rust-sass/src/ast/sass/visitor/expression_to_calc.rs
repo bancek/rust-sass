@@ -236,7 +236,8 @@ impl<'parse> ExpressionVisitor<'parse> for MakeExpressionCalculationSafe<'parse>
         &mut self,
         node: &SupportsExpression<'parse>,
     ) -> SassResult<Expression<'parse>> {
-        let cond = ReplaceExpressionVisitor::replace_supports_condition(self, node.condition)?;
+        let cond =
+            ReplaceExpressionVisitor::replace_supports_condition(self, node.condition, self.arena)?;
         Ok(Expression::Supports(SupportsExpression::new(
             self.arena, cond,
         )))

@@ -161,6 +161,7 @@ mod tests {
         let left = make_interpolation_cond(&arena, "#{a}");
         let right = make_interpolation_cond(&arena, "#{b}");
         let inner_op = SupportsCondition::Operation(SupportsOperation::new(
+            &arena,
             left,
             right,
             BooleanOperator::And,
