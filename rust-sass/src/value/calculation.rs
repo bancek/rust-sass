@@ -717,7 +717,8 @@ pub fn new_clamp<'compile: 'parse, 'parse>(
         }
     }
 
-    let mut args = vec![min];
+    let mut args = Vec::with_capacity(3);
+    args.push(min);
     if let Some(v) = value {
         args.push(v);
     }

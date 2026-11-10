@@ -409,7 +409,7 @@ impl<'parse> ExpressionVisitor<'parse> for RecursiveAstVisitor {
     }
 
     fn visit_supports(&mut self, node: &SupportsExpression) -> SassResult<()> {
-        self.visit_supports_condition(&node.condition)
+        self.visit_supports_condition(node.condition)
     }
 
     fn visit_unary_operation(&mut self, node: &UnaryOperationExpression<'parse>) -> SassResult<()> {
@@ -816,7 +816,7 @@ mod tests {
             decl,
             test_span(&arena, "not (a: b)"),
         ));
-        let se = Expression::Supports(SupportsExpression::new(neg));
+        let se = Expression::Supports(SupportsExpression::new(&arena, neg));
         se.accept(&mut v).unwrap();
     }
 

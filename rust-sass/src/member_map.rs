@@ -406,7 +406,9 @@ impl<'s, 'a, V: Clone> MemberMap<V> for LimitedMapView<'s, 'a, V> {
 ///
 /// Dart: `MergedMapView` (`util/merged_map_view.dart`).
 pub struct MergedMapView<'s, V: Clone> {
-    pub maps_by_key: IndexMap<String, &'s dyn MemberMap<V>>,
+    /// Keys borrow from the compile arena, so building a view does not leak a
+    /// `String` per member.
+    pub maps_by_key: ArenaMap<'s, &'s str, &'s dyn MemberMap<V>>,
     count: usize,
 }
 
@@ -422,11 +424,11 @@ impl<'s, V: Clone> Debug for MergedMapView<'s, V> {
 impl<'s, V: Clone + Debug> MergedMapView<'s, V> {
     /// Creates a combined view of `maps`. Values may change independently of
     /// the view, but the key sets may not.
-    pub fn new(maps: Vec<&'s dyn MemberMap<V>>) -> Self {
-        let mut maps_by_key: IndexMap<String, &'s dyn MemberMap<V>> = IndexMap::new();
+    pub fn new(arena: &'s Bump, maps: Vec<&'s dyn MemberMap<V>>) -> Self {
+        let mut maps_by_key: ArenaMap<'s, &'s str, &'s dyn MemberMap<V>> = ArenaMap::new_in(arena);
         for map in maps {
             for k in map.keys() {
-                maps_by_key.insert(k, map);
+                maps_by_key.insert(arena.alloc_str(&k), map);
             }
         }
         let count = maps_by_key.len();
@@ -448,7 +450,7 @@ impl<'s, V: Clone> MemberMap<V> for MergedMapView<'s, V> {
     }
 
     fn keys(&self) -> Vec<String> {
-        self.maps_by_key.keys().cloned().collect()
+        self.maps_by_key.keys().map(|k| k.to_string()).collect()
     }
 
     fn entries(&self) -> Vec<(String, V)> {
@@ -457,7 +459,7 @@ impl<'s, V: Clone> MemberMap<V> for MergedMapView<'s, V> {
             // `maps_by_key` maps each key to an owning map that yielded it in
             // `new`, so `get` is `Some` by construction; skip (rather than
             // panic) if an underlying map changed out from under the view.
-            .filter_map(|(k, m)| m.get(k).map(|v| (k.clone(), v)))
+            .filter_map(|(k, m)| m.get(k).map(|v| (k.to_string(), v)))
             .collect()
     }
 }
@@ -597,7 +599,7 @@ pub fn member_map<'a, V: Clone + Debug>(
     }
     let mut maps = non_empty;
     maps.push(public);
-    arena.alloc(MergedMapView::new(maps))
+    arena.alloc(MergedMapView::new(arena, maps))
 }
 
 // ===========================================================================
@@ -1017,7 +1019,7 @@ mod tests {
         let m2: &dyn MemberMap<i32> = arena.alloc(IndexMapView {
             map: IndexMap::from([("a".into(), 100), ("c".into(), 3)]),
         });
-        let merged = MergedMapView::new(vec![m1, m2]);
+        let merged = MergedMapView::new(&arena, vec![m1, m2]);
         // m2's value for "a" wins (100, not 1)
         assert_eq!(merged.get("a"), Some(100));
         assert_eq!(merged.get("b"), Some(2));
@@ -1033,7 +1035,7 @@ mod tests {
         let m2: &dyn MemberMap<i32> = arena.alloc(IndexMapView {
             map: IndexMap::from([("b".into(), 2)]),
         });
-        let merged = MergedMapView::new(vec![m1, m2]);
+        let merged = MergedMapView::new(&arena, vec![m1, m2]);
         assert!(merged.has("a"));
         assert!(merged.has("b"));
         assert!(!merged.has("c"));
@@ -1048,7 +1050,7 @@ mod tests {
         let m2: &dyn MemberMap<i32> = arena.alloc(IndexMapView {
             map: IndexMap::from([("a".into(), 3), ("c".into(), 4)]),
         });
-        let merged = MergedMapView::new(vec![m1, m2]);
+        let merged = MergedMapView::new(&arena, vec![m1, m2]);
         assert_eq!(merged.len(), 3); // a, b, c
     }
 
@@ -1062,7 +1064,7 @@ mod tests {
         let m2: &dyn MemberMap<i32> = arena.alloc(IndexMapView {
             map: IndexMap::new(),
         });
-        let merged = MergedMapView::new(vec![m1, m2]);
+        let merged = MergedMapView::new(&arena, vec![m1, m2]);
         assert_eq!(merged.get("a"), Some(1));
         // Mutate underlying value
         inner_map.borrow_mut().insert("a", 99);
@@ -1079,7 +1081,7 @@ mod tests {
         let m2: &dyn MemberMap<i32> = arena.alloc(IndexMapView {
             map: IndexMap::from([("b".into(), 3)]),
         });
-        let merged = MergedMapView::new(vec![m1, m2]);
+        let merged = MergedMapView::new(&arena, vec![m1, m2]);
         // m1 keys (z, a) then m2 keys (b)
         assert_eq!(merged.keys(), vec!["z", "a", "b"]);
     }

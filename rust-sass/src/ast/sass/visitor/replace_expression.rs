@@ -332,8 +332,10 @@ impl<'parse> ExpressionVisitor<'parse> for ReplaceExpressionVisitor<'parse> {
         &mut self,
         node: &SupportsExpression<'parse>,
     ) -> SassResult<Expression<'parse>> {
-        let cond = Self::replace_supports_condition(self, &node.condition)?;
-        Ok(Expression::Supports(SupportsExpression::new(cond)))
+        let cond = Self::replace_supports_condition(self, node.condition)?;
+        Ok(Expression::Supports(SupportsExpression::new(
+            self.arena, cond,
+        )))
     }
 
     fn visit_unary_operation(
@@ -712,7 +714,7 @@ mod tests {
             other => panic!("expected SassError::Sass, got {other:?}"),
         }
         // And end-to-end through expression_to_calc on a SupportsExpression.
-        let expr = Expression::Supports(SupportsExpression::new(cond));
+        let expr = Expression::Supports(SupportsExpression::new(&arena, cond));
         let err = expression_to_calc(&arena, &expr)
             .expect_err("expression_to_calc over SupportsFunction must error");
         match *err {

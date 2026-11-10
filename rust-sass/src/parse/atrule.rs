@@ -1059,7 +1059,7 @@ pub(crate) fn try_import_modifiers_impl<'b>(
                     }
                     let query_span = query.span()?;
                     buffer.add(
-                        Expression::Supports(SupportsExpression::new(query)),
+                        Expression::Supports(SupportsExpression::new(state.arena, query)),
                         query_span,
                     );
                     if !is_decl {

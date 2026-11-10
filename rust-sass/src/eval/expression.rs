@@ -1001,7 +1001,7 @@ pub(crate) async fn evaluate_supports_expression<'compile, 'parse>(
 where
     'compile: 'parse,
 {
-    let text = visit_supports_condition(config, state, arena, &expr.condition).await?;
+    let text = visit_supports_condition(config, state, arena, expr.condition).await?;
     Ok(Value::new_with_arena(
         arena,
         ValueKind::String(SassString::new(arena.alloc_str(&text), false)),

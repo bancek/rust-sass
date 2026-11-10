@@ -236,8 +236,10 @@ impl<'parse> ExpressionVisitor<'parse> for MakeExpressionCalculationSafe<'parse>
         &mut self,
         node: &SupportsExpression<'parse>,
     ) -> SassResult<Expression<'parse>> {
-        let cond = ReplaceExpressionVisitor::replace_supports_condition(self, &node.condition)?;
-        Ok(Expression::Supports(SupportsExpression::new(cond)))
+        let cond = ReplaceExpressionVisitor::replace_supports_condition(self, node.condition)?;
+        Ok(Expression::Supports(SupportsExpression::new(
+            self.arena, cond,
+        )))
     }
 
     fn visit_unary_operation(
