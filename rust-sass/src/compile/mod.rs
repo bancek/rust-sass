@@ -838,6 +838,91 @@ mod tests {
         }));
     }
 
+    // `Importer` owns its `ImporterKind` on the heap (`Rc`), never in the
+    // arena: a host-provided `UserImporter` is dropped with the options, so its
+    // strong count must reach zero when the compile ends. If the last handle
+    // lived in the arena, `bumpalo` would never drop it and the host importer
+    // would leak for the life of the process.
+    #[rust_sass_macros::maybe_test]
+    async fn user_importer_is_dropped_after_compile() {
+        use crate::eval::importer::{
+            CanonicalizeContext, ImporterKind, ImporterResult, UserImporter,
+        };
+        use crate::url::OwnedUrl;
+        #[cfg(feature = "async")]
+        use futures::future::LocalBoxFuture;
+        use std::sync::atomic::{AtomicBool, Ordering};
+        use std::sync::Arc;
+
+        // Drop flag shared with the test; `Arc` because the importer crosses
+        // the `#[maybe_async]` boundary.
+        #[derive(Debug)]
+        struct FlagImporter {
+            dropped: Arc<AtomicBool>,
+        }
+
+        impl Drop for FlagImporter {
+            fn drop(&mut self) {
+                self.dropped.store(true, Ordering::SeqCst);
+            }
+        }
+
+        #[rust_sass_macros::maybe_async]
+        impl UserImporter for FlagImporter {
+            fn canonicalize<'a>(
+                &'a self,
+                url: &'a OwnedUrl,
+                _ctx: &'a mut CanonicalizeContext,
+            ) -> LocalBoxFuture<'a, SassResult<Option<OwnedUrl>>> {
+                Box::pin(async move { Ok((url.scheme() == "t").then(|| url.clone())) })
+            }
+
+            fn load<'a>(
+                &'a self,
+                _url: &'a OwnedUrl,
+            ) -> LocalBoxFuture<'a, SassResult<Option<ImporterResult>>> {
+                Box::pin(async move {
+                    Ok(Some(
+                        ImporterResult::new(
+                            "b { c: d; }".into(),
+                            crate::parse::stylesheet::Syntax::Scss,
+                            None,
+                        )
+                        .unwrap(),
+                    ))
+                })
+            }
+        }
+
+        let arena = Bump::new();
+        let io: Rc<dyn Io> = Rc::new(VirtualIo::new());
+        let dropped = Arc::new(AtomicBool::new(false));
+
+        let mut opts = CompileOptions::new(&arena);
+        opts.importers = vec![Importer::new(ImporterKind::User(Rc::new(FlagImporter {
+            dropped: Arc::clone(&dropped),
+        })))];
+        let result = compile_string("@use 't:dep';", io, &mut opts, &arena)
+            .await
+            .unwrap();
+        assert_eq!(result.css(), "b {\n  c: d;\n}");
+
+        // `opts` still holds its handle, and `CompileResult` carries the
+        // import cache (and with it the `CanonicalizeResult` holding this
+        // importer's `Rc`) on the stack.
+        assert!(!dropped.load(Ordering::SeqCst));
+        drop(opts);
+        assert!(
+            !dropped.load(Ordering::SeqCst),
+            "the result dropped the importer too early"
+        );
+        drop(result);
+        assert!(
+            dropped.load(Ordering::SeqCst),
+            "UserImporter outlived its last handle: something kept it in the arena"
+        );
+    }
+
     // Dart threads `useSpaces`/`indentWidth`/`lineFeed` from `compile` into
     // `serialize` (compile.dart:48-50,122-124): `indentWidth: 4` widens the
     // indent, tabs replace spaces, CRLF replaces LF.
