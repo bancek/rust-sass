@@ -1973,14 +1973,14 @@ mod tests {
         let arena = Bump::new();
         let io: Rc<dyn Io> = Rc::new(VirtualIo::new());
         let logger = Rc::new(RecordLogger::new());
-        let opts = CompileOptions {
+        let mut opts = CompileOptions {
             logger: Some(logger.clone()),
             ..CompileOptions::new(&arena)
         };
         let result = compile_string(
             "$s: 1/2;\na { b: if(sass(true): $s; else: 0); }",
             io,
-            opts,
+            &mut opts,
             &arena,
         )
         .await
@@ -1996,11 +1996,11 @@ mod tests {
         // inspect parens, while quoted strings keep their quotes.
         let arena = Bump::new();
         let io: Rc<dyn Io> = Rc::new(VirtualIo::new());
-        let opts = CompileOptions::new(&arena);
+        let mut opts = CompileOptions::new(&arena);
         let result = compile_string(
             "a { b: if(css(): (x, y)); c: if(css(): \"s\"); }",
             io,
-            opts,
+            &mut opts,
             &arena,
         )
         .await

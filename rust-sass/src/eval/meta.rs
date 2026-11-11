@@ -1759,7 +1759,7 @@ mod tests {
         let err = compile_string(
             "@use \"sass:meta\";\n@include meta.load-css(\"sass:math\", $with: ());\na { b: 1; }",
             io,
-            CompileOptions::new(&arena),
+            &mut CompileOptions::new(&arena),
             &arena,
         )
         .await
@@ -1795,7 +1795,7 @@ mod tests {
             "$x: 0 !default;\nb { c: $x; }\n".to_string(),
         );
         let io: Rc<dyn Io> = Rc::new(VirtualIo::with_files(files));
-        let result = compile("/main.scss", io, CompileOptions::new(&arena), &arena)
+        let result = compile("/main.scss", io, &mut CompileOptions::new(&arena), &arena)
             .await
             .unwrap();
         assert!(result.css().contains("c: 0;"), "got: {}", result.css());
@@ -1853,7 +1853,7 @@ mod tests {
         );
         files.insert("/other.scss".to_string(), "$value: c;".to_string());
         let io: Rc<dyn Io> = Rc::new(VirtualIo::with_files(files));
-        let result = compile("/main.scss", io, CompileOptions::new(&arena), &arena)
+        let result = compile("/main.scss", io, &mut CompileOptions::new(&arena), &arena)
             .await
             .unwrap();
         assert!(
@@ -1874,7 +1874,7 @@ mod tests {
         );
         files.insert("/other.scss".to_string(), "a {b: c}".to_string());
         let io: Rc<dyn Io> = Rc::new(VirtualIo::with_files(files));
-        let result = compile("/main.scss", io, CompileOptions::new(&arena), &arena)
+        let result = compile("/main.scss", io, &mut CompileOptions::new(&arena), &arena)
             .await
             .unwrap();
         // `@use` emits the module once; `meta.css` emits its CSS again.
@@ -2408,7 +2408,7 @@ mod tests {
         let err = compile_string(
             "@use \"sass:meta\";\n$m: meta.load(\"http://[\");\n",
             io,
-            CompileOptions::new(&arena),
+            &mut CompileOptions::new(&arena),
             &arena,
         )
         .await
@@ -2429,7 +2429,7 @@ mod tests {
         let err = compile_string(
             "@use \"sass:meta\";\n@include meta.load-css(\"http://[::1\");\n",
             io,
-            CompileOptions::new(&arena),
+            &mut CompileOptions::new(&arena),
             &arena,
         )
         .await
@@ -2448,7 +2448,7 @@ mod tests {
             let err = compile_string(
                 &format!("@use \"sass:meta\";\n$m: meta.load(\"{url}\");\n"),
                 io,
-                CompileOptions::new(&arena),
+                &mut CompileOptions::new(&arena),
                 &arena,
             )
             .await

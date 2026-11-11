@@ -35,11 +35,11 @@ pub async fn compile_string_js(source: &str, options: &JsValue) -> Result<JsValu
     let io = make_io(options);
     let hl = error::highlight_from_options(options);
     let ctx = arena.alloc(marshaller::MarshallingContext::new_in(&arena));
-    let opts = match options::parse_options(&arena, options, io.clone(), ctx, &js_fns) {
+    let mut opts = match options::parse_options(&arena, options, io.clone(), ctx, &js_fns) {
         Ok(o) => o,
         Err(e) => return Err(error::sass_error_to_js(&e, &*io, hl)),
     };
-    match compile::compile_string(source, io.clone(), opts, &arena).await {
+    match compile::compile_string(source, io.clone(), &mut opts, &arena).await {
         Ok(r) => {
             result::compile_result_to_js(&r).map_err(|e| error::sass_error_to_js(&e, &*io, hl))
         }
@@ -58,11 +58,11 @@ pub async fn compile_js(path: &str, options: &JsValue) -> Result<JsValue, JsValu
     let io = make_io(options);
     let hl = error::highlight_from_options(options);
     let ctx = arena.alloc(marshaller::MarshallingContext::new_in(&arena));
-    let opts = match options::parse_options(&arena, options, io.clone(), ctx, &js_fns) {
+    let mut opts = match options::parse_options(&arena, options, io.clone(), ctx, &js_fns) {
         Ok(o) => o,
         Err(e) => return Err(error::sass_error_to_js(&e, &*io, hl)),
     };
-    match compile::compile(path, io.clone(), opts, &arena).await {
+    match compile::compile(path, io.clone(), &mut opts, &arena).await {
         Ok(r) => {
             result::compile_result_to_js(&r).map_err(|e| error::sass_error_to_js(&e, &*io, hl))
         }
@@ -85,7 +85,7 @@ pub async fn compile_bytes_js(source: &[u8], options: &JsValue) -> Result<JsValu
     let io = make_io(options);
     let hl = error::highlight_from_options(options);
     let ctx = arena.alloc(marshaller::MarshallingContext::new_in(&arena));
-    let opts = match options::parse_options(&arena, options, io.clone(), ctx, &js_fns) {
+    let mut opts = match options::parse_options(&arena, options, io.clone(), ctx, &js_fns) {
         Ok(o) => o,
         Err(e) => return Err(error::sass_error_to_js(&e, &*io, hl)),
     };
@@ -93,7 +93,7 @@ pub async fn compile_bytes_js(source: &[u8], options: &JsValue) -> Result<JsValu
         Ok(s) => s,
         Err(e) => return Err(error::sass_error_to_js(&e, &*io, hl)),
     };
-    match compile::compile_string(source, io.clone(), opts, &arena).await {
+    match compile::compile_string(source, io.clone(), &mut opts, &arena).await {
         Ok(r) => {
             result::compile_result_to_js(&r).map_err(|e| error::sass_error_to_js(&e, &*io, hl))
         }

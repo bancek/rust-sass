@@ -688,7 +688,7 @@ fn run_data_compile(common: &mut ContextCommon, source: &str, snapshot: &Compile
             return;
         }
     }
-    let outcome = rust_sass::compile::compile_string(source, io.clone(), opts, &arena);
+    let outcome = rust_sass::compile::compile_string(source, io.clone(), &mut opts, &arena);
     let want_map = snapshot.source_map_file.is_some() || snapshot.source_map_embed;
     finish_compile(common, outcome, snapshot, want_map, &*io, true);
     drain_warnings(common, &capture);
@@ -723,7 +723,7 @@ fn run_file_compile(common: &mut ContextCommon, path: &str, snapshot: &CompileSn
             return;
         }
     }
-    let outcome = rust_sass::compile::compile(path, io.clone(), opts, &arena);
+    let outcome = rust_sass::compile::compile(path, io.clone(), &mut opts, &arena);
     finish_compile(common, outcome, snapshot, want_map, &*io, false);
     drain_warnings(common, &capture);
 }

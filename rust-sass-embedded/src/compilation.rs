@@ -328,7 +328,7 @@ where
                 None => Importer::new(ctx.arena, ImporterKind::NoOp),
             };
             (
-                compile_string(&input.source, ctx.host.io.clone(), opts, ctx.arena).await,
+                compile_string(&input.source, ctx.host.io.clone(), &mut opts, ctx.arena).await,
                 entrypoint,
             )
         }
@@ -336,7 +336,7 @@ where
             if path.is_empty() {
                 return Err(mandatory_error("CompileRequest.Input.path"));
             }
-            let opts = base_options(
+            let mut opts = base_options(
                 ctx.arena,
                 req,
                 importers,
@@ -349,7 +349,7 @@ where
             );
             let entrypoint = OwnedUrl::parse(path).ok();
             (
-                compile(path, ctx.host.io.clone(), opts, ctx.arena).await,
+                compile(path, ctx.host.io.clone(), &mut opts, ctx.arena).await,
                 entrypoint,
             )
         }

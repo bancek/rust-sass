@@ -1184,7 +1184,7 @@ mod tests {
             "a {\n  @media screen { b { c: d; } }\n}\n".to_string(),
         );
         let io: Rc<dyn Io> = Rc::new(VirtualIo::with_files(files));
-        let result = compile("/main.scss", io, CompileOptions::new(&arena), &arena)
+        let result = compile("/main.scss", io, &mut CompileOptions::new(&arena), &arena)
             .await
             .unwrap();
         assert_eq!(result.css(), "@media screen {\n  a b {\n    c: d;\n  }\n}");

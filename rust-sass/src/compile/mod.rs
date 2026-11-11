@@ -71,7 +71,7 @@ pub use result::{CompileResult, StylesheetError};
 pub async fn compile_string<'compile, 'parse>(
     source: &str,
     io: Rc<dyn Io>,
-    mut opts: CompileOptions<'compile, 'parse>,
+    opts: &mut CompileOptions<'compile, 'parse>,
     arena: &'compile Bump,
 ) -> SassResult<CompileResult<'compile, 'parse>>
 where
@@ -378,7 +378,7 @@ pub fn decode_source_utf8<'a>(
 pub async fn compile<'compile, 'parse>(
     path: &str,
     io: Rc<dyn Io>,
-    opts: CompileOptions<'compile, 'parse>,
+    opts: &mut CompileOptions<'compile, 'parse>,
     arena: &'compile Bump,
 ) -> SassResult<CompileResult<'compile, 'parse>>
 where
@@ -411,10 +411,7 @@ where
 
     let source = decode_source_utf8(&source_bytes, Some(file_url.clone()), arena)?;
 
-    let mut compile_opts = CompileOptions {
-        url: Some(file_url),
-        ..opts
-    };
+    opts.url = Some(file_url);
 
     // Dart honors an explicit `syntax` verbatim (compile.dart:71-72): only a
     // `None` (default `Scss` here) is re-inferred from the path. (A2b: an
@@ -423,11 +420,11 @@ where
     // from "explicit Scss" — the CLI always sets it via `syntax_for`, so this
     // keeps Dart's behavior for the paths that can express explicitness
     // (explicit Sass/Css pass through; only default-Scss is inferred).
-    if compile_opts.syntax == Syntax::Scss {
-        compile_opts.syntax = syntax_for_path(&abs_path.to_string_lossy());
+    if opts.syntax == Syntax::Scss {
+        opts.syntax = syntax_for_path(&abs_path.to_string_lossy());
     }
 
-    compile_string(source, io, compile_opts, arena).await
+    compile_string(source, io, opts, arena).await
 }
 
 /// Builds a [`CompileOptions`] from individual settings and compiles a Sass
@@ -460,7 +457,7 @@ where
     'compile: 'parse,
     'parse: 'compile,
 {
-    let opts = CompileOptions {
+    let mut opts = CompileOptions {
         importers,
         importer,
         functions,
@@ -479,7 +476,7 @@ where
         ..CompileOptions::new(arena)
     };
 
-    compile_string(source, io, opts, arena).await
+    compile_string(source, io, &mut opts, arena).await
 }
 
 /// Compiles the stylesheet at `source` to `destination`.
@@ -495,7 +492,7 @@ pub async fn compile_stylesheet<'compile, 'parse>(
     io: Rc<dyn IoExt>,
     source: &str,
     destination: &str,
-    opts: CompileOptions<'compile, 'parse>,
+    mut opts: CompileOptions<'compile, 'parse>,
     arena: &'compile Bump,
 ) -> Result<(), StylesheetError>
 where
@@ -503,9 +500,9 @@ where
     'parse: 'compile,
 {
     let emit_error_css = opts.emit_error_css;
-    // Captured before `opts` is moved into `compile_string`/`compile` below; used
-    // to render the error with the matching glyph set (`unicode: false` -> ASCII,
-    // matching Dart's `--no-unicode`).
+    // Captured before `opts` is borrowed mutably by `compile_string`/`compile`
+    // below; used to render the error with the matching glyph set
+    // (`unicode: false` -> ASCII, matching Dart's `--no-unicode`).
     let unicode = opts.unicode;
 
     let result = if source.is_empty() {
@@ -514,9 +511,9 @@ where
             message: format!("Error reading stdin: {}.", e),
         })?;
         let stdin_str = String::from_utf8_lossy(&stdin_bytes).into_owned();
-        compile_string(&stdin_str, io.clone(), opts, arena).await
+        compile_string(&stdin_str, io.clone(), &mut opts, arena).await
     } else {
-        compile(source, io.clone(), opts, arena).await
+        compile(source, io.clone(), &mut opts, arena).await
     };
 
     match result {
@@ -648,7 +645,7 @@ mod tests {
         let result = compile_string(
             "a { color: red; }",
             test_io(),
-            CompileOptions::new(&arena),
+            &mut CompileOptions::new(&arena),
             &arena,
         )
         .await
@@ -660,7 +657,7 @@ mod tests {
     #[rust_sass_macros::maybe_test]
     async fn test_compile_string_empty() {
         let arena = Bump::new();
-        let result = compile_string("", test_io(), CompileOptions::new(&arena), &arena)
+        let result = compile_string("", test_io(), &mut CompileOptions::new(&arena), &arena)
             .await
             .unwrap();
         assert_eq!(result.css(), "");
@@ -669,11 +666,11 @@ mod tests {
     #[rust_sass_macros::maybe_test]
     async fn test_compile_string_compressed() {
         let arena = Bump::new();
-        let opts = CompileOptions {
+        let mut opts = CompileOptions {
             style: OutputStyle::Compressed,
             ..CompileOptions::new(&arena)
         };
-        let result = compile_string("a { color: red; }", test_io(), opts, &arena)
+        let result = compile_string("a { color: red; }", test_io(), &mut opts, &arena)
             .await
             .unwrap();
         assert!(!result.css().contains('\n'));
@@ -682,11 +679,11 @@ mod tests {
     #[rust_sass_macros::maybe_test]
     async fn test_compile_string_source_map() {
         let arena = Bump::new();
-        let opts = CompileOptions {
+        let mut opts = CompileOptions {
             source_map: true,
             ..CompileOptions::new(&arena)
         };
-        let result = compile_string("a { color: red; }", test_io(), opts, &arena)
+        let result = compile_string("a { color: red; }", test_io(), &mut opts, &arena)
             .await
             .unwrap();
         assert!(result.source_map().is_some());
@@ -698,7 +695,7 @@ mod tests {
         let result = compile_string(
             "a { color: red; }",
             test_io(),
-            CompileOptions::new(&arena),
+            &mut CompileOptions::new(&arena),
             &arena,
         )
         .await
@@ -712,7 +709,7 @@ mod tests {
         let result = compile_string(
             "a { content: \"café\"; }",
             test_io(),
-            CompileOptions::new(&arena),
+            &mut CompileOptions::new(&arena),
             &arena,
         )
         .await
@@ -723,11 +720,11 @@ mod tests {
     #[rust_sass_macros::maybe_test]
     async fn test_compile_string_charset_compressed() {
         let arena = Bump::new();
-        let opts = CompileOptions {
+        let mut opts = CompileOptions {
             style: OutputStyle::Compressed,
             ..CompileOptions::new(&arena)
         };
-        let result = compile_string("a { content: \"café\"; }", test_io(), opts, &arena)
+        let result = compile_string("a { content: \"café\"; }", test_io(), &mut opts, &arena)
             .await
             .unwrap();
         assert!(result.css().starts_with("\u{FEFF}"));
@@ -736,11 +733,11 @@ mod tests {
     #[rust_sass_macros::maybe_test]
     async fn test_compile_string_charset_disabled() {
         let arena = Bump::new();
-        let opts = CompileOptions {
+        let mut opts = CompileOptions {
             charset: false,
             ..CompileOptions::new(&arena)
         };
-        let result = compile_string("a { content: \"café\"; }", test_io(), opts, &arena)
+        let result = compile_string("a { content: \"café\"; }", test_io(), &mut opts, &arena)
             .await
             .unwrap();
         assert!(!result.css().starts_with("@charset"));
@@ -753,7 +750,7 @@ mod tests {
         let result = compile_string(
             "$x: 1px + red;",
             test_io(),
-            CompileOptions::new(&arena),
+            &mut CompileOptions::new(&arena),
             &arena,
         )
         .await;
@@ -763,11 +760,11 @@ mod tests {
     #[rust_sass_macros::maybe_test]
     async fn test_compile_string_emit_error_css() {
         let arena = Bump::new();
-        let opts = CompileOptions {
+        let mut opts = CompileOptions {
             emit_error_css: true,
             ..CompileOptions::new(&arena)
         };
-        let result = compile_string("@error \"test\";", test_io(), opts, &arena)
+        let result = compile_string("@error \"test\";", test_io(), &mut opts, &arena)
             .await
             .unwrap();
         assert!(result.css().contains("Error:"));
@@ -852,14 +849,14 @@ mod tests {
 
         let mut opts = CompileOptions::new(&arena);
         opts.indent_width = Some(4);
-        let result = compile_string("a { b: c; }", io.clone(), opts, &arena)
+        let result = compile_string("a { b: c; }", io.clone(), &mut opts, &arena)
             .await
             .unwrap();
         assert_eq!(result.css(), "a {\n    b: c;\n}");
 
         let mut opts = CompileOptions::new(&arena);
         opts.use_spaces = false;
-        let result = compile_string("a { b: c; }", io.clone(), opts, &arena)
+        let result = compile_string("a { b: c; }", io.clone(), &mut opts, &arena)
             .await
             .unwrap();
         // Dart `_writeTimes(_indentCharacter, _indentation * _indentWidth)`:
@@ -871,7 +868,7 @@ mod tests {
             name: "crlf",
             text: "\r\n",
         };
-        let result = compile_string("a { b: c; }", io.clone(), opts, &arena)
+        let result = compile_string("a { b: c; }", io.clone(), &mut opts, &arena)
             .await
             .unwrap();
         assert_eq!(result.css(), "a {\r\n  b: c;\r\n}");
@@ -886,7 +883,7 @@ mod tests {
 
         let mut opts = CompileOptions::new(&arena);
         opts.source_comments = true;
-        let result = compile_string("a { b: c; }", io.clone(), opts, &arena)
+        let result = compile_string("a { b: c; }", io.clone(), &mut opts, &arena)
             .await
             .unwrap();
         assert_eq!(result.css(), "/* line 1, stdin */\na {\n  b: c;\n}");
@@ -895,7 +892,7 @@ mod tests {
         let result = compile_string(
             "a { b: c; }",
             io.clone(),
-            CompileOptions::new(&arena),
+            &mut CompileOptions::new(&arena),
             &arena,
         )
         .await

@@ -3626,7 +3626,7 @@ mod tests {
         let err = compile_string(
             "@function f() { $x: 1; }\na { b: f(); }",
             io,
-            CompileOptions::new(&arena),
+            &mut CompileOptions::new(&arena),
             &arena,
         )
         .await
@@ -3660,7 +3660,7 @@ mod tests {
         let err = compile_string(
             "@function f($a) { @return $a; }\n$m: 1;\n$n: 2;\na { b: f($m..., $n...); }",
             io,
-            CompileOptions::new(&arena),
+            &mut CompileOptions::new(&arena),
             &arena,
         )
         .await
@@ -3683,7 +3683,7 @@ mod tests {
         let err = compile_string(
             "@function f($a, $b) { @return $a; }\na { b: f(1, 2, 3, $c: 4); }",
             io,
-            CompileOptions::new(&arena),
+            &mut CompileOptions::new(&arena),
             &arena,
         )
         .await
@@ -3702,7 +3702,7 @@ mod tests {
         let err = compile_string(
             "@function f($a, $b) { @return $a; }\na { b: f(1, 2, 3); }",
             io,
-            CompileOptions::new(&arena),
+            &mut CompileOptions::new(&arena),
             &arena,
         )
         .await
@@ -3725,7 +3725,7 @@ mod tests {
         let err = compile_string(
             "@function f($foo_bar) { @return $foo_bar; }\na { b: f(); }",
             io,
-            CompileOptions::new(&arena),
+            &mut CompileOptions::new(&arena),
             &arena,
         )
         .await
@@ -3742,7 +3742,7 @@ mod tests {
         let err = compile_string(
             "@function f($foo_bar) { @return $foo_bar; }\na { b: f(1, $foo_bar: 2); }",
             io,
-            CompileOptions::new(&arena),
+            &mut CompileOptions::new(&arena),
             &arena,
         )
         .await

@@ -3386,14 +3386,14 @@ mod tests {
             let mut opts = CompileOptions::new(&arena);
             let _ = &mut opts;
             let src = format!("@use \"sass:math\";\na {{ b: math.{name}(math.$max-number); }}");
-            let result = compile_string(&src, io.clone(), opts, &arena)
+            let result = compile_string(&src, io.clone(), &mut opts, &arena)
                 .await
                 .unwrap();
             assert!(result.css().contains(want), "{name}: got: {}", result.css());
         }
         // Negative extreme.
         let src = "@use \"sass:math\";\na { b: math.floor(math.$max-number * -1); }";
-        let result = compile_string(src, io.clone(), CompileOptions::new(&arena), &arena)
+        let result = compile_string(src, io.clone(), &mut CompileOptions::new(&arena), &arena)
             .await
             .unwrap();
         assert!(
@@ -3405,7 +3405,7 @@ mod tests {
         // Non-finite input errors like Dart.
         for name in ["ceil", "floor", "round"] {
             let src = format!("@use \"sass:math\";\na {{ b: math.{name}(math.div(1, 0)); }}");
-            let err = compile_string(&src, io.clone(), CompileOptions::new(&arena), &arena)
+            let err = compile_string(&src, io.clone(), &mut CompileOptions::new(&arena), &arena)
                 .await
                 .unwrap_err();
             match *err {
@@ -3428,7 +3428,7 @@ mod tests {
         let err = compile_string(
             "@use \"sass:math\";\na { b: math.log(10px, \"foo\"); }",
             io,
-            CompileOptions::new(&arena),
+            &mut CompileOptions::new(&arena),
             &arena,
         )
         .await
@@ -3452,7 +3452,7 @@ mod tests {
         let result = compile_string(
             "@use \"sass:meta\";\n@use \"sass:math\";\na { b: meta.inspect(meta.module-functions(\"math\")); }",
             io,
-            CompileOptions::new(&arena),
+            &mut CompileOptions::new(&arena),
             &arena,
         )
         .await

@@ -144,9 +144,9 @@ pub async fn compile_one<'parse>(
                 .await
                 .map_err(|e| CompileError::new(66, format!("Error reading stdin: {e}.")))?;
             let stdin_str = String::from_utf8_lossy(&stdin_bytes).into_owned();
-            compile_string(&stdin_str, io.clone(), c_opts, arena).await
+            compile_string(&stdin_str, io.clone(), &mut c_opts, arena).await
         }
-        Some(source) => compile(source, io.clone(), c_opts, arena).await,
+        Some(source) => compile(source, io.clone(), &mut c_opts, arena).await,
     };
 
     match result {

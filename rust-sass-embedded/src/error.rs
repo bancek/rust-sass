@@ -601,7 +601,7 @@ mod golden_tests {
     async fn compile_failure(source: &str, url: &str) -> Box<SassError> {
         let io: Rc<dyn Io> = Rc::new(DefaultIo::new());
         let arena = Bump::new();
-        let opts = CompileOptions {
+        let mut opts = CompileOptions {
             url: if url.is_empty() {
                 None
             } else {
@@ -610,7 +610,7 @@ mod golden_tests {
             logger: Some(Rc::new(QuietLogger)),
             ..CompileOptions::new(&arena)
         };
-        let result = compile_string(source, io.clone(), opts, &arena).await;
+        let result = compile_string(source, io.clone(), &mut opts, &arena).await;
         match result {
             Ok(_) => panic!("expected compilation of {source:?} to fail"),
             Err(e) => e,

@@ -1083,7 +1083,9 @@ mod evaluate_tests {
         let io: Rc<dyn Io> = Rc::new(VirtualIo::with_files(files));
         let mut opts = CompileOptions::new(&arena);
         opts.url = Some(OwnedUrl::parse("file:///entry.scss").unwrap());
-        let err = compile("/entry.scss", io, opts, &arena).await.unwrap_err();
+        let err = compile("/entry.scss", io, &mut opts, &arena)
+            .await
+            .unwrap_err();
         // `Sass` at the throw site, `Runtime` with trace at the boundary —
         // either way the entrypoint URL must be stamped (pre-fix: `vec![]`).
         assert!(

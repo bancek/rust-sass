@@ -832,11 +832,11 @@ mod tests {
     #[rust_sass_macros::maybe_async]
     async fn compile_nested(source: &str) -> String {
         let arena = bumpalo::Bump::new();
-        let opts = CompileOptions {
+        let mut opts = CompileOptions {
             style: OutputStyle::Nested,
             ..CompileOptions::new(&arena)
         };
-        compile_string(source, test_io(), opts, &arena)
+        compile_string(source, test_io(), &mut opts, &arena)
             .await
             .unwrap()
             .css()
@@ -846,11 +846,11 @@ mod tests {
     #[rust_sass_macros::maybe_async]
     async fn compile_compact(source: &str) -> String {
         let arena = bumpalo::Bump::new();
-        let opts = CompileOptions {
+        let mut opts = CompileOptions {
             style: OutputStyle::Compact,
             ..CompileOptions::new(&arena)
         };
-        compile_string(source, test_io(), opts, &arena)
+        compile_string(source, test_io(), &mut opts, &arena)
             .await
             .unwrap()
             .css()
@@ -1230,8 +1230,8 @@ mod tests {
         let arena = bumpalo::Bump::new();
         let source = "a{\n  --x: foo\n    bar;\n  b: c;\n}";
         let expanded = {
-            let opts = CompileOptions::new(&arena);
-            compile_string(source, test_io(), opts, &arena)
+            let mut opts = CompileOptions::new(&arena);
+            compile_string(source, test_io(), &mut opts, &arena)
                 .await
                 .unwrap()
                 .css()

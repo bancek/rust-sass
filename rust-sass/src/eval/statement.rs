@@ -5167,7 +5167,7 @@ mod tests {
         let err = compile_string(
             "a { b: { c: d; $x: 1; } e: $x; }",
             io,
-            CompileOptions::new(&arena),
+            &mut CompileOptions::new(&arena),
             &arena,
         )
         .await
@@ -5185,7 +5185,7 @@ mod tests {
         let result = compile_string(
             "a { b: { c: d; } e: f; }",
             io,
-            CompileOptions::new(&arena),
+            &mut CompileOptions::new(&arena),
             &arena,
         )
         .await
@@ -5207,7 +5207,7 @@ mod tests {
         let css = compile_string(
             "@use \"other\" as *;\n/* between */\n@use \"other\" as *;\n",
             io,
-            opts,
+            &mut opts,
             &arena,
         )
         .await
@@ -5232,7 +5232,7 @@ mod tests {
         let result = compile_string(
             "/* before */\n@use \"other\" as *;\n/* between */\n@use \"other\" as *;\n/* after */\n",
             io,
-            opts,
+            &mut opts,
             &arena,
         )
         .await
@@ -5257,7 +5257,7 @@ mod tests {
         let err = compile_string(
             "@media screen { $x: 1; }\na { color: $x; }",
             io,
-            CompileOptions::new(&arena),
+            &mut CompileOptions::new(&arena),
             &arena,
         )
         .await
@@ -5275,7 +5275,7 @@ mod tests {
         let result = compile_string(
             "@media screen { @media (min-width: 100px) { @media (orientation: landscape) { d { e: f; } } } }",
             io,
-            CompileOptions::new(&arena),
+            &mut CompileOptions::new(&arena),
             &arena,
         )
         .await
@@ -5295,7 +5295,7 @@ mod tests {
         let result = compile_string(
             "a { @media screen { b: c; } d: e; }",
             io,
-            CompileOptions::new(&arena),
+            &mut CompileOptions::new(&arena),
             &arena,
         )
         .await
@@ -5327,7 +5327,7 @@ mod tests {
         for (src, expected) in cases {
             let arena = Bump::new();
             let io: Rc<dyn Io> = Rc::new(VirtualIo::new());
-            let result = compile_string(src, io, CompileOptions::new(&arena), &arena)
+            let result = compile_string(src, io, &mut CompileOptions::new(&arena), &arena)
                 .await
                 .unwrap();
             assert_eq!(result.css(), expected, "src: {src}");
@@ -5345,7 +5345,7 @@ mod tests {
         let err = compile_string(
             "@include nosuch.mixin;",
             io,
-            CompileOptions::new(&arena),
+            &mut CompileOptions::new(&arena),
             &arena,
         )
         .await
@@ -5363,7 +5363,7 @@ mod tests {
         let err = compile_string(
             "@use \"sass:math\";\na { @include math.undefined; }",
             io,
-            CompileOptions::new(&arena),
+            &mut CompileOptions::new(&arena),
             &arena,
         )
         .await
@@ -5381,7 +5381,7 @@ mod tests {
         let result = compile_string(
             "@mixin foo { b: c; }\na { @include foo; }",
             io,
-            CompileOptions::new(&arena),
+            &mut CompileOptions::new(&arena),
             &arena,
         )
         .await
@@ -5398,7 +5398,7 @@ mod tests {
         let err = compile_string(
             "@mixin m { @content; }\na { b: { c: d; @include m { @foo { e: f; } } } }",
             io,
-            CompileOptions::new(&arena),
+            &mut CompileOptions::new(&arena),
             &arena,
         )
         .await
@@ -5418,7 +5418,7 @@ mod tests {
         let result = compile_string(
             "@foo #{'  bar  '};",
             io,
-            CompileOptions::new(&arena),
+            &mut CompileOptions::new(&arena),
             &arena,
         )
         .await
@@ -5432,7 +5432,7 @@ mod tests {
         let result = compile_string(
             "a { @foo { b: c; } d: e; }",
             io,
-            CompileOptions::new(&arena),
+            &mut CompileOptions::new(&arena),
             &arena,
         )
         .await
@@ -5452,7 +5452,7 @@ mod tests {
         let result = compile_string(
             "@media screen {\n  @foo {\n    a {\n      @at-root (without: media rule) { b: c; }\n    }\n  }\n}",
             io,
-            CompileOptions::new(&arena),
+            &mut CompileOptions::new(&arena),
             &arena,
         )
         .await
@@ -5469,7 +5469,7 @@ mod tests {
         let result = compile_string(
             "@media screen {\n  a {\n    @at-root (without: media) { b: c; }\n  }\n}",
             io,
-            CompileOptions::new(&arena),
+            &mut CompileOptions::new(&arena),
             &arena,
         )
         .await
@@ -5481,14 +5481,14 @@ mod tests {
         let arena = Bump::new();
         let io: Rc<dyn Io> = Rc::new(VirtualIo::new());
         let logger = Rc::new(RecordLogger::new());
-        let opts = CompileOptions {
+        let mut opts = CompileOptions {
             logger: Some(logger.clone()),
             ..CompileOptions::new(&arena)
         };
         let result = compile_string(
             "a {\n  @at-root (without: #{red}) { b: c; }\n}",
             io,
-            opts,
+            &mut opts,
             &arena,
         )
         .await
@@ -5513,11 +5513,11 @@ mod tests {
         let arena = Bump::new();
         let io: Rc<dyn Io> = Rc::new(VirtualIo::new());
         let logger = Rc::new(RecordLogger::new());
-        let opts = CompileOptions {
+        let mut opts = CompileOptions {
             logger: Some(logger.clone()),
             ..CompileOptions::new(&arena)
         };
-        compile_string("a { @warn \"hi\"; }", io, opts, &arena)
+        compile_string("a { @warn \"hi\"; }", io, &mut opts, &arena)
             .await
             .unwrap();
         assert_eq!(logger.messages(), vec!["hi"]);
@@ -5527,7 +5527,7 @@ mod tests {
         let err = compile_string(
             "a { @warn ns.$x; }",
             io,
-            CompileOptions::new(&arena),
+            &mut CompileOptions::new(&arena),
             &arena,
         )
         .await
@@ -5550,7 +5550,7 @@ mod tests {
         let result = compile_string(
             "@for $i from 1 through 2 { a { b: $i; } }",
             io,
-            CompileOptions::new(&arena),
+            &mut CompileOptions::new(&arena),
             &arena,
         )
         .await
@@ -5563,7 +5563,7 @@ mod tests {
         let err = compile_string(
             "@for $i from \"a\" through 3 { a { b: $i; } }",
             io,
-            CompileOptions::new(&arena),
+            &mut CompileOptions::new(&arena),
             &arena,
         )
         .await
@@ -5585,14 +5585,14 @@ mod tests {
         let arena = Bump::new();
         let io: Rc<dyn Io> = Rc::new(VirtualIo::new());
         let logger = Rc::new(RecordLogger::new());
-        let opts = CompileOptions {
+        let mut opts = CompileOptions {
             logger: Some(logger.clone()),
             ..CompileOptions::new(&arena)
         };
         let result = compile_string(
             "@each $a, $b in ((1/2 3/4), (5/6 7/8)) { c { d: $a; e: $b; } }",
             io,
-            opts,
+            &mut opts,
             &arena,
         )
         .await
@@ -5614,7 +5614,7 @@ mod tests {
         let result = compile_string(
             "@each $x in (a b c) { d { e: $x; } }",
             io,
-            CompileOptions::new(&arena),
+            &mut CompileOptions::new(&arena),
             &arena,
         )
         .await
@@ -5633,7 +5633,7 @@ mod tests {
         let err = compile_string(
             "$x: ns.$y;\na { b: 1; }",
             io,
-            CompileOptions::new(&arena),
+            &mut CompileOptions::new(&arena),
             &arena,
         )
         .await
@@ -5652,7 +5652,7 @@ mod tests {
         let result = compile_string(
             "$x: 42;\na { b: $x; }",
             io,
-            CompileOptions::new(&arena),
+            &mut CompileOptions::new(&arena),
             &arena,
         )
         .await

@@ -1792,7 +1792,7 @@ mod tests {
         files.insert("/_m1.scss".to_string(), "@forward \"up\";".to_string());
         files.insert("/_m2.scss".to_string(), "@forward \"up\";".to_string());
         let io: Rc<dyn Io> = Rc::new(VirtualIo::with_files(files));
-        let result = compile("/main.scss", io, CompileOptions::new(&arena), &arena)
+        let result = compile("/main.scss", io, &mut CompileOptions::new(&arena), &arena)
             .await
             .unwrap();
         assert_eq!(result.css(), "a {\n  b: 1;\n}");
@@ -1822,7 +1822,7 @@ mod tests {
         files.insert("/_m2.scss".to_string(), "@forward \"up\";".to_string());
         files.insert("/_m3.scss".to_string(), "@forward \"other\";".to_string());
         let io: Rc<dyn Io> = Rc::new(VirtualIo::with_files(files));
-        let err = compile("/main.scss", io, CompileOptions::new(&arena), &arena)
+        let err = compile("/main.scss", io, &mut CompileOptions::new(&arena), &arena)
             .await
             .unwrap_err();
         match *err {
@@ -1856,7 +1856,7 @@ mod tests {
         let err = compile_string(
             "@use \"sass:meta\";\n@mixin inner { @content; }\n@mixin outer {\n  @include inner {\n    a { b: meta.content-exists(); }\n  }\n}\n@include outer;\n",
             io,
-            CompileOptions::new(&arena),
+            &mut CompileOptions::new(&arena),
             &arena,
         )
         .await

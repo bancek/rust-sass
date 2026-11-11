@@ -680,7 +680,7 @@ mod tests {
             let arena = Bump::new();
             let io: Rc<dyn Io> = Rc::new(VirtualIo::new());
             let src = format!("$x: 1px;\na {{ b: calc({op}$x); }}");
-            let err = compile_string(&src, io, CompileOptions::new(&arena), &arena)
+            let err = compile_string(&src, io, &mut CompileOptions::new(&arena), &arena)
                 .await
                 .unwrap_err();
             match *err {
@@ -698,7 +698,7 @@ mod tests {
         let result = compile_string(
             "$x: 1px;\na { b: calc(-1px + 2px); }",
             io,
-            CompileOptions::new(&arena),
+            &mut CompileOptions::new(&arena),
             &arena,
         )
         .await
@@ -716,7 +716,7 @@ mod tests {
         let err = compile_string(
             "a { b: calc(!important); }",
             io,
-            CompileOptions::new(&arena),
+            &mut CompileOptions::new(&arena),
             &arena,
         )
         .await
@@ -735,7 +735,7 @@ mod tests {
         ] {
             let arena = Bump::new();
             let io: Rc<dyn Io> = Rc::new(VirtualIo::new());
-            let result = compile_string(src, io, CompileOptions::new(&arena), &arena)
+            let result = compile_string(src, io, &mut CompileOptions::new(&arena), &arena)
                 .await
                 .unwrap();
             assert!(
@@ -757,7 +757,7 @@ mod tests {
         ] {
             let arena = Bump::new();
             let io: Rc<dyn Io> = Rc::new(VirtualIo::new());
-            let result = compile_string(src, io, CompileOptions::new(&arena), &arena)
+            let result = compile_string(src, io, &mut CompileOptions::new(&arena), &arena)
                 .await
                 .unwrap();
             assert!(
@@ -782,7 +782,7 @@ mod tests {
         ] {
             let arena = Bump::new();
             let io: Rc<dyn Io> = Rc::new(VirtualIo::new());
-            let err = compile_string(src, io, CompileOptions::new(&arena), &arena)
+            let err = compile_string(src, io, &mut CompileOptions::new(&arena), &arena)
                 .await
                 .unwrap_err();
             match *err {
@@ -804,7 +804,7 @@ mod tests {
             let err = compile_string(
                 "a{width:min(1px, 1s)}",
                 io,
-                CompileOptions::new(&arena),
+                &mut CompileOptions::new(&arena),
                 &arena,
             )
             .await

@@ -764,11 +764,11 @@ mod tests {
     #[rust_sass_macros::maybe_async]
     async fn compile_nested(source: &str) -> String {
         let arena = bumpalo::Bump::new();
-        let opts = CompileOptions {
+        let mut opts = CompileOptions {
             style: OutputStyle::Nested,
             ..CompileOptions::new(&arena)
         };
-        compile_string(source, test_io(), opts, &arena)
+        compile_string(source, test_io(), &mut opts, &arena)
             .await
             .unwrap()
             .css()
@@ -986,11 +986,11 @@ mod tests {
     async fn test_nested_charset_expanded_prefix() {
         // Nested joins Expanded for the charset prefix (BOM is compressed-only).
         let arena = bumpalo::Bump::new();
-        let opts = CompileOptions {
+        let mut opts = CompileOptions {
             style: OutputStyle::Nested,
             ..CompileOptions::new(&arena)
         };
-        let result = compile_string("a{content:\"café\"}", test_io(), opts, &arena).await;
+        let result = compile_string("a{content:\"café\"}", test_io(), &mut opts, &arena).await;
         let css = result.unwrap().css().to_string();
         assert!(
             css.starts_with("@charset \"UTF-8\";\n"),
@@ -1053,11 +1053,11 @@ mod tests {
     async fn test_nested_compressed_closer_unchanged() {
         // Regression pin: the touched closer arm leaves compressed alone.
         let arena = bumpalo::Bump::new();
-        let opts = CompileOptions {
+        let mut opts = CompileOptions {
             style: OutputStyle::Compressed,
             ..CompileOptions::new(&arena)
         };
-        let result = compile_string("a{b:c}", test_io(), opts, &arena).await;
+        let result = compile_string("a{b:c}", test_io(), &mut opts, &arena).await;
         let css = result.unwrap().css().to_string();
         assert_eq!(css, "a{b:c}");
     }
