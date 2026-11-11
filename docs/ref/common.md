@@ -144,16 +144,17 @@ true`), matching Dart's `identical()` on `SourceFile` (which defines no
 ### Lazy and multi spans
 
 ```rust
-pub struct LazyFileSpan<'parse> { builder: Cell<Option<Rc<dyn Fn() -> SassResult<FileSpan<'parse>> + 'parse>>>, cached: Cell<Option<FileSpan<'parse>>> }
+pub struct LazyFileSpan<'parse> { builder: Cell<Option<&'parse dyn Fn() -> SassResult<FileSpan<'parse>>>>, cached: Cell<Option<FileSpan<'parse>>> }
 
 pub struct MultiSpan<'parse> { primary: Box<Span<'parse>>, primary_label: String, secondary_spans: Vec<(FileSpan<'parse>, String)> }
 
 pub enum Span<'parse> { File(FileSpan<'parse>), Lazy(LazyFileSpan<'parse>), Multi(MultiSpan<'parse>) }
 ```
 
-`LazyFileSpan` defers span resolution: the builder is `Rc<dyn Fn>` (shared,
-not consumed on success) and the cache is a `Cell` (because `FileSpan` is `Copy`, `get()`
-returns by value with no borrow guard). `Clone` shares the `Rc`; `Debug`
+`LazyFileSpan` defers span resolution: the builder is `&'parse dyn Fn`, an
+arena-allocated closure whose captures must be drop-free (it is not consumed on
+success), and the cache is a `Cell` (because `FileSpan` is `Copy`, `get()`
+returns by value with no borrow guard). `Clone` copies the reference; `Debug`
 resolves via `get()`. Error-path caveat: if the builder _fails_, it is not
 restored — a retry reports `"LazyFileSpan builder already consumed…"` instead
 of re-running (Dart retries; no production path hits this). `Span` is the union; it implements `Clone` (manual) and

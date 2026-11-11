@@ -43,11 +43,24 @@ cache (upstream has none).
 
 ```rust
 pub enum ImporterKind { Filesystem(FilesystemImporter), NoOp, User(Rc<dyn UserImporter>), Package(PackageImporter), NodePackage(NodePackageImporter) }
-pub struct Importer<'parse>(&'parse ImporterKind);   // Copy arena handle
+pub struct Importer<'parse>(Rc<ImporterKind<'parse>>);   // Clone, heap-owned
 ```
 
 Only the `User` arm boxes (`Rc<dyn UserImporter>` — the JS/wasm host seam);
-built-ins are inline. Files:
+built-ins are inline.
+
+**`Importer` owns its kind on the heap and is never arena-allocated.** The
+handle is `Clone` (not `Copy`), and identity comparisons use `Rc::ptr_eq`.
+A host `UserImporter` is reached through that `Rc`, so its strong count must
+reach zero when the options and the `CompileResult`'s import cache drop; if the
+last handle lived in the bump, `bumpalo` would never drop it and the host
+importer would leak for the life of the process. The `'parse` parameter marks
+"outlives the compile", not bump storage — lifetime convention, not memory
+location. `compile_*` take `&mut CompileOptions` so the caller keeps ownership
+of the importers for the whole call (test:
+`compile::tests::user_importer_is_dropped_after_compile`).
+
+Files:
 
 | File                               | Dart counterpart                            | Notes                                                                                                                                                                                                                                                                                                        |
 | ---------------------------------- | ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |

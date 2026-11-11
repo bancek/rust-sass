@@ -11,11 +11,11 @@ there is no `EvalContext` struct.
 ```rust
 struct Environment<'compile, 'parse>(&'parse RefCell<EnvironmentInner<'compile, 'parse>>);
 // EnvironmentInner<'compile, 'parse> {
-    variables: Vec<&'parse RefCell<IndexMap<String, Value<'parse>>>>,
-    variable_nodes: Vec<&'parse RefCell<IndexMap<String, FileSpan<'parse>>>>,
-    functions: Vec<&'parse RefCell<IndexMap<String, Callable<'compile, 'parse>>>>,
-    mixins: Vec<&'parse RefCell<IndexMap<String, Callable<'compile, 'parse>>>>,
-    modules: &'parse RefCell<IndexMap<String, Module<'compile, 'parse>>>,
+    variables: ArenaVec<&'parse RefCell<ArenaMap<'parse, &'parse str, Value<'parse>>>>,
+    variable_nodes: ArenaVec<&'parse RefCell<ArenaMap<'parse, &'parse str, FileSpan<'parse>>>>,
+    functions: ArenaVec<&'parse RefCell<ArenaMap<'parse, &'parse str, Callable<'compile, 'parse>>>>,
+    mixins: ArenaVec<&'parse RefCell<ArenaMap<'parse, &'parse str, Callable<'compile, 'parse>>>>,
+    modules: &'parse RefCell<ArenaMap<'parse, &'parse str, Module<'compile, 'parse>>>,
     // ... namespace_nodes, global/imported modules, forwarded (Option<&RefCell>),
     // nested-forwarded, all_modules (&RefCell), index caches, last_variable_*,
     // content, configurable_variables (&RefCell), in_mixin, in_semi_global_scope
@@ -25,7 +25,7 @@ struct Environment<'compile, 'parse>(&'parse RefCell<EnvironmentInner<'compile, 
 No arena is stored (the `&'parse` refs already tie frames to it — an `Rc<Bump>`
 could never yield `&'parse Bump`; see `architecture.md` §5).
 
-- **`closure()`** shallow-copies the frame `Vec`s (the arena refs are `Copy`),
+- **`closure()`** shallow-copies the frame lists (the arena refs are `Copy`),
   so parent and closure share
   frame 0 — a `!global` write to frame 0 is visible to the caller (and resets
   the index caches). The module maps (`modules`/`namespace_nodes`/
@@ -49,7 +49,7 @@ could never yield `&'parse Bump`; see `architecture.md` §5).
 ## Module
 
 ```rust
-enum ModuleKind<'compile, 'parse> { BuiltIn, Forwarded, Shadowed, Environment(Box<EnvironmentModule>) }
+enum ModuleKind<'compile, 'parse> { BuiltIn, Forwarded, Shadowed, Environment(EnvironmentModule) }
 // Copy handle with address identity:
 struct Module<'compile, 'parse>(&'parse ModuleKind<'compile, 'parse>);
 ```

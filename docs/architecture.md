@@ -42,7 +42,7 @@ enum ValueKind<'parse> {
     List(SassList<'parse>),
     ArgumentList(SassArgumentList<'parse>),
     Map(SassMap<'parse>),
-    Calculation(Box<SassCalculation>),
+    Calculation(&'parse SassCalculation<'parse>),
     Function(SassFunction<'parse>),
     Mixin(SassMixin<'parse>),
 }
@@ -53,8 +53,8 @@ struct Value<'parse>(&'parse ValueInner<'parse>);
 
 `Value` is `&'parse ValueInner` — a `Copy` arena reference, not a heap-owning
 `Rc`. This is what removes the deep-clone tax that a GC would hide: cloning a
-`Value` is a pointer copy. `SassMap` is an `IndexMap<Value, Value>`, so map keys
-work by value equality with no allocation per lookup.
+`Value` is a pointer copy. `SassMap` is an `ArenaMap<Value, Value>` (§15), so map
+keys work by value equality through a hash index with no allocation per lookup.
 
 **Why an enum, not `dyn Value`:** the type set is finite and known at compile
 time; an enum gives static dispatch, exhaustive `match`, `derive(Clone, Debug)`,
@@ -70,12 +70,13 @@ designs are documented in `ref/value.md`.
 | `Expression<'parse>` | 18       | `match` → `ExpressionVisitor` |
 | `Value<'parse>`      | 11       | `match` → `ValueVisitor`      |
 
-No `dyn` for AST nodes. Recursive positions are boxed (`BinaryOperation`
-operands, `InterpolationPart` expressions) and child lists live in `Vec`s;
-the CSS AST is a separate pair of enums (see §9). Why enums over trait objects:
-no vtable, no `Box<dyn>` for child vectors, and compiler-enforced exhaustiveness
-when a new node type is added — the exact properties Dart's sealed classes give,
-without a hierarchy.
+No `dyn` for AST nodes. Recursive positions are arena references
+(`BinaryOperation` operands, `InterpolationPart` expressions) and child lists
+live in arena slices (`&'parse [T]`, or `ArenaVec` where a node mutates its
+list); the CSS AST is a separate pair of enums (see §9). Why enums over trait
+objects: no vtable, no `Box<dyn>` for child vectors, and compiler-enforced
+exhaustiveness when a new node type is added — the exact properties Dart's
+sealed classes give, without a hierarchy.
 
 ## 4. Visitors: one `accept()` per enum
 
@@ -200,8 +201,8 @@ logic in **free functions** taking separate references:
 pub struct EvalConfig<'compile, 'parse> {
     pub built_in_modules: IndexMap<String, Module<'compile, 'parse>>,
     // Shared mutable via arena &'parse RefCell — closures capture the Copy ref:
-    pub built_in_functions: &'parse RefCell<IndexMap<String, Callable<'compile, 'parse>>>,
-    pub global_functions: &'parse RefCell<Vec<Callable<'compile, 'parse>>>,
+    pub built_in_functions: &'parse RefCell<ArenaMap<'parse, &'parse str, Callable<'compile, 'parse>>>,
+    pub global_functions: &'parse RefCell<ArenaVec<'parse, Callable<'compile, 'parse>>>,
     pub logger: Rc<dyn Logger>,
     pub compile_context: CompileContext,
     pub io: Rc<dyn Io>,
@@ -262,25 +263,29 @@ navigation without `unsafe`:
 
 ```rust
 pub struct ModifiableCssNode<'parse> {
-    inner: Rc<RefCell<ModifiableCssNodeInner<'parse>>>,
+    inner: &'parse RefCell<ModifiableCssNodeInner<'parse>>,
 }
 struct ModifiableCssNodeInner<'parse> {
     kind: ModifiableCssNodeKind<'parse>,       // 9-variant enum
-    parent: Weak<RefCell<ModifiableCssNodeInner<'parse>>>,
+    parent: Cell<Option<&'parse RefCell<ModifiableCssNodeInner<'parse>>>>,
     index_in_parent: usize,
     is_group_end: bool,
 }
 ```
 
-Parents own children via `Vec<ModifiableCssNode>` (each an `Rc` clone); children
-hold a `Weak` back-pointer, so there is no reference cycle. `ModifiableCssNodeKind`
-is unaware of the parent chain; all parent logic lives on the outer struct.
+Parents own children via `ArenaVec<ModifiableCssNode>`; children hold a
+`Cell<Option<&…>>` back-pointer. Addresses are stable (nodes are arena
+allocated and never freed individually), so neither `Rc` nor `Weak` is needed.
+`ModifiableCssNodeKind` is unaware of the parent chain; all parent logic lives
+on the outer struct.
 
-**Why indirection:** the parent↔child cycle cannot use plain borrowing (parents
-move on `Vec` reallocation). Alternatives — raw pointers (rejected: `unsafe`),
-`Rc<RefCell<>>` on each of 9 structs (too invasive), a HashMap side-table
-(API mismatch) — are documented in `ref/ast.md`. The chosen design is one
-wrapper with one `RefCell` for all mutable parent-chain state.
+**Why indirection:** the parent↔child cycle cannot use plain borrowing (nodes
+are inserted after their parents are built). Alternatives — raw pointers
+(rejected: `unsafe`), `Rc<RefCell<>>` on each of 9 structs (too invasive), a
+HashMap side-table (API mismatch) — are documented in `ref/ast.md`. The chosen
+design is one wrapper with one `RefCell` for all mutable parent-chain state.
+`ModifiableCssNode` is `Clone` (a handle copy), not `Copy`, and its `Debug`
+skips the parent `Cell` because following it would recurse.
 
 `is_group_end` is set by the evaluator on the last child of a root-level group,
 read by the serializer to emit an extra blank line between groups, and
@@ -298,7 +303,7 @@ evaluation, `to_css_node()` performs a one-time deep conversion to the frozen
 The Sass module system is an enum with identity-by-allocation:
 
 ```rust
-pub enum ModuleKind<'compile, 'parse> { BuiltIn(..), Forwarded(..), Shadowed(..), Environment(Box<EnvironmentModule>) }
+pub enum ModuleKind<'compile, 'parse> { BuiltIn(..), Forwarded(..), Shadowed(..), Environment(EnvironmentModule) }
 // The handle: arena-allocated, Copy. Equality/hash are address identity:
 pub struct Module<'compile, 'parse>(&'parse ModuleKind<'compile, 'parse>);
 ```
@@ -306,8 +311,8 @@ pub struct Module<'compile, 'parse>(&'parse ModuleKind<'compile, 'parse>);
 `Module` and `Callable` compare by address (`std::ptr::eq` /
 `Callable::identity_eq`) — Dart and Go have no `ModuleID`/`CallableID`
 counter, so identity is the allocation itself.
-`Environment` keeps parallel scope stacks as `Vec<&'parse RefCell<IndexMap>>`
-(arena refs, `Copy`), which
+`Environment` keeps parallel scope stacks as
+`ArenaVec<&'parse RefCell<ArenaMap>>` (arena handles, `Copy`), which
 gives `!global` shared-frame semantics: `closure()` shares frame 0 via the
 arena refs so a `!global` write is visible to the caller. See `ref/environment.md`.
 
@@ -349,6 +354,15 @@ it from the caller.
 presence flag — the real importer lives in `ImporterKind::NodePackage`). See
 `ref/io.md`.
 
+**Importers own their kind on the heap.** `Importer<'parse>(Rc<ImporterKind>)`
+is `Clone` (not `Copy`), and is never arena-allocated: a host `UserImporter` is
+reached through `Rc<dyn UserImporter>`, so the strong count must reach zero when
+the options and the `CompileResult`'s import cache drop. Storing the last
+handle in the arena would leak the host importer for the life of the process.
+The `'parse` parameter marks "outlives the compile", not bump storage.
+`compile_*` take `&mut CompileOptions` so the caller keeps ownership of the
+importers for the whole call.
+
 ## 13. Embedded, wasm, and libsass
 
 Three consumer-facing surfaces are built on the compiler:
@@ -382,3 +396,39 @@ Three consumer-facing surfaces are built on the compiler:
 Only the first five are public surfaces; the rest is build tooling and test
 harness (`-embedded-pb` is committed generated code, regenerated by
 `-pb-gen`).
+
+## 15. Arena rule: nothing in the bump may own heap memory
+
+`bumpalo::Bump` never runs `Drop` for values allocated through it. An
+arena-resident value that owns heap memory therefore leaks it for the life of
+the process: `Vec`, `String`, `Box`, `HashMap`/`IndexMap`/`HashSet`, an `Rc`
+handle, or any other `Drop` type. An `Rc` stored in the arena is the worst case
+— the clone keeps an object allocated anywhere alive forever, because its strong
+count never reaches zero.
+
+Two remedies, applied per field:
+
+1. **Arena-native container.** The storage itself lives in the bump:
+   `ArenaVec<'parse, T>`, `ArenaMap<'parse, K, V>`, `ArenaHashSet` /
+   `ArenaHashMap` (`hashbrown` with `A = &'parse Bump`), `&'parse [T]`,
+   `&'parse str`. None of them owns heap memory, so nothing needs dropping.
+2. **Arena handle to drop-free data.** `&'parse T`, `&'parse dyn Trait`, `fn`
+   pointers, and closures created with `arena.alloc(closure)` whose captures are
+   themselves drop-free.
+
+`ArenaMap` (in `arena_map.rs`) is an insertion-ordered map with the same layout
+as `indexmap`'s core — a dense `ArenaVec` of hash-cached entries plus a
+`hashbrown::HashTable` index — built in-tree because `indexmap` has no allocator
+hook and `rust-sass` is published (no `[patch.crates-io]`). It keeps O(1)
+lookup, insertion order, and `shift_remove` semantics. It has no `new()` or
+`Default`: `&Bump` is not `Default`, so construct with `new_in(arena)` or
+`with_capacity_in(capacity, arena)`.
+
+Two consequences worth remembering:
+
+- **Cloning is not free.** `Clone` on an arena container allocates into the same
+  bump and is retained until the compile ends. Fields that are cloned per
+  operation (e.g. an `assert_map` result) hold a handle (`&'parse ArenaMap`)
+  rather than an owned map.
+- **Value constructors take the arena.** Building a `Vec` and copying it in is
+  fine at boundaries; the result must be an arena slice, not a `Vec` field.
