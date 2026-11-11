@@ -463,7 +463,7 @@ where
 
     // Evaluate each argument as a calc expression.
     // Catch Script errors here so we can wrap with the function span.
-    let warn_buf = BufferedWarnLogger::new(arena);
+    let warn_buf = BufferedWarnLogger::new();
     let mut evaluated = Vec::new();
     for arg in args.positional {
         match expression_to_calc_argument(

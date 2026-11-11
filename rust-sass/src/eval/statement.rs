@@ -1212,7 +1212,7 @@ pub(crate) struct LoadedStylesheet<'parse> {
 pub(crate) async fn load_stylesheet<'compile, 'parse>(
     config: &EvalConfig<'compile, 'parse>,
     state: &mut EvalState<'compile, 'parse>,
-    arena: &'compile Bump,
+    _arena: &'compile Bump,
     parsed_url: &impl Url,
     span: FileSpan<'parse>,
     base_url: Option<&OwnedUrl>,
@@ -1242,7 +1242,7 @@ where
                 )));
             }
         };
-        let warn_logger = BufferedWarnLogger::new(arena);
+        let warn_logger = BufferedWarnLogger::new();
         let result = cache
             .canonicalize(
                 parsed_url,

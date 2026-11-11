@@ -2270,7 +2270,7 @@ mod tests {
                 false,
             )),
         );
-        let warn_buf = BufferedWarnLogger::new(&arena);
+        let warn_buf = BufferedWarnLogger::new();
         assert_eq!(
             sass_index_to_list_index(
                 &list,
@@ -2281,7 +2281,7 @@ mod tests {
             .unwrap(),
             0
         );
-        let warn_buf = BufferedWarnLogger::new(&arena);
+        let warn_buf = BufferedWarnLogger::new();
         assert_eq!(
             sass_index_to_list_index(
                 &list,
@@ -2292,7 +2292,7 @@ mod tests {
             .unwrap(),
             1
         );
-        let warn_buf = BufferedWarnLogger::new(&arena);
+        let warn_buf = BufferedWarnLogger::new();
         assert!(sass_index_to_list_index(
             &list,
             &ValueKind::unitless_number(&arena, 0.0),

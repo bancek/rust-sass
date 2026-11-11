@@ -141,7 +141,7 @@ where
             arena,
             move |config, state, args, arena: &'compile Bump| {
                 let a = args[0];
-                let warn_buf = BufferedWarnLogger::new(arena);
+                let warn_buf = BufferedWarnLogger::new();
                 let index = sass_index_to_list_index(&a, &args[1], "n", &warn_buf)?;
                 flush_buffered_warnings(&warn_buf, config, state)?;
                 let list = a.as_list(arena)?;
@@ -164,7 +164,7 @@ where
             arena,
             move |config, state, args: Vec<Value<'parse>>, arena: &'compile Bump| {
                 let a = args[0];
-                let warn_buf = BufferedWarnLogger::new(arena);
+                let warn_buf = BufferedWarnLogger::new();
                 let index = sass_index_to_list_index(&a, &args[1], "n", &warn_buf)?;
                 flush_buffered_warnings(&warn_buf, config, state)?;
                 let list = a.as_list(arena)?;

@@ -742,7 +742,7 @@ mod tests {
         let url = OwnedUrl::parse(&format!("file:///{}", path.to_string_lossy())).unwrap();
 
         let result = cache
-            .canonicalize(&url, None, None, false, &BufferedWarnLogger::new(&arena))
+            .canonicalize(&url, None, None, false, &BufferedWarnLogger::new())
             .await
             .unwrap()
             .unwrap();
@@ -762,11 +762,11 @@ mod tests {
         let url = OwnedUrl::parse(&format!("file:///{}", path.to_string_lossy())).unwrap();
 
         let r1 = cache
-            .canonicalize(&url, None, None, false, &BufferedWarnLogger::new(&arena2))
+            .canonicalize(&url, None, None, false, &BufferedWarnLogger::new())
             .await
             .unwrap();
         let r2 = cache
-            .canonicalize(&url, None, None, false, &BufferedWarnLogger::new(&arena2))
+            .canonicalize(&url, None, None, false, &BufferedWarnLogger::new())
             .await
             .unwrap();
         // Both should return the same result (second from cache)
@@ -901,7 +901,7 @@ mod tests {
         });
         let probe_imp = Importer::new(ImporterKind::User(probe.clone()));
         let mut cache = ImportCache::new(&arena, vec![probe_imp.clone()], false, Rc::clone(&io));
-        let warn = BufferedWarnLogger::new(&arena);
+        let warn = BufferedWarnLogger::new();
 
         // main.scss loads `@use "sub1/test"` and `@use "sub1/sub2/test"`.
         let main = f("main.scss");
@@ -1031,7 +1031,7 @@ mod tests {
         });
         let probe_imp = Importer::new(ImporterKind::User(probe.clone()));
         let mut cache = ImportCache::new(&arena, vec![probe_imp.clone()], false, make_io());
-        let warn = BufferedWarnLogger::new(&arena);
+        let warn = BufferedWarnLogger::new();
         // Fake file base (no filesystem needed — the probe serves all URLs).
         let base = OwnedUrl::parse("file:///sub/test.scss").unwrap();
         let r = cache
@@ -1063,7 +1063,7 @@ mod tests {
         });
         let probe_imp = Importer::new(ImporterKind::User(probe.clone()));
         let mut cache = ImportCache::new(&arena, vec![probe_imp.clone()], false, make_io());
-        let warn = BufferedWarnLogger::new(&arena);
+        let warn = BufferedWarnLogger::new();
         let base = OwnedUrl::parse("file:///sub/test.scss").unwrap();
         let r = cache
             .canonicalize(
@@ -1112,7 +1112,7 @@ mod tests {
         });
         let in_imp = Importer::new(ImporterKind::User(inn.clone()));
         let mut cache = ImportCache::new(&arena, vec![out_imp, in_imp], false, Rc::clone(&io));
-        let warn = BufferedWarnLogger::new(&arena);
+        let warn = BufferedWarnLogger::new();
         let r = cache
             .canonicalize(
                 &OwnedUrl::parse("y").unwrap(),
@@ -1156,7 +1156,7 @@ mod tests {
         });
         let in_imp = Importer::new(ImporterKind::User(inn.clone()));
         let mut cache = ImportCache::new(&arena, vec![in_imp.clone()], false, Rc::clone(&io));
-        let warn = BufferedWarnLogger::new(&arena);
+        let warn = BufferedWarnLogger::new();
         let r = cache
             .canonicalize(
                 &OwnedUrl::parse("y").unwrap(),

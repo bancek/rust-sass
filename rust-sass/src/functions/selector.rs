@@ -265,7 +265,7 @@ where
 {
     let s = selector_string(arena, v, name)?;
     let source = FileSource::new_in(arena, &s, None);
-    let warn_buf = BufferedWarnLogger::new(arena);
+    let warn_buf = BufferedWarnLogger::new();
     let mut parser = SelectorParser::new_with_options(
         arena,
         source,
@@ -331,7 +331,7 @@ where
 {
     let s = selector_string(arena, v, name)?;
     let source = FileSource::new_in(arena, &s, None);
-    let warn_buf = BufferedWarnLogger::new(arena);
+    let warn_buf = BufferedWarnLogger::new();
     let mut parser =
         SelectorParser::new_with_options(arena, source, false, false, None, Some(&warn_buf), None);
     match parser.parse_compound_selector() {

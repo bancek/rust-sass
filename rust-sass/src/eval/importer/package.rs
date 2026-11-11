@@ -162,7 +162,7 @@ mod tests {
         let url = OwnedUrl::parse("http://example.com/style.scss").unwrap();
         let mut ctx = CanonicalizeContext::new(None, false);
         let result = imp
-            .canonicalize(&*io, &url, &mut ctx, &BufferedWarnLogger::new(&arena))
+            .canonicalize(&*io, &url, &mut ctx, &BufferedWarnLogger::new())
             .await
             .unwrap();
         assert!(result.is_none());
@@ -182,7 +182,7 @@ mod tests {
         assert!(url.is_relative());
         let mut ctx = CanonicalizeContext::new(None, false);
         let result = imp
-            .canonicalize(&*io, &url, &mut ctx, &BufferedWarnLogger::new(&arena))
+            .canonicalize(&*io, &url, &mut ctx, &BufferedWarnLogger::new())
             .await
             .unwrap();
         assert!(result.is_none());
@@ -199,7 +199,7 @@ mod tests {
         let url = OwnedUrl::parse("package:unknown").unwrap();
         let mut ctx = CanonicalizeContext::new(None, false);
         let err = imp
-            .canonicalize(&*io, &url, &mut ctx, &BufferedWarnLogger::new(&arena))
+            .canonicalize(&*io, &url, &mut ctx, &BufferedWarnLogger::new())
             .await
             .unwrap_err();
         match *err {
