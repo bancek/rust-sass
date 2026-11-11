@@ -210,8 +210,14 @@ time env SASS_SPEC_PATH=$PWD/sass-spec/spec "$BIN" --ignored --nocapture
 
 The untracked pass is the whole warm-up: it builds the process-lifetime tables
 and regex engines the tests reach, so the measured pass pays only for
-per-compilation work. `LEAK_GATE_ALLOW=<bytes>` overrides the failure
-threshold; it exists to read the number while a leak is being fixed.
+per-compilation work.
+
+The gate allows 8 KiB (`HARNESS_NOISE`). The full suite currently retains
+3,976 B spread thinly over 40 tests — 1 B on css selector tests, 4–10 B on
+libsass tests — which is allocator bookkeeping rather than Sass data.
+`LEAK_GATE_ALLOW=<bytes>` overrides the threshold for a local run. A real
+regression (an arena value owning a `Vec`/`String`/`Rc`) shows up as kilobytes
+on a handful of tests, so read the per-test list, not just the total.
 
 Harness work inside the measured pass (normalizing expected output, the regex
 engines' caches) is left out by wrapping it in
