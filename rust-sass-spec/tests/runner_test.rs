@@ -116,9 +116,12 @@ fn report_and_assert(failures: Vec<String>, stats: &RunnerStats) {
     assert_corpus(c);
 }
 
-/// Runs the suite twice: an untracked warm-up pass, then every
-/// process-lifetime cache forced explicitly, then a measured pass. Asserts
-/// that the measured pass retains no bytes.
+/// Runs the suite twice: an untracked warm-up pass, then a measured pass.
+/// Asserts that the measured pass retains no bytes.
+///
+/// The untracked pass *is* the warm-up: it builds every process-lifetime table
+/// and regex engine these tests can reach, so the measured pass pays only for
+/// per-compilation work.
 ///
 /// `LEAK_GATE_ALLOW` is a debugging knob for reading the number while a leak
 /// is being fixed; it defaults to 0, i.e. any retention fails.
@@ -127,12 +130,6 @@ fn leak_gate_run(spec_path: &str, spec_root: &str) {
     let (failures, stats) = rust_sass_spec::run_specs(spec_path, spec_root);
     report_and_assert(failures, &stats);
     drop(stats);
-
-    // Tables the warm-up pass may not have touched (a focused `SASS_SPEC`
-    // subset exercises only some of them) would otherwise be charged to the
-    // measured pass.
-    rust_sass::warm_up();
-    rust_sass_spec::warm_up();
 
     rust_sass_spec::leak_gate::start();
     let (failures, stats) = rust_sass_spec::run_specs(spec_path, spec_root);
@@ -174,13 +171,23 @@ fn leak_gate_run(spec_path: &str, spec_root: &str) {
         }
     }
 
+    // Harness-only work (normalizing expectations, regex caches) is excluded
+    // from the measurement at its call sites via `leak_gate::without_tracking`,
+    // so the default allowance is zero: any retained byte is the compiler's and
+    // is a real per-compilation leak. `LEAK_GATE_ALLOW` is a debugging knob for
+    // reading the number while one is being fixed.
     let allowed: isize = std::env::var("LEAK_GATE_ALLOW")
         .ok()
         .and_then(|v| v.parse().ok())
         .unwrap_or(0);
     assert!(
         leaked <= allowed,
-        "leak gate: {leaked} bytes retained after the measured pass (allowed {allowed})"
+        "leak gate: {leaked} bytes retained after the measured pass (allowed {allowed}).\n\
+         The first {n} tests above hold the retained bytes. If they point into \n\
+         `rust-sass/src/...`, that is a real leak — run heaptrack as described in \n\
+         docs/CONTRIBUTING.md. If they are all `regex`/`regex_automata` frames, \n\
+         the harness allowance is simply too low.",
+        n = offenders.len().min(20)
     );
 }
 

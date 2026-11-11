@@ -37,13 +37,6 @@ static RE_INPUT_PATH: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"[-_/a-zA-Z0-9]+(input\.s[ca]ss)").unwrap());
 static RE_CONSECUTIVE_NEWLINES: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\n+").unwrap());
 
-/// Forces the normalizers' regexes (and the engines' automata behind them) to
-/// be built, so a later measured run does not pay for them.
-pub fn warm_up() {
-    LazyLock::force(&RE_INPUT_PATH);
-    LazyLock::force(&RE_CONSECUTIVE_NEWLINES);
-}
-
 pub struct RunnerStats {
     pub total: AtomicUsize,
     pub passed: AtomicUsize,
@@ -738,6 +731,23 @@ fn lookup_impl_file(
 }
 
 fn normalize_output(output: &str) -> String {
+    // Harness-only work: excluded from the leak gate's measurement, because the
+    // regex engines allocate here (growing their lazy DFA caches) and the
+    // allocator cannot tell those bytes apart from the compiler's.
+    #[cfg(feature = "leak-gate")]
+    {
+        if crate::leak_gate::paused() {
+            return normalize_output_uncounted(output);
+        }
+        // The regexes read `output` and produce owned `String`s, so running the
+        // body inside the bypass is safe: nothing allocated here escapes.
+        crate::leak_gate::without_tracking(|| normalize_output_uncounted(output))
+    }
+    #[cfg(not(feature = "leak-gate"))]
+    normalize_output_uncounted(output)
+}
+
+fn normalize_output_uncounted(output: &str) -> String {
     let output = output.replace("\r\n", "\n");
     let output = RE_CONSECUTIVE_NEWLINES.replace_all(&output, "\n");
     let output = RE_INPUT_PATH.replace_all(&output, "$1");
