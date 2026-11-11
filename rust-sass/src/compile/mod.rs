@@ -146,12 +146,11 @@ where
 
     // Default importer to FilesystemImporter with no load path
     let importer = if matches!(opts.importer.kind(), ImporterKind::NoOp) {
-        Importer::new(
-            arena,
-            ImporterKind::Filesystem(FilesystemImporter::new_no_load_path(io.clone())),
-        )
+        Importer::new(ImporterKind::Filesystem(
+            FilesystemImporter::new_no_load_path(io.clone()),
+        ))
     } else {
-        opts.importer
+        opts.importer.clone()
     };
 
     let node_importer = opts.node_package_importer;

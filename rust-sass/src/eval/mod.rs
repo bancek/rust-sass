@@ -529,7 +529,7 @@ impl<'compile: 'parse, 'parse> EvalState<'compile, 'parse> {
             in_dependency: false,
             warnings_emitted: HashSet::new(),
             import_cache: None,
-            importer: Importer::new(_arena, ImporterKind::NoOp),
+            importer: Importer::new(ImporterKind::NoOp),
             source_url: None,
             loaded_urls: Vec::new(),
             stylesheet: None,
@@ -902,7 +902,7 @@ impl<'compile: 'parse, 'parse> Evaluator<'compile, 'parse> {
             &self.visitor.config,
             &mut self.visitor.state,
             self.visitor.arena,
-            self.importer,
+            self.importer.clone(),
             expression,
         )
         .await
@@ -915,7 +915,7 @@ impl<'compile: 'parse, 'parse> Evaluator<'compile, 'parse> {
             &self.visitor.config,
             &mut self.visitor.state,
             self.visitor.arena,
-            self.importer,
+            self.importer.clone(),
             declaration,
         )
         .await
@@ -971,7 +971,7 @@ mod evaluate_tests {
             stylesheet,
             None,
             None,
-            Importer::new(arena, ImporterKind::NoOp),
+            Importer::new(ImporterKind::NoOp),
             vec![],
             logger,
             false,
@@ -1042,7 +1042,7 @@ mod evaluate_tests {
         let io = Rc::new(VirtualIo::new());
         let mut evaluator = Evaluator::new(
             None,
-            Importer::new(&arena, ImporterKind::NoOp),
+            Importer::new(ImporterKind::NoOp),
             vec![],
             None,
             logger,

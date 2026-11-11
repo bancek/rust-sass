@@ -946,7 +946,7 @@ impl UserImporter for CImporter {
 /// order deterministically (upstream's `std::sort` leaves ties unspecified).
 pub(crate) fn build_custom_importers<'compile, 'parse>(
     list: *mut *mut ImporterEntry,
-    arena: &'compile Bump,
+    _arena: &'compile Bump,
     token_entry: &ImportStackEntry,
 ) -> SassResult<Vec<Importer<'parse>>>
 where
@@ -994,16 +994,13 @@ where
         let Some(callback) = callback else {
             return Err(script_error("custom importer has no callback".to_string()));
         };
-        out.push(Importer::new(
-            arena,
-            ImporterKind::User(Rc::new(CImporter {
-                entry,
-                callback,
-                index: order,
-                token_entry: token_entry.clone(),
-                stash: RefCell::new(HashMap::new()),
-            })),
-        ));
+        out.push(Importer::new(ImporterKind::User(Rc::new(CImporter {
+            entry,
+            callback,
+            index: order,
+            token_entry: token_entry.clone(),
+            stash: RefCell::new(HashMap::new()),
+        }))));
     }
     Ok(out)
 }

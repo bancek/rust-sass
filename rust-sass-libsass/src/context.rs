@@ -1735,10 +1735,9 @@ fn discover_imports<'a>(
         io.clone(),
         None,
     );
-    let default = Importer::new(
-        arena,
-        ImporterKind::Filesystem(FilesystemImporter::new_no_load_path(io)),
-    );
+    let default = Importer::new(ImporterKind::Filesystem(
+        FilesystemImporter::new_no_load_path(io),
+    ));
     let mut visited = HashSet::new();
     if let Some(entry) = base_url {
         visited.insert(entry.to_string());

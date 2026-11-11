@@ -1290,7 +1290,7 @@ where
             state.import_span = None;
             return Ok(LoadedStylesheet {
                 stylesheet,
-                importer: cr.importer,
+                importer: cr.importer.clone(),
                 is_dependency,
             });
         }
@@ -1484,7 +1484,7 @@ where
                         if loaded.stylesheet.uses().is_empty()
                             && loaded.stylesheet.forwards().is_empty()
                         {
-                            let old_importer = s.importer;
+                            let old_importer = s.importer.clone();
                             let old_stylesheet = s.stylesheet;
                             let old_in_dep = s.in_dependency;
                             s.importer = loaded.importer;
@@ -1522,7 +1522,7 @@ where
                         let mut children: Vec<ModifiableCssNode<'parse>> = Vec::new();
 
                         with_environment(c, s, env, async |c2, s2| {
-                            let old_importer = s2.importer;
+                            let old_importer = s2.importer.clone();
                             let old_stylesheet = s2.stylesheet;
                             let old_root = s2.root.clone();
                             let old_parent = s2.parent.clone();
@@ -3410,7 +3410,7 @@ where
     }
 
     // Save 16 fields
-    let old_importer = state.importer;
+    let old_importer = state.importer.clone();
     let old_source_url = state.source_url.clone();
     let old_stylesheet = state.stylesheet;
     let old_root = state.root.clone();
@@ -3427,7 +3427,7 @@ where
     let old_kf = state.in_keyframes;
 
     // Set fresh context
-    state.importer = *importer;
+    state.importer = importer.clone();
     state.stylesheet = Some(stylesheet);
     let new_root = ModifiableCssNode::new(
         arena,

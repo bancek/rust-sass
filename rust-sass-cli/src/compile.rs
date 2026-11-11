@@ -131,10 +131,10 @@ pub async fn compile_one<'parse>(
     if source.is_none() {
         // Dart's CLI compiles stdin with `FilesystemImporter.cwd` so relative
         // imports resolve against the current directory.
-        c_opts.importer = Importer::new(
+        c_opts.importer = Importer::new(ImporterKind::Filesystem(FilesystemImporter::new_cwd(
             arena,
-            ImporterKind::Filesystem(FilesystemImporter::new_cwd(arena, io.clone())),
-        );
+            io.clone(),
+        )));
     }
 
     let result = match source {

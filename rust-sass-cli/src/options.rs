@@ -541,7 +541,7 @@ impl<'parse> CliOptions<'parse> {
             importers: self
                 .node_package_importer
                 .as_ref()
-                .map(|npi| vec![Importer::new(arena, ImporterKind::NodePackage(npi.clone()))])
+                .map(|npi| vec![Importer::new(ImporterKind::NodePackage(npi.clone()))])
                 .unwrap_or_default(),
             load_paths: self.load_paths.clone(),
             logger,

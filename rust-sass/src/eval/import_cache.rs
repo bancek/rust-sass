@@ -146,10 +146,9 @@ impl<'compile: 'parse, 'parse> ImportCache<'compile, 'parse> {
     ) -> Vec<Importer<'parse>> {
         let mut result = importers;
         for path in load_paths {
-            result.push(Importer::new(
-                arena,
-                ImporterKind::Filesystem(FilesystemImporter::new(arena, &path, Rc::clone(&io))),
-            ));
+            result.push(Importer::new(ImporterKind::Filesystem(
+                FilesystemImporter::new(arena, &path, Rc::clone(&io)),
+            )));
         }
         if !sass_path.is_empty() {
             let sep = if cfg!(target_os = "windows") {
@@ -159,22 +158,18 @@ impl<'compile: 'parse, 'parse> ImportCache<'compile, 'parse> {
             };
             for path in sass_path.split(sep) {
                 if !path.is_empty() {
-                    result.push(Importer::new(
-                        arena,
-                        ImporterKind::Filesystem(FilesystemImporter::new(
-                            arena,
-                            path,
-                            Rc::clone(&io),
-                        )),
-                    ));
+                    result.push(Importer::new(ImporterKind::Filesystem(
+                        FilesystemImporter::new(arena, path, Rc::clone(&io)),
+                    )));
                 }
             }
         }
         if let Some(pc) = package_config {
-            result.push(Importer::new(
+            result.push(Importer::new(ImporterKind::Package(PackageImporter::new(
                 arena,
-                ImporterKind::Package(PackageImporter::new(arena, pc, Rc::clone(&io))),
-            ));
+                pc,
+                Rc::clone(&io),
+            ))));
         }
         result
     }
@@ -270,7 +265,7 @@ impl<'compile: 'parse, 'parse> ImportCache<'compile, 'parse> {
                 } else {
                     url.clone()
                 };
-                let key = (*base_imp, resolved_url.clone(), for_import);
+                let key = (base_imp.clone(), resolved_url.clone(), for_import);
 
                 if let Some(cached) = self.per_importer_canonicalize_cache.get(&key) {
                     if let Some(cr) = cached {
@@ -313,7 +308,7 @@ impl<'compile: 'parse, 'parse> ImportCache<'compile, 'parse> {
         let importers = std::mem::take(&mut self.importers);
         let _n = importers.len();
         for (i, importer) in importers.iter().enumerate() {
-            let per_key = (*importer, url.clone(), for_import);
+            let per_key = (importer.clone(), url.clone(), for_import);
             if let Some(cached) = self.per_importer_canonicalize_cache.get(&per_key) {
                 match cached {
                     Some(cr) => {
@@ -351,7 +346,7 @@ impl<'compile: 'parse, 'parse> ImportCache<'compile, 'parse> {
                 (cr, false, _) => {
                     if cacheable {
                         for importer in importers.iter().take(i) {
-                            let prev_key = (*importer, url.clone(), for_import);
+                            let prev_key = (importer.clone(), url.clone(), for_import);
                             self.per_importer_canonicalize_cache.insert(prev_key, None);
                         }
                         cacheable = false;
@@ -454,7 +449,7 @@ impl<'compile: 'parse, 'parse> ImportCache<'compile, 'parse> {
                 }
                 Ok((
                     Some(CanonicalizeResult {
-                        importer: *importer,
+                        importer: importer.clone(),
                         canonical_url,
                         // The URL the importer actually saw (raw in the
                         // opt-in path, resolved otherwise).
@@ -680,13 +675,12 @@ mod tests {
     }
 
     fn make_fs_importer<'compile: 'parse, 'parse>(
-        arena: &'compile Bump,
+        _arena: &'compile Bump,
         io: Rc<dyn Io>,
     ) -> Importer<'parse> {
-        Importer::new(
-            arena,
-            ImporterKind::Filesystem(FilesystemImporter::new_no_load_path(io)),
-        )
+        Importer::new(ImporterKind::Filesystem(
+            FilesystemImporter::new_no_load_path(io),
+        ))
     }
 
     #[test]
@@ -744,7 +738,7 @@ mod tests {
         std::fs::write(&path, b"a { color: red; }").unwrap();
 
         let importer = make_fs_importer(&arena, Rc::clone(&io));
-        let mut cache = ImportCache::new(&arena, vec![importer], false, Rc::clone(&io));
+        let mut cache = ImportCache::new(&arena, vec![importer.clone()], false, Rc::clone(&io));
         let url = OwnedUrl::parse(&format!("file:///{}", path.to_string_lossy())).unwrap();
 
         let result = cache
@@ -764,7 +758,7 @@ mod tests {
         std::fs::write(&path, b"a { color: red; }").unwrap();
 
         let importer = make_fs_importer(&arena2, Rc::clone(&io));
-        let mut cache = ImportCache::new(&arena2, vec![importer], false, Rc::clone(&io));
+        let mut cache = ImportCache::new(&arena2, vec![importer.clone()], false, Rc::clone(&io));
         let url = OwnedUrl::parse(&format!("file:///{}", path.to_string_lossy())).unwrap();
 
         let r1 = cache
@@ -905,8 +899,8 @@ mod tests {
             io: Rc::clone(&io),
             calls: Rc::new(RefCell::new(Vec::new())),
         });
-        let probe_imp = Importer::new(&arena, ImporterKind::User(probe.clone()));
-        let mut cache = ImportCache::new(&arena, vec![probe_imp], false, Rc::clone(&io));
+        let probe_imp = Importer::new(ImporterKind::User(probe.clone()));
+        let mut cache = ImportCache::new(&arena, vec![probe_imp.clone()], false, Rc::clone(&io));
         let warn = BufferedWarnLogger::new(&arena);
 
         // main.scss loads `@use "sub1/test"` and `@use "sub1/sub2/test"`.
@@ -1035,8 +1029,8 @@ mod tests {
             calls: Rc::new(RefCell::new(Vec::new())),
             raw: true,
         });
-        let probe_imp = Importer::new(&arena, ImporterKind::User(probe.clone()));
-        let mut cache = ImportCache::new(&arena, vec![probe_imp], false, make_io());
+        let probe_imp = Importer::new(ImporterKind::User(probe.clone()));
+        let mut cache = ImportCache::new(&arena, vec![probe_imp.clone()], false, make_io());
         let warn = BufferedWarnLogger::new(&arena);
         // Fake file base (no filesystem needed — the probe serves all URLs).
         let base = OwnedUrl::parse("file:///sub/test.scss").unwrap();
@@ -1067,8 +1061,8 @@ mod tests {
             calls: Rc::new(RefCell::new(Vec::new())),
             raw: false,
         });
-        let probe_imp = Importer::new(&arena, ImporterKind::User(probe.clone()));
-        let mut cache = ImportCache::new(&arena, vec![probe_imp], false, make_io());
+        let probe_imp = Importer::new(ImporterKind::User(probe.clone()));
+        let mut cache = ImportCache::new(&arena, vec![probe_imp.clone()], false, make_io());
         let warn = BufferedWarnLogger::new(&arena);
         let base = OwnedUrl::parse("file:///sub/test.scss").unwrap();
         let r = cache
@@ -1111,12 +1105,12 @@ mod tests {
             calls: Rc::new(RefCell::new(Vec::new())),
             raw: false,
         });
-        let out_imp = Importer::new(&arena, ImporterKind::User(out.clone()));
+        let out_imp = Importer::new(ImporterKind::User(out.clone()));
         let inn = Rc::new(RawProbeImporter {
             calls: Rc::new(RefCell::new(Vec::new())),
             raw: true,
         });
-        let in_imp = Importer::new(&arena, ImporterKind::User(inn.clone()));
+        let in_imp = Importer::new(ImporterKind::User(inn.clone()));
         let mut cache = ImportCache::new(&arena, vec![out_imp, in_imp], false, Rc::clone(&io));
         let warn = BufferedWarnLogger::new(&arena);
         let r = cache
@@ -1160,8 +1154,8 @@ mod tests {
             calls: Rc::new(RefCell::new(Vec::new())),
             raw: true,
         });
-        let in_imp = Importer::new(&arena, ImporterKind::User(inn.clone()));
-        let mut cache = ImportCache::new(&arena, vec![in_imp], false, Rc::clone(&io));
+        let in_imp = Importer::new(ImporterKind::User(inn.clone()));
+        let mut cache = ImportCache::new(&arena, vec![in_imp.clone()], false, Rc::clone(&io));
         let warn = BufferedWarnLogger::new(&arena);
         let r = cache
             .canonicalize(
@@ -1225,7 +1219,7 @@ mod tests {
 
         let arena = Bump::new();
         let io = make_io();
-        let importer = Importer::new(&arena, ImporterKind::User(Rc::new(NoneImporter)));
+        let importer = Importer::new(ImporterKind::User(Rc::new(NoneImporter)));
         let mut cache = ImportCache::new(&arena, vec![], false, Rc::clone(&io));
         let url = OwnedUrl::parse("file:///does-not-exist-xyz.scss").unwrap();
 
@@ -1259,7 +1253,7 @@ mod tests {
         let arena = Bump::new();
         let io = make_io();
         let importer = make_fs_importer(&arena, Rc::clone(&io));
-        let mut cache = ImportCache::new(&arena, vec![importer], false, Rc::clone(&io));
+        let mut cache = ImportCache::new(&arena, vec![importer.clone()], false, Rc::clone(&io));
 
         let canonical = OwnedUrl::parse("file:///app/dep/_lib.scss").unwrap();
         let schemeless = OwnedUrl::parse("dep/_lib.scss").unwrap();
@@ -1270,7 +1264,7 @@ mod tests {
             cache.canonicalize_cache.insert(
                 (original.clone(), false),
                 Some(CanonicalizeResult {
-                    importer,
+                    importer: importer.clone(),
                     canonical_url: canonical.clone(),
                     original_url: original,
                 }),
@@ -1287,7 +1281,7 @@ mod tests {
         let arena = Bump::new();
         let io = make_io();
         let importer = make_fs_importer(&arena, Rc::clone(&io));
-        let mut cache = ImportCache::new(&arena, vec![importer], false, Rc::clone(&io));
+        let mut cache = ImportCache::new(&arena, vec![importer.clone()], false, Rc::clone(&io));
 
         let canonical = OwnedUrl::parse("file:///app/dep/_lib.scss").unwrap();
         let schemeless = OwnedUrl::parse("dep/_lib.scss").unwrap();

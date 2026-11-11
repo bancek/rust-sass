@@ -178,7 +178,7 @@ pub fn parse_options<'compile: 'parse, 'parse>(
         for i in 0..importers.length() {
             let importer = importers.get(i);
             let kind = parse_one_importer(arena, &importer, io.clone())?;
-            opts.importers.push(Importer::new(arena, kind));
+            opts.importers.push(Importer::new(kind));
         }
     }
 
@@ -187,7 +187,7 @@ pub fn parse_options<'compile: 'parse, 'parse>(
     // core default (NoOp when no url).
     if let Some(importer) = get_opt(options, "importer")? {
         let kind = parse_one_importer(arena, &importer, io.clone())?;
-        opts.importer = Importer::new(arena, kind);
+        opts.importer = Importer::new(kind);
     }
 
     Ok(opts)

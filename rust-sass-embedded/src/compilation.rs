@@ -325,7 +325,7 @@ where
             };
             opts.importer = match entrypoint_importer {
                 Some(i) => i,
-                None => Importer::new(ctx.arena, ImporterKind::NoOp),
+                None => Importer::new(ImporterKind::NoOp),
             };
             (
                 compile_string(&input.source, ctx.host.io.clone(), &mut opts, ctx.arena).await,
@@ -455,34 +455,26 @@ where
     match &imp.importer {
         Some(compile_request::importer::Importer::Path(p)) => {
             check_no_non_canonical_scheme(imp)?;
-            Ok(Some(Importer::new(
-                arena,
-                ImporterKind::Filesystem(FilesystemImporter::new(arena, p, ctx.io.clone())),
-            )))
+            Ok(Some(Importer::new(ImporterKind::Filesystem(
+                FilesystemImporter::new(arena, p, ctx.io.clone()),
+            ))))
         }
-        Some(compile_request::importer::Importer::ImporterId(id)) => Ok(Some(Importer::new(
-            arena,
-            ImporterKind::User(Rc::new(
+        Some(compile_request::importer::Importer::ImporterId(id)) => {
+            Ok(Some(Importer::new(ImporterKind::User(Rc::new(
                 HostImporter::new(ctx, *id, imp.non_canonical_scheme.clone())
                     .map_err(DecodeImporterError::Sass)?,
-            )),
-        ))),
+            )))))
+        }
         Some(compile_request::importer::Importer::FileImporterId(id)) => {
             check_no_non_canonical_scheme(imp)?;
-            Ok(Some(Importer::new(
-                arena,
-                ImporterKind::User(Rc::new(FileImporter::new(ctx, *id))),
-            )))
+            Ok(Some(Importer::new(ImporterKind::User(Rc::new(
+                FileImporter::new(ctx, *id),
+            )))))
         }
         Some(compile_request::importer::Importer::NodePackageImporter(npi)) => {
-            Ok(Some(Importer::new(
-                arena,
-                ImporterKind::NodePackage(NodePackageImporter::new(
-                    arena,
-                    &npi.entry_point_directory,
-                    ctx.io.clone(),
-                )),
-            )))
+            Ok(Some(Importer::new(ImporterKind::NodePackage(
+                NodePackageImporter::new(arena, &npi.entry_point_directory, ctx.io.clone()),
+            ))))
         }
         None => {
             check_no_non_canonical_scheme(imp)?;

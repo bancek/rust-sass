@@ -115,10 +115,10 @@ impl<'compile: 'parse, 'parse> CompileOptions<'compile, 'parse> {
     /// Creates options with all defaults. The arena-backed `importer` defaults
     /// to a `NoOp` importer (replaced by the compile entry-point importer at
     /// compile time), matching `compile_string`'s behavior.
-    pub fn new(arena: &'compile Bump) -> Self {
+    pub fn new(_arena: &'compile Bump) -> Self {
         CompileOptions {
             importers: Vec::new(),
-            importer: Importer::new(arena, ImporterKind::NoOp),
+            importer: Importer::new(ImporterKind::NoOp),
             load_paths: Vec::new(),
             sass_path: String::new(),
             url: None,
