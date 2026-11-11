@@ -7,8 +7,6 @@
 // dart-source: lib/src/embedded/host_callable.dart
 // go-source: go/embedded/host_callable.go
 
-use std::rc::Rc;
-
 #[cfg(feature = "async")]
 use futures::future::LocalBoxFuture;
 
@@ -44,7 +42,7 @@ use crate::protofier::Protofier;
 ///
 /// Matches Dart: `hostCallable`.
 pub fn host_callable<'compile, 'parse>(
-    ctx: Rc<CompilationContext<'compile, 'parse>>,
+    ctx: &'compile CompilationContext<'compile, 'parse>,
     signature: &str,
     id: Option<u32>,
     arena: &'compile Bump,
@@ -54,10 +52,11 @@ where
     'parse: 'compile,
 {
     let (name, params) = parse_host_signature(signature, arena)?;
-    let callback = build_callback(ctx, name.clone(), id);
+    let name: &'parse str = arena.alloc_str(&name);
+    let callback = build_callback(ctx, name, id);
     Ok(Callable::new(
         arena,
-        CallableKind::BuiltIn(BuiltInCallable::new_async(name, params, callback)),
+        CallableKind::BuiltIn(BuiltInCallable::new_async(arena, name, params, callback)),
     ))
 }
 
@@ -226,25 +225,25 @@ mod tests {
 #[cfg(feature = "async")]
 #[allow(clippy::items_after_test_module)]
 fn build_callback<'compile, 'parse>(
-    ctx: Rc<CompilationContext<'compile, 'parse>>,
-    name: String,
+    ctx: &'compile CompilationContext<'compile, 'parse>,
+    name: &'parse str,
     id: Option<u32>,
 ) -> AsyncBuiltInCallback<'compile, 'parse>
 where
     'compile: 'parse,
     'parse: 'compile,
 {
-    Rc::new(
+    let arena = ctx.arena;
+    rust_sass::callable::built_in_callback_async(
+        arena,
         move |_config, _state, args, _arena| -> LocalBoxFuture<'_, SassResult<Value<'parse>>> {
-            let ctx = ctx.clone();
-            let name = name.clone();
             Box::pin(async move {
-                let mut protofier = Protofier::new(ctx.clone());
+                let mut protofier = Protofier::new(ctx);
                 let mut request = FunctionCallRequest {
                     id: OUTBOUND_REQUEST_ID,
                     identifier: Some(match id {
                         Some(fid) => function_call_request::Identifier::FunctionId(fid),
-                        None => function_call_request::Identifier::Name(name.clone()),
+                        None => function_call_request::Identifier::Name(name.to_string()),
                     }),
                     arguments: Vec::new(),
                 };
@@ -293,25 +292,25 @@ where
 #[allow(clippy::items_after_test_module)]
 #[rust_sass_macros::must_be_sync]
 async fn build_callback<'compile, 'parse>(
-    ctx: Rc<CompilationContext<'compile, 'parse>>,
-    name: String,
+    ctx: &'compile CompilationContext<'compile, 'parse>,
+    name: &'parse str,
     id: Option<u32>,
 ) -> SyncBuiltInCallback<'compile, 'parse>
 where
     'compile: 'parse,
     'parse: 'compile,
 {
-    Rc::new(
+    let arena = ctx.arena;
+    rust_sass::callable::built_in_callback_async(
+        arena,
         move |_config, _state, args, _arena| -> LocalBoxFuture<'_, SassResult<Value<'parse>>> {
-            let ctx = ctx.clone();
-            let name = name.clone();
             Box::pin(async move {
-                let mut protofier = Protofier::new(ctx.clone());
+                let mut protofier = Protofier::new(ctx);
                 let mut request = FunctionCallRequest {
                     id: OUTBOUND_REQUEST_ID,
                     identifier: Some(match id {
                         Some(fid) => function_call_request::Identifier::FunctionId(fid),
-                        None => function_call_request::Identifier::Name(name.clone()),
+                        None => function_call_request::Identifier::Name(name.to_string()),
                     }),
                     arguments: Vec::new(),
                 };

@@ -7,6 +7,7 @@
 // dart-source: lib/src/ast/sass/expression/color.dart
 // go-source: go/value/sass_expression_color.go
 
+use bumpalo::Bump;
 use std::fmt;
 
 use crate::common::ast_node::AstNode;
@@ -20,14 +21,14 @@ use crate::ast::sass::interpolation::Interpolation;
 #[derive(Clone, Debug)]
 pub struct ColorExpression<'parse> {
     /// The value of this color.
-    pub value: Box<SassColor>,
+    pub value: &'parse SassColor<'parse>,
     pub span: FileSpan<'parse>,
 }
 
 impl<'parse> ColorExpression<'parse> {
-    pub fn new(value: SassColor, span: FileSpan<'parse>) -> Self {
+    pub fn new(arena: &'parse Bump, value: SassColor<'parse>, span: FileSpan<'parse>) -> Self {
         ColorExpression {
-            value: Box::new(value),
+            value: arena.alloc(value),
             span,
         }
     }
@@ -37,7 +38,7 @@ impl<'parse> ColorExpression<'parse> {
     }
 
     pub fn to_display_string(&self) -> SassResult<String> {
-        SassColor::to_display_string(&self.value)
+        SassColor::to_display_string(self.value)
     }
 }
 
@@ -68,7 +69,7 @@ mod tests {
         let fs = FileSource::new_in(&arena, "#f00", None);
         let span = FileSpan::new(Some(fs), 0, 4);
         let color = SassColor::rgb(1.0, 0.0, 0.0, 1.0);
-        let expr = ColorExpression::new(color, span);
+        let expr = ColorExpression::new(&arena, color, span);
         expr.span().unwrap();
     }
 
@@ -78,7 +79,7 @@ mod tests {
         let fs = FileSource::new_in(&arena, "#f00", None);
         let span = FileSpan::new(Some(fs), 0, 4);
         let color = SassColor::rgb(1.0, 0.0, 0.0, 1.0);
-        let expr = ColorExpression::new(color, span);
+        let expr = ColorExpression::new(&arena, color, span);
         let s = format!("{}", expr);
         assert_eq!(s, "#010000");
     }
@@ -89,7 +90,7 @@ mod tests {
         let fs = FileSource::new_in(&arena, "red", None);
         let span = FileSpan::new(Some(fs), 0, 3);
         let color = SassColor::rgb(1.0, 0.0, 0.0, 1.0);
-        let expr = ColorExpression::new(color, span);
+        let expr = ColorExpression::new(&arena, color, span);
         assert!(expr.source_interpolation().is_none());
     }
 }

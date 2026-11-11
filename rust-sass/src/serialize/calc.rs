@@ -107,8 +107,8 @@ pub(crate) fn write_calculation_value(
 pub(crate) fn write_calc_units(
     buf: &mut SourceMapBuffer<'_>,
     state: &SerializeState,
-    num_units: &[String],
-    den_units: &[String],
+    num_units: &[&str],
+    den_units: &[&str],
     negative: bool,
 ) {
     let mut negative = negative;
@@ -177,9 +177,10 @@ mod tests {
 
     #[test]
     fn test_calc_number() {
+        let arena = bumpalo::Bump::new();
         let mut buf = SourceMapBuffer::new_plain();
         let state = SerializeState::new(true, false);
-        let n = SassNumber::new(42.0, None);
+        let n = SassNumber::new(&arena, 42.0, None);
         let arg = CalcArgument::Number(n);
         write_calculation_value(&mut buf, &state, &arg).unwrap();
         assert_eq!(buf.into_string(), "42");

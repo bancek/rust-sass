@@ -58,7 +58,6 @@ use crate::importers::ImportEntry;
 use sass_value_get_tag as tag_of;
 use std::ffi::{c_char, c_void, CStr, CString};
 use std::ptr;
-use std::rc::Rc;
 
 use bumpalo::Bump;
 
@@ -601,6 +600,7 @@ where
                 Ok(Value::new_with_arena(
                     arena,
                     ValueKind::Number(SassNumber::new(
+                        arena,
                         sass_number_get_value(v),
                         if unit.is_empty() { None } else { Some(&unit) },
                     )),
@@ -642,7 +642,12 @@ where
                 }
                 Ok(Value::new_with_arena(
                     arena,
-                    ValueKind::List(SassList::new(contents, sep, sass_list_get_is_bracketed(v))),
+                    ValueKind::List(SassList::new(
+                        arena,
+                        contents,
+                        sep,
+                        sass_list_get_is_bracketed(v),
+                    )),
                 ))
             }
             SASS_MAP => {
@@ -656,7 +661,7 @@ where
                 }
                 Ok(Value::new_with_arena(
                     arena,
-                    ValueKind::Map(SassMap::from_entries(entries)),
+                    ValueKind::Map(SassMap::from_entries(arena, entries)),
                 ))
             }
             SASS_ERROR => Err(Box::new(SassError::Script {
@@ -765,14 +770,14 @@ pub(crate) fn core_to_c(v: Value<'_>) -> SassResult<*mut SassValue> {
                 Ok(out)
             }
             ValueKind::Map(m) => {
-                let out = sass_make_map(m.entries.len());
+                let out = sass_make_map(m.len());
                 if out.is_null() {
                     return Err(Box::new(SassError::Script {
                         message: "out of memory".to_string(),
                         argument_name: None,
                     }));
                 }
-                for (i, (k, val)) in m.entries.iter().enumerate() {
+                for (i, (k, val)) in m.iter().enumerate() {
                     sass_map_set_key(out, i, core_to_c(*k)?);
                     sass_map_set_value(out, i, core_to_c(*val)?);
                 }
@@ -863,19 +868,20 @@ where
                 argument_name: None,
             }));
         };
-        let fn_name = name.clone();
-        let cb: SyncBuiltInCallback<'compile, 'parse> = Rc::new(move |_, state, args, arena| {
-            guard(
-                Err(Box::new(SassError::Script {
-                    message: format!("custom function '{fn_name}' failed"),
-                    argument_name: None,
-                })),
-                || invoke_c_function(fn_name.clone(), entry, callback, args, state, arena),
-            )
-        });
+        let fn_name: &str = arena.alloc_str(&name);
+        let cb: SyncBuiltInCallback<'compile, 'parse> =
+            rust_sass::callable::built_in_callback(arena, move |_, state, args, arena| {
+                guard(
+                    Err(Box::new(SassError::Script {
+                        message: format!("custom function '{fn_name}' failed"),
+                        argument_name: None,
+                    })),
+                    || invoke_c_function(fn_name.to_string(), entry, callback, args, state, arena),
+                )
+            });
         out.push(Callable::new(
             arena,
-            CallableKind::BuiltIn(BuiltInCallable::new(name, params, cb)),
+            CallableKind::BuiltIn(BuiltInCallable::new(arena, &name, params, cb)),
         ));
     }
     Ok(out)
@@ -1141,11 +1147,12 @@ mod tests {
         // Core-only kinds fail core→C with the upstream conversion text.
         let calc = Value::new_with_arena(
             &arena,
-            ValueKind::Calculation(Box::new(
+            ValueKind::Calculation(&*arena.alloc(
                 rust_sass::value::SassCalculation::new_unsimplified(
+                    &arena,
                     "calc",
                     vec![rust_sass::value::CalcArgument::Number(SassNumber::new(
-                        1.0, None,
+                        &arena, 1.0, None,
                     ))],
                 ),
             )),
@@ -1160,6 +1167,7 @@ mod tests {
         let complex = Value::new_with_arena(
             &arena,
             ValueKind::Number(SassNumber::with_units(
+                &arena,
                 1.0,
                 vec!["px".to_string(), "em".to_string()],
                 vec![],

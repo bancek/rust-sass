@@ -7,7 +7,9 @@
 // dart-source: lib/src/embedded/opaque_registry.dart
 // go-source: go/embedded/opaque_registry.go
 
-use std::collections::HashMap;
+use allocator_api2::vec::Vec as ArenaVec;
+use bumpalo::Bump;
+use hashbrown::HashMap;
 use std::hash::Hash;
 
 /// Maps compiler-defined values (functions/mixins) to opaque integer IDs for
@@ -27,16 +29,16 @@ use std::hash::Hash;
 /// the registry's `'parse` element type.
 ///
 /// Matches Dart: OpaqueRegistry<T>.
-pub struct OpaqueRegistry<T> {
-    elements: Vec<T>,
-    ids: HashMap<T, u32>,
+pub struct OpaqueRegistry<'parse, T> {
+    elements: ArenaVec<T, &'parse Bump>,
+    ids: HashMap<T, u32, hashbrown::DefaultHashBuilder, &'parse Bump>,
 }
 
-impl<T: Eq + Hash + Clone> OpaqueRegistry<T> {
-    pub fn new() -> Self {
+impl<'parse, T: Eq + Hash + Clone> OpaqueRegistry<'parse, T> {
+    pub fn new(arena: &'parse Bump) -> Self {
         OpaqueRegistry {
-            elements: Vec::new(),
-            ids: HashMap::new(),
+            elements: ArenaVec::new_in(arena),
+            ids: HashMap::with_hasher_in(hashbrown::DefaultHashBuilder::default(), arena),
         }
     }
 
@@ -63,12 +65,6 @@ impl<T: Eq + Hash + Clone> OpaqueRegistry<T> {
     }
 }
 
-impl<T: Eq + Hash + Clone> Default for OpaqueRegistry<T> {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -79,14 +75,16 @@ mod tests {
     fn dummy<'p>(arena: &'p Bump, name: &str) -> Callable<'p, 'p> {
         Callable::new(
             arena,
-            CallableKind::PlainCss(PlainCssCallable { name: name.into() }),
+            CallableKind::PlainCss(PlainCssCallable {
+                name: arena.alloc_str(name),
+            }),
         )
     }
 
     #[test]
     fn get_id_is_idempotent() {
         let bump = Bump::new();
-        let mut registry: OpaqueRegistry<SassFunction<'_>> = OpaqueRegistry::new();
+        let mut registry: OpaqueRegistry<'_, SassFunction<'_>> = OpaqueRegistry::new(&bump);
         let f = SassFunction::new(dummy(&bump, "foo"));
         assert_eq!(registry.get_id(&f), 0);
         assert_eq!(registry.get_id(&f), 0);
@@ -96,7 +94,7 @@ mod tests {
     #[test]
     fn distinct_values_get_distinct_ids() {
         let bump = Bump::new();
-        let mut registry: OpaqueRegistry<SassFunction<'_>> = OpaqueRegistry::new();
+        let mut registry: OpaqueRegistry<'_, SassFunction<'_>> = OpaqueRegistry::new(&bump);
         let a = SassFunction::new(dummy(&bump, "a"));
         let b = SassFunction::new(dummy(&bump, "b"));
         assert_eq!(registry.get_id(&a), 0);
@@ -108,7 +106,7 @@ mod tests {
     #[test]
     fn get_roundtrips() {
         let bump = Bump::new();
-        let mut registry: OpaqueRegistry<SassMixin<'_>> = OpaqueRegistry::new();
+        let mut registry: OpaqueRegistry<'_, SassMixin<'_>> = OpaqueRegistry::new(&bump);
         let a = SassMixin::new(dummy(&bump, "a"));
         let id = registry.get_id(&a);
         let got = registry.get(id).unwrap();

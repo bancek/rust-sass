@@ -13,7 +13,6 @@ use crate::math::pow;
 use crate::math::sqrt;
 use std::f64::consts::E;
 use std::f64::consts::PI;
-use std::rc::Rc;
 
 use bumpalo::Bump;
 use indexmap::IndexMap;
@@ -58,43 +57,51 @@ where
         c!(arena, abs_function_global(arena)),
         c!(
             arena,
-            ceil_function(arena).with_deprecation_warning("math", None)
+            ceil_function(arena).with_deprecation_warning(arena, "math", None)
         ),
         c!(
             arena,
-            floor_function(arena).with_deprecation_warning("math", None)
+            floor_function(arena).with_deprecation_warning(arena, "math", None)
         ),
         c!(
             arena,
-            max_function(arena).with_deprecation_warning("math", None)
+            max_function(arena).with_deprecation_warning(arena, "math", None)
         ),
         c!(
             arena,
-            min_function(arena).with_deprecation_warning("math", None)
+            min_function(arena).with_deprecation_warning(arena, "math", None)
         ),
         c!(
             arena,
-            percentage_function(arena).with_deprecation_warning("math", None)
+            percentage_function(arena).with_deprecation_warning(arena, "math", None)
         ),
         c!(
             arena,
-            random_function(arena).with_deprecation_warning("math", None)
+            random_function(arena).with_deprecation_warning(arena, "math", None)
         ),
         c!(
             arena,
-            round_function(arena).with_deprecation_warning("math", None)
+            round_function(arena).with_deprecation_warning(arena, "math", None)
         ),
         c!(
             arena,
-            unit_function(arena).with_deprecation_warning("math", None)
+            unit_function(arena).with_deprecation_warning(arena, "math", None)
         ),
         c!(
             arena,
-            comparable_function_global(arena).with_deprecation_warning("math", Some("compatible"))
+            comparable_function_global(arena).with_deprecation_warning(
+                arena,
+                "math",
+                Some("compatible")
+            )
         ),
         c!(
             arena,
-            unitless_function_global(arena).with_deprecation_warning("math", Some("is-unitless"))
+            unitless_function_global(arena).with_deprecation_warning(
+                arena,
+                "math",
+                Some("is-unitless")
+            )
         ),
     ]
 }
@@ -201,7 +208,8 @@ where
         "$number",
         "sass:math",
         arena,
-        Rc::new(
+        crate::callable::built_in_callback(
+            arena,
             move |_config: &EvalConfig<'compile, 'parse>,
                   _state: &mut EvalState<'compile, 'parse>,
                   args: Vec<Value<'parse>>,
@@ -210,10 +218,11 @@ where
                 let number = assert_number(&args[0], Some("number"))?;
                 Ok(Value::new_with_arena(
                     arena,
-                    ValueKind::Number(SassNumber::with_units(
+                    ValueKind::Number(SassNumber::with_units_refs(
+                        arena,
                         transform(number.value)?,
-                        number.numerator_units.clone(),
-                        number.denominator_units.clone(),
+                        &number.numerator_units,
+                        &number.denominator_units,
                     )),
                 ))
             },
@@ -230,7 +239,7 @@ where
 fn single_argument_math_func<'compile, 'parse>(
     name: &str,
     arena: &'compile Bump,
-    f: fn(&SassNumber) -> SassResult<SassNumber>,
+    f: fn(&'compile Bump, &SassNumber<'parse>) -> SassResult<SassNumber<'parse>>,
 ) -> BuiltInCallable<'compile, 'parse>
 where
     'compile: 'parse,
@@ -240,14 +249,18 @@ where
         "$number",
         "sass:math",
         arena,
-        Rc::new(
+        crate::callable::built_in_callback(
+            arena,
             move |_config: &EvalConfig<'compile, 'parse>,
                   _state: &mut EvalState<'compile, 'parse>,
                   args: Vec<Value<'parse>>,
                   arena: &'compile Bump|
                   -> SassResult<Value<'parse>> {
                 let number = assert_number(&args[0], Some("number"))?;
-                Ok(Value::new_with_arena(arena, ValueKind::Number(f(number)?)))
+                Ok(Value::new_with_arena(
+                    arena,
+                    ValueKind::Number(f(arena, number)?),
+                ))
             },
         ),
     )
@@ -268,7 +281,8 @@ where
         "$number",
         "sass:math",
         arena,
-        Rc::new(
+        crate::callable::built_in_callback(
+            arena,
             move |config: &EvalConfig<'compile, 'parse>,
                   state: &mut EvalState<'compile, 'parse>,
                   args: Vec<Value<'parse>>,
@@ -292,10 +306,11 @@ where
                 }
                 Ok(Value::new_with_arena(
                     arena,
-                    ValueKind::Number(SassNumber::with_units(
+                    ValueKind::Number(SassNumber::with_units_refs(
+                        arena,
                         abs(number.value),
-                        number.numerator_units.clone(),
-                        number.denominator_units.clone(),
+                        &number.numerator_units,
+                        &number.denominator_units,
                     )),
                 ))
             },
@@ -419,7 +434,8 @@ where
         "$numbers...",
         "sass:math",
         arena,
-        Rc::new(
+        crate::callable::built_in_callback(
+            arena,
             move |_config: &EvalConfig<'compile, 'parse>,
                   _state: &mut EvalState<'compile, 'parse>,
                   args: Vec<Value<'parse>>,
@@ -466,7 +482,8 @@ where
         "$numbers...",
         "sass:math",
         arena,
-        Rc::new(
+        crate::callable::built_in_callback(
+            arena,
             move |_config: &EvalConfig<'compile, 'parse>,
                   _state: &mut EvalState<'compile, 'parse>,
                   args: Vec<Value<'parse>>,
@@ -512,7 +529,8 @@ where
         "$number",
         "sass:math",
         arena,
-        Rc::new(
+        crate::callable::built_in_callback(
+            arena,
             move |_config: &EvalConfig<'compile, 'parse>,
                   _state: &mut EvalState<'compile, 'parse>,
                   args: Vec<Value<'parse>>,
@@ -522,7 +540,7 @@ where
                 number.assert_no_units(Some("number"))?;
                 Ok(Value::new_with_arena(
                     arena,
-                    ValueKind::Number(SassNumber::new(number.value * 100.0, Some("%"))),
+                    ValueKind::Number(SassNumber::new(arena, number.value * 100.0, Some("%"))),
                 ))
             },
         ),
@@ -542,7 +560,7 @@ fn acos_function<'compile, 'parse>(arena: &'compile Bump) -> BuiltInCallable<'co
 where
     'compile: 'parse,
 {
-    single_argument_math_func("acos", arena, acos_number)
+    single_argument_math_func("acos", arena, |arena, n| acos_number(arena, n))
 }
 
 /// Creates the `math.asin` callable (`$number`).
@@ -553,7 +571,7 @@ fn asin_function<'compile, 'parse>(arena: &'compile Bump) -> BuiltInCallable<'co
 where
     'compile: 'parse,
 {
-    single_argument_math_func("asin", arena, asin_number)
+    single_argument_math_func("asin", arena, |arena, n| asin_number(arena, n))
 }
 
 /// Creates the `math.atan` callable (`$number`).
@@ -564,7 +582,7 @@ fn atan_function<'compile, 'parse>(arena: &'compile Bump) -> BuiltInCallable<'co
 where
     'compile: 'parse,
 {
-    single_argument_math_func("atan", arena, atan_number)
+    single_argument_math_func("atan", arena, |arena, n| atan_number(arena, n))
 }
 
 /// Creates the `math.atan2` callable (`$y, $x`).
@@ -580,7 +598,8 @@ where
         "$y, $x",
         "sass:math",
         arena,
-        Rc::new(
+        crate::callable::built_in_callback(
+            arena,
             move |_config: &EvalConfig<'compile, 'parse>,
                   _state: &mut EvalState<'compile, 'parse>,
                   args: Vec<Value<'parse>>,
@@ -590,7 +609,7 @@ where
                 let x = assert_number(&args[1], Some("x"))?;
                 Ok(Value::new_with_arena(
                     arena,
-                    ValueKind::Number(atan2_number(y, x)?),
+                    ValueKind::Number(atan2_number(arena, y, x)?),
                 ))
             },
         ),
@@ -612,7 +631,8 @@ where
         "$min, $number, $max",
         "sass:math",
         arena,
-        Rc::new(
+        crate::callable::built_in_callback(
+            arena,
             move |_config: &EvalConfig<'compile, 'parse>,
                   _state: &mut EvalState<'compile, 'parse>,
                   args: Vec<Value<'parse>>,
@@ -650,7 +670,7 @@ fn cos_function<'compile, 'parse>(arena: &'compile Bump) -> BuiltInCallable<'com
 where
     'compile: 'parse,
 {
-    single_argument_math_func("cos", arena, cos_number)
+    single_argument_math_func("cos", arena, |arena, n| cos_number(arena, n))
 }
 
 /// Creates the `math.div` callable (`$number1, $number2`).
@@ -668,7 +688,8 @@ where
         "$number1, $number2",
         "sass:math",
         arena,
-        Rc::new(
+        crate::callable::built_in_callback(
+            arena,
             move |config: &EvalConfig<'compile, 'parse>,
                   state: &mut EvalState<'compile, 'parse>,
                   args: Vec<Value<'parse>>,
@@ -710,7 +731,8 @@ where
         "$numbers...",
         "sass:math",
         arena,
-        Rc::new(
+        crate::callable::built_in_callback(
+            arena,
             move |_config: &EvalConfig<'compile, 'parse>,
                   _state: &mut EvalState<'compile, 'parse>,
                   args: Vec<Value<'parse>>,
@@ -736,10 +758,11 @@ where
                 }
                 Ok(Value::new_with_arena(
                     arena,
-                    ValueKind::Number(SassNumber::with_units(
+                    ValueKind::Number(SassNumber::with_units_refs(
+                        arena,
                         sqrt(subtotal),
-                        parsed[0].numerator_units.clone(),
-                        parsed[0].denominator_units.clone(),
+                        &parsed[0].numerator_units,
+                        &parsed[0].denominator_units,
                     )),
                 ))
             },
@@ -764,7 +787,8 @@ where
         "$number",
         "sass:math",
         arena,
-        Rc::new(
+        crate::callable::built_in_callback(
+            arena,
             move |_config: &EvalConfig<'compile, 'parse>,
                   _state: &mut EvalState<'compile, 'parse>,
                   args: Vec<Value<'parse>>,
@@ -794,7 +818,8 @@ where
         "$number, $base: null",
         "sass:math",
         arena,
-        Rc::new(
+        crate::callable::built_in_callback(
+            arena,
             move |_config: &EvalConfig<'compile, 'parse>,
                   _state: &mut EvalState<'compile, 'parse>,
                   args: Vec<Value<'parse>>,
@@ -812,7 +837,7 @@ where
                 };
                 Ok(Value::new_with_arena(
                     arena,
-                    ValueKind::Number(log_number(number, base)?),
+                    ValueKind::Number(log_number(arena, number, base)?),
                 ))
             },
         ),
@@ -832,7 +857,8 @@ where
         "$base, $exponent",
         "sass:math",
         arena,
-        Rc::new(
+        crate::callable::built_in_callback(
+            arena,
             move |_config: &EvalConfig<'compile, 'parse>,
                   _state: &mut EvalState<'compile, 'parse>,
                   args: Vec<Value<'parse>>,
@@ -842,7 +868,7 @@ where
                 let exponent = assert_number(&args[1], Some("exponent"))?;
                 Ok(Value::new_with_arena(
                     arena,
-                    ValueKind::Number(pow_number(base, exponent)?),
+                    ValueKind::Number(pow_number(arena, base, exponent)?),
                 ))
             },
         ),
@@ -857,7 +883,7 @@ fn sin_function<'compile, 'parse>(arena: &'compile Bump) -> BuiltInCallable<'com
 where
     'compile: 'parse,
 {
-    single_argument_math_func("sin", arena, sin_number)
+    single_argument_math_func("sin", arena, |arena, n| sin_number(arena, n))
 }
 
 /// Creates the `math.sqrt` callable (`$number`).
@@ -868,7 +894,7 @@ fn sqrt_function<'compile, 'parse>(arena: &'compile Bump) -> BuiltInCallable<'co
 where
     'compile: 'parse,
 {
-    single_argument_math_func("sqrt", arena, sqrt_number)
+    single_argument_math_func("sqrt", arena, |arena, n| sqrt_number(arena, n))
 }
 
 /// Creates the `math.tan` callable (`$number`).
@@ -879,7 +905,7 @@ fn tan_function<'compile, 'parse>(arena: &'compile Bump) -> BuiltInCallable<'com
 where
     'compile: 'parse,
 {
-    single_argument_math_func("tan", arena, tan_number)
+    single_argument_math_func("tan", arena, |arena, n| tan_number(arena, n))
 }
 
 /// Creates the `math.unit` callable (`$number`).
@@ -895,7 +921,8 @@ where
         "$number",
         "sass:math",
         arena,
-        Rc::new(
+        crate::callable::built_in_callback(
+            arena,
             move |_config: &EvalConfig<'compile, 'parse>,
                   _state: &mut EvalState<'compile, 'parse>,
                   args: Vec<Value<'parse>>,
@@ -951,7 +978,7 @@ fn unit_string(n: &SassNumber) -> String {
 /// counterpart of its own.
 ///
 /// Matches Go: joinStrings
-fn join_strings(strs: &[String], sep: &str) -> String {
+fn join_strings(strs: &[&str], sep: &str) -> String {
     let mut result = String::new();
     for (i, s) in strs.iter().enumerate() {
         if i > 0 {
@@ -979,7 +1006,7 @@ where
         "$number1, $number2",
         "sass:math",
         arena,
-        Rc::new(compatible_impl),
+        crate::callable::built_in_callback(arena, compatible_impl),
     )
 }
 
@@ -997,7 +1024,7 @@ where
         "$number1, $number2",
         "sass:math",
         arena,
-        Rc::new(compatible_impl),
+        crate::callable::built_in_callback(arena, compatible_impl),
     )
 }
 
@@ -1040,7 +1067,7 @@ where
         "$number",
         "sass:math",
         arena,
-        Rc::new(unitless_impl),
+        crate::callable::built_in_callback(arena, unitless_impl),
     )
 }
 
@@ -1060,7 +1087,7 @@ where
         "$number",
         "sass:math",
         arena,
-        Rc::new(unitless_impl),
+        crate::callable::built_in_callback(arena, unitless_impl),
     )
 }
 
@@ -1098,7 +1125,8 @@ where
         "$limit: null",
         "sass:math",
         arena,
-        Rc::new(
+        crate::callable::built_in_callback(
+            arena,
             move |config: &EvalConfig<'compile, 'parse>,
                   state: &mut EvalState<'compile, 'parse>,
                   args: Vec<Value<'parse>>,
@@ -1152,6 +1180,7 @@ mod tests {
     use std::f64::consts::E;
     use std::f64::consts::FRAC_PI_2;
     use std::f64::consts::PI;
+    use std::rc::Rc;
 
     use crate::functions::test_utils::{
         assert_is_false, assert_is_true, assert_no_warnings, assert_single_warning, eval,
@@ -1162,7 +1191,7 @@ mod tests {
     // --- helpers ---
 
     fn num<'compile: 'parse, 'parse>(arena: &'compile Bump, v: f64) -> Value<'parse> {
-        Value::new_with_arena(arena, ValueKind::Number(SassNumber::new(v, None)))
+        Value::new_with_arena(arena, ValueKind::Number(SassNumber::new(arena, v, None)))
     }
 
     fn unit_num<'compile: 'parse, 'parse>(
@@ -1170,7 +1199,10 @@ mod tests {
         v: f64,
         unit: &str,
     ) -> Value<'parse> {
-        Value::new_with_arena(arena, ValueKind::Number(SassNumber::new(v, Some(unit))))
+        Value::new_with_arena(
+            arena,
+            ValueKind::Number(SassNumber::new(arena, v, Some(unit))),
+        )
     }
 
     fn complex_num<'compile: 'parse, 'parse>(
@@ -1182,6 +1214,7 @@ mod tests {
         Value::new_with_arena(
             arena,
             ValueKind::Number(SassNumber::with_units(
+                arena,
                 v,
                 num_units.iter().map(|s| s.to_string()).collect(),
                 den_units.iter().map(|s| s.to_string()).collect(),
@@ -1209,7 +1242,7 @@ mod tests {
     ) -> Value<'parse> {
         Value::new_with_arena(
             arena,
-            ValueKind::List(SassList::new(items, ListSeparator::Comma, false)),
+            ValueKind::List(SassList::new(arena, items, ListSeparator::Comma, false)),
         )
     }
 
@@ -1456,7 +1489,7 @@ mod tests {
         ];
         assert_eq!(m.functions.len(), want.len());
         for (i, (name, _)) in m.functions.iter().enumerate() {
-            assert_eq!(name, want[i], "functions[{i}]");
+            assert_eq!(*name, want[i], "functions[{i}]");
         }
     }
 
@@ -1482,7 +1515,7 @@ mod tests {
         ];
         assert_eq!(m.variables.len(), want_order.len());
         for (i, (name, _)) in m.variables.iter().enumerate() {
-            assert_eq!(name, want_order[i], "variables[{i}]");
+            assert_eq!(*name, want_order[i], "variables[{i}]");
         }
         let want_values: [(&str, f64); 7] = [
             ("e", E),
@@ -3063,17 +3096,19 @@ mod tests {
 
     #[rust_sass_macros::maybe_test]
     async fn test_math_unit_string_helper() {
+        let arena = Bump::new();
         let _arena = Bump::new();
         let mk = |v: f64, nums: &[&str], dens: &[&str]| {
             SassNumber::with_units(
+                &arena,
                 v,
                 nums.iter().map(|s| s.to_string()).collect(),
                 dens.iter().map(|s| s.to_string()).collect(),
             )
         };
         let tests: [(SassNumber, &str); 7] = [
-            (SassNumber::new(1.0, None), ""),
-            (SassNumber::new(1.0, Some("px")), "px"),
+            (SassNumber::new(&arena, 1.0, None), ""),
+            (SassNumber::new(&arena, 1.0, Some("px")), "px"),
             (mk(1.0, &["px", "s"], &[]), "px*s"),
             (mk(1.0, &["px"], &["s"]), "px/s"),
             (mk(1.0, &[], &["s"]), "s^-1"),
@@ -3088,11 +3123,8 @@ mod tests {
     #[rust_sass_macros::maybe_test]
     async fn test_math_join_strings() {
         assert_eq!(join_strings(&[], "*"), "");
-        assert_eq!(join_strings(&["a".to_string()], "*"), "a");
-        assert_eq!(
-            join_strings(&["a".to_string(), "b".to_string(), "c".to_string()], "*"),
-            "a*b*c"
-        );
+        assert_eq!(join_strings(&["a"], "*"), "a");
+        assert_eq!(join_strings(&["a", "b", "c"], "*"), "a*b*c");
     }
 
     // --- comparable (global) ---
@@ -3354,14 +3386,14 @@ mod tests {
             let mut opts = CompileOptions::new(&arena);
             let _ = &mut opts;
             let src = format!("@use \"sass:math\";\na {{ b: math.{name}(math.$max-number); }}");
-            let result = compile_string(&src, io.clone(), opts, &arena)
+            let result = compile_string(&src, io.clone(), &mut opts, &arena)
                 .await
                 .unwrap();
             assert!(result.css().contains(want), "{name}: got: {}", result.css());
         }
         // Negative extreme.
         let src = "@use \"sass:math\";\na { b: math.floor(math.$max-number * -1); }";
-        let result = compile_string(src, io.clone(), CompileOptions::new(&arena), &arena)
+        let result = compile_string(src, io.clone(), &mut CompileOptions::new(&arena), &arena)
             .await
             .unwrap();
         assert!(
@@ -3373,7 +3405,7 @@ mod tests {
         // Non-finite input errors like Dart.
         for name in ["ceil", "floor", "round"] {
             let src = format!("@use \"sass:math\";\na {{ b: math.{name}(math.div(1, 0)); }}");
-            let err = compile_string(&src, io.clone(), CompileOptions::new(&arena), &arena)
+            let err = compile_string(&src, io.clone(), &mut CompileOptions::new(&arena), &arena)
                 .await
                 .unwrap_err();
             match *err {
@@ -3396,7 +3428,7 @@ mod tests {
         let err = compile_string(
             "@use \"sass:math\";\na { b: math.log(10px, \"foo\"); }",
             io,
-            CompileOptions::new(&arena),
+            &mut CompileOptions::new(&arena),
             &arena,
         )
         .await
@@ -3420,7 +3452,7 @@ mod tests {
         let result = compile_string(
             "@use \"sass:meta\";\n@use \"sass:math\";\na { b: meta.inspect(meta.module-functions(\"math\")); }",
             io,
-            CompileOptions::new(&arena),
+            &mut CompileOptions::new(&arena),
             &arena,
         )
         .await

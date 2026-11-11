@@ -7,8 +7,7 @@
 // dart-source: (external) package:source_span/lib/src/file.dart + lib/src/util/span.dart
 // go-source: go/sasscommon/source_span_file.go + go/sasscommon/source_span_span.go + go/sasscommon/util_span.go
 
-use crate::url::SassUrl;
-use std::rc::Rc;
+use crate::url::{ArenaUrl, Url};
 
 use std::fmt;
 
@@ -110,12 +109,12 @@ impl<'parse> FileSpan<'parse> {
     ///
     /// Mirrors `SourceSpan.sourceUrl`: may be `None` when the source URL is
     /// unknown or unavailable.
-    pub fn source_url(&self) -> Option<&SassUrl> {
+    pub fn source_url(&self) -> Option<&'parse ArenaUrl<'parse>> {
         self.file.and_then(|f| f.url())
     }
 
-    /// The URL formatted once per source, shared via `Rc<str>`.
-    pub fn url_str_cached(&self) -> Option<Rc<str>> {
+    /// The URL's canonical string, already arena-allocated.
+    pub fn url_str_cached(&self) -> Option<&'parse str> {
         self.file.and_then(|f| f.url_str_cached())
     }
 
@@ -176,13 +175,13 @@ impl<'parse> FileSpan<'parse> {
     /// Mirrors `_FileSpan.expand`: unlike `union`, `other` may be disjoint —
     /// the text between the two is covered as well. The URLs must match.
     pub fn expand(&self, other: &Span<'parse>) -> Result<FileSpan<'parse>, SpanError> {
-        let other_url = other.source_url()?;
+        let other_url = other.url_ref()?;
         let s_url = self.source_url();
-        if !same_url(s_url, other_url.as_ref()) {
+        if !same_url(s_url, other_url) {
             return Err(SpanError::Argument(format!(
                 "Source URLs {:?} and {:?} don't match.",
                 s_url.map(|u| u.as_str()),
-                other_url.as_ref().map(|u| u.as_str())
+                other_url.map(|u| u.as_str())
             )));
         }
         let self_file = self.file;
@@ -262,9 +261,9 @@ impl<'parse> FileSpan<'parse> {
     /// when `inner` isn't fully within this span or lives in a different
     /// file.
     pub fn before(&self, inner: &Span<'parse>) -> Result<FileSpan<'parse>, SpanError> {
-        let inner_url = inner.source_url()?;
+        let inner_url = inner.url_ref()?;
         let s_url = self.source_url();
-        if !same_url(s_url, inner_url.as_ref()) {
+        if !same_url(s_url, inner_url) {
             return Err(SpanError::Argument(format!(
                 "{} and {inner} are in different files.",
                 self,
@@ -292,9 +291,9 @@ impl<'parse> FileSpan<'parse> {
     /// when `inner` isn't fully within this span or lives in a different
     /// file.
     pub fn after(&self, inner: &Span<'parse>) -> Result<FileSpan<'parse>, SpanError> {
-        let inner_url = inner.source_url()?;
+        let inner_url = inner.url_ref()?;
         let s_url = self.source_url();
-        if !same_url(s_url, inner_url.as_ref()) {
+        if !same_url(s_url, inner_url) {
             return Err(SpanError::Argument(format!(
                 "{} and {inner} are in different files.",
                 self,
@@ -321,9 +320,9 @@ impl<'parse> FileSpan<'parse> {
     /// when `other` starts before this span ends or lives in a different
     /// file.
     pub fn between(&self, other: &Span<'parse>) -> Result<FileSpan<'parse>, SpanError> {
-        let other_url = other.source_url()?;
+        let other_url = other.url_ref()?;
         let s_url = self.source_url();
-        if !same_url(s_url, other_url.as_ref()) {
+        if !same_url(s_url, other_url) {
             return Err(SpanError::Argument(format!(
                 "{} and {other} are in different files.",
                 self,
@@ -349,9 +348,9 @@ impl<'parse> FileSpan<'parse> {
     /// Mirrors `SpanExtensions.contains`: spans must be in the same file
     /// (compared by URL, as in Dart).
     pub fn contains(&self, target: &Span<'parse>) -> Result<bool, SpanError> {
-        let target_url = target.source_url()?;
+        let target_url = target.url_ref()?;
         let source_url = self.source_url();
-        if !same_url(source_url, target_url.as_ref()) {
+        if !same_url(source_url, target_url) {
             return Ok(false);
         }
         let target_start = target.start_location()?;
@@ -493,7 +492,7 @@ impl<'parse> fmt::Display for FileSpan<'parse> {
     }
 }
 
-pub(crate) fn same_url(a: Option<&SassUrl>, b: Option<&SassUrl>) -> bool {
+pub(crate) fn same_url<A: Url + ?Sized, B: Url + ?Sized>(a: Option<&A>, b: Option<&B>) -> bool {
     match (a, b) {
         (None, None) => true,
         (None, Some(_)) | (Some(_), None) => false,
@@ -600,6 +599,7 @@ pub(crate) fn trim_left_fs<'parse>(span: &FileSpan<'parse>) -> Result<FileSpan<'
 mod tests {
     use super::*;
     use crate::common::span::Span;
+    use crate::url::OwnedUrl;
     use bumpalo::Bump;
 
     fn test_source<'compile, 'parse>(
@@ -613,8 +613,8 @@ mod tests {
         FileSource::new_in(arena, text, None)
     }
 
-    fn test_url(url_str: &str) -> SassUrl {
-        SassUrl::parse(url_str).unwrap()
+    fn test_url(url_str: &str) -> OwnedUrl {
+        OwnedUrl::parse(url_str).unwrap()
     }
 
     #[test]
@@ -764,8 +764,8 @@ mod tests {
         let arena = Bump::new();
         let u1 = test_url("file:///a.scss");
         let u2 = test_url("file:///b.scss");
-        let fs1 = FileSource::new_in(&arena, "abcdefghij", Some(u1));
-        let fs2 = FileSource::new_in(&arena, "x", Some(u2));
+        let fs1 = FileSource::new_in_owned(&arena, "abcdefghij", Some(&u1));
+        let fs2 = FileSource::new_in_owned(&arena, "x", Some(&u2));
         let parent = Span::File(FileSpan::new(Some(fs1), 0, 10));
         let sub = Span::File(FileSpan::new(Some(fs2), 0, 1));
         assert!(parent.before(&sub).is_err());
@@ -839,8 +839,8 @@ mod tests {
         let arena = Bump::new();
         let u1 = test_url("file:///f.scss");
         let u2 = test_url("file:///g.scss");
-        let fs1 = FileSource::new_in(&arena, "abcdefghij", Some(u1));
-        let fs2 = FileSource::new_in(&arena, "cde", Some(u2));
+        let fs1 = FileSource::new_in_owned(&arena, "abcdefghij", Some(&u1));
+        let fs2 = FileSource::new_in_owned(&arena, "cde", Some(&u2));
         let parent = Span::File(FileSpan::new(Some(fs1), 0, 10));
         let sub = Span::File(FileSpan::new(Some(fs2), 2, 5));
         assert!(!parent.contains(&sub).unwrap());
@@ -952,9 +952,15 @@ mod tests {
 
     #[test]
     fn test_same_url() {
-        assert!(same_url(None, None));
-        assert!(!same_url(None, Some(&test_url("file:///a.scss"))));
-        assert!(!same_url(Some(&test_url("file:///a.scss")), None));
+        assert!(same_url(None::<&OwnedUrl>, None::<&OwnedUrl>));
+        assert!(!same_url(
+            None::<&OwnedUrl>,
+            Some(&test_url("file:///a.scss"))
+        ));
+        assert!(!same_url(
+            Some(&test_url("file:///a.scss")),
+            None::<&OwnedUrl>
+        ));
         assert!(same_url(
             Some(&test_url("file:///a.scss")),
             Some(&test_url("file:///a.scss"))

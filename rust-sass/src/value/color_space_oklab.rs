@@ -23,7 +23,7 @@ pub(crate) fn oklab_convert(
     c1: Option<f64>,
     c2: Option<f64>,
     alpha: Option<f64>,
-) -> SassResult<SassColor> {
+) -> SassResult<SassColor<'static>> {
     oklab_convert_internal(dest, c0, c1, c2, alpha, None)
 }
 
@@ -38,7 +38,7 @@ pub(crate) fn oklab_convert_internal(
     b: Option<f64>,
     alpha: Option<f64>,
     opts: Option<&OklabConvertOpts>,
-) -> SassResult<SassColor> {
+) -> SassResult<SassColor<'static>> {
     let lv = lightness.unwrap_or(0.0);
     let av = a.unwrap_or(0.0);
     let bv = b.unwrap_or(0.0);

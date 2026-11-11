@@ -81,7 +81,7 @@ mod tests {
     fn test_id_selector_display() {
         let arena = Bump::new();
         let span = make_span(&arena, "bar");
-        let name = Interpolation::plain("bar".into(), span);
+        let name = Interpolation::plain(&arena, "bar".into(), span);
         let sel = InterpolatedIDSelector::new(name);
         assert_eq!(format!("{sel}"), "#bar");
     }

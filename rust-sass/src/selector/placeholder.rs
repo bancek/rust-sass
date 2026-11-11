@@ -7,6 +7,8 @@
 // dart-source: lib/src/ast/selector/placeholder.dart + lib/src/extend/functions.dart
 // go-source: go/value/selector_placeholder.go + go/value/selector_extend_functions.go
 
+use bumpalo::Bump;
+
 use crate::common::exception::SassResult;
 use crate::common::file_span::FileSpan;
 use crate::selector::selector_assert_not_bogus_impl;
@@ -29,7 +31,7 @@ pub struct PlaceholderSelector<'parse> {
     /// The source span covering this selector.
     pub span: FileSpan<'parse>,
     /// The name of the placeholder.
-    pub name: String,
+    pub name: &'parse str,
 }
 
 // Matches Dart: structural equality over the name; the span is excluded.
@@ -43,7 +45,7 @@ impl<'parse> Eq for PlaceholderSelector<'parse> {}
 
 impl<'parse> PlaceholderSelector<'parse> {
     /// Creates a placeholder selector for `name`.
-    pub fn new(name: String, span: FileSpan<'parse>) -> Self {
+    pub fn new(name: &'parse str, span: FileSpan<'parse>) -> Self {
         PlaceholderSelector { span, name }
     }
 
@@ -101,7 +103,7 @@ impl<'parse> PlaceholderSelector<'parse> {
 
     // Matches Dart: the hash of the name; the span is excluded.
     pub fn hash_code(&self) -> i32 {
-        string_hash_code(&self.name)
+        string_hash_code(self.name)
     }
 
     /// Serializes this selector to CSS, quoting as `inspect` requests.
@@ -128,9 +130,13 @@ impl<'parse> PlaceholderSelector<'parse> {
     // Matches Dart `PlaceholderSelector.addSuffix` (placeholder.dart):
     // appends `suffix` to the name. Internal-only in Dart (`@internal`);
     // kept public here.
-    pub fn add_suffix(&self, suffix: &str) -> SassResult<SimpleSelector<'parse>> {
+    pub fn add_suffix(
+        &self,
+        arena: &'parse Bump,
+        suffix: &str,
+    ) -> SassResult<SimpleSelector<'parse>> {
         Ok(SimpleSelector::Placeholder(PlaceholderSelector::new(
-            format!("{}{}", self.name, suffix),
+            &*arena.alloc_str(&format!("{}{}", self.name, suffix)),
             self.span,
         )))
     }
@@ -173,42 +179,43 @@ mod tests {
 
     #[test]
     fn test_new_placeholder_selector() {
-        let s = PlaceholderSelector::new("foo".into(), BOGUS_SPAN);
+        let s = PlaceholderSelector::new("foo", BOGUS_SPAN);
         assert_eq!(s.name, "foo");
     }
 
     #[test]
     fn test_placeholder_selector_is_invisible() {
-        let s = PlaceholderSelector::new("foo".into(), BOGUS_SPAN);
+        let s = PlaceholderSelector::new("foo", BOGUS_SPAN);
         assert!(s.is_invisible());
     }
 
     #[test]
     fn test_placeholder_selector_is_bogus() {
-        let s = PlaceholderSelector::new("foo".into(), BOGUS_SPAN);
+        let s = PlaceholderSelector::new("foo", BOGUS_SPAN);
         assert!(!s.is_bogus());
     }
 
     #[test]
     fn test_placeholder_selector_is_private() {
-        let s1 = PlaceholderSelector::new("-foo".into(), BOGUS_SPAN);
+        let s1 = PlaceholderSelector::new("-foo", BOGUS_SPAN);
         assert!(s1.is_private());
-        let s2 = PlaceholderSelector::new("_bar".into(), BOGUS_SPAN);
+        let s2 = PlaceholderSelector::new("_bar", BOGUS_SPAN);
         assert!(s2.is_private());
-        let s3 = PlaceholderSelector::new("baz".into(), BOGUS_SPAN);
+        let s3 = PlaceholderSelector::new("baz", BOGUS_SPAN);
         assert!(!s3.is_private());
     }
 
     #[test]
     fn test_placeholder_selector_specificity() {
-        let s = PlaceholderSelector::new("foo".into(), BOGUS_SPAN);
+        let s = PlaceholderSelector::new("foo", BOGUS_SPAN);
         assert_eq!(s.specificity(), 1000);
     }
 
     #[test]
     fn test_placeholder_selector_add_suffix() {
-        let s = PlaceholderSelector::new("foo".into(), BOGUS_SPAN);
-        let result = s.add_suffix("bar").unwrap();
+        let s = PlaceholderSelector::new("foo", BOGUS_SPAN);
+        let arena = bumpalo::Bump::new();
+        let result = s.add_suffix(&arena, "bar").unwrap();
         if let SimpleSelector::Placeholder(ref ps) = result {
             assert_eq!(ps.name, "foobar");
         } else {
@@ -218,29 +225,29 @@ mod tests {
 
     #[test]
     fn test_placeholder_selector_partial_eq() {
-        let s1 = PlaceholderSelector::new("foo".into(), BOGUS_SPAN);
-        let s2 = PlaceholderSelector::new("foo".into(), BOGUS_SPAN);
+        let s1 = PlaceholderSelector::new("foo", BOGUS_SPAN);
+        let s2 = PlaceholderSelector::new("foo", BOGUS_SPAN);
         assert_eq!(s1, s2);
-        let s3 = PlaceholderSelector::new("bar".into(), BOGUS_SPAN);
+        let s3 = PlaceholderSelector::new("bar", BOGUS_SPAN);
         assert_ne!(s1, s3);
     }
 
     #[test]
     fn test_placeholder_selector_hash_code() {
-        let s1 = PlaceholderSelector::new("foo".into(), BOGUS_SPAN);
-        let s2 = PlaceholderSelector::new("foo".into(), BOGUS_SPAN);
+        let s1 = PlaceholderSelector::new("foo", BOGUS_SPAN);
+        let s2 = PlaceholderSelector::new("foo", BOGUS_SPAN);
         assert_eq!(s1.hash_code(), s2.hash_code());
     }
 
     #[test]
     fn test_placeholder_selector_to_css_string() {
-        let s = PlaceholderSelector::new("foo".into(), BOGUS_SPAN);
+        let s = PlaceholderSelector::new("foo", BOGUS_SPAN);
         assert_eq!(s.to_css_string(true).unwrap(), "%foo");
     }
 
     #[test]
     fn test_placeholder_selector_assert_not_bogus() {
-        let s = PlaceholderSelector::new("foo".into(), BOGUS_SPAN);
+        let s = PlaceholderSelector::new("foo", BOGUS_SPAN);
         assert!(s.assert_not_bogus(None, None).is_ok());
     }
 }

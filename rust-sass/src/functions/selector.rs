@@ -14,7 +14,6 @@ use crate::eval::warn::WarnLoggerAdapter;
 use crate::extend::extend_static;
 use crate::extend::replace_static;
 use crate::termglyph::GlyphSet;
-use std::rc::Rc;
 
 use bumpalo::Bump;
 
@@ -56,35 +55,55 @@ where
     vec![
         c!(
             arena,
-            is_superselector_function(arena).with_deprecation_warning("selector", None)
+            is_superselector_function(arena).with_deprecation_warning(arena, "selector", None)
         ),
         c!(
             arena,
-            simple_selectors_function(arena).with_deprecation_warning("selector", None)
+            simple_selectors_function(arena).with_deprecation_warning(arena, "selector", None)
         ),
         c!(
             arena,
-            selector_parse_function(arena).with_deprecation_warning("selector", Some("parse"))
+            selector_parse_function(arena).with_deprecation_warning(
+                arena,
+                "selector",
+                Some("parse")
+            )
         ),
         c!(
             arena,
-            selector_nest_function(arena).with_deprecation_warning("selector", Some("nest"))
+            selector_nest_function(arena).with_deprecation_warning(arena, "selector", Some("nest"))
         ),
         c!(
             arena,
-            selector_append_function(arena).with_deprecation_warning("selector", Some("append"))
+            selector_append_function(arena).with_deprecation_warning(
+                arena,
+                "selector",
+                Some("append")
+            )
         ),
         c!(
             arena,
-            selector_extend_function(arena).with_deprecation_warning("selector", Some("extend"))
+            selector_extend_function(arena).with_deprecation_warning(
+                arena,
+                "selector",
+                Some("extend")
+            )
         ),
         c!(
             arena,
-            selector_replace_function(arena).with_deprecation_warning("selector", Some("replace"))
+            selector_replace_function(arena).with_deprecation_warning(
+                arena,
+                "selector",
+                Some("replace")
+            )
         ),
         c!(
             arena,
-            selector_unify_function(arena).with_deprecation_warning("selector", Some("unify"))
+            selector_unify_function(arena).with_deprecation_warning(
+                arena,
+                "selector",
+                Some("unify")
+            )
         ),
     ]
 }
@@ -246,7 +265,7 @@ where
 {
     let s = selector_string(arena, v, name)?;
     let source = FileSource::new_in(arena, &s, None);
-    let warn_buf = BufferedWarnLogger::new(arena);
+    let warn_buf = BufferedWarnLogger::new();
     let mut parser = SelectorParser::new_with_options(
         arena,
         source,
@@ -312,7 +331,7 @@ where
 {
     let s = selector_string(arena, v, name)?;
     let source = FileSource::new_in(arena, &s, None);
-    let warn_buf = BufferedWarnLogger::new(arena);
+    let warn_buf = BufferedWarnLogger::new();
     let mut parser =
         SelectorParser::new_with_options(arena, source, false, false, None, Some(&warn_buf), None);
     match parser.parse_compound_selector() {
@@ -358,7 +377,7 @@ where
 /// Matches Go: selectorListToString.
 fn selector_list_to_string(sl: &SelectorList<'_>) -> SassResult<String> {
     let mut parts = Vec::with_capacity(sl.0.components.len());
-    for c in &sl.0.components {
+    for c in sl.0.components {
         parts.push(c.to_css_string(true)?);
     }
     Ok(parts.join(", "))
@@ -391,10 +410,10 @@ fn prepend_parent<'compile: 'parse, 'parse>(
             comps.push(SimpleSelector::Parent(ParentSelector::new(
                 arena,
                 span,
-                Some(t.name.name.clone()),
+                Some(t.name.name),
             )));
             comps.extend_from_slice(rest);
-            Ok(Some(CompoundSelector::new(comps, span)?))
+            Ok(Some(CompoundSelector::new(arena, comps, span)?))
         }
         _ => {
             let mut comps: Vec<SimpleSelector<'parse>> =
@@ -402,8 +421,8 @@ fn prepend_parent<'compile: 'parse, 'parse>(
             comps.push(SimpleSelector::Parent(ParentSelector::new(
                 arena, span, None,
             )));
-            comps.extend_from_slice(&compound.components);
-            Ok(Some(CompoundSelector::new(comps, span)?))
+            comps.extend_from_slice(compound.components);
+            Ok(Some(CompoundSelector::new(arena, comps, span)?))
         }
     }
 }
@@ -462,7 +481,7 @@ where
         "$super, $sub",
         "sass:selector",
         arena,
-        Rc::new(is_superselector_impl),
+        crate::callable::built_in_callback(arena, is_superselector_impl),
     )
 }
 
@@ -483,7 +502,7 @@ where
 {
     let compound = assert_compound_selector(&args[0], "selector", config, state, arena)?;
     let mut items: Vec<Value<'parse>> = Vec::with_capacity(compound.components.len());
-    for s in &compound.components {
+    for s in compound.components {
         items.push(Value::new_with_arena(
             arena,
             ValueKind::String(SassString::new(
@@ -494,7 +513,7 @@ where
     }
     Ok(Value::new_with_arena(
         arena,
-        ValueKind::List(SassList::new(items, ListSeparator::Comma, false)),
+        ValueKind::List(SassList::new(arena, items, ListSeparator::Comma, false)),
     ))
 }
 
@@ -513,7 +532,7 @@ where
         "$selector",
         "sass:selector",
         arena,
-        Rc::new(simple_selectors_impl),
+        crate::callable::built_in_callback(arena, simple_selectors_impl),
     )
 }
 
@@ -550,7 +569,7 @@ where
         "$selector",
         "sass:selector",
         arena,
-        Rc::new(parse_impl),
+        crate::callable::built_in_callback(arena, parse_impl),
     )
 }
 
@@ -569,7 +588,7 @@ where
         "$selector",
         "sass:selector",
         arena,
-        Rc::new(parse_impl),
+        crate::callable::built_in_callback(arena, parse_impl),
     )
 }
 
@@ -619,7 +638,7 @@ where
         "$selectors...",
         "sass:selector",
         arena,
-        Rc::new(nest_impl),
+        crate::callable::built_in_callback(arena, nest_impl),
     )
 }
 
@@ -638,7 +657,7 @@ where
         "$selectors...",
         "sass:selector",
         arena,
-        Rc::new(nest_impl),
+        crate::callable::built_in_callback(arena, nest_impl),
     )
 }
 
@@ -674,7 +693,7 @@ where
     for child_v in &selectors[1..] {
         let child = assert_selector(child_v, "", false, config, state, arena)?;
         let mut new_components: Vec<ComplexSelector<'_>> = Vec::new();
-        for complex in &child.0.components {
+        for complex in child.0.components {
             if !complex.leading_combinators.is_empty() {
                 let s = selector_list_to_string(&result)?;
                 let complex_str = complex.to_css_string(true)?;
@@ -685,7 +704,7 @@ where
             }
             let first_comp = &complex.components[0];
             let rest = &complex.components[1..];
-            let new_compound = match prepend_parent(arena, &first_comp.selector, span)? {
+            let new_compound = match prepend_parent(arena, first_comp.selector, span)? {
                 Some(c) => c,
                 None => {
                     let s = selector_list_to_string(&result)?;
@@ -699,12 +718,13 @@ where
             let mut new_comps: Vec<ComplexSelectorComponent<'_>> =
                 Vec::with_capacity(1 + rest.len());
             new_comps.push(ComplexSelectorComponent::new(
-                Box::new(new_compound),
-                first_comp.combinators.clone(),
+                arena,
+                new_compound,
+                first_comp.combinators.to_vec(),
                 span,
             ));
             new_comps.extend_from_slice(rest);
-            let cs = ComplexSelector::new(vec![], new_comps, span, false)?;
+            let cs = ComplexSelector::new(arena, vec![], new_comps, span, false)?;
             new_components.push(cs);
         }
         let child_list = SelectorList::new(arena, new_components, span)?;
@@ -728,7 +748,7 @@ where
         "$selectors...",
         "sass:selector",
         arena,
-        Rc::new(append_impl),
+        crate::callable::built_in_callback(arena, append_impl),
     )
 }
 
@@ -747,7 +767,7 @@ where
         "$selectors...",
         "sass:selector",
         arena,
-        Rc::new(append_impl),
+        crate::callable::built_in_callback(arena, append_impl),
     )
 }
 
@@ -781,14 +801,7 @@ where
         Some(&mut WarnLoggerAdapter { config, state } as &mut dyn WarnLogger),
     )?;
     let current_callable_span = state.callable_span.unwrap_or(BOGUS_SPAN);
-    let result = extend_static(
-        arena,
-        &sel,
-        &source,
-        &target,
-        current_callable_span,
-        config.io.clone(),
-    )?;
+    let result = extend_static(arena, &sel, &source, &target, current_callable_span)?;
     result.as_sass_list(arena)
 }
 
@@ -807,7 +820,7 @@ where
         "$selector, $extendee, $extender",
         "sass:selector",
         arena,
-        Rc::new(extend_impl),
+        crate::callable::built_in_callback(arena, extend_impl),
     )
 }
 
@@ -826,7 +839,7 @@ where
         "$selector, $extendee, $extender",
         "sass:selector",
         arena,
-        Rc::new(extend_impl),
+        crate::callable::built_in_callback(arena, extend_impl),
     )
 }
 
@@ -860,14 +873,7 @@ where
         Some(&mut WarnLoggerAdapter { config, state } as &mut dyn WarnLogger),
     )?;
     let current_callable_span = state.callable_span.unwrap_or(BOGUS_SPAN);
-    let result = replace_static(
-        arena,
-        &sel,
-        &source,
-        &target,
-        current_callable_span,
-        config.io.clone(),
-    )?;
+    let result = replace_static(arena, &sel, &source, &target, current_callable_span)?;
     result.as_sass_list(arena)
 }
 
@@ -886,7 +892,7 @@ where
         "$selector, $original, $replacement",
         "sass:selector",
         arena,
-        Rc::new(replace_impl),
+        crate::callable::built_in_callback(arena, replace_impl),
     )
 }
 
@@ -905,7 +911,7 @@ where
         "$selector, $original, $replacement",
         "sass:selector",
         arena,
-        Rc::new(replace_impl),
+        crate::callable::built_in_callback(arena, replace_impl),
     )
 }
 
@@ -955,7 +961,7 @@ where
         "$selector1, $selector2",
         "sass:selector",
         arena,
-        Rc::new(unify_impl),
+        crate::callable::built_in_callback(arena, unify_impl),
     )
 }
 
@@ -974,7 +980,7 @@ where
         "$selector1, $selector2",
         "sass:selector",
         arena,
-        Rc::new(unify_impl),
+        crate::callable::built_in_callback(arena, unify_impl),
     )
 }
 
@@ -1017,7 +1023,7 @@ mod tests {
     }
 
     fn num_val<'compile: 'parse, 'parse>(arena: &'compile Bump, v: f64) -> Value<'parse> {
-        Value::new_with_arena(arena, ValueKind::Number(SassNumber::new(v, None)))
+        Value::new_with_arena(arena, ValueKind::Number(SassNumber::new(arena, v, None)))
     }
 
     fn list_of<'compile: 'parse, 'parse>(
@@ -1027,7 +1033,7 @@ mod tests {
     ) -> Value<'parse> {
         Value::new_with_arena(
             arena,
-            ValueKind::List(SassList::new(items.to_vec(), sep, false)),
+            ValueKind::List(SassList::new(arena, items.to_vec(), sep, false)),
         )
     }
 
@@ -1074,7 +1080,7 @@ mod tests {
     ) -> Value<'parse> {
         let mut m = SassMap::empty();
         for (k, v) in pairs {
-            m.set(*k, *v);
+            m.set(arena, *k, *v);
         }
         Value::new_with_arena(arena, ValueKind::Map(m))
     }
@@ -1143,7 +1149,7 @@ mod tests {
     {
         let fns = global_selector_functions(arena);
         match fns[index].kind() {
-            CallableKind::BuiltIn(b) => b.clone(),
+            CallableKind::BuiltIn(b) => *b,
             _ => panic!("expected BuiltIn callable"),
         }
     }
@@ -1385,7 +1391,7 @@ mod tests {
         ];
         assert_eq!(m.functions.len(), want.len());
         for (i, name) in m.functions.keys().enumerate() {
-            assert_eq!(name, want[i], "functions[{i}]");
+            assert_eq!(*name, want[i], "functions[{i}]");
         }
     }
 

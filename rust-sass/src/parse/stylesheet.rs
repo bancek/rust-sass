@@ -31,6 +31,7 @@ use crate::parse::scss::scss_scan_else_impl;
 use crate::parse::scss::scss_statements_impl;
 use crate::parse::scss::scss_style_rule_selector_impl;
 use crate::util::character::is_newline;
+use bumpalo::Bump;
 use std::collections::HashMap;
 use std::collections::HashSet;
 
@@ -101,6 +102,8 @@ pub struct CssState {
 /// Parser-level free functions (`whitespace_impl`, `span_from_impl`, etc.)
 /// can be called directly via `&mut state.parser_state`.
 pub struct StylesheetState<'parse> {
+    /// The compile arena, for parser-time allocations (parameter names, …).
+    pub arena: &'parse Bump,
     /// Shared scanner-level state: syntax, interpolation map, expression flag.
     pub parser_state: ParserState<'parse>,
     /// Whether to parse style-rule selectors as resolved selectors rather
@@ -139,7 +142,7 @@ pub struct StylesheetState<'parse> {
     pub warnings: Vec<ParseTimeWarning<'parse>>,
     /// The most recently seen silent comment, attached to the next
     /// declaration that opts into it. Matches Dart: `lastSilentComment`.
-    pub last_silent_comment: Option<Box<SilentComment<'parse>>>,
+    pub last_silent_comment: Option<&'parse SilentComment<'parse>>,
 }
 
 pub struct StylesheetParser<'parse> {
@@ -158,11 +161,14 @@ impl<'parse> StylesheetParser<'parse> {
         source: &'parse FileSource<'parse>,
         syntax: Syntax,
         interpolation_map: Option<&'parse InterpolationMap<'parse>>,
+        arena: &'parse Bump,
     ) -> Self {
         StylesheetParser {
             scanner: SpanScanner::new(source),
             state: StylesheetState {
+                arena,
                 parser_state: ParserState {
+                    arena,
                     syntax,
                     interpolation_map,
                     in_expression: false,
@@ -386,7 +392,7 @@ mod tests {
         'parse: 'compile,
     {
         let fs = FileSource::new_in(arena, text, None);
-        StylesheetParser::new(fs, syntax, None)
+        StylesheetParser::new(fs, syntax, None, arena)
     }
 
     #[test]

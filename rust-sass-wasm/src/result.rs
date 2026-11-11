@@ -56,8 +56,8 @@ mod tests {
     fn compile_result_shape() {
         let arena = Bump::new();
         let io: Rc<dyn rust_sass::io::Io> = Rc::new(VirtualIo::new());
-        let opts = CompileOptions::new(&arena);
-        let result = compile::compile_string("a { b: c; }", io, opts, &arena).unwrap();
+        let mut opts = CompileOptions::new(&arena);
+        let result = compile::compile_string("a { b: c; }", io, &mut opts, &arena).unwrap();
         let v = compile_result_to_js(&result).unwrap();
         let obj = js_sys::Object::from(v);
         assert_eq!(get(&obj, "css").as_string().unwrap(), "a {\n  b: c;\n}");
@@ -71,7 +71,7 @@ mod tests {
         let io: Rc<dyn rust_sass::io::Io> = Rc::new(VirtualIo::new());
         let mut opts = CompileOptions::new(&arena);
         opts.source_map = true;
-        let result = compile::compile_string("a { b: c; }", io, opts, &arena).unwrap();
+        let result = compile::compile_string("a { b: c; }", io, &mut opts, &arena).unwrap();
         let v = compile_result_to_js(&result).unwrap();
         let obj = js_sys::Object::from(v);
         let sm = get(&obj, "sourceMap");

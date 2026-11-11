@@ -101,7 +101,7 @@ it dispatches through free `fn(config, state, arena, …)` + `match`):
 | ---------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
 | String slices `file.text[start:end]`           | `&'parse str` from the bumpalo arena                                                                                                         |
 | Shared mutable references (Environment frames) | arena `&'parse RefCell<IndexMap>` (`Copy` refs)                                                                                              |
-| `reflect.ValueOf(ref).Pointer()` for identity  | `Callable::identity_eq` / `identity_hash` (address of the `CallableKind` allocation); `CompileContext = Rc<()>` for compile-context identity |
+| `reflect.ValueOf(ref).Pointer()` for identity  | `Callable::identity_eq` / `identity_hash` (address of the `CallableKind` allocation); `CompileContext` (a `Copy` `u64` token) for compile-context identity |
 | `defer` save/restore                           | `SavedContext` struct or manual field assignment                                                                                             |
 | Closure capturing `v *EvaluateVisitor`         | free `fn(config: &EvalConfig, state: &mut EvalState, ...)` (`&self` splits into `&self.config` + `&mut self.state` at the call site)         |
 | `*int` nil-pointer lazy hash cache             | `Cell<Option<usize>>`                                                                                                                        |

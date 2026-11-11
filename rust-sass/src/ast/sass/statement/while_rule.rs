@@ -22,7 +22,7 @@ use crate::ast::sass::statement::Statement;
 ///
 /// This repeatedly runs a block while its condition evaluates to true.
 pub struct WhileRule<'parse> {
-    pub children: Vec<Statement<'parse>>,
+    pub children: &'parse [Statement<'parse>],
     /// The condition controlling whether the block runs again.
     pub condition: Expression<'parse>,
     pub span: FileSpan<'parse>,
@@ -31,7 +31,7 @@ pub struct WhileRule<'parse> {
 impl<'parse> WhileRule<'parse> {
     pub fn new(
         condition: Expression<'parse>,
-        children: Vec<Statement<'parse>>,
+        children: &'parse [Statement<'parse>],
         span: FileSpan<'parse>,
     ) -> Self {
         WhileRule {
@@ -57,7 +57,7 @@ impl<'parse> WhileRule<'parse> {
             Expression::to_display_string(&self.condition)?
         )
         .unwrap();
-        for child in &self.children {
+        for child in self.children {
             write!(buf, " {child}").unwrap();
         }
         write!(buf, " }}").unwrap();
@@ -95,7 +95,7 @@ mod tests {
         let arena = Bump::new();
         let span = make_span(&arena, "@while true { }");
         let cond = Expression::Boolean(BooleanExpression::new(true, span));
-        let rule = WhileRule::new(cond, vec![], span);
+        let rule = WhileRule::new(cond, &[], span);
         assert!(matches!(rule.condition, Expression::Boolean(_)));
     }
 
@@ -104,7 +104,7 @@ mod tests {
         let arena = Bump::new();
         let span = make_span(&arena, "@while true { }");
         let cond = Expression::Boolean(BooleanExpression::new(true, span));
-        let rule = WhileRule::new(cond, vec![], span);
+        let rule = WhileRule::new(cond, &[], span);
         let s = format!("{rule}");
         assert!(s.contains("@while"), "got {s:?}");
     }
@@ -114,7 +114,7 @@ mod tests {
         let arena = Bump::new();
         let span = make_span(&arena, "@while true { }");
         let cond = Expression::Boolean(BooleanExpression::new(true, span));
-        let rule = WhileRule::new(cond, vec![], span);
+        let rule = WhileRule::new(cond, &[], span);
         assert_eq!(rule.span().unwrap(), span);
     }
 }

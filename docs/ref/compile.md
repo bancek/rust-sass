@@ -16,6 +16,9 @@ The public compile API: `compile_string`, `compile`, and the CLI pipeline.
 constructs the defaults (the default `Importer` is a `NoOp` placeholder,
 replaced by the compile entry-point importer at compile time).
 
+`compile_string`/`compile`/`compile_stylesheet` take `&mut CompileOptions`
+(the caller keeps ownership of the importers and logger for the whole call).
+
 ```rust
 impl CompileResult<'compile, 'parse> {
     pub fn css(&self) -> &str;
@@ -49,11 +52,14 @@ compile_string(source, io, opts)
 
 ## ImportCache ownership
 
-The `ImportCache` flows by ownership, not borrowing: created in `compile_string`,
-passed as an owned value into `evaluate()`, stored in `EvalState`, taken via
+The `ImportCache` flows by ownership, not borrowing: created in `compile_string`
+from `std::mem::take(&mut opts.importers)` plus the load paths, passed as an
+owned value into `evaluate()`, stored in `EvalState`, taken via
 `state.import_cache.take()`, and returned on `EvaluateResult.import_cache`
 (`Option`: `Some` on success, `None` if evaluation fails first). This avoids
-lifetime entanglement between the cache and the evaluator.
+lifetime entanglement between the cache and the evaluator. The cache lives on
+the stack inside `CompileResult`; it is never arena-allocated, which is what lets
+a host `UserImporter` reach a zero strong count (`ref/importer.md`).
 
 ## Error CSS
 

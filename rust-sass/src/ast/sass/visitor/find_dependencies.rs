@@ -10,7 +10,7 @@
 use std::collections::HashSet;
 use std::marker::PhantomData;
 
-use crate::url::SassUrl;
+use crate::url::OwnedUrl;
 
 use crate::ast::sass::expression::Expression;
 use crate::ast::sass::import::Import;
@@ -26,14 +26,14 @@ use crate::common::exception::SassResult;
 #[derive(Debug, Default)]
 pub struct DependencyReport {
     /// All `@use`d URLs in the stylesheet, excluding built-in modules.
-    pub uses: HashSet<SassUrl>,
+    pub uses: HashSet<OwnedUrl>,
     /// All `@forward`ed URLs in the stylesheet, excluding built-in modules.
-    pub forwards: HashSet<SassUrl>,
+    pub forwards: HashSet<OwnedUrl>,
     /// All URLs loaded by `meta.load-css()` calls with static string
     /// arguments outside of mixins.
-    pub meta_load_css: HashSet<SassUrl>,
+    pub meta_load_css: HashSet<OwnedUrl>,
     /// All dynamically `@import`ed URLs in the stylesheet.
-    pub imports: HashSet<SassUrl>,
+    pub imports: HashSet<OwnedUrl>,
 }
 
 impl DependencyReport {
@@ -41,7 +41,7 @@ impl DependencyReport {
     ///
     /// These are the module-system dependencies, as opposed to legacy
     /// `@import`s.
-    pub fn modules(&self) -> HashSet<SassUrl> {
+    pub fn modules(&self) -> HashSet<OwnedUrl> {
         let mut result = HashSet::new();
         for u in &self.uses {
             result.insert(u.clone());
@@ -59,7 +59,7 @@ impl DependencyReport {
     ///
     /// The union of [`DependencyReport::modules`] with the legacy
     /// `@import` dependencies.
-    pub fn all(&self) -> HashSet<SassUrl> {
+    pub fn all(&self) -> HashSet<OwnedUrl> {
         let mut result = self.modules();
         for u in &self.imports {
             result.insert(u.clone());
@@ -85,10 +85,10 @@ pub fn find_dependencies(stylesheet: &Stylesheet<'_>) -> SassResult<DependencyRe
 // analyzable). `sass:meta` namespaces are tracked so that only `load-css`
 // calls through a known `sass:meta` namespace count.
 struct FindDependenciesVisitor<'parse> {
-    uses: HashSet<SassUrl>,
-    forwards: HashSet<SassUrl>,
-    meta_load_css: HashSet<SassUrl>,
-    imports: HashSet<SassUrl>,
+    uses: HashSet<OwnedUrl>,
+    forwards: HashSet<OwnedUrl>,
+    meta_load_css: HashSet<OwnedUrl>,
+    imports: HashSet<OwnedUrl>,
     /// The namespaces under which `sass:meta` has been `@use`d in this
     /// stylesheet. An empty string means `sass:meta` was loaded without a
     /// namespace.
@@ -129,11 +129,11 @@ impl<'parse> StatementVisitor<'parse> for FindDependenciesVisitor<'parse> {
     type Output = ();
 
     fn visit_at_root_rule(&mut self, node: &AtRootRule<'parse>) -> SassResult<()> {
-        self.visit_children(&node.children)
+        self.visit_children(node.children)
     }
 
     fn visit_at_rule(&mut self, node: &AtRule<'parse>) -> SassResult<()> {
-        if let Some(ref children) = node.children {
+        if let Some(children) = node.children {
             self.visit_children(children)?;
         }
         Ok(())
@@ -152,7 +152,7 @@ impl<'parse> StatementVisitor<'parse> for FindDependenciesVisitor<'parse> {
     }
 
     fn visit_declaration(&mut self, node: &Declaration<'parse>) -> SassResult<()> {
-        if let Some(ref children) = node.children {
+        if let Some(children) = node.children {
             self.visit_children(children)?;
         }
         Ok(())
@@ -176,7 +176,7 @@ impl<'parse> StatementVisitor<'parse> for FindDependenciesVisitor<'parse> {
 
     fn visit_forward_rule(&mut self, node: &ForwardRule<'parse>) -> SassResult<()> {
         if node.url.scheme() != "sass" {
-            self.forwards.insert(node.url.clone());
+            self.forwards.insert(node.url.to_owned_url());
         }
         Ok(())
     }
@@ -190,9 +190,9 @@ impl<'parse> StatementVisitor<'parse> for FindDependenciesVisitor<'parse> {
     }
 
     fn visit_import_rule(&mut self, node: &ImportRule<'parse>) -> SassResult<()> {
-        for imp in &node.imports {
+        for imp in node.imports {
             if let Import::Dynamic(d) = imp {
-                self.imports.insert(d.url());
+                self.imports.insert(d.url().to_owned_url());
             }
         }
         Ok(())
@@ -202,7 +202,7 @@ impl<'parse> StatementVisitor<'parse> for FindDependenciesVisitor<'parse> {
         if node.name != "load-css" {
             return Ok(());
         }
-        let ns = node.namespace.as_deref().unwrap_or("");
+        let ns = node.namespace.unwrap_or("");
         if !self.meta_namespaces.contains(ns) {
             return Ok(());
         }
@@ -218,7 +218,7 @@ impl<'parse> StatementVisitor<'parse> for FindDependenciesVisitor<'parse> {
         if let Some(first) = node.arguments.positional.first() {
             if let Expression::String(se) = first {
                 if let Some(plain) = se.text.as_plain() {
-                    if let Ok(u) = SassUrl::parse(plain) {
+                    if let Ok(u) = OwnedUrl::parse(plain) {
                         self.meta_load_css.insert(u);
                     }
                 }
@@ -232,7 +232,7 @@ impl<'parse> StatementVisitor<'parse> for FindDependenciesVisitor<'parse> {
     }
 
     fn visit_media_rule(&mut self, node: &MediaRule<'parse>) -> SassResult<()> {
-        self.visit_children(&node.children)
+        self.visit_children(node.children)
     }
 
     fn visit_mixin_rule(&mut self, _node: &MixinRule<'parse>) -> SassResult<()> {
@@ -248,23 +248,23 @@ impl<'parse> StatementVisitor<'parse> for FindDependenciesVisitor<'parse> {
     }
 
     fn visit_stylesheet(&mut self, node: &Stylesheet<'parse>) -> SassResult<()> {
-        self.visit_children(&node.children)
+        self.visit_children(node.children)
     }
 
     fn visit_style_rule(&mut self, node: &StyleRule<'parse>) -> SassResult<()> {
-        self.visit_children(&node.children)
+        self.visit_children(node.children)
     }
 
     fn visit_supports_rule(&mut self, node: &SupportsRule<'parse>) -> SassResult<()> {
-        self.visit_children(&node.children)
+        self.visit_children(node.children)
     }
 
     fn visit_use_rule(&mut self, node: &UseRule<'parse>) -> SassResult<()> {
         if node.url.scheme() != "sass" {
-            self.uses.insert(node.url.clone());
+            self.uses.insert(node.url.to_owned_url());
         } else if node.url.as_str() == "sass:meta" {
-            let ns = node.namespace.clone().unwrap_or_default();
-            self.meta_namespaces.insert(ns);
+            let ns = node.namespace.unwrap_or_default();
+            self.meta_namespaces.insert(ns.to_string());
         }
         Ok(())
     }
@@ -295,9 +295,10 @@ mod tests {
     use crate::ast::sass::import::Import;
     use crate::ast::sass::interpolation::Interpolation;
     use crate::ast::sass::parameter_list::ParameterList;
+    use crate::ast::sass::statement::arena_statements;
     use crate::common::file_span::FileSpan;
     use crate::common::source_span_file_source::FileSource;
-    use crate::url::SassUrl;
+    use crate::url::ArenaUrl;
     use bumpalo::Bump;
 
     fn test_span<'compile, 'parse>(arena: &'compile Bump, text: &str) -> FileSpan<'parse>
@@ -313,33 +314,45 @@ mod tests {
     fn test_find_dependencies_use_rule() {
         let arena = Bump::new();
         let span = test_span(&arena, "@use 'foo';");
-        let u = SassUrl::parse("file:///foo").unwrap();
-        let ur = UseRule::new(u.clone(), None, span, vec![]).unwrap();
-        let ss = Stylesheet::new(vec![Statement::UseRule(ur)], span);
+        let u = ArenaUrl::parse(&arena, "file:///foo").unwrap();
+        let ur = UseRule::new(&arena, u, None, span, &[]).unwrap();
+        let ss = Stylesheet::new(
+            &arena,
+            arena_statements(&arena, vec![Statement::UseRule(ur)]),
+            span,
+        );
         let report = find_dependencies(&ss).unwrap();
 
-        assert!(report.uses.contains(&u));
+        assert!(report.uses.contains(&u.to_owned_url()));
     }
 
     #[test]
     fn test_find_dependencies_forward_rule() {
         let arena = Bump::new();
         let span = test_span(&arena, "@forward 'bar';");
-        let u = SassUrl::parse("file:///bar").unwrap();
-        let fr = ForwardRule::new(u.clone(), span, None, vec![]);
-        let ss = Stylesheet::new(vec![Statement::ForwardRule(fr)], span);
+        let u = ArenaUrl::parse(&arena, "file:///bar").unwrap();
+        let fr = ForwardRule::new(&arena, u, span, None, &[]);
+        let ss = Stylesheet::new(
+            &arena,
+            arena_statements(&arena, vec![Statement::ForwardRule(fr)]),
+            span,
+        );
         let report = find_dependencies(&ss).unwrap();
 
-        assert!(report.forwards.contains(&u));
+        assert!(report.forwards.contains(&u.to_owned_url()));
     }
 
     #[test]
     fn test_find_dependencies_built_in_excluded() {
         let arena = Bump::new();
         let span = test_span(&arena, "@use 'sass:color';");
-        let u = SassUrl::parse("sass:color").unwrap();
-        let ur = UseRule::new(u, None, span, vec![]).unwrap();
-        let ss = Stylesheet::new(vec![Statement::UseRule(ur)], span);
+        let u = ArenaUrl::parse(&arena, "sass:color").unwrap();
+        let ur = UseRule::new(&arena, u, None, span, &[]).unwrap();
+        let ss = Stylesheet::new(
+            &arena,
+            arena_statements(&arena, vec![Statement::UseRule(ur)]),
+            span,
+        );
         let report = find_dependencies(&ss).unwrap();
 
         assert!(report.uses.is_empty());
@@ -349,13 +362,18 @@ mod tests {
     fn test_find_dependencies_meta_load_css() {
         let arena = Bump::new();
         let span = test_span(&arena, "@use 'sass:meta';");
-        let meta_url = SassUrl::parse("sass:meta").unwrap();
-        let meta_use = UseRule::new(meta_url, Some("meta".into()), span, vec![]).unwrap();
+        let meta_url = ArenaUrl::parse(&arena, "sass:meta").unwrap();
+        let meta_use = UseRule::new(&arena, meta_url, Some("meta"), span, &[]).unwrap();
 
         let include_span = test_span(&arena, "@include meta.load-css('baz');");
-        let arg_text = Interpolation::plain("file:///baz".into(), test_span(&arena, "file:///baz"));
+        let arg_text = Interpolation::plain(
+            &arena,
+            "file:///baz".into(),
+            test_span(&arena, "file:///baz"),
+        );
         let str_expr = Expression::String(StringExpression::new(arg_text, true));
         let args = ArgumentList::new(
+            &arena,
             vec![str_expr],
             indexmap::IndexMap::new(),
             indexmap::IndexMap::new(),
@@ -363,75 +381,89 @@ mod tests {
             None,
             None,
         );
-        let inc = IncludeRule::new(
-            "load-css".into(),
-            args,
-            include_span,
-            Some("meta".into()),
-            None,
-        );
+        let inc = IncludeRule::new(&arena, "load-css", args, include_span, Some("meta"), None);
 
         let ss = Stylesheet::new(
-            vec![Statement::UseRule(meta_use), Statement::IncludeRule(inc)],
+            &arena,
+            arena_statements(
+                &arena,
+                vec![Statement::UseRule(meta_use), Statement::IncludeRule(inc)],
+            ),
             span,
         );
         let report = find_dependencies(&ss).unwrap();
 
-        let expected = SassUrl::parse("file:///baz").unwrap();
-        assert!(report.meta_load_css.contains(&expected));
+        let expected = ArenaUrl::parse(&arena, "file:///baz").unwrap();
+        assert!(report.meta_load_css.contains(&expected.to_owned_url()));
     }
 
     #[test]
     fn test_find_dependencies_import_rule() {
         let arena = Bump::new();
         let span = test_span(&arena, "@import 'file';");
-        let u = SassUrl::parse("file:///file").unwrap();
+        let u = ArenaUrl::parse(&arena, "file:///file").unwrap();
         let di = Import::Dynamic(DynamicImport::new(
-            u.to_string(),
-            u.clone(),
+            arena.alloc_str(&u.to_string()),
+            u,
             test_span(&arena, "'file'"),
         ));
-        let ir = ImportRule::new(vec![di], span);
-        let ss = Stylesheet::new(vec![Statement::ImportRule(ir)], span);
+        let ir = ImportRule::new(&arena, vec![di], span);
+        let ss = Stylesheet::new(
+            &arena,
+            arena_statements(&arena, vec![Statement::ImportRule(ir)]),
+            span,
+        );
         let report = find_dependencies(&ss).unwrap();
 
-        assert!(report.imports.contains(&u));
+        assert!(report.imports.contains(&u.to_owned_url()));
     }
 
     #[test]
     fn test_find_dependencies_modules_method() {
         let arena = Bump::new();
         let span = test_span(&arena, "@use 'mod';");
-        let u = SassUrl::parse("file:///mod").unwrap();
-        let ur = UseRule::new(u.clone(), None, span, vec![]).unwrap();
-        let ss = Stylesheet::new(vec![Statement::UseRule(ur)], span);
+        let u = ArenaUrl::parse(&arena, "file:///mod").unwrap();
+        let ur = UseRule::new(&arena, u, None, span, &[]).unwrap();
+        let ss = Stylesheet::new(
+            &arena,
+            arena_statements(&arena, vec![Statement::UseRule(ur)]),
+            span,
+        );
         let report = find_dependencies(&ss).unwrap();
 
         let modules = report.modules();
-        assert!(modules.contains(&u));
+        assert!(modules.contains(&u.to_owned_url()));
     }
 
     #[test]
     fn test_find_dependencies_all_method() {
         let arena = Bump::new();
         let span = test_span(&arena, "@use 'mod'; @import 'imp';");
-        let u = SassUrl::parse("file:///mod").unwrap();
-        let ur = UseRule::new(u.clone(), None, span, vec![]).unwrap();
+        let u = ArenaUrl::parse(&arena, "file:///mod").unwrap();
+        let ur = UseRule::new(&arena, u, None, span, &[]).unwrap();
         let di = Import::Dynamic(DynamicImport::new(
-            "file:///imp".into(),
-            SassUrl::parse("file:///imp").unwrap(),
+            arena.alloc_str("file:///imp"),
+            ArenaUrl::parse(&arena, "file:///imp").unwrap(),
             test_span(&arena, "'imp'"),
         ));
-        let ir = ImportRule::new(vec![di], span);
+        let ir = ImportRule::new(&arena, vec![di], span);
         let ss = Stylesheet::new(
-            vec![Statement::UseRule(ur), Statement::ImportRule(ir)],
+            &arena,
+            arena_statements(
+                &arena,
+                vec![Statement::UseRule(ur), Statement::ImportRule(ir)],
+            ),
             span,
         );
         let report = find_dependencies(&ss).unwrap();
 
         let all = report.all();
-        assert!(all.contains(&u));
-        assert!(all.contains(&SassUrl::parse("file:///imp").unwrap()));
+        assert!(all.contains(&u.to_owned_url()));
+        assert!(all.contains(
+            &ArenaUrl::parse(&arena, "file:///imp")
+                .unwrap()
+                .to_owned_url()
+        ));
     }
 
     #[test]
@@ -439,8 +471,12 @@ mod tests {
         let arena = Bump::new();
         let span = test_span(&arena, "@function f() { @use 'inner'; @return 1; }");
         let params = ParameterList::empty(test_span(&arena, ""));
-        let fr = FunctionRule::new("f".into(), params, vec![], span, None);
-        let ss = Stylesheet::new(vec![Statement::FunctionRule(fr)], span);
+        let fr = FunctionRule::new(&arena, "f", params, &[], span, None);
+        let ss = Stylesheet::new(
+            &arena,
+            arena_statements(&arena, vec![Statement::FunctionRule(fr)]),
+            span,
+        );
         let report = find_dependencies(&ss).unwrap();
 
         assert!(report.uses.is_empty());

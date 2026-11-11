@@ -283,7 +283,7 @@ mod tests {
     use crate::common::exception::Frame;
     use crate::common::file_span::FileSpan;
     use crate::common::source_span_file_source::FileSource;
-    use crate::url::SassUrl;
+    use crate::url::OwnedUrl;
     use bumpalo::Bump;
 
     use super::*;
@@ -331,8 +331,8 @@ mod tests {
         'compile: 'parse,
         'parse: 'compile,
     {
-        let u = SassUrl::parse(url_str).unwrap();
-        let fs = FileSource::new_in(arena, text, Some(u));
+        let u = OwnedUrl::parse(url_str).unwrap();
+        let fs = FileSource::new_in_owned(arena, text, Some(&u));
         Span::File(FileSpan::new(Some(fs), start, end))
     }
 

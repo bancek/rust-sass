@@ -13,20 +13,16 @@ use crate::common::exception::SassResult;
 use crate::value::color::{ColorSpace, SassColor};
 use crate::value::color_conversions::convert_color;
 
-impl SassColor {
+impl<'parse> SassColor<'parse> {
     /// Converts this color to `space`.
     ///
     /// Identity conversions return the color unchanged. With
     /// `legacy_missing: Some(false)`, missing channels in a legacy result are
     /// filled with zeros instead of staying missing.
-    pub fn to_space(
-        &self,
-        space: ColorSpace,
-        legacy_missing: Option<bool>,
-    ) -> SassResult<SassColor> {
+    pub fn to_space(&self, space: ColorSpace, legacy_missing: Option<bool>) -> SassResult<Self> {
         let lm = legacy_missing.unwrap_or(true);
         if self.space == space {
-            return Ok(self.clone());
+            return Ok(*self);
         }
 
         let converted = convert_color(

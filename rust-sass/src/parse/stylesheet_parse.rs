@@ -10,6 +10,10 @@
 //   at-rule productions live in atrule.rs)
 // go-source: go/value/parse_stylesheet_parse.go
 
+use bumpalo::Bump;
+
+use crate::url::ArenaUrl;
+
 use crate::common::exception::ScanError;
 use crate::common::file_span::SourceLocation;
 use crate::parse::atrule::parameter_list_impl;
@@ -29,7 +33,7 @@ use crate::ast::sass::statement::stylesheet::ParseTimeWarning;
 use crate::ast::sass::statement::stylesheet::Stylesheet;
 use crate::ast::sass::statement::use_rule::UseRule;
 use crate::ast::sass::statement::variable_declaration::VariableDeclaration;
-use crate::ast::sass::statement::Statement;
+use crate::ast::sass::statement::{arena_statements, Statement};
 use crate::common::ast_node::AstNode;
 use crate::common::exception::{SassError, SassResult};
 use crate::common::file_span::FileSpan;
@@ -38,7 +42,6 @@ use crate::common::source_span_span_with_context::SourceSpanWithContext;
 use crate::common::span::Span;
 use crate::common::span_scanner::{LineScannerState, SpanScanner};
 use crate::deprecation;
-use crate::url::SassUrl;
 use crate::util::character;
 
 use crate::parse::anyvalue::{
@@ -248,10 +251,10 @@ pub(crate) fn variable_declaration_without_namespace_impl<'b>(
                 if guarded {
                     state.warnings.push(ParseTimeWarning {
                         deprecation: Some(&deprecation::DUPLICATE_VAR_FLAGS),
-                        message: "!default should only be written once for each variable.\nThis will be an error in Dart Sass 2.0.0.".into(),
+                        message: "!default should only be written once for each variable.\nThis will be an error in Dart Sass 2.0.0.",
                         span: flag_span,
                         primary_label: None,
-                        secondary: vec![],
+                        secondary: &[],
                     });
                 }
                 guarded = true;
@@ -265,10 +268,10 @@ pub(crate) fn variable_declaration_without_namespace_impl<'b>(
                 } else if global {
                     state.warnings.push(ParseTimeWarning {
                         deprecation: Some(&deprecation::DUPLICATE_VAR_FLAGS),
-                        message: "!global should only be written once for each variable.\nThis will be an error in Dart Sass 2.0.0.".into(),
+                        message: "!global should only be written once for each variable.\nThis will be an error in Dart Sass 2.0.0.",
                         span: flag_span,
                         primary_label: None,
-                        secondary: vec![],
+                        secondary: &[],
                     });
                 }
                 global = true;
@@ -283,13 +286,14 @@ pub(crate) fn variable_declaration_without_namespace_impl<'b>(
     expect_statement_separator_impl(scanner, state, "variable declaration")?;
     let decl_span = span_from_impl(scanner, &state.parser_state, start)?.file_span()?;
     let decl = VariableDeclaration::new(
-        name.clone(),
+        state.arena,
+        name.as_str(),
         value,
         decl_span,
-        namespace.clone(),
+        namespace.as_deref(),
         guarded,
         global,
-        preceding_comment.map(|b| *b),
+        preceding_comment,
     )
     .map_err(|e| Box::new(ParseError::Sass(e)))?;
     if global {
@@ -445,7 +449,7 @@ fn last_index_quick(text: &str) -> Option<usize> {
 fn last_index_full(text: &str) -> usize {
     let arena = bumpalo::Bump::new();
     let fs = FileSource::new_in(&arena, text, None);
-    let mut parser = StylesheetParser::new(fs, Syntax::Scss, None);
+    let mut parser = StylesheetParser::new(fs, Syntax::Scss, None, &arena);
     let scanner = &mut parser.scanner;
     let state = &mut parser.state;
     let mut index: Option<usize> = None;
@@ -615,14 +619,16 @@ fn declaration_or_buffer_impl<'b>(
     mid_buffer.push(':');
     let interp_span =
         span_from_to_impl(scanner, &state.parser_state, start, Some(&before_colon))?.file_span()?;
-    let name = name_buffer.interpolation(interp_span).map_err(|e| {
-        let err_span = span_from_impl(scanner, &state.parser_state, start)
-            .unwrap_or_else(|_| Span::File(scanner.empty_span()));
-        error_impl(
-            &e.to_string(),
-            &err_span.file_span().unwrap_or(scanner.empty_span()),
-        )
-    })?;
+    let name = name_buffer
+        .interpolation(state.arena, interp_span)
+        .map_err(|e| {
+            let err_span = span_from_impl(scanner, &state.parser_state, start)
+                .unwrap_or_else(|_| Span::File(scanner.empty_span()));
+            error_impl(
+                &e.to_string(),
+                &err_span.file_span().unwrap_or(scanner.empty_span()),
+            )
+        })?;
     let is_custom_property = name.initial_plain().starts_with("--");
     if is_custom_property
         || (state.in_plain_css_function
@@ -632,7 +638,7 @@ fn declaration_or_buffer_impl<'b>(
     {
         let value_expr = if at_end_of_statement_impl(scanner, state) {
             StringExpression::new(
-                Interpolation::plain(String::new(), scanner.empty_span()),
+                Interpolation::plain(state.arena, String::new(), scanner.empty_span()),
                 false,
             )
         } else {
@@ -751,6 +757,7 @@ pub(crate) fn style_rule_impl<'b>(
     buffer: Option<InterpolationBuffer<'b>>,
     start_: Option<LineScannerState>,
 ) -> ParseResult<'b, StyleRule<'b>> {
+    let arena = state.arena;
     state.is_use_allowed = false;
     let start = start_.unwrap_or_else(|| scanner.state());
     if state.parse_selectors {
@@ -771,16 +778,15 @@ pub(crate) fn style_rule_impl<'b>(
                 if indented && children.is_empty() {
                     st.warnings.push(ParseTimeWarning {
                         deprecation: None,
-                        message: "This selector doesn't have any properties and won't be rendered."
-                            .into(),
+                        message: "This selector doesn't have any properties and won't be rendered.",
                         span: node_span,
                         primary_label: None,
-                        secondary: vec![],
+                        secondary: &[],
                     });
                 }
                 Ok(StyleRule::with_parsed_selector(
                     selector_list,
-                    children,
+                    arena_statements(arena, children),
                     span,
                 ))
             },
@@ -792,7 +798,7 @@ pub(crate) fn style_rule_impl<'b>(
     if let Some(mut buf) = buffer {
         buf.add_interpolation(&interpolation);
         let interp_span = span_from_impl(scanner, &state.parser_state, start)?.file_span()?;
-        interpolation = buf.interpolation(interp_span).map_err(|e| {
+        interpolation = buf.interpolation(state.arena, interp_span).map_err(|e| {
             let err_span = span_from_impl(scanner, &state.parser_state, start)
                 .unwrap_or_else(|_| Span::File(scanner.empty_span()));
             error_impl(
@@ -870,6 +876,7 @@ fn with_style_rule_children_impl<'b>(
     start: LineScannerState,
     selector: Interpolation<'b>,
 ) -> ParseResult<'b, StyleRule<'b>> {
+    let arena = state.arena;
     let was_in_style_rule = state.in_style_rule;
     state.in_style_rule = true;
     let result = with_children_impl(
@@ -883,14 +890,17 @@ fn with_style_rule_children_impl<'b>(
                 let node_span = selector.span()?;
                 st.warnings.push(ParseTimeWarning {
                     deprecation: None,
-                    message: "This selector doesn't have any properties and won't be rendered."
-                        .into(),
+                    message: "This selector doesn't have any properties and won't be rendered.",
                     span: node_span,
                     primary_label: None,
-                    secondary: vec![],
+                    secondary: &[],
                 });
             }
-            Ok(StyleRule::new(selector, children, span))
+            Ok(StyleRule::new(
+                selector,
+                arena_statements(arena, children),
+                span,
+            ))
         },
     )?;
     state.in_style_rule = was_in_style_rule;
@@ -922,14 +932,16 @@ fn property_or_variable_declaration_impl<'b>(
         let interp = interpolated_identifier_impl(scanner, state)?;
         name_buffer.add_interpolation(&interp);
         let interp_span = span_from_impl(scanner, &state.parser_state, start)?.file_span()?;
-        name = name_buffer.interpolation(interp_span).map_err(|e| {
-            let err_span = span_from_impl(scanner, &state.parser_state, start)
-                .unwrap_or_else(|_| Span::File(scanner.empty_span()));
-            error_impl(
-                &e.to_string(),
-                &err_span.file_span().unwrap_or(scanner.empty_span()),
-            )
-        })?;
+        name = name_buffer
+            .interpolation(state.arena, interp_span)
+            .map_err(|e| {
+                let err_span = span_from_impl(scanner, &state.parser_state, start)
+                    .unwrap_or_else(|_| Span::File(scanner.empty_span()));
+                error_impl(
+                    &e.to_string(),
+                    &err_span.file_span().unwrap_or(scanner.empty_span()),
+                )
+            })?;
     } else if !matches!(state.parser_state.syntax, Syntax::Css(_)) {
         let result = variable_declaration_or_interpolation_impl(scanner, state)?;
         match result {
@@ -993,6 +1005,7 @@ fn try_declaration_children_impl<'b>(
     _start: LineScannerState,
     _value: Option<Expression<'b>>,
 ) -> ParseResult<'b, Option<Declaration<'b>>> {
+    let arena = state.arena;
     let has_children = looking_at_children_impl(scanner, state)?;
     if !has_children {
         return Ok(None);
@@ -1010,7 +1023,14 @@ fn try_declaration_children_impl<'b>(
         state,
         &mut |s, st| declaration_child_impl(s, st).map(Some),
         _start,
-        |_, children, span| Ok(Some(Declaration::nested(name, children, span, value))),
+        |_, children, span| {
+            Ok(Some(Declaration::nested(
+                name,
+                arena_statements(arena, children),
+                span,
+                value,
+            )))
+        },
     )
 }
 
@@ -1042,6 +1062,7 @@ pub(crate) fn parse_impl<'b>(
     scanner: &mut SpanScanner<'b>,
     state: &mut StylesheetState<'b>,
 ) -> ParseResult<'b, Stylesheet<'b>> {
+    let arena = state.arena;
     let start = scanner.state();
     scanner.scan_char('\u{FEFF}');
     let stmts = statements_impl(
@@ -1068,7 +1089,8 @@ pub(crate) fn parse_impl<'b>(
     let global_variables: indexmap::IndexMap<String, FileSpan<'b>> =
         state.global_variables.drain().collect();
     Ok(Stylesheet::detailed(
-        stmts,
+        arena,
+        arena_statements(arena, stmts),
         span,
         warnings,
         plain_css,
@@ -1117,9 +1139,11 @@ fn adjust_stylesheet_error_span(err: ParseError<'_>) -> Box<ParseError<'_>> {
 
 // Rust-only helper: builds a throwaway stylesheet state over an existing
 // parser state for the single-production entry points below.
-fn make_temp_stylesheet<'b>(state: &ParserState<'b>) -> StylesheetState<'b> {
+fn make_temp_stylesheet<'b>(state: &ParserState<'b>, arena: &'b Bump) -> StylesheetState<'b> {
     StylesheetState {
+        arena,
         parser_state: ParserState {
+            arena,
             syntax: state.syntax.clone(),
             interpolation_map: state.interpolation_map,
             in_expression: state.in_expression,
@@ -1145,8 +1169,9 @@ fn make_temp_stylesheet<'b>(state: &ParserState<'b>) -> StylesheetState<'b> {
 pub(crate) fn parse_parameter_list_impl<'b>(
     scanner: &mut SpanScanner<'b>,
     state: &mut ParserState<'b>,
+    arena: &'b Bump,
 ) -> ParseResult<'b, ParameterList<'b>> {
-    let mut st = make_temp_stylesheet(state);
+    let mut st = make_temp_stylesheet(state, arena);
     parse_single_production_impl(scanner, state, |scanner, _state| {
         scanner.expect_char('@')?;
         identifier_impl(scanner, _state, true, false)?;
@@ -1165,8 +1190,9 @@ pub(crate) fn parse_parameter_list_impl<'b>(
 pub(crate) fn parse_expression_impl<'b>(
     scanner: &mut SpanScanner<'b>,
     state: &mut ParserState<'b>,
+    arena: &'b Bump,
 ) -> ParseResult<'b, Expression<'b>> {
-    let mut st = make_temp_stylesheet(state);
+    let mut st = make_temp_stylesheet(state, arena);
     parse_single_production_impl(scanner, state, |scanner, _state| {
         _expression_impl(
             scanner,
@@ -1187,8 +1213,9 @@ pub(crate) fn parse_expression_impl<'b>(
 pub(crate) fn parse_number_impl<'b>(
     scanner: &mut SpanScanner<'b>,
     state: &mut ParserState<'b>,
-) -> ParseResult<'b, SassNumber> {
-    let mut st = make_temp_stylesheet(state);
+    arena: &'b Bump,
+) -> ParseResult<'b, SassNumber<'b>> {
+    let mut st = make_temp_stylesheet(state, arena);
     parse_single_production_impl(scanner, state, |scanner, _state| {
         let expr = _expression_impl(
             scanner,
@@ -1201,7 +1228,7 @@ pub(crate) fn parse_number_impl<'b>(
             },
         )?;
         match expr {
-            Expression::Number(n) => Ok(SassNumber::new(n.value, n.unit.as_deref())),
+            Expression::Number(n) => Ok(SassNumber::new(arena, n.value, n.unit)),
             _ => Err(Box::new(error_impl(
                 "Expected number.",
                 &scanner.empty_span(),
@@ -1216,8 +1243,9 @@ pub(crate) fn parse_number_impl<'b>(
 pub(crate) fn parse_variable_declaration_impl<'b>(
     scanner: &mut SpanScanner<'b>,
     state: &mut ParserState<'b>,
+    arena: &'b Bump,
 ) -> ParseResult<'b, (VariableDeclaration<'b>, Vec<ParseTimeWarning<'b>>)> {
-    let mut st = make_temp_stylesheet(state);
+    let mut st = make_temp_stylesheet(state, arena);
     parse_single_production_impl(scanner, state, |scanner, _state| {
         let decl = if looking_at_identifier(scanner, None) {
             variable_declaration_with_namespace_impl(scanner, &mut st)?
@@ -1234,8 +1262,9 @@ pub(crate) fn parse_variable_declaration_impl<'b>(
 pub(crate) fn parse_use_rule_impl<'b>(
     scanner: &mut SpanScanner<'b>,
     state: &mut ParserState<'b>,
+    arena: &'b Bump,
 ) -> ParseResult<'b, (UseRule<'b>, Vec<ParseTimeWarning<'b>>)> {
-    let mut st = make_temp_stylesheet(state);
+    let mut st = make_temp_stylesheet(state, arena);
     parse_single_production_impl(scanner, state, |scanner, _state| {
         let start = scanner.state();
         scanner.expect_char('@')?;
@@ -1260,6 +1289,7 @@ pub fn parse_signature(
     let source = FileSource::new_in(&arena, signature, None);
     let mut scanner = SpanScanner::new(source);
     let mut state = ParserState {
+        arena: &arena,
         syntax: Syntax::Scss,
         interpolation_map: None,
         in_expression: false,
@@ -1268,7 +1298,9 @@ pub fn parse_signature(
         wrap_span_format_exception_impl(&mut scanner, &mut state, |scanner, parser_state| {
             let name = identifier_impl(scanner, parser_state, false, false)?;
             let mut st = StylesheetState {
+                arena: &arena,
                 parser_state: ParserState {
+                    arena: &arena,
                     syntax: Syntax::Scss,
                     interpolation_map: parser_state.interpolation_map,
                     in_expression: false,
@@ -1322,17 +1354,17 @@ pub fn parse_signature(
         })
         .and_then(|(name, pl)| -> Result<SignatureResult, Box<SassError>> {
             let mut params = Vec::with_capacity(pl.parameters.len());
-            for p in &pl.parameters {
+            for p in pl.parameters {
                 let default = match &p.default_value {
                     Some(e) => Some(Expression::to_display_string(e)?),
                     None => None,
                 };
-                params.push((p.name.clone(), default));
+                params.push((p.name.to_string(), default));
             }
             Ok(SignatureResult {
                 name,
                 params,
-                rest_param: pl.rest_parameter.clone(),
+                rest_param: pl.rest_parameter.map(str::to_string),
             })
         })
 }
@@ -1373,22 +1405,37 @@ pub fn parse_parameter_list<'compile, 'parse>(
 where
     'compile: 'parse,
 {
-    let parsed_url = if url.is_empty() {
+    let url = if url.is_empty() {
         None
     } else {
-        Some(SassUrl::parse(url).map_err(|_| SassError::Script {
-            message: format!("Invalid URL: {url}"),
-            argument_name: None,
-        })?)
+        Some(
+            &*arena.alloc(ArenaUrl::parse(arena, url).map_err(|_| SassError::Script {
+                message: format!("Invalid URL: {url}"),
+                argument_name: None,
+            })?),
+        )
     };
-    let source = FileSource::new_in(arena, contents, parsed_url);
+    parse_parameter_list_with_url(contents, url, arena)
+}
+
+/// Parses a parameter list with an already-parsed arena URL.
+pub fn parse_parameter_list_with_url<'compile, 'parse>(
+    contents: &str,
+    url: Option<&'parse ArenaUrl<'parse>>,
+    arena: &'compile Bump,
+) -> SassResult<ParameterList<'parse>>
+where
+    'compile: 'parse,
+{
+    let source = FileSource::new_in(arena, contents, url);
     let mut scanner = SpanScanner::new(source);
     let mut state = ParserState {
+        arena,
         syntax: Syntax::Scss,
         interpolation_map: None,
         in_expression: false,
     };
-    let params = parse_parameter_list_impl(&mut scanner, &mut state)?;
+    let params = parse_parameter_list_impl(&mut scanner, &mut state, arena)?;
     scanner.expect_done().map_err(SassError::from)?;
     Ok(params)
 }
@@ -1406,7 +1453,7 @@ mod tests {
         'parse: 'compile,
     {
         let fs = FileSource::new_in(arena, text, None);
-        let mut parser = StylesheetParser::new(fs, Syntax::Scss, None);
+        let mut parser = StylesheetParser::new(fs, Syntax::Scss, None, arena);
         parser.parse()
     }
 
@@ -1481,7 +1528,7 @@ mod tests {
             let sheet = parse_scss(&arena, src).unwrap();
             match &sheet.children[0] {
                 Statement::UseRule(rule) => {
-                    assert_eq!(rule.namespace.as_deref(), want_ns, "src {src}");
+                    assert_eq!(rule.namespace, want_ns, "src {src}");
                 }
                 other => panic!("src {src}: expected UseRule, got {other:?}"),
             }

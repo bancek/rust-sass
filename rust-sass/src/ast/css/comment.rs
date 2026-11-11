@@ -19,7 +19,7 @@ use crate::common::file_span::FileSpan;
 #[derive(Clone, Debug)]
 pub struct CssComment<'parse> {
     /// The contents of this comment, including `/*` and `*/`.
-    pub text: String,
+    pub text: &'parse str,
     /// Whether this comment starts with `/*!` and so is preserved even in
     /// compressed mode.
     pub is_preserved: bool,
@@ -33,7 +33,7 @@ pub struct CssComment<'parse> {
 impl<'parse> CssComment<'parse> {
     /// Creates a comment, deriving [`is_preserved`](CssComment::is_preserved)
     /// from whether the third byte of `text` is `!`.
-    pub fn new(text: String, span: FileSpan<'parse>) -> Self {
+    pub fn new(text: &'parse str, span: FileSpan<'parse>) -> Self {
         let is_preserved = text.as_bytes().get(2) == Some(&b'!');
         CssComment {
             text,
@@ -62,14 +62,14 @@ impl<'parse> fmt::Display for CssComment<'parse> {
 #[derive(Clone, Debug)]
 pub struct ModifiableCssComment<'parse> {
     /// The contents of this comment, including `/*` and `*/`.
-    pub text: String,
+    pub text: &'parse str,
     /// The source span for this comment.
     pub span: FileSpan<'parse>,
 }
 
 impl<'parse> ModifiableCssComment<'parse> {
     /// Creates a modifiable comment.
-    pub fn new(text: String, span: FileSpan<'parse>) -> Self {
+    pub fn new(text: &'parse str, span: FileSpan<'parse>) -> Self {
         ModifiableCssComment { text, span }
     }
 
@@ -111,7 +111,7 @@ mod tests {
     fn test_comment_construction() {
         let arena = Bump::new();
         let span = make_span(&arena, "/* hello */");
-        let c = ModifiableCssComment::new("/* hello */".into(), span);
+        let c = ModifiableCssComment::new("/* hello */", span);
         assert_eq!(c.text, "/* hello */");
     }
 
@@ -119,10 +119,10 @@ mod tests {
     fn test_comment_is_preserved() {
         let arena = Bump::new();
         let span = make_span(&arena, "/*! imp */");
-        let c = ModifiableCssComment::new("/*! important */".into(), span);
+        let c = ModifiableCssComment::new("/*! important */", span);
         assert!(c.is_preserved());
 
-        let c2 = ModifiableCssComment::new("/* normal */".into(), span);
+        let c2 = ModifiableCssComment::new("/* normal */", span);
         assert!(!c2.is_preserved());
     }
 
@@ -130,7 +130,7 @@ mod tests {
     fn test_immutable_comment_preserved() {
         let arena = Bump::new();
         let span = make_span(&arena, "/*! test */");
-        let c = CssComment::new("/*! test */".into(), span);
+        let c = CssComment::new("/*! test */", span);
         assert!(c.is_preserved);
     }
 
@@ -138,7 +138,7 @@ mod tests {
     fn test_comment_display() {
         let arena = Bump::new();
         let span = make_span(&arena, "/* test */");
-        let c = CssComment::new("/* test */".into(), span);
+        let c = CssComment::new("/* test */", span);
         assert_eq!(format!("{c}"), "/* test */");
     }
 
@@ -146,7 +146,7 @@ mod tests {
     fn test_modifiable_comment_display() {
         let arena = Bump::new();
         let span = make_span(&arena, "/* test */");
-        let c = ModifiableCssComment::new("/* test */".into(), span);
+        let c = ModifiableCssComment::new("/* test */", span);
         assert_eq!(format!("{c}"), "/* test */");
     }
 }

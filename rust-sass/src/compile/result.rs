@@ -10,7 +10,7 @@
 use std::error::Error;
 use std::fmt;
 
-use crate::url::SassUrl;
+use crate::url::OwnedUrl;
 
 use crate::eval::result::EvaluateResult;
 use crate::serialize::SerializeResult;
@@ -58,7 +58,7 @@ impl<'compile, 'parse> CompileResult<'compile, 'parse> {
 
     /// The canonical URLs of all stylesheets loaded during compilation.
     /// Matches Go: CompileResult.LoadedUrls()
-    pub fn loaded_urls(&self) -> &[SassUrl] {
+    pub fn loaded_urls(&self) -> &[OwnedUrl] {
         &self.evaluate_result.loaded_urls
     }
 }

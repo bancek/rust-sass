@@ -30,7 +30,7 @@ pub(crate) fn hsl_convert(
     c1: Option<f64>,
     c2: Option<f64>,
     alpha: Option<f64>,
-) -> SassResult<SassColor> {
+) -> SassResult<SassColor<'static>> {
     // Algorithm from the CSS3 spec: https://www.w3.org/TR/css3-color/#hsl-color.
     let scaled_hue = c0.map(|v| (v / 360.0) % 1.0).unwrap_or(0.0);
     let scaled_saturation = c1.map(|v| v / 100.0).unwrap_or(0.0);

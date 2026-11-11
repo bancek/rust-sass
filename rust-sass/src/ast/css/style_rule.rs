@@ -9,8 +9,10 @@
 
 use std::cell::RefCell;
 use std::fmt;
-use std::rc::Rc;
 
+use bumpalo::Bump;
+
+use crate::arena_map::ArenaVec;
 use crate::common::ast_node::AstNode;
 use crate::common::exception::SassResult;
 use crate::common::file_span::FileSpan;
@@ -94,7 +96,7 @@ impl<'parse> fmt::Display for CssStyleRule<'parse> {
 pub struct ModifiableCssStyleRule<'parse> {
     /// A reference to the selector provided by the extension store, which may
     /// update it over time as new extensions are applied.
-    pub selector: Rc<RefCell<SelectorList<'parse>>>,
+    pub selector: &'parse RefCell<SelectorList<'parse>>,
     /// The selector for this rule, before any extensions were applied.
     pub original_selector: SelectorList<'parse>,
     /// Whether this style rule was originally defined in a plain CSS stylesheet.
@@ -104,7 +106,7 @@ pub struct ModifiableCssStyleRule<'parse> {
     /// The source span for this rule.
     pub span: FileSpan<'parse>,
     /// The child statements of this rule.
-    pub children: Vec<ModifiableCssNode<'parse>>,
+    pub children: ArenaVec<'parse, ModifiableCssNode<'parse>>,
 }
 
 impl<'parse> ModifiableCssStyleRule<'parse> {
@@ -113,7 +115,8 @@ impl<'parse> ModifiableCssStyleRule<'parse> {
     /// When `original_selector` is `None`, it defaults to the current value
     /// of `selector`.
     pub fn new(
-        selector: Rc<RefCell<SelectorList<'parse>>>,
+        arena: &'parse Bump,
+        selector: &'parse RefCell<SelectorList<'parse>>,
         span: FileSpan<'parse>,
         original_selector: Option<SelectorList<'parse>>,
         from_plain_css: bool,
@@ -124,7 +127,7 @@ impl<'parse> ModifiableCssStyleRule<'parse> {
             original_selector: orig,
             from_plain_css,
             span,
-            children: Vec::new(),
+            children: ArenaVec::new_in(arena),
         }
     }
 
@@ -183,18 +186,18 @@ mod tests {
 
     fn make_selector_list<'compile, 'parse>(
         arena: &'compile Bump,
-        name: &str,
+        name: &'parse str,
     ) -> SelectorList<'parse>
     where
         'compile: 'parse,
         'parse: 'compile,
     {
         let span = make_span(arena, name);
-        let class = ClassSelector::new(name.into(), span);
+        let class = ClassSelector::new(name, span);
         let simple = SimpleSelector::Class(class);
-        let compound = CompoundSelector::new(vec![simple], span).unwrap();
-        let comp = ComplexSelectorComponent::new(Box::new(compound), Vec::new(), span);
-        let complex = ComplexSelector::new(Vec::new(), vec![comp], span, false).unwrap();
+        let compound = CompoundSelector::new(arena, vec![simple], span).unwrap();
+        let comp = ComplexSelectorComponent::new(arena, compound, Vec::new(), span);
+        let complex = ComplexSelector::new(arena, Vec::new(), vec![comp], span, false).unwrap();
         SelectorList::new(arena, vec![complex], span).unwrap()
     }
 
@@ -203,8 +206,8 @@ mod tests {
         let arena = Bump::new();
         let span = make_span(&arena, "test");
         let sel = make_selector_list(&arena, "foo");
-        let rc = Rc::new(RefCell::new(sel));
-        let r = ModifiableCssStyleRule::new(rc, span, Some(sel), false);
+        let rc = arena.alloc(RefCell::new(sel));
+        let r = ModifiableCssStyleRule::new(&arena, rc, span, Some(sel), false);
         assert!(!r.from_plain_css);
     }
 
@@ -213,8 +216,8 @@ mod tests {
         let arena = Bump::new();
         let span = make_span(&arena, "test");
         let sel = make_selector_list(&arena, "foo");
-        let rc = Rc::new(RefCell::new(sel));
-        let r = ModifiableCssStyleRule::new(rc, span, Some(sel), true);
+        let rc = arena.alloc(RefCell::new(sel));
+        let r = ModifiableCssStyleRule::new(&arena, rc, span, Some(sel), true);
         assert!(r.from_plain_css);
     }
 }

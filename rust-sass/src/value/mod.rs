@@ -88,12 +88,12 @@ pub enum ValueKind<'parse> {
     Boolean(SassBoolean),
     Null,
     String(SassString<'parse>),
-    Number(SassNumber),
-    Color(SassColor),
+    Number(SassNumber<'parse>),
+    Color(SassColor<'parse>),
     List(SassList<'parse>),
     ArgumentList(SassArgumentList<'parse>),
     Map(SassMap<'parse>),
-    Calculation(Box<SassCalculation>),
+    Calculation(&'parse SassCalculation<'parse>),
     Function(SassFunction<'parse>),
     Mixin(SassMixin<'parse>),
     Module(SassModule<'parse>),
@@ -242,7 +242,7 @@ pub trait ValueVisitor<'parse> {
 impl<'parse> ValueKind<'parse> {
     /// Creates a unitless number value in the compilation arena.
     pub fn unitless_number<'compile: 'parse>(arena: &'compile Bump, v: f64) -> Value<'parse> {
-        Value::new_with_arena(arena, ValueKind::Number(SassNumber::new(v, None)))
+        Value::new_with_arena(arena, ValueKind::Number(SassNumber::new(arena, v, None)))
     }
 
     /// Calls the matching visit method on `visitor` for `self`.
@@ -436,11 +436,15 @@ impl<'parse> ValueKind<'parse> {
 
     /// Returns `self` as a [`SassMap`] if it is one (including empty lists,
     /// which count as empty maps), or `None` if it is not.
-    pub fn try_map(&self) -> Option<SassMap<'parse>> {
+    pub fn try_map(&self) -> Option<std::borrow::Cow<'_, SassMap<'parse>>> {
         match self {
-            ValueKind::Map(m) => Some(m.clone()),
-            ValueKind::List(l) if l.contents.is_empty() => Some(SassMap::empty()),
-            ValueKind::ArgumentList(a) if a.list.contents.is_empty() => Some(SassMap::empty()),
+            ValueKind::Map(m) => Some(std::borrow::Cow::Borrowed(m)),
+            ValueKind::List(l) if l.contents.is_empty() => {
+                Some(std::borrow::Cow::Owned(SassMap::empty()))
+            }
+            ValueKind::ArgumentList(a) if a.list.contents.is_empty() => {
+                Some(std::borrow::Cow::Owned(SassMap::empty()))
+            }
             _ => None,
         }
     }
@@ -454,8 +458,8 @@ impl<'parse> ValueKind<'parse> {
         arena: &'compile Bump,
     ) -> SassResult<Vec<Value<'parse>>> {
         match self {
-            ValueKind::List(l) => Ok(l.contents.clone()),
-            ValueKind::ArgumentList(a) => Ok(a.list.contents.clone()),
+            ValueKind::List(l) => Ok(l.contents.to_vec()),
+            ValueKind::ArgumentList(a) => Ok(a.list.contents.to_vec()),
             ValueKind::Map(m) => Ok(m.as_list(arena)),
             _ => Ok(vec![Value::new_with_arena(arena, self.clone())]),
         }
@@ -523,7 +527,7 @@ impl<'parse> ValueKind<'parse> {
             (ValueKind::Module(m), other) => m.plus(other),
             (ValueKind::Number(a), ValueKind::Number(b)) => Ok(Value::new_with_arena(
                 arena,
-                ValueKind::Number(a.plus_num(b)?),
+                ValueKind::Number(a.plus_num(arena, b)?),
             )),
             (ValueKind::String(a), ValueKind::String(_b)) => a.plus(arena, other),
             (ValueKind::Number(a), ValueKind::Color(_)) => {
@@ -582,7 +586,7 @@ impl<'parse> ValueKind<'parse> {
             (ValueKind::Module(m), other) => m.minus(other),
             (ValueKind::Number(a), ValueKind::Number(b)) => Ok(Value::new_with_arena(
                 arena,
-                ValueKind::Number(a.minus_num(b)?),
+                ValueKind::Number(a.minus_num(arena, b)?),
             )),
             (ValueKind::Number(a), ValueKind::Color(_)) => {
                 let self_val = Value::new_with_arena(arena, ValueKind::Number(a.clone()));
@@ -628,7 +632,7 @@ impl<'parse> ValueKind<'parse> {
         match (self, other) {
             (ValueKind::Number(a), ValueKind::Number(b)) => Ok(Value::new_with_arena(
                 arena,
-                ValueKind::Number(a.times_num(b)?),
+                ValueKind::Number(a.times_num(arena, b)?),
             )),
             _ => default_times(arena, self, other),
         }
@@ -648,7 +652,7 @@ impl<'parse> ValueKind<'parse> {
             (ValueKind::Module(m), other) => m.divided_by(other),
             (ValueKind::Number(a), ValueKind::Number(b)) => Ok(Value::new_with_arena(
                 arena,
-                ValueKind::Number(a.divided_by_num(b)?),
+                ValueKind::Number(a.divided_by_num(arena, b)?),
             )),
             (ValueKind::Number(_), _) => default_divided_by(arena, self, other),
             (ValueKind::Color(_), ValueKind::Number(_))
@@ -677,7 +681,7 @@ impl<'parse> ValueKind<'parse> {
         match (self, other) {
             (ValueKind::Number(a), ValueKind::Number(b)) => Ok(Value::new_with_arena(
                 arena,
-                ValueKind::Number(a.modulo_num(b)?),
+                ValueKind::Number(a.modulo_num(arena, b)?),
             )),
             _ => default_modulo(arena, self, other),
         }
@@ -804,7 +808,7 @@ impl<'parse> ValueKind<'parse> {
         match self {
             ValueKind::Number(a) => Ok(Value::new_with_arena(
                 arena,
-                ValueKind::Number(a.unary_minus_num()),
+                ValueKind::Number(a.unary_minus_num(arena)),
             )),
             ValueKind::Calculation(c) => {
                 let c_str = c.to_css_string(true)?;
@@ -882,7 +886,7 @@ pub fn assert_boolean<'v, 'parse>(
 pub fn assert_number<'v, 'parse>(
     v: &'v ValueKind<'parse>,
     name: Option<&str>,
-) -> SassResult<&'v SassNumber> {
+) -> SassResult<&'v SassNumber<'parse>> {
     match v {
         ValueKind::Number(n) => Ok(n),
         _ => Err(Box::new(SassError::Script {
@@ -918,7 +922,7 @@ pub fn assert_string<'v, 'parse>(
 pub fn assert_color<'v, 'parse>(
     v: &'v ValueKind<'parse>,
     name: Option<&str>,
-) -> SassResult<&'v SassColor> {
+) -> SassResult<&'v SassColor<'parse>> {
     match v {
         ValueKind::Color(c) => Ok(c),
         _ => Err(Box::new(SassError::Script {
@@ -954,17 +958,21 @@ pub fn assert_list<'v, 'parse>(
 /// has no inner map to borrow. Returns an error if `v` is neither a map nor
 /// an empty list. If the value came from a function argument, `name` is the
 /// argument name (without the `$`), used for error reporting.
-pub fn assert_map<'parse>(
-    v: &ValueKind<'parse>,
+pub fn assert_map<'v, 'parse>(
+    v: &'v ValueKind<'parse>,
     name: Option<&str>,
-) -> SassResult<SassMap<'parse>> {
+) -> SassResult<std::borrow::Cow<'v, SassMap<'parse>>> {
     match v {
-        ValueKind::Map(m) => Ok(m.clone()),
-        ValueKind::List(l) if l.contents.is_empty() => Ok(SassMap::empty()),
+        ValueKind::Map(m) => Ok(std::borrow::Cow::Borrowed(m)),
+        ValueKind::List(l) if l.contents.is_empty() => {
+            Ok(std::borrow::Cow::Owned(SassMap::empty()))
+        }
         // Dart `SassList.assertMap` is inherited by `SassArgumentList`: an
         // empty argument list counts as an empty map (per SassList.assertMap inheritance;
         // `try_map` already covers both — this arm was accidentally omitted).
-        ValueKind::ArgumentList(a) if a.list.contents.is_empty() => Ok(SassMap::empty()),
+        ValueKind::ArgumentList(a) if a.list.contents.is_empty() => {
+            Ok(std::borrow::Cow::Owned(SassMap::empty()))
+        }
         _ => Err(Box::new(SassError::Script {
             message: format!("{} is not a map.", v.to_display_string()?),
             argument_name: name.map(str::to_string),
@@ -1037,7 +1045,7 @@ pub fn assert_module<'v, 'parse>(
 pub fn assert_calculation<'v, 'parse>(
     v: &'v ValueKind<'parse>,
     name: Option<&str>,
-) -> SassResult<&'v SassCalculation> {
+) -> SassResult<&'v SassCalculation<'parse>> {
     match v {
         ValueKind::Calculation(c) => Ok(c),
         _ => Err(Box::new(SassError::Script {
@@ -1348,7 +1356,7 @@ pub fn with_list_contents<'compile: 'parse, 'parse>(
     let has_brackets = brackets.unwrap_or_else(|| v.has_brackets());
     Value::new_with_arena(
         arena,
-        ValueKind::List(SassList::new(contents, sep, has_brackets)),
+        ValueKind::List(SassList::new(arena, contents, sep, has_brackets)),
     )
 }
 
@@ -1521,7 +1529,7 @@ mod tests {
         assert_eq!(ValueKind::Null.separator(), ListSeparator::Undecided);
         let l = Value::new_with_arena(
             &arena,
-            ValueKind::List(SassList::new(vec![], ListSeparator::Comma, false)),
+            ValueKind::List(SassList::new(&arena, vec![], ListSeparator::Comma, false)),
         );
         assert_eq!(l.separator(), ListSeparator::Comma);
     }
@@ -1532,7 +1540,7 @@ mod tests {
         assert!(!ValueKind::Null.has_brackets());
         let l = Value::new_with_arena(
             &arena,
-            ValueKind::List(SassList::new(vec![], ListSeparator::Space, true)),
+            ValueKind::List(SassList::new(&arena, vec![], ListSeparator::Space, true)),
         );
         assert!(l.has_brackets());
     }
@@ -1544,6 +1552,7 @@ mod tests {
         let l = Value::new_with_arena(
             &arena,
             ValueKind::List(SassList::new(
+                &arena,
                 vec![
                     ValueKind::unitless_number(&arena, 1.0),
                     ValueKind::unitless_number(&arena, 2.0),
@@ -1598,10 +1607,13 @@ mod tests {
     #[test]
     fn test_value_try_map_on_map() {
         let arena = Bump::new();
-        let m = SassMap::from_entries(vec![(
-            ValueKind::unitless_number(&arena, 1.0),
-            ValueKind::unitless_number(&arena, 2.0),
-        )]);
+        let m = SassMap::from_entries(
+            &arena,
+            vec![(
+                ValueKind::unitless_number(&arena, 1.0),
+                ValueKind::unitless_number(&arena, 2.0),
+            )],
+        );
         let v = Value::new_with_arena(&arena, ValueKind::Map(m.clone()));
         let got = v.try_map().expect("map try_map should return the map");
         assert!(got.equals(&m));
@@ -1636,6 +1648,7 @@ mod tests {
         let v = Value::new_with_arena(
             &arena,
             ValueKind::List(SassList::new(
+                &arena,
                 vec![ValueKind::unitless_number(&arena, 1.0)],
                 ListSeparator::Space,
                 false,
@@ -1692,6 +1705,7 @@ mod tests {
         let v = Value::new_with_arena(
             &arena,
             ValueKind::List(SassList::new(
+                &arena,
                 vec![
                     ValueKind::unitless_number(&arena, 1.0),
                     ValueKind::unitless_number(&arena, 2.0),
@@ -1728,13 +1742,16 @@ mod tests {
     #[test]
     fn test_value_as_list_on_map() {
         let arena = Bump::new();
-        let m = SassMap::from_entries(vec![(
-            Value::new_with_arena(
-                &arena,
-                ValueKind::String(SassString::new(arena.alloc_str("a"), true)),
-            ),
-            ValueKind::unitless_number(&arena, 1.0),
-        )]);
+        let m = SassMap::from_entries(
+            &arena,
+            vec![(
+                Value::new_with_arena(
+                    &arena,
+                    ValueKind::String(SassString::new(arena.alloc_str("a"), true)),
+                ),
+                ValueKind::unitless_number(&arena, 1.0),
+            )],
+        );
         let got = Value::new_with_arena(&arena, ValueKind::Map(m))
             .as_list(&arena)
             .unwrap();
@@ -1785,7 +1802,7 @@ mod tests {
         let v = ValueKind::unitless_number(&arena, 1.0);
         let l = Value::new_with_arena(
             &arena,
-            ValueKind::List(SassList::new(vec![v], ListSeparator::Space, false)),
+            ValueKind::List(SassList::new(&arena, vec![v], ListSeparator::Space, false)),
         );
         let a = Value::new_with_arena(
             &arena,
@@ -1878,8 +1895,14 @@ mod tests {
     #[test]
     fn test_value_plus_number() {
         let arena = Bump::new();
-        let a = Value::new_with_arena(&arena, ValueKind::Number(SassNumber::new(5.0, Some("px"))));
-        let b = Value::new_with_arena(&arena, ValueKind::Number(SassNumber::new(3.0, Some("px"))));
+        let a = Value::new_with_arena(
+            &arena,
+            ValueKind::Number(SassNumber::new(&arena, 5.0, Some("px"))),
+        );
+        let b = Value::new_with_arena(
+            &arena,
+            ValueKind::Number(SassNumber::new(&arena, 3.0, Some("px"))),
+        );
         let r = a.plus(&arena, &b).unwrap();
         match &*r {
             ValueKind::Number(n) => {
@@ -1914,8 +1937,14 @@ mod tests {
     #[test]
     fn test_value_minus_number() {
         let arena = Bump::new();
-        let a = Value::new_with_arena(&arena, ValueKind::Number(SassNumber::new(5.0, Some("px"))));
-        let b = Value::new_with_arena(&arena, ValueKind::Number(SassNumber::new(3.0, Some("px"))));
+        let a = Value::new_with_arena(
+            &arena,
+            ValueKind::Number(SassNumber::new(&arena, 5.0, Some("px"))),
+        );
+        let b = Value::new_with_arena(
+            &arena,
+            ValueKind::Number(SassNumber::new(&arena, 3.0, Some("px"))),
+        );
         let r = a.minus(&arena, &b).unwrap();
         match &*r {
             ValueKind::Number(n) => assert!((n.value - 2.0).abs() < 1e-9),
@@ -1926,8 +1955,14 @@ mod tests {
     #[test]
     fn test_value_times_number() {
         let arena = Bump::new();
-        let a = Value::new_with_arena(&arena, ValueKind::Number(SassNumber::new(5.0, Some("px"))));
-        let b = Value::new_with_arena(&arena, ValueKind::Number(SassNumber::new(3.0, None)));
+        let a = Value::new_with_arena(
+            &arena,
+            ValueKind::Number(SassNumber::new(&arena, 5.0, Some("px"))),
+        );
+        let b = Value::new_with_arena(
+            &arena,
+            ValueKind::Number(SassNumber::new(&arena, 3.0, None)),
+        );
         let r = a.times(&arena, &b).unwrap();
         match &*r {
             ValueKind::Number(n) => {
@@ -1941,8 +1976,14 @@ mod tests {
     #[test]
     fn test_value_divided_by_number() {
         let arena = Bump::new();
-        let a = Value::new_with_arena(&arena, ValueKind::Number(SassNumber::new(10.0, Some("px"))));
-        let b = Value::new_with_arena(&arena, ValueKind::Number(SassNumber::new(2.0, None)));
+        let a = Value::new_with_arena(
+            &arena,
+            ValueKind::Number(SassNumber::new(&arena, 10.0, Some("px"))),
+        );
+        let b = Value::new_with_arena(
+            &arena,
+            ValueKind::Number(SassNumber::new(&arena, 2.0, None)),
+        );
         let r = a.divided_by(&arena, &b).unwrap();
         match &*r {
             ValueKind::Number(n) => {
@@ -1956,8 +1997,14 @@ mod tests {
     #[test]
     fn test_value_modulo_number() {
         let arena = Bump::new();
-        let a = Value::new_with_arena(&arena, ValueKind::Number(SassNumber::new(7.0, Some("px"))));
-        let b = Value::new_with_arena(&arena, ValueKind::Number(SassNumber::new(3.0, Some("px"))));
+        let a = Value::new_with_arena(
+            &arena,
+            ValueKind::Number(SassNumber::new(&arena, 7.0, Some("px"))),
+        );
+        let b = Value::new_with_arena(
+            &arena,
+            ValueKind::Number(SassNumber::new(&arena, 3.0, Some("px"))),
+        );
         let r = a.modulo(&arena, &b).unwrap();
         match &*r {
             ValueKind::Number(n) => assert!((n.value - 1.0).abs() < 1e-9),
@@ -1968,8 +2015,14 @@ mod tests {
     #[test]
     fn test_value_comparison() {
         let arena = Bump::new();
-        let a = Value::new_with_arena(&arena, ValueKind::Number(SassNumber::new(5.0, Some("px"))));
-        let b = Value::new_with_arena(&arena, ValueKind::Number(SassNumber::new(3.0, Some("px"))));
+        let a = Value::new_with_arena(
+            &arena,
+            ValueKind::Number(SassNumber::new(&arena, 5.0, Some("px"))),
+        );
+        let b = Value::new_with_arena(
+            &arena,
+            ValueKind::Number(SassNumber::new(&arena, 3.0, Some("px"))),
+        );
         assert_eq!(
             a.greater_than(&arena, &b).unwrap(),
             Value::new_with_arena(&arena, ValueKind::Boolean(SASS_TRUE))
@@ -1983,7 +2036,10 @@ mod tests {
     #[test]
     fn test_value_unary_plus_number() {
         let arena = Bump::new();
-        let a = Value::new_with_arena(&arena, ValueKind::Number(SassNumber::new(5.0, Some("px"))));
+        let a = Value::new_with_arena(
+            &arena,
+            ValueKind::Number(SassNumber::new(&arena, 5.0, Some("px"))),
+        );
         let r = a.unary_plus(&arena).unwrap();
         match &*r {
             ValueKind::Number(n) => {
@@ -1997,7 +2053,10 @@ mod tests {
     #[test]
     fn test_value_unary_minus_number() {
         let arena = Bump::new();
-        let a = Value::new_with_arena(&arena, ValueKind::Number(SassNumber::new(5.0, Some("px"))));
+        let a = Value::new_with_arena(
+            &arena,
+            ValueKind::Number(SassNumber::new(&arena, 5.0, Some("px"))),
+        );
         let r = a.unary_minus(&arena).unwrap();
         match &*r {
             ValueKind::Number(n) => {
@@ -2014,6 +2073,7 @@ mod tests {
         let l = Value::new_with_arena(
             &arena,
             ValueKind::List(SassList::new(
+                &arena,
                 vec![ValueKind::unitless_number(&arena, 1.0)],
                 ListSeparator::Space,
                 true,
@@ -2201,6 +2261,7 @@ mod tests {
         let list = Value::new_with_arena(
             &arena,
             ValueKind::List(SassList::new(
+                &arena,
                 vec![
                     ValueKind::unitless_number(&arena, 1.0),
                     ValueKind::unitless_number(&arena, 2.0),
@@ -2209,7 +2270,7 @@ mod tests {
                 false,
             )),
         );
-        let warn_buf = BufferedWarnLogger::new(&arena);
+        let warn_buf = BufferedWarnLogger::new();
         assert_eq!(
             sass_index_to_list_index(
                 &list,
@@ -2220,7 +2281,7 @@ mod tests {
             .unwrap(),
             0
         );
-        let warn_buf = BufferedWarnLogger::new(&arena);
+        let warn_buf = BufferedWarnLogger::new();
         assert_eq!(
             sass_index_to_list_index(
                 &list,
@@ -2231,7 +2292,7 @@ mod tests {
             .unwrap(),
             1
         );
-        let warn_buf = BufferedWarnLogger::new(&arena);
+        let warn_buf = BufferedWarnLogger::new();
         assert!(sass_index_to_list_index(
             &list,
             &ValueKind::unitless_number(&arena, 0.0),
@@ -2247,6 +2308,7 @@ mod tests {
         let list = Value::new_with_arena(
             &arena,
             ValueKind::List(SassList::new(
+                &arena,
                 vec![ValueKind::unitless_number(&arena, 1.0)],
                 ListSeparator::Space,
                 false,
@@ -2256,6 +2318,7 @@ mod tests {
         let comma_list = Value::new_with_arena(
             &arena,
             ValueKind::List(SassList::new(
+                &arena,
                 vec![
                     ValueKind::unitless_number(&arena, 1.0),
                     ValueKind::unitless_number(&arena, 2.0),
@@ -2402,7 +2465,7 @@ mod tests {
         let mut v = TestVisitor {
             visited: &mut visited,
         };
-        let l = SassList::new(vec![], ListSeparator::Space, false);
+        let l = SassList::new(&arena, vec![], ListSeparator::Space, false);
         Value::new_with_arena(&arena, ValueKind::List(l))
             .accept(&mut v)
             .unwrap();
@@ -2449,8 +2512,8 @@ mod tests {
         let mut v = TestVisitor {
             visited: &mut visited,
         };
-        let c = SassCalculation::new_unsimplified("calc", vec![]);
-        Value::new_with_arena(&arena, ValueKind::Calculation(Box::new(c)))
+        let c = arena.alloc(SassCalculation::new_unsimplified(&arena, "calc", vec![]));
+        Value::new_with_arena(&arena, ValueKind::Calculation(c))
             .accept(&mut v)
             .unwrap();
         assert_eq!(visited, "calc");

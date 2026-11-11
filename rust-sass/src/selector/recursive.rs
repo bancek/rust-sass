@@ -57,19 +57,19 @@ impl<'parse> SelectorVisitor<'parse> for RecursiveSelectorVisitor {
         }
     }
     fn visit_complex_selector(&mut self, complex: &ComplexSelector<'parse>) -> SassResult<()> {
-        for component in &complex.components {
+        for component in complex.components {
             self.visit_compound_selector(&component.selector)?;
         }
         Ok(())
     }
     fn visit_compound_selector(&mut self, compound: &CompoundSelector<'parse>) -> SassResult<()> {
-        for simple in &compound.components {
+        for simple in compound.components {
             simple.accept(self)?;
         }
         Ok(())
     }
     fn visit_selector_list(&mut self, list: &SelectorList<'parse>) -> SassResult<()> {
-        for complex in &list.components {
+        for complex in list.components {
             self.visit_complex_selector(complex)?;
         }
         Ok(())

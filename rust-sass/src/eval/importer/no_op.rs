@@ -8,7 +8,7 @@
 // go-source: go/eval/importer_no_op.go
 
 use crate::common::time::SassTime;
-use crate::url::SassUrl;
+use crate::url::OwnedUrl;
 use std::fmt;
 
 use crate::common::exception::SassResult;
@@ -25,17 +25,17 @@ pub struct NoOpImporter;
 impl NoOpImporter {
     pub fn canonicalize(
         &self,
-        _url: &SassUrl,
+        _url: &OwnedUrl,
         _ctx: &CanonicalizeContext,
-    ) -> SassResult<Option<SassUrl>> {
+    ) -> SassResult<Option<OwnedUrl>> {
         Ok(None)
     }
 
-    pub fn load(&self, _url: &SassUrl) -> SassResult<Option<ImporterResult>> {
+    pub fn load(&self, _url: &OwnedUrl) -> SassResult<Option<ImporterResult>> {
         Ok(None)
     }
 
-    pub fn could_canonicalize(&self, _url: &SassUrl, _canonical_url: &SassUrl) -> bool {
+    pub fn could_canonicalize(&self, _url: &OwnedUrl, _canonical_url: &OwnedUrl) -> bool {
         false
     }
 
@@ -43,7 +43,7 @@ impl NoOpImporter {
         false
     }
 
-    pub fn modification_time(&self, _url: &SassUrl) -> SassResult<SassTime> {
+    pub fn modification_time(&self, _url: &OwnedUrl) -> SassResult<SassTime> {
         Ok(SassTime::now())
     }
 }
@@ -57,12 +57,12 @@ impl fmt::Display for NoOpImporter {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::url::SassUrl;
+    use crate::url::OwnedUrl;
 
     #[rust_sass_macros::maybe_test]
     async fn canonicalize_returns_none() {
         let imp = NoOpImporter;
-        let url = SassUrl::parse("file:///test.scss").unwrap();
+        let url = OwnedUrl::parse("file:///test.scss").unwrap();
         let ctx = CanonicalizeContext::new(None, false);
         let result = imp.canonicalize(&url, &ctx).unwrap();
         assert!(result.is_none());
@@ -71,7 +71,7 @@ mod tests {
     #[rust_sass_macros::maybe_test]
     async fn load_returns_none() {
         let imp = NoOpImporter;
-        let url = SassUrl::parse("file:///test.scss").unwrap();
+        let url = OwnedUrl::parse("file:///test.scss").unwrap();
         let result = imp.load(&url).unwrap();
         assert!(result.is_none());
     }
@@ -79,7 +79,7 @@ mod tests {
     #[test]
     fn could_canonicalize_returns_false() {
         let imp = NoOpImporter;
-        let url = SassUrl::parse("file:///test.scss").unwrap();
+        let url = OwnedUrl::parse("file:///test.scss").unwrap();
         assert!(!imp.could_canonicalize(&url, &url));
     }
 

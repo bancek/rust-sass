@@ -292,7 +292,7 @@ fn parsed_value(m: &ArgMatches, name: &str) -> bool {
 pub type SourceMap = Vec<(Option<String>, Option<String>)>;
 
 /// Parsed and validated CLI options. Mirrors `ExecutableOptions`.
-pub struct CliOptions {
+pub struct CliOptions<'parse> {
     matches: ArgMatches,
     sources: SourceMap,
     emit_source_map: bool,
@@ -308,7 +308,7 @@ pub struct CliOptions {
     trace: bool,
     stop_on_error: bool,
     load_paths: Vec<String>,
-    node_package_importer: Option<NodePackageImporter>,
+    node_package_importer: Option<NodePackageImporter<'parse>>,
     silence_deprecations: Vec<&'static Deprecation>,
     fatal_deprecations: Vec<&'static Deprecation>,
     future_deprecations: Vec<&'static Deprecation>,
@@ -358,8 +358,12 @@ fn split_source_and_destination(argument: &str) -> Result<(String, String), Usag
     )))
 }
 
-impl CliOptions {
-    pub fn from_matches(io: Rc<dyn Io>, matches: &ArgMatches) -> Result<CliOptions, UsageError> {
+impl<'parse> CliOptions<'parse> {
+    pub fn from_matches(
+        arena: &'parse Bump,
+        io: Rc<dyn Io>,
+        matches: &ArgMatches,
+    ) -> Result<CliOptions<'parse>, UsageError> {
         // Validate the hidden no-op `--precision` if provided (ignored).
         let _ = matches.get_one::<u64>("precision");
 
@@ -386,7 +390,7 @@ impl CliOptions {
         let node_package_importer = if get_strings(matches, "pkg-importer").is_empty() {
             None
         } else {
-            Some(NodePackageImporter::new(".", io.clone()))
+            Some(NodePackageImporter::new(arena, ".", io.clone()))
         };
 
         let silence_deprecations = resolve_deprecations(matches, "silence-deprecation")?;
@@ -502,7 +506,7 @@ impl CliOptions {
     }
 
     #[allow(dead_code)]
-    pub fn node_package_importer(&self) -> Option<&NodePackageImporter> {
+    pub fn node_package_importer(&self) -> Option<&NodePackageImporter<'parse>> {
         self.node_package_importer.as_ref()
     }
 
@@ -524,7 +528,7 @@ impl CliOptions {
     /// Builds the `CompileOptions` used for each compilation (fields that differ
     /// per-compilation — source, destination, syntax, importer — are set by the
     /// runner).
-    pub fn compile_options<'compile, 'parse>(
+    pub fn compile_options<'compile: 'parse>(
         &self,
         arena: &'compile Bump,
         logger: Option<Rc<dyn rust_sass::logger::Logger>>,
@@ -537,7 +541,7 @@ impl CliOptions {
             importers: self
                 .node_package_importer
                 .as_ref()
-                .map(|npi| vec![Importer::new(arena, ImporterKind::NodePackage(npi.clone()))])
+                .map(|npi| vec![Importer::new(ImporterKind::NodePackage(npi.clone()))])
                 .unwrap_or_default(),
             load_paths: self.load_paths.clone(),
             logger,
@@ -927,13 +931,14 @@ mod tests {
     use super::*;
     use rust_sass::io::DefaultIo;
 
-    fn parse(args: &[&str]) -> Result<CliOptions, UsageError> {
+    fn parse(args: &[&str]) -> Result<CliOptions<'static>, UsageError> {
         let io: Rc<dyn Io> = Rc::new(DefaultIo::new());
+        let arena: &'static Bump = Box::leak(Box::new(Bump::new()));
         let mut args = args.to_vec();
         args.insert(0, "sass");
         let cmd = build_command();
         let matches = cmd.clone().get_matches_from(args.iter());
-        CliOptions::from_matches(io, &matches)
+        CliOptions::from_matches(arena, io, &matches)
     }
 
     /// Returns the usage-error message for [args].

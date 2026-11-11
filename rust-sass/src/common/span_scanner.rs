@@ -7,7 +7,7 @@
 // dart-source: (external) package:string_scanner/lib/src/span_scanner.dart
 // go-source: go/sasscommon/string_scanner_span_scanner.go
 
-use crate::url::SassUrl;
+use crate::url::ArenaUrl;
 
 use crate::common::exception::{ScanError, SpanScannerError, SpanScannerResult};
 use crate::common::file_span::{FileSpan, SourceLocation};
@@ -67,8 +67,13 @@ impl<'parse> SpanScanner<'parse> {
     /// The URL of the source being scanned, for error reporting.
     ///
     /// Mirrors `StringScanner.sourceUrl`: `None` when unknown/unavailable.
-    pub fn source_url(&self) -> Option<&SassUrl> {
+    pub fn source_url(&self) -> Option<&'parse ArenaUrl<'parse>> {
         self.source.url()
+    }
+
+    /// The [`FileSource`] being scanned.
+    pub fn source(&self) -> &'parse FileSource<'parse> {
+        self.source
     }
 
     /// Whether the scanner has completely consumed the source.
@@ -407,6 +412,7 @@ impl<'parse> SpanScanner<'parse> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::url::OwnedUrl;
     use bumpalo::Bump;
 
     fn test_source<'compile, 'parse>(
@@ -662,8 +668,8 @@ mod tests {
     #[test]
     fn test_source_url() {
         let arena = Bump::new();
-        let u = SassUrl::parse("file:///test.scss").unwrap();
-        let fs = FileSource::new_in(&arena, "x", Some(u));
+        let u = OwnedUrl::parse("file:///test.scss").unwrap();
+        let fs = FileSource::new_in_owned(&arena, "x", Some(&u));
         let s = SpanScanner::new(fs);
         assert!(s.source_url().is_some());
     }

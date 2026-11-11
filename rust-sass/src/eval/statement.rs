@@ -27,7 +27,6 @@ use crate::eval::helpers::tabs_opaque_push;
 use crate::serialize::serialize_value_inspect;
 use std::cell::RefCell;
 use std::collections::VecDeque;
-use std::rc::Rc;
 
 use crate::ast::css::at_rule::ModifiableCssAtRule;
 use crate::ast::css::declaration::ModifiableCssDeclaration;
@@ -46,7 +45,7 @@ use crate::extend::{ExtendMode, Extension, StoreBox};
 use crate::parse::keyframe_selector::KeyframeSelectorParser;
 use crate::parse::selector_parse::SelectorParser;
 use crate::unvendor::unvendor;
-use crate::url::SassUrl;
+use crate::url::{OwnedUrl, Url};
 use crate::util::trim_ascii::trim_ascii;
 use crate::util::utils::{pluralize, to_sentence};
 use bumpalo::Bump;
@@ -281,39 +280,40 @@ where
     'compile: 'parse,
 {
     // Emit parse-time warnings (matching Go VisitStylesheet line 376-380).
-    for warning in &node.parse_time_warnings {
+    for warning in node.parse_time_warnings {
         if let Some(dep) = warning.deprecation {
             if !warning.secondary.is_empty() {
                 warn_deprecation_multi_span(
                     config,
                     state,
-                    &warning.message,
+                    warning.message,
                     warning.span,
-                    warning.primary_label.as_deref().unwrap_or(""),
-                    warning.secondary.clone(),
+                    warning.primary_label.unwrap_or(""),
+                    warning
+                        .secondary
+                        .iter()
+                        .map(|(span, label)| (*span, label.to_string()))
+                        .collect(),
                     dep,
                 )?;
             } else {
-                warn_deprecation_span(config, state, &warning.message, dep, warning.span)?;
+                warn_deprecation_span(config, state, warning.message, dep, warning.span)?;
             }
         } else {
-            warn(config, state, &warning.message, warning.span)?;
+            warn(config, state, warning.message, warning.span)?;
         }
     }
-    for child in &node.children {
+    for child in node.children {
         evaluate_statement(config, state, arena, child).await?;
     }
 
     // Go: VisitStylesheet lines 388-404 — pre-declare !global variable slots
     // from dead code as guarded null declarations so they appear in the module's
     // exported variables even though the !global assignment never executed.
-    for (name, span) in &node.global_variables {
+    for (name, span) in node.global_variables.iter() {
         let null_expr = Expression::Null(NullExpression::new(*span));
         let decl = VariableDeclaration::new(
-            name.clone(),
-            null_expr,
-            *span,
-            None,  // no namespace
+            arena, name, null_expr, *span, None,  // no namespace
             true,  // guarded — won't overwrite existing non-null value
             false, // not global — just creating the slot
             None,  // no comment
@@ -352,12 +352,12 @@ where
 {
     if node.guarded {
         if node.namespace.is_none() && state.env.at_root() {
-            state.env.mark_variable_configurable(&node.name);
-            if let Some(override_val) = state.configuration.remove(&node.name) {
+            state.env.mark_variable_configurable(node.name);
+            if let Some(override_val) = state.configuration.remove(node.name) {
                 if override_val.value != Value::new_with_arena(arena, ValueKind::Null) {
                     add_exception_span(config, state, node.span, None, async |_config, _state| {
                         _state.env.set_variable(
-                            &node.name,
+                            node.name,
                             override_val.value,
                             override_val.assignment_span,
                             None,
@@ -372,9 +372,7 @@ where
 
         let existing =
             add_exception_span(config, state, node.span, None, async |_config, _state| {
-                _state
-                    .env
-                    .get_variable(&node.name, node.namespace.as_deref())
+                _state.env.get_variable(node.name, node.namespace)
             })
             .await?;
         if let Some(ref existing) = existing {
@@ -385,7 +383,7 @@ where
     }
 
     if node.is_global {
-        let exists = state.env.global_variable_exists(&node.name, None)?;
+        let exists = state.env.global_variable_exists(node.name, None)?;
         if !exists {
             let message = if state.env.at_root() {
                 "As of Dart Sass 2.0.0, !global assignments won't be able to declare new variables.\n\nSince this assignment is at the root of the stylesheet, the !global flag is\nunnecessary and can safely be removed.".to_string()
@@ -407,13 +405,9 @@ where
     let val = without_slash(config, state, arena, val, node.expression.span()?)?;
     let expr_node = expression_node(config, state, &node.expression)?;
     add_exception_span(config, state, node.span, None, async |_config, _state| {
-        _state.env.set_variable(
-            &node.name,
-            val,
-            expr_node,
-            node.namespace.as_deref(),
-            node.is_global,
-        )
+        _state
+            .env
+            .set_variable(node.name, val, expr_node, node.namespace, node.is_global)
     })
     .await?;
     Ok(None)
@@ -601,7 +595,7 @@ where
 
     if merge {
         if plain_css {
-            for complex in &parsed_selector.0.components {
+            for complex in parsed_selector.0.components {
                 if !complex.leading_combinators.is_empty() {
                     let first = &complex.leading_combinators[0];
                     let first_span = first.span()?;
@@ -626,15 +620,15 @@ where
         Some(ref mut store) => {
             store.add_selector(arena, &parsed_selector, state.media_queries.clone())?
         }
-        None => {
-            let inner = Rc::new(RefCell::new(parsed_selector));
-            StoreBox { inner }
-        }
+        None => StoreBox {
+            inner: arena.alloc(RefCell::new(parsed_selector)),
+        },
     };
 
     let from_plain_css = state.stylesheet.as_ref().is_some_and(|s| s.plain_css);
     let msr = ModifiableCssStyleRule::new(
-        Rc::clone(&selector_box.inner),
+        arena,
+        selector_box.inner,
         node.span,
         Some(parsed_selector),
         from_plain_css,
@@ -706,10 +700,13 @@ where
     // Keyframe branch
     if state.in_keyframes {
         let source = FileSource::new_in(arena, &selector_text, None);
-        let mut kp = KeyframeSelectorParser::new_with_map(source, Some(selector_map));
+        let mut kp = KeyframeSelectorParser::new_with_map(arena, source, Some(selector_map));
         let parsed = kp.parse()?;
         let selector_span = selector.span()?;
-        let rule = ModifiableCssKeyframeBlock::new(CssValue::new(parsed, selector_span), node.span);
+        let selector: Vec<&'parse str> = parsed.iter().map(|s| &*arena.alloc_str(s)).collect();
+        let selector: &'parse [&'parse str] = &*arena.alloc_slice_fill_iter(selector);
+        let selector = CssValue::new(selector, selector_span);
+        let rule = ModifiableCssKeyframeBlock::new(arena, selector, node.span);
         let rule_node = ModifiableCssNode::new(arena, ModifiableCssNodeKind::KeyframeBlock(rule));
         let through: Option<&dyn Fn(&ModifiableCssNode<'parse>) -> bool> =
             Some(&|n| n.is_style_rule());
@@ -719,9 +716,9 @@ where
             state,
             rule_node,
             through,
-            Some(has_declarations(&node.children)),
+            Some(has_declarations(node.children)),
             async |c, s| {
-                for child in &node.children {
+                for child in node.children {
                     evaluate_statement(c, s, arena, child).await?;
                 }
                 Ok(())
@@ -783,7 +780,7 @@ where
             state.style_rule_ignoring_at_root = Some(prep.css_rule.clone());
             state.css_style_rule_node = Some(prep.rule_node.clone());
 
-            for child in &node.children {
+            for child in node.children {
                 evaluate_statement(config, state, arena, child).await?;
             }
 
@@ -792,7 +789,7 @@ where
             Ok(())
         },
         false,
-        has_declarations(&node.children),
+        has_declarations(node.children),
     )
     .await?;
 
@@ -837,7 +834,7 @@ where
     if rule.selector.is_invisible_other_than_bogus_combinators() {
         return Ok(());
     }
-    for complex in &rule.selector.0.components {
+    for complex in rule.selector.0.components {
         if !complex.is_bogus() {
             continue;
         }
@@ -964,7 +961,7 @@ fn extend_modules<'compile, 'parse>(
 where
     'compile: 'parse,
 {
-    let mut downstream_stores: HashMap<Option<SassUrl>, Vec<ExtensionStore<'parse>>> =
+    let mut downstream_stores: HashMap<Option<OwnedUrl>, Vec<ExtensionStore<'parse>>> =
         HashMap::new();
 
     // Dart:1089-1094 / Go:580-581 — global unsatisfied tracking, not per-module immediate error.
@@ -1000,7 +997,7 @@ where
                     downstream_stores
                         .entry(Some(up_url))
                         .or_default()
-                        .push(store.clone());
+                        .push(store);
                 }
             }
         }
@@ -1140,8 +1137,7 @@ where
                             ModifiableCssNode::new(
                                 arena,
                                 ModifiableCssNodeKind::Comment(ModifiableCssComment::new(
-                                    c.text.clone(),
-                                    c.span,
+                                    c.text, c.span,
                                 )),
                             )
                         })
@@ -1216,10 +1212,10 @@ pub(crate) struct LoadedStylesheet<'parse> {
 pub(crate) async fn load_stylesheet<'compile, 'parse>(
     config: &EvalConfig<'compile, 'parse>,
     state: &mut EvalState<'compile, 'parse>,
-    arena: &'compile Bump,
-    parsed_url: &SassUrl,
+    _arena: &'compile Bump,
+    parsed_url: &impl Url,
     span: FileSpan<'parse>,
-    base_url: Option<&SassUrl>,
+    base_url: Option<&OwnedUrl>,
     for_import: bool,
 ) -> SassResult<LoadedStylesheet<'parse>>
 where
@@ -1227,11 +1223,11 @@ where
 {
     state.import_span = Some(span);
 
-    let resolved_base_url: Option<SassUrl> = base_url.cloned().or({
+    let resolved_base_url: Option<OwnedUrl> = base_url.cloned().or({
         state
             .stylesheet
             .as_ref()
-            .and_then(|s| s.span.source_url().cloned())
+            .and_then(|s| s.span.source_url().map(|url| url.to_owned_url()))
     });
 
     let canonicalize_result = {
@@ -1246,7 +1242,7 @@ where
                 )));
             }
         };
-        let warn_logger = BufferedWarnLogger::new(arena);
+        let warn_logger = BufferedWarnLogger::new();
         let result = cache
             .canonicalize(
                 parsed_url,
@@ -1294,7 +1290,7 @@ where
             state.import_span = None;
             return Ok(LoadedStylesheet {
                 stylesheet,
-                importer: cr.importer,
+                importer: cr.importer.clone(),
                 is_dependency,
             });
         }
@@ -1381,17 +1377,17 @@ pub(crate) async fn evaluate_import_rule<'compile, 'parse>(
 where
     'compile: 'parse,
 {
-    for imp in &node.imports {
+    for imp in node.imports {
         match imp {
             Import::Static(s) => {
                 let url_str = perform_interpolation(config, state, arena, &s.url, false).await?;
                 let url_span = s.url.span()?;
-                let url_val = CssValue::new(url_str, url_span);
+                let url_val = CssValue::new(&*arena.alloc_str(&url_str), url_span);
                 let modifiers = if let Some(ref mod_interp) = s.modifiers {
                     let mod_str =
                         perform_interpolation(config, state, arena, mod_interp, false).await?;
                     let mod_span = mod_interp.span()?;
-                    Some(CssValue::new(mod_str, mod_span))
+                    Some(CssValue::new(&*arena.alloc_str(&mod_str), mod_span))
                 } else {
                     None
                 };
@@ -1488,7 +1484,7 @@ where
                         if loaded.stylesheet.uses().is_empty()
                             && loaded.stylesheet.forwards().is_empty()
                         {
-                            let old_importer = s.importer;
+                            let old_importer = s.importer.clone();
                             let old_stylesheet = s.stylesheet;
                             let old_in_dep = s.in_dependency;
                             s.importer = loaded.importer;
@@ -1526,7 +1522,7 @@ where
                         let mut children: Vec<ModifiableCssNode<'parse>> = Vec::new();
 
                         with_environment(c, s, env, async |c2, s2| {
-                            let old_importer = s2.importer;
+                            let old_importer = s2.importer.clone();
                             let old_stylesheet = s2.stylesheet;
                             let old_root = s2.root.clone();
                             let old_parent = s2.parent.clone();
@@ -1541,7 +1537,7 @@ where
                                 let new_root = ModifiableCssNode::new(
                                     arena,
                                     ModifiableCssNodeKind::Stylesheet(
-                                        ModifiableCssStylesheet::new(loaded.stylesheet.span),
+                                        ModifiableCssStylesheet::new(arena, loaded.stylesheet.span),
                                     ),
                                 );
                                 s2.root = Some(new_root.clone());
@@ -1660,7 +1656,11 @@ where
         let span = node.span()?;
         let rule = ModifiableCssNode::new(
             arena,
-            ModifiableCssNodeKind::MediaRule(ModifiableCssMediaRule::new(css_queries, span)?),
+            ModifiableCssNodeKind::MediaRule(ModifiableCssMediaRule::new(
+                arena,
+                css_queries,
+                span,
+            )?),
         );
         let tabs_node = rule.clone();
         with_parent(
@@ -1673,7 +1673,7 @@ where
             async |config, state| {
                 // Opaque NESTED-tabs scope (libsass bubble boundary).
                 let tabs_start = tabs_opaque_push(state);
-                for child in &node.children {
+                for child in node.children {
                     evaluate_statement(config, state, arena, child).await?;
                 }
                 tabs_opaque_pop(state, &tabs_node, tabs_start);
@@ -1686,7 +1686,7 @@ where
 
     // Merge queries with parent media context if present.
     let (rule_queries, merged_sources) = if let Some(ref mq) = state.media_queries {
-        match merge_media_queries(mq, &css_queries) {
+        match merge_media_queries(arena, mq, &css_queries) {
             None => (css_queries, vec![]),
             Some(m) if m.is_empty() => {
                 return Ok(None);
@@ -1706,7 +1706,11 @@ where
 
     let rule = ModifiableCssNode::new(
         arena,
-        ModifiableCssNodeKind::MediaRule(ModifiableCssMediaRule::new(rule_queries.clone(), span)?),
+        ModifiableCssNodeKind::MediaRule(ModifiableCssMediaRule::new(
+            arena,
+            rule_queries.clone(),
+            span,
+        )?),
     );
 
     // The through function skips over style rules (always) and media rules
@@ -1736,7 +1740,7 @@ where
         state,
         rule,
         through,
-        Some(has_declarations(&node.children)),
+        Some(has_declarations(node.children)),
         async |config, state| {
             // Opaque NESTED-tabs scope (libsass bubble boundary).
             let tabs_start = tabs_opaque_push(state);
@@ -1763,7 +1767,7 @@ where
                             None,
                             Some(false),
                             async |c, s| {
-                                for child in &node.children {
+                                for child in node.children {
                                     evaluate_statement(c, s, arena, child).await?;
                                 }
                                 Ok(())
@@ -1772,7 +1776,7 @@ where
                         .await?;
                         tabs_frame_pop_and_stamp(state);
                     } else {
-                        for child in &node.children {
+                        for child in node.children {
                             if let Statement::StyleRule(sr) = child {
                                 evaluate_style_rule(config, state, arena, sr).await?;
                             } else {
@@ -1848,6 +1852,7 @@ where
     let from_denom = from_num_ref.denominator_units.clone();
     let coerced_to_num = add_exception_span(config, state, to_span, Some(true), async |_, _| {
         to_num_ref.coerce(
+            arena,
             &from_num_ref.numerator_units,
             &from_num_ref.denominator_units,
             None,
@@ -1881,20 +1886,21 @@ where
             let mut i = from;
             while i != to_val_i64 {
                 let unit_num = SassNumber::new(
+                    arena,
                     i as f64,
                     if from_units.is_empty() && from_denom.is_empty() {
                         None
                     } else {
-                        Some(&from_units[0])
+                        Some(from_units[0])
                     },
                 );
                 state.env.set_local_variable(
-                    &node.variable,
+                    node.variable,
                     Value::new_with_arena(arena, ValueKind::Number(unit_num)),
                     var_span,
                 );
 
-                for child in &node.children {
+                for child in node.children {
                     if let Some(val) = evaluate_statement(config, state, arena, child).await? {
                         return Ok(Some(val));
                     }
@@ -1936,7 +1942,7 @@ where
     // _environment.getMixin(node.name, namespace: node.namespace))` — the
     // missing-module `Script` from `get_module` gains its span here.
     let mixin = add_exception_span(config, state, node.span, None, async |_cfg, st| {
-        st.env.get_mixin(&node.name, node.namespace.as_deref())
+        st.env.get_mixin(node.name, node.namespace)
     })
     .await?
     .ok_or_else(|| exception(state, "Undefined mixin.".into(), Some(node.span)))?;
@@ -1963,7 +1969,7 @@ where
     // Go's pattern (evaluate_statement.go:1737-1757).
     let content = node.content.as_ref().map(|content_block| {
         let content_callable = UserDefinedCallable::new(
-            CallableDeclaration::ContentBlock(content_block.clone().as_ref().clone()),
+            CallableDeclaration::ContentBlock((*content_block).clone()),
             state.env.closure(arena),
             state.in_dependency,
         );
@@ -2097,7 +2103,7 @@ where
             // Go: evaluate_statement.go:1554-1577 — fill in named/default params
             for i in positional.len()..overload.params.parameters.len() {
                 let param = &overload.params.parameters[i];
-                if let Some(val) = named.swap_remove(param.name.as_str()) {
+                if let Some(val) = named.swap_remove(param.name) {
                     positional.push(val);
                 } else if let Some(ref default_expr) = param.default_value {
                     let val = evaluate_expression(config, state, arena, default_expr).await?;
@@ -2261,15 +2267,18 @@ where
     }
 
     let name_text = perform_interpolation(config, state, arena, &node.name, true).await?;
-    let name = CssValue::new(name_text, node.span);
+    let name = CssValue::new(&*arena.alloc_str(&name_text), node.span);
 
     let full_name = if let Some(ref prefix) = state.declaration_name {
-        CssValue::new(format!("{prefix}-{}", name.value), node.span)
+        CssValue::new(
+            &*arena.alloc_str(&format!("{prefix}-{}", name.value)),
+            node.span,
+        )
     } else {
         name
     };
 
-    let decl_name_text = full_name.value.clone();
+    let decl_name_text = full_name.value;
 
     if let Some(ref value_expr) = node.value {
         let val = evaluate_expression(config, state, arena, value_expr).await?;
@@ -2302,10 +2311,10 @@ where
         }
     }
 
-    if let Some(ref children) = node.children {
+    if let Some(children) = node.children {
         if !children.is_empty() {
             let old_declaration_name = state.declaration_name.clone();
-            state.declaration_name = Some(decl_name_text);
+            state.declaration_name = Some(decl_name_text.to_string());
 
             let env = state.env;
             env.scope(
@@ -2509,7 +2518,10 @@ where
     copy_parent_after_sibling(arena, state)?;
     let comment = ModifiableCssNode::new(
         arena,
-        ModifiableCssNodeKind::Comment(ModifiableCssComment::new(text, node.span()?)),
+        ModifiableCssNodeKind::Comment(ModifiableCssComment::new(
+            arena.alloc_str(&text),
+            node.span()?,
+        )),
     );
     add_child(arena, state, &comment, None)?;
     Ok(None)
@@ -2554,7 +2566,7 @@ where
         .original_selector
         .0
         .components
-        .clone();
+        .to_vec();
     for complex in &bogus_check_components {
         if !complex.is_bogus() {
             continue;
@@ -2596,7 +2608,7 @@ where
     let style_rule = state.style_rule_ignoring_at_root.as_ref().unwrap();
     let style_selector = style_rule.selector;
 
-    for complex in &list.0.components {
+    for complex in list.0.components {
         let compound = match complex.single_compound() {
             Some(c) => c,
             None => {
@@ -2699,13 +2711,13 @@ where
 
     // Evaluate the name interpolation
     let name_text = perform_interpolation(config, state, arena, &node.name, false).await?;
-    let name = CssValue::new(name_text, node.name.span()?);
+    let name = CssValue::new(&*arena.alloc_str(&name_text), node.name.span()?);
 
     // Evaluate value interpolation if present
     let value = if let Some(ref v) = node.value {
         let text = perform_interpolation(config, state, arena, v, true).await?;
         let trimmed = trim_ascii(&text, true);
-        Some(CssValue::new(trimmed, v.span()?))
+        Some(CssValue::new(&*arena.alloc_str(&trimmed), v.span()?))
     } else {
         None
     };
@@ -2716,7 +2728,9 @@ where
         copy_parent_after_sibling(arena, state)?;
         let at_rule = ModifiableCssNode::new(
             arena,
-            ModifiableCssNodeKind::AtRule(ModifiableCssAtRule::new(name, node.span, true, value)),
+            ModifiableCssNodeKind::AtRule(ModifiableCssAtRule::new(
+                arena, name, node.span, true, value,
+            )),
         );
         add_child(arena, state, &at_rule, None)?;
         return Ok(None);
@@ -2724,8 +2738,8 @@ where
 
     let old_in_unknown = state.in_unknown_at_rule;
     let old_in_keyframes = state.in_keyframes;
-    let name_value = name.value.clone();
-    if unvendor(&name_value) == "keyframes" {
+    let name_value = name.value;
+    if unvendor(name_value) == "keyframes" {
         state.in_keyframes = true;
     } else {
         state.in_unknown_at_rule = true;
@@ -2733,7 +2747,9 @@ where
 
     let at_rule = ModifiableCssNode::new(
         arena,
-        ModifiableCssNodeKind::AtRule(ModifiableCssAtRule::new(name, node.span, false, value)),
+        ModifiableCssNodeKind::AtRule(ModifiableCssAtRule::new(
+            arena, name, node.span, false, value,
+        )),
     );
 
     if has_css_nesting(state) {
@@ -2752,7 +2768,7 @@ where
                 // at-rules (including `@keyframes`) collects no outer
                 // stamps (libsass debubbles at-rule content opaquely).
                 let tabs_start = tabs_opaque_push(s);
-                if let Some(ref children) = node.children {
+                if let Some(children) = node.children {
                     for child in children {
                         evaluate_statement(c, s, arena, child).await?;
                     }
@@ -2786,7 +2802,7 @@ where
             let tabs_start = tabs_opaque_push(state);
             let no_sr = style_rule(state).is_none();
             if no_sr || state.in_keyframes || name_value == "font-face" {
-                if let Some(ref children) = node.children {
+                if let Some(children) = node.children {
                     for child in children {
                         evaluate_statement(config, state, arena, child).await?;
                     }
@@ -2801,7 +2817,7 @@ where
                     None,
                     Some(false),
                     async |c, s| {
-                        if let Some(ref children) = node.children {
+                        if let Some(children) = node.children {
                             for child in children {
                                 evaluate_statement(c, s, arena, child).await?;
                             }
@@ -2810,7 +2826,7 @@ where
                     },
                 )
                 .await?;
-            } else if let Some(ref children) = node.children {
+            } else if let Some(children) = node.children {
                 for child in children {
                     evaluate_statement(config, state, arena, child).await?;
                 }
@@ -2868,11 +2884,7 @@ where
     // Walk parent chain, collecting CSS parent nodes not excluded by query
     let mut cur = state.parent.clone();
     let mut included: Vec<ModifiableCssNode<'parse>> = Vec::new();
-    loop {
-        let parent = match cur {
-            Some(ref p) => p.clone(),
-            None => break,
-        };
+    while let Some(parent) = cur {
         let kind = parent.kind();
         if matches!(&*kind, ModifiableCssNodeKind::Stylesheet(_)) {
             break;
@@ -2906,13 +2918,13 @@ where
             .scope(
                 arena,
                 async || {
-                    for child in &node.children {
+                    for child in node.children {
                         evaluate_statement(config, state, arena, child).await?;
                     }
                     Ok(None)
                 },
                 false,
-                has_declarations(&node.children),
+                has_declarations(node.children),
             )
             .await;
     }
@@ -2972,13 +2984,13 @@ where
         .scope(
             arena,
             async || {
-                for child in &node.children {
+                for child in node.children {
                     evaluate_statement(config, state, arena, child).await?;
                 }
                 Ok(None)
             },
             false,
-            has_declarations(&node.children),
+            has_declarations(node.children),
         )
         .await;
 
@@ -3099,7 +3111,7 @@ where
             let kind = c.kind();
             match &*kind {
                 ModifiableCssNodeKind::Comment(comment) => {
-                    Some(CssComment::new(comment.text.clone(), comment.span))
+                    Some(CssComment::new(comment.text, comment.span))
                 }
                 _ => None,
             }
@@ -3153,12 +3165,12 @@ pub(crate) async fn load_module<'compile, 'parse>(
     config: &EvalConfig<'compile, 'parse>,
     state: &mut EvalState<'compile, 'parse>,
     arena: &'compile Bump,
-    url: &SassUrl,
+    url: &OwnedUrl,
     stack_frame: &str,
     node_with_span: FileSpan<'parse>,
     module_configuration: Option<&Configuration<'parse>>,
     names_in_errors: bool,
-    base_url: Option<&SassUrl>,
+    base_url: Option<&OwnedUrl>,
 ) -> SassResult<(Module<'compile, 'parse>, bool)>
 where
     'compile: 'parse,
@@ -3194,7 +3206,16 @@ where
             let loaded =
                 add_exception_span(config, state, node_with_span, Some(false), async |c, s| {
                     add_exception_trace(s, async |s2| {
-                        load_stylesheet(c, s2, arena, url, node_with_span, base_url, false).await
+                        load_stylesheet(
+                            c,
+                            s2,
+                            arena,
+                            &url.to_owned_url(),
+                            node_with_span,
+                            base_url,
+                            false,
+                        )
+                        .await
                     })
                     .await
                 })
@@ -3208,7 +3229,7 @@ where
                 if !key.is_empty() {
                     if let Some(prev) = state.active_modules.get(key).copied().flatten() {
                         let message = if names_in_errors {
-                            let pretty = SassUrl::parse(key)
+                            let pretty = OwnedUrl::parse(key)
                                 .map(|u| pretty_uri(&u, config.io.as_ref()))
                                 .unwrap_or_else(|_| key.clone());
                             format!("Module loop: {pretty} is already being loaded.")
@@ -3231,7 +3252,7 @@ where
                     }
                     if state.active_modules.contains_key(key) {
                         let message = if names_in_errors {
-                            let pretty = SassUrl::parse(key)
+                            let pretty = OwnedUrl::parse(key)
                                 .map(|u| pretty_uri(&u, config.io.as_ref()))
                                 .unwrap_or_else(|_| key.clone());
                             format!("Module loop: {pretty} is already being loaded.")
@@ -3336,7 +3357,7 @@ where
                     && already_loaded.could_have_been_configured(&config_keys(&current_config))
                 {
                     let message = if names_in_errors {
-                        let pretty = SassUrl::parse(url)
+                        let pretty = OwnedUrl::parse(url)
                             .map(|u| pretty_uri(&u, config.io.as_ref()))
                             .unwrap_or_else(|_| url.clone());
                         format!(
@@ -3389,7 +3410,7 @@ where
     }
 
     // Save 16 fields
-    let old_importer = state.importer;
+    let old_importer = state.importer.clone();
     let old_source_url = state.source_url.clone();
     let old_stylesheet = state.stylesheet;
     let old_root = state.root.clone();
@@ -3406,19 +3427,19 @@ where
     let old_kf = state.in_keyframes;
 
     // Set fresh context
-    state.importer = *importer;
+    state.importer = importer.clone();
     state.stylesheet = Some(stylesheet);
     let new_root = ModifiableCssNode::new(
         arena,
-        ModifiableCssNodeKind::Stylesheet(ModifiableCssStylesheet::new(stylesheet.span)),
+        ModifiableCssNodeKind::Stylesheet(ModifiableCssStylesheet::new(arena, stylesheet.span)),
     );
     state.root = Some(new_root.clone());
     state.parent = Some(new_root);
     state.end_of_imports = 0;
     state.out_of_order_imports.clear();
     state.extension_store = Some(DefaultExtensionStore::new(
+        arena,
         ExtendMode::Normal,
-        config.io.clone(),
         config.unicode,
     ));
     state.pre_module_comments = None;
@@ -3429,7 +3450,7 @@ where
     state.at_root_excluding_style_rule = false;
     state.in_keyframes = false;
     if let Some(ref url) = sheet_url {
-        state.source_url = Some(SassUrl::parse(url).map_err(|e| SassError::Script {
+        state.source_url = Some(OwnedUrl::parse(url).map_err(|e| SassError::Script {
             message: e.to_string(),
             argument_name: None,
         })?);
@@ -3447,7 +3468,7 @@ where
     };
     let css = ModifiableCssNode::new(
         arena,
-        ModifiableCssNodeKind::Stylesheet(ModifiableCssStylesheet::new(stylesheet.span)),
+        ModifiableCssNodeKind::Stylesheet(ModifiableCssStylesheet::new(arena, stylesheet.span)),
     );
     for child in &css_children {
         css.add_child(child)?;
@@ -3456,8 +3477,8 @@ where
     // Build module
     let ext_store = state
         .extension_store
-        .as_ref()
-        .map(|es| ExtensionStore::Default(Rc::new(RefCell::new(es.clone()))))
+        .take()
+        .map(|es| ExtensionStore::Default(arena.alloc(RefCell::new(es))))
         .unwrap_or(ExtensionStore::Empty);
     let pre_mod_comments = state.pre_module_comments.take().unwrap_or_default();
     let module = state
@@ -3521,12 +3542,12 @@ where
 {
     let configuration = if !node.configuration.is_empty() {
         let mut values: IndexMap<String, ConfiguredValue<'parse>> = IndexMap::new();
-        for cv in &node.configuration {
+        for cv in node.configuration {
             let val = evaluate_expression(config, state, arena, &cv.expression).await?;
             let val = without_slash(config, state, arena, val, cv.expression.span()?)?;
             let assignment_node = expression_node(config, state, &cv.expression)?;
             values.insert(
-                cv.name.clone(),
+                cv.name.to_string(),
                 ConfiguredValue::explicit(val, cv.span, assignment_node),
             );
         }
@@ -3545,8 +3566,7 @@ where
             )));
         }
         add_exception_span(config, state, node.span, None, async |_, s| {
-            s.env
-                .add_module(*built_in, node.span, node.namespace.as_deref())
+            s.env.add_module(*built_in, node.span, node.namespace)
         })
         .await?;
         assert_configuration_is_empty(state, &configuration)?;
@@ -3638,8 +3658,7 @@ where
                     register_comments_for_module(s, &module)?;
                 }
                 add_exception_span(c, s, node.span, Some(false), async |_, s2| {
-                    s2.env
-                        .add_module(module, node.span, node.namespace.as_deref())
+                    s2.env.add_module(module, node.span, node.namespace)
                 })
                 .await?;
                 Ok(None)
@@ -3688,11 +3707,11 @@ where
     let existing = adjusted_config.values();
     let mut new_values: IndexMap<String, ConfiguredValue<'parse>> = existing.into_iter().collect();
 
-    for cv in &node.configuration {
+    for cv in node.configuration {
         if cv.is_guarded {
-            if let Some(old_val) = adjusted_config.remove(&cv.name) {
+            if let Some(old_val) = adjusted_config.remove(cv.name) {
                 if old_val.value != Value::new_with_arena(arena, ValueKind::Null) {
-                    new_values.insert(cv.name.clone(), old_val);
+                    new_values.insert(cv.name.to_string(), old_val);
                     continue;
                 }
             }
@@ -3702,7 +3721,7 @@ where
         let expr_node = expression_node(config, state, &cv.expression)?;
         let val = without_slash(config, state, arena, val, expr_node)?;
         new_values.insert(
-            cv.name.clone(),
+            cv.name.to_string(),
             ConfiguredValue::explicit(val, cv.span, expr_node),
         );
     }
@@ -3783,7 +3802,7 @@ where
 
     // Configuration evaluation outside @forward frame (matching Go: evaluate_expression.go:891-895)
     let old_configuration = state.configuration.clone();
-    let adjusted = old_configuration.through_forward(node);
+    let adjusted = old_configuration.through_forward(arena, node);
 
     let mut forward_config = if !node.configuration.is_empty() {
         Some(add_forward_configuration(config, state, arena, &adjusted, node).await?)
@@ -3852,14 +3871,14 @@ where
                         .configuration
                         .iter()
                         .filter(|cv| !cv.is_guarded)
-                        .map(|cv| cv.name.clone())
+                        .map(|cv| cv.name.to_string())
                         .collect();
                     remove_used_configuration(&adjusted, &*new_config, &except);
 
                     let configured: HashSet<String> = node
                         .configuration
                         .iter()
-                        .map(|cv| cv.name.clone())
+                        .map(|cv| cv.name.to_string())
                         .collect();
                     for name in new_config.keys() {
                         if !configured.contains(&name) {
@@ -3974,10 +3993,12 @@ where
 
     let condition_text = visit_supports_condition(config, state, arena, &node.condition).await?;
     let cond_span = node.condition.span()?;
-    let condition = CssValue::new(condition_text, cond_span);
+    let condition = CssValue::new(&*arena.alloc_str(&condition_text), cond_span);
     let rule = ModifiableCssNode::new(
         arena,
-        ModifiableCssNodeKind::SupportsRule(ModifiableCssSupportsRule::new(condition, node.span)),
+        ModifiableCssNodeKind::SupportsRule(ModifiableCssSupportsRule::new(
+            arena, condition, node.span,
+        )),
     );
 
     if has_css_nesting(state) {
@@ -3988,11 +4009,11 @@ where
             state,
             rule,
             None,
-            Some(has_declarations(&node.children)),
+            Some(has_declarations(node.children)),
             async |c, s| {
                 // Opaque NESTED-tabs scope (libsass bubble boundary).
                 let tabs_start = tabs_opaque_push(s);
-                for child in &node.children {
+                for child in node.children {
                     evaluate_statement(c, s, arena, child).await?;
                 }
                 tabs_opaque_pop(s, &tabs_node, tabs_start);
@@ -4014,7 +4035,7 @@ where
         state,
         rule,
         through,
-        Some(has_declarations(&node.children)),
+        Some(has_declarations(node.children)),
         async |config, state| {
             // Opaque NESTED-tabs scope (libsass bubble boundary).
             let tabs_start = tabs_opaque_push(state);
@@ -4024,7 +4045,7 @@ where
                 // Bubble-copy style frame for NESTED tabs (see media path).
                 tabs_frame_push(state, &sr_copy);
                 with_parent(arena, config, state, sr_copy, None, None, async |c, s| {
-                    for child in &node.children {
+                    for child in node.children {
                         evaluate_statement(c, s, arena, child).await?;
                     }
                     Ok(())
@@ -4032,7 +4053,7 @@ where
                 .await?;
                 tabs_frame_pop_and_stamp(state);
             } else {
-                for child in &node.children {
+                for child in node.children {
                     evaluate_statement(config, state, arena, child).await?;
                 }
             }
@@ -4064,7 +4085,7 @@ fn has_declarations<'parse>(children: &[Statement<'parse>]) -> bool {
             | Statement::FunctionRule(_)
             | Statement::MixinRule(_) => return true,
             Statement::ImportRule(import) => {
-                for imp in &import.imports {
+                for imp in import.imports {
                     if matches!(imp, Import::Dynamic(_)) {
                         return true;
                     }
@@ -4092,11 +4113,11 @@ pub(crate) async fn evaluate_statement_if_rule<'compile, 'parse>(
 where
     'compile: 'parse,
 {
-    let mut chosen: Option<&[Statement<'parse>]> = node.last_clause.as_deref();
-    for clause in &node.clauses {
+    let mut chosen: Option<&[Statement<'parse>]> = node.last_clause;
+    for clause in node.clauses {
         let cond = evaluate_expression(config, state, arena, &clause.expression).await?;
         if cond.is_truthy() {
-            chosen = Some(&clause.children);
+            chosen = Some(clause.children);
             break;
         }
     }
@@ -4156,24 +4177,24 @@ where
                 if node.variables.len() == 1 {
                     state
                         .env
-                        .set_local_variable(&node.variables[0], cleaned, span);
+                        .set_local_variable(node.variables[0], cleaned, span);
                 } else {
                     let sub_items = cleaned.as_list(arena)?;
                     let min_len = node.variables.len().min(sub_items.len());
                     for (vi, sub_item) in sub_items.iter().take(min_len).enumerate() {
                         let sub = without_slash(config, state, arena, *sub_item, span)?;
-                        state.env.set_local_variable(&node.variables[vi], sub, span);
+                        state.env.set_local_variable(node.variables[vi], sub, span);
                     }
                     for vi in min_len..node.variables.len() {
                         state.env.set_local_variable(
-                            &node.variables[vi],
+                            node.variables[vi],
                             Value::new_with_arena(arena, ValueKind::Null),
                             span,
                         );
                     }
                 }
 
-                for child in &node.children {
+                for child in node.children {
                     if let Some(val) = evaluate_statement(config, state, arena, child).await? {
                         return Ok(Some(val));
                     }
@@ -4207,7 +4228,7 @@ pub(crate) async fn evaluate_statement_while_rule<'compile, 'parse>(
 where
     'compile: 'parse,
 {
-    let has_decls = has_declarations(&node.children);
+    let has_decls = has_declarations(node.children);
     let env = state.env;
     env.scope(
         arena,
@@ -4217,7 +4238,7 @@ where
                 if !cond.is_truthy() {
                     return Ok(None);
                 }
-                for child in &node.children {
+                for child in node.children {
                     if let Some(val) = evaluate_statement(config, state, arena, child).await? {
                         return Ok(Some(val));
                     }
@@ -4236,6 +4257,9 @@ where
 
 #[cfg(test)]
 mod tests {
+    use crate::ast::sass::statement::arena_statements;
+    use crate::url::ArenaUrl;
+
     use crate::ast::sass::dynamic_import::DynamicImport;
     use crate::ast::sass::expression_string::StringExpression;
     use crate::ast::sass::static_import::StaticImport;
@@ -4250,6 +4274,7 @@ mod tests {
     use crate::value::SassList;
     use crate::value::SassString;
     use bumpalo::Bump;
+    use std::rc::Rc;
 
     use super::*;
 
@@ -4308,13 +4333,13 @@ mod tests {
         let span = make_span(arena, "root");
         let root = ModifiableCssNode::new(
             arena,
-            ModifiableCssNodeKind::Stylesheet(ModifiableCssStylesheet::new(span)),
+            ModifiableCssNodeKind::Stylesheet(ModifiableCssStylesheet::new(arena, span)),
         );
         state.root = Some(root.clone());
         state.parent = Some(root);
         state.extension_store = Some(DefaultExtensionStore::new(
+            arena,
             ExtendMode::Normal,
-            config.io.clone(),
             config.unicode,
         ));
         (config, state)
@@ -4333,7 +4358,7 @@ mod tests {
         let arena = Bump::new();
         let span = make_span(&arena, "");
         let (config, mut state) = test_visitor(&arena);
-        let sheet = Stylesheet::new(vec![], span);
+        let sheet = Stylesheet::new(&arena, &[], span);
         let result = evaluate_stylesheet(&config, &mut state, &arena, &sheet).await;
         assert!(result.is_ok());
     }
@@ -4344,7 +4369,7 @@ mod tests {
         let span = make_span(&arena, "@error \"msg\"");
         let (config, mut state) = test_visitor(&arena);
         let expr = Expression::String(StringExpression {
-            text: Interpolation::plain("msg".into(), Span::File(span)),
+            text: Interpolation::plain(&arena, "msg".into(), Span::File(span)),
             has_quotes: true,
         });
         let node = ErrorRule {
@@ -4366,7 +4391,7 @@ mod tests {
         let (config, mut state) = test_visitor(&arena);
         let expr = Expression::Number(NumberExpression {
             value: 42.0,
-            unit: Some("px".into()),
+            unit: Some("px"),
             span,
         });
         let node = ReturnRule {
@@ -4425,7 +4450,7 @@ mod tests {
         let span = make_span(&arena, "$x: 1");
         let (config, mut state) = test_visitor(&arena);
         let var = Statement::VariableDeclaration(VariableDeclaration {
-            name: "x".into(),
+            name: "x",
             expression: Expression::Number(NumberExpression {
                 value: 1.0,
                 unit: None,
@@ -4461,10 +4486,10 @@ mod tests {
         });
         let clause = IfClause {
             expression: Expression::Boolean(BooleanExpression { value: true, span }),
-            children: vec![return_stmt],
+            children: arena_statements(&arena, vec![return_stmt]),
         };
         let rule = IfRule {
-            clauses: vec![clause],
+            clauses: arena.alloc_slice_fill_iter(vec![clause]),
             last_clause: None,
             span,
         };
@@ -4493,7 +4518,7 @@ mod tests {
             span,
         });
         let rule = ForRule {
-            variable: "i".into(),
+            variable: "i",
             from: Expression::Number(NumberExpression {
                 value: 1.0,
                 unit: None,
@@ -4505,7 +4530,7 @@ mod tests {
                 span,
             }),
             is_exclusive: false,
-            children: vec![return_stmt],
+            children: arena_statements(&arena, vec![return_stmt]),
             span,
         };
         let result = evaluate_statement_for_rule(&config, &mut state, &arena, &rule)
@@ -4533,17 +4558,18 @@ mod tests {
             span,
         });
         let list = SassList::new(
+            &arena,
             vec![Value::new_with_arena(&arena, ValueKind::Null)],
             ListSeparator::Undecided,
             false,
         );
         let rule = EachRule {
-            variables: vec!["x".into()],
+            variables: &["x"],
             list: Expression::Value(ValueExpression {
-                value: Box::new(Value::new_with_arena(&arena, ValueKind::List(list))),
+                value: Value::new_with_arena(&arena, ValueKind::List(list)),
                 span,
             }),
-            children: vec![return_stmt],
+            children: arena_statements(&arena, vec![return_stmt]),
             span,
         };
         let result = evaluate_statement_each_rule(&config, &mut state, &arena, &rule)
@@ -4572,7 +4598,7 @@ mod tests {
         });
         let rule = WhileRule {
             condition: Expression::Boolean(BooleanExpression { value: true, span }),
-            children: vec![return_stmt],
+            children: arena_statements(&arena, vec![return_stmt]),
             span,
         };
         let result = evaluate_statement_while_rule(&config, &mut state, &arena, &rule)
@@ -4593,8 +4619,8 @@ mod tests {
         let arena = Bump::new();
         let span = make_span(&arena, "@import url(\"foo.css\")");
         let (config, mut state) = test_visitor_with_root(&arena);
-        let name = Interpolation::plain("import".into(), Span::File(span));
-        let value = Interpolation::plain("url(\"foo.css\")".into(), Span::File(span));
+        let name = Interpolation::plain(&arena, "import".into(), Span::File(span));
+        let value = Interpolation::plain(&arena, "url(\"foo.css\")".into(), Span::File(span));
         let rule = AtRule {
             name,
             value: Some(value),
@@ -4625,15 +4651,15 @@ mod tests {
         let span = make_span(&arena, "color: red");
         let (config, mut state) = test_visitor_with_root(&arena);
         state.in_unknown_at_rule = true;
-        let name = Interpolation::plain("color".into(), Span::File(span));
+        let name = Interpolation::plain(&arena, "color".into(), Span::File(span));
         let val_expr = Expression::Value(ValueExpression {
-            value: Box::new(Value::new_with_arena(
+            value: Value::new_with_arena(
                 &arena,
                 ValueKind::String(SassString {
                     text: "red",
                     has_quotes: false,
                 }),
-            )),
+            ),
             span,
         });
         let node = Declaration {
@@ -4661,9 +4687,9 @@ mod tests {
         let arena = Bump::new();
         let span = make_span(&arena, "color: red");
         let (config, mut state) = test_visitor_with_root(&arena);
-        let name = Interpolation::plain("color".into(), Span::File(span));
+        let name = Interpolation::plain(&arena, "color".into(), Span::File(span));
         let val_expr = Expression::Value(ValueExpression {
-            value: Box::new(Value::new_with_arena(&arena, ValueKind::Null)),
+            value: Value::new_with_arena(&arena, ValueKind::Null),
             span,
         });
         let node = Declaration {
@@ -4688,9 +4714,9 @@ mod tests {
         let span = make_span(&arena, "color: null");
         let (config, mut state) = test_visitor_with_root(&arena);
         state.in_unknown_at_rule = true;
-        let name = Interpolation::plain("color".into(), Span::File(span));
+        let name = Interpolation::plain(&arena, "color".into(), Span::File(span));
         let val_expr = Expression::Value(ValueExpression {
-            value: Box::new(Value::new_with_arena(&arena, ValueKind::Null)),
+            value: Value::new_with_arena(&arena, ValueKind::Null),
             span,
         });
         let node = Declaration {
@@ -4714,15 +4740,15 @@ mod tests {
         let (config, mut state) = test_visitor_with_root(&arena);
         state.in_unknown_at_rule = true;
         state.declaration_name = Some("font".into());
-        let name = Interpolation::plain("weight".into(), Span::File(span));
+        let name = Interpolation::plain(&arena, "weight".into(), Span::File(span));
         let val_expr = Expression::Value(ValueExpression {
-            value: Box::new(Value::new_with_arena(
+            value: Value::new_with_arena(
                 &arena,
                 ValueKind::String(SassString {
                     text: "bold",
                     has_quotes: false,
                 }),
-            )),
+            ),
             span,
         });
         let node = Declaration {
@@ -4752,11 +4778,11 @@ mod tests {
         let arena = Bump::new();
         let span = make_span(&arena, "@media screen { $x: 1; }");
         let (config, mut state) = test_visitor_with_root(&arena);
-        let query = Interpolation::plain("screen".into(), Span::File(span));
+        let query = Interpolation::plain(&arena, "screen".into(), Span::File(span));
         // Add a child that sets a variable — this proves the with_media_queries
         // callback ran successfully (which only happens if parsing succeeded).
         let child = Statement::VariableDeclaration(VariableDeclaration {
-            name: "x".into(),
+            name: "x",
             expression: Expression::Number(NumberExpression {
                 value: 1.0,
                 unit: None,
@@ -4770,7 +4796,7 @@ mod tests {
         });
         let rule = MediaRule {
             query,
-            children: vec![child],
+            children: arena_statements(&arena, vec![child]),
             span,
         };
         evaluate_media_rule(&config, &mut state, &arena, &rule)
@@ -4795,10 +4821,10 @@ mod tests {
         let span = make_span(&arena, "@media screen");
         let (config, mut state) = test_visitor_with_root(&arena);
         state.declaration_name = Some("color".into());
-        let query = Interpolation::plain("screen".into(), Span::File(span));
+        let query = Interpolation::plain(&arena, "screen".into(), Span::File(span));
         let rule = MediaRule {
             query,
-            children: vec![],
+            children: &[],
             span,
         };
         let err = evaluate_media_rule(&config, &mut state, &arena, &rule)
@@ -4817,7 +4843,7 @@ mod tests {
         let arena = Bump::new();
         let span = make_span(&arena, "@extend .foo");
         let (config, mut state) = test_visitor_with_root(&arena);
-        let selector = Interpolation::plain(".foo".into(), Span::File(span));
+        let selector = Interpolation::plain(&arena, ".foo".into(), Span::File(span));
         let rule = ExtendRule {
             selector,
             span,
@@ -4845,7 +4871,8 @@ mod tests {
         let (config, mut state) = test_visitor_with_root(arena);
         let span = make_span(arena, "root");
         state.stylesheet = Some(arena.alloc(Stylesheet::detailed(
-            vec![],
+            arena,
+            &[],
             span,
             vec![],
             plain_css,
@@ -4861,8 +4888,8 @@ mod tests {
         let (config, mut state) = test_visitor_with_root_and_stylesheet(&arena, false);
         state.in_unknown_at_rule = true;
         state.in_dependency = false;
-        let selector = Interpolation::plain(".foo".into(), Span::File(span));
-        let rule = StyleRule::new(selector, vec![], span);
+        let selector = Interpolation::plain(&arena, ".foo".into(), Span::File(span));
+        let rule = StyleRule::new(selector, &[], span);
 
         let result = evaluate_style_rule(&config, &mut state, &arena, &rule).await;
         assert!(result.is_ok());
@@ -4893,8 +4920,8 @@ mod tests {
         let span = make_span(&arena, ".foo");
         let (config, mut state) = test_visitor_with_root_and_stylesheet(&arena, false);
         state.declaration_name = Some("color".into());
-        let selector = Interpolation::plain(".foo".into(), Span::File(span));
-        let rule = StyleRule::new(selector, vec![], span);
+        let selector = Interpolation::plain(&arena, ".foo".into(), Span::File(span));
+        let rule = StyleRule::new(selector, &[], span);
 
         let err = evaluate_style_rule(&config, &mut state, &arena, &rule)
             .await
@@ -4911,13 +4938,13 @@ mod tests {
         let span = make_span(&arena, ".bar");
         let (config, mut state) = test_visitor_with_root_and_stylesheet(&arena, false);
         state.in_keyframes = true;
-        let kfb = ModifiableCssKeyframeBlock::new(CssValue::new(vec!["from".into()], span), span);
+        let kfb = ModifiableCssKeyframeBlock::new(&arena, CssValue::new(&["from"][..], span), span);
         state.parent = Some(ModifiableCssNode::new(
             &arena,
             ModifiableCssNodeKind::KeyframeBlock(kfb),
         ));
-        let selector = Interpolation::plain(".bar".into(), Span::File(span));
-        let rule = StyleRule::new(selector, vec![], span);
+        let selector = Interpolation::plain(&arena, ".bar".into(), Span::File(span));
+        let rule = StyleRule::new(selector, &[], span);
 
         let err = evaluate_style_rule(&config, &mut state, &arena, &rule)
             .await
@@ -4934,8 +4961,8 @@ mod tests {
         let span = make_span(&arena, "from");
         let (config, mut state) = test_visitor_with_root_and_stylesheet(&arena, false);
         state.in_keyframes = true;
-        let selector = Interpolation::plain("from".into(), Span::File(span));
-        let rule = StyleRule::new(selector, vec![], span);
+        let selector = Interpolation::plain(&arena, "from".into(), Span::File(span));
+        let rule = StyleRule::new(selector, &[], span);
 
         let result = evaluate_style_rule(&config, &mut state, &arena, &rule).await;
         assert!(result.is_ok());
@@ -4956,8 +4983,8 @@ mod tests {
         let (config, mut state) = test_visitor_with_root_and_stylesheet(&arena, false);
         state.in_unknown_at_rule = true;
         state.in_dependency = false;
-        let selector = Interpolation::plain(".foo".into(), Span::File(span));
-        let rule = StyleRule::new(selector, vec![], span);
+        let selector = Interpolation::plain(&arena, ".foo".into(), Span::File(span));
+        let rule = StyleRule::new(selector, &[], span);
 
         evaluate_style_rule(&config, &mut state, &arena, &rule)
             .await
@@ -4977,8 +5004,8 @@ mod tests {
         let (config, mut state) = test_visitor_with_root_and_stylesheet(&arena, false);
         state.in_unknown_at_rule = true;
         state.in_dependency = false;
-        let parent_sel = Interpolation::plain(".parent".into(), Span::File(span));
-        let parent_rule = StyleRule::new(parent_sel, vec![], span);
+        let parent_sel = Interpolation::plain(&arena, ".parent".into(), Span::File(span));
+        let parent_rule = StyleRule::new(parent_sel, &[], span);
         evaluate_style_rule(&config, &mut state, &arena, &parent_rule)
             .await
             .unwrap();
@@ -5000,8 +5027,8 @@ mod tests {
         };
         state.style_rule_ignoring_at_root = Some(parent_css);
 
-        let child_sel = Interpolation::plain(".child".into(), Span::File(span));
-        let child_rule = StyleRule::new(child_sel, vec![], span);
+        let child_sel = Interpolation::plain(&arena, ".child".into(), Span::File(span));
+        let child_rule = StyleRule::new(child_sel, &[], span);
         evaluate_style_rule(&config, &mut state, &arena, &child_rule)
             .await
             .unwrap();
@@ -5027,8 +5054,8 @@ mod tests {
         let (config, mut state) = test_visitor_with_root_and_stylesheet(&arena, false);
         state.in_unknown_at_rule = true;
         state.in_dependency = false;
-        let parent_sel = Interpolation::plain(".parent".into(), Span::File(span));
-        let parent_rule = StyleRule::new(parent_sel, vec![], span);
+        let parent_sel = Interpolation::plain(&arena, ".parent".into(), Span::File(span));
+        let parent_rule = StyleRule::new(parent_sel, &[], span);
         evaluate_style_rule(&config, &mut state, &arena, &parent_rule)
             .await
             .unwrap();
@@ -5045,7 +5072,8 @@ mod tests {
         state.style_rule_ignoring_at_root = Some(parent_css);
 
         state.stylesheet = Some(arena.alloc(Stylesheet::detailed(
-            vec![],
+            &arena,
+            &[],
             span,
             vec![],
             true,
@@ -5053,8 +5081,8 @@ mod tests {
         )));
 
         let child_span = make_span(&arena, "> .child");
-        let child_sel = Interpolation::plain("> .child".into(), Span::File(child_span));
-        let child_rule = StyleRule::new(child_sel, vec![], child_span);
+        let child_sel = Interpolation::plain(&arena, "> .child".into(), Span::File(child_span));
+        let child_rule = StyleRule::new(child_sel, &[], child_span);
         let err = evaluate_style_rule(&config, &mut state, &arena, &child_rule)
             .await
             .unwrap_err();
@@ -5075,7 +5103,12 @@ mod tests {
     {
         let (config, mut state) = test_visitor_with_root_and_stylesheet(arena, false);
         let empty_importers: Vec<Importer<'parse>> = vec![];
-        state.import_cache = Some(ImportCache::new(arena, empty_importers, false));
+        state.import_cache = Some(ImportCache::new(
+            arena,
+            empty_importers,
+            false,
+            Rc::new(VirtualIo::new()),
+        ));
         (config, state)
     }
 
@@ -5084,10 +5117,10 @@ mod tests {
         let arena = Bump::new();
         let span = make_span(&arena, "@import \"foo.css\"");
         let (config, mut state) = test_visitor_with_root_stylesheet_and_cache(&arena);
-        let url = Interpolation::plain("foo.css".into(), Span::File(span));
+        let url = Interpolation::plain(&arena, "foo.css".into(), Span::File(span));
         let static_import = StaticImport::new(url, span, None);
         let imports = vec![Import::Static(static_import)];
-        let rule = ImportRule::new(imports, span);
+        let rule = ImportRule::new(&arena, imports, span);
 
         let result = evaluate_import_rule(&config, &mut state, &arena, &rule).await;
         assert!(result.is_ok());
@@ -5106,11 +5139,11 @@ mod tests {
         let arena = Bump::new();
         let span = make_span(&arena, "@import \"foo.css\" screen");
         let (config, mut state) = test_visitor_with_root_stylesheet_and_cache(&arena);
-        let url = Interpolation::plain("foo.css".into(), Span::File(span));
-        let modifiers = Interpolation::plain("screen".into(), Span::File(span));
+        let url = Interpolation::plain(&arena, "foo.css".into(), Span::File(span));
+        let modifiers = Interpolation::plain(&arena, "screen".into(), Span::File(span));
         let static_import = StaticImport::new(url, span, Some(modifiers));
         let imports = vec![Import::Static(static_import)];
-        let rule = ImportRule::new(imports, span);
+        let rule = ImportRule::new(&arena, imports, span);
 
         let result = evaluate_import_rule(&config, &mut state, &arena, &rule).await;
         assert!(result.is_ok());
@@ -5134,7 +5167,7 @@ mod tests {
         let err = compile_string(
             "a { b: { c: d; $x: 1; } e: $x; }",
             io,
-            CompileOptions::new(&arena),
+            &mut CompileOptions::new(&arena),
             &arena,
         )
         .await
@@ -5152,7 +5185,7 @@ mod tests {
         let result = compile_string(
             "a { b: { c: d; } e: f; }",
             io,
-            CompileOptions::new(&arena),
+            &mut CompileOptions::new(&arena),
             &arena,
         )
         .await
@@ -5170,11 +5203,11 @@ mod tests {
         files.insert("/other.scss".to_string(), "a {b: c}".to_string());
         let io: Rc<dyn Io> = Rc::new(VirtualIo::with_files(files));
         let mut opts = CompileOptions::new(&arena);
-        opts.url = Some(SassUrl::parse("file:///input.scss").unwrap());
+        opts.url = Some(OwnedUrl::parse("file:///input.scss").unwrap());
         let css = compile_string(
             "@use \"other\" as *;\n/* between */\n@use \"other\" as *;\n",
             io,
-            opts,
+            &mut opts,
             &arena,
         )
         .await
@@ -5195,11 +5228,11 @@ mod tests {
         files.insert("/other.scss".to_string(), "a {b: c}".to_string());
         let io: Rc<dyn Io> = Rc::new(VirtualIo::with_files(files));
         let mut opts = CompileOptions::new(&arena);
-        opts.url = Some(SassUrl::parse("file:///input.scss").unwrap());
+        opts.url = Some(OwnedUrl::parse("file:///input.scss").unwrap());
         let result = compile_string(
             "/* before */\n@use \"other\" as *;\n/* between */\n@use \"other\" as *;\n/* after */\n",
             io,
-            opts,
+            &mut opts,
             &arena,
         )
         .await
@@ -5224,7 +5257,7 @@ mod tests {
         let err = compile_string(
             "@media screen { $x: 1; }\na { color: $x; }",
             io,
-            CompileOptions::new(&arena),
+            &mut CompileOptions::new(&arena),
             &arena,
         )
         .await
@@ -5242,7 +5275,7 @@ mod tests {
         let result = compile_string(
             "@media screen { @media (min-width: 100px) { @media (orientation: landscape) { d { e: f; } } } }",
             io,
-            CompileOptions::new(&arena),
+            &mut CompileOptions::new(&arena),
             &arena,
         )
         .await
@@ -5262,7 +5295,7 @@ mod tests {
         let result = compile_string(
             "a { @media screen { b: c; } d: e; }",
             io,
-            CompileOptions::new(&arena),
+            &mut CompileOptions::new(&arena),
             &arena,
         )
         .await
@@ -5294,7 +5327,7 @@ mod tests {
         for (src, expected) in cases {
             let arena = Bump::new();
             let io: Rc<dyn Io> = Rc::new(VirtualIo::new());
-            let result = compile_string(src, io, CompileOptions::new(&arena), &arena)
+            let result = compile_string(src, io, &mut CompileOptions::new(&arena), &arena)
                 .await
                 .unwrap();
             assert_eq!(result.css(), expected, "src: {src}");
@@ -5312,7 +5345,7 @@ mod tests {
         let err = compile_string(
             "@include nosuch.mixin;",
             io,
-            CompileOptions::new(&arena),
+            &mut CompileOptions::new(&arena),
             &arena,
         )
         .await
@@ -5330,7 +5363,7 @@ mod tests {
         let err = compile_string(
             "@use \"sass:math\";\na { @include math.undefined; }",
             io,
-            CompileOptions::new(&arena),
+            &mut CompileOptions::new(&arena),
             &arena,
         )
         .await
@@ -5348,7 +5381,7 @@ mod tests {
         let result = compile_string(
             "@mixin foo { b: c; }\na { @include foo; }",
             io,
-            CompileOptions::new(&arena),
+            &mut CompileOptions::new(&arena),
             &arena,
         )
         .await
@@ -5365,7 +5398,7 @@ mod tests {
         let err = compile_string(
             "@mixin m { @content; }\na { b: { c: d; @include m { @foo { e: f; } } } }",
             io,
-            CompileOptions::new(&arena),
+            &mut CompileOptions::new(&arena),
             &arena,
         )
         .await
@@ -5385,7 +5418,7 @@ mod tests {
         let result = compile_string(
             "@foo #{'  bar  '};",
             io,
-            CompileOptions::new(&arena),
+            &mut CompileOptions::new(&arena),
             &arena,
         )
         .await
@@ -5399,7 +5432,7 @@ mod tests {
         let result = compile_string(
             "a { @foo { b: c; } d: e; }",
             io,
-            CompileOptions::new(&arena),
+            &mut CompileOptions::new(&arena),
             &arena,
         )
         .await
@@ -5419,7 +5452,7 @@ mod tests {
         let result = compile_string(
             "@media screen {\n  @foo {\n    a {\n      @at-root (without: media rule) { b: c; }\n    }\n  }\n}",
             io,
-            CompileOptions::new(&arena),
+            &mut CompileOptions::new(&arena),
             &arena,
         )
         .await
@@ -5436,7 +5469,7 @@ mod tests {
         let result = compile_string(
             "@media screen {\n  a {\n    @at-root (without: media) { b: c; }\n  }\n}",
             io,
-            CompileOptions::new(&arena),
+            &mut CompileOptions::new(&arena),
             &arena,
         )
         .await
@@ -5448,14 +5481,14 @@ mod tests {
         let arena = Bump::new();
         let io: Rc<dyn Io> = Rc::new(VirtualIo::new());
         let logger = Rc::new(RecordLogger::new());
-        let opts = CompileOptions {
+        let mut opts = CompileOptions {
             logger: Some(logger.clone()),
             ..CompileOptions::new(&arena)
         };
         let result = compile_string(
             "a {\n  @at-root (without: #{red}) { b: c; }\n}",
             io,
-            opts,
+            &mut opts,
             &arena,
         )
         .await
@@ -5480,21 +5513,21 @@ mod tests {
         let arena = Bump::new();
         let io: Rc<dyn Io> = Rc::new(VirtualIo::new());
         let logger = Rc::new(RecordLogger::new());
-        let opts = CompileOptions {
+        let mut opts = CompileOptions {
             logger: Some(logger.clone()),
             ..CompileOptions::new(&arena)
         };
-        compile_string("a { @warn \"hi\"; }", io, opts, &arena)
+        compile_string("a { @warn \"hi\"; }", io, &mut opts, &arena)
             .await
             .unwrap();
-        assert_eq!(logger.messages(), vec!["hi".to_string()]);
+        assert_eq!(logger.messages(), vec!["hi"]);
 
         let arena = Bump::new();
         let io: Rc<dyn Io> = Rc::new(VirtualIo::new());
         let err = compile_string(
             "a { @warn ns.$x; }",
             io,
-            CompileOptions::new(&arena),
+            &mut CompileOptions::new(&arena),
             &arena,
         )
         .await
@@ -5517,7 +5550,7 @@ mod tests {
         let result = compile_string(
             "@for $i from 1 through 2 { a { b: $i; } }",
             io,
-            CompileOptions::new(&arena),
+            &mut CompileOptions::new(&arena),
             &arena,
         )
         .await
@@ -5530,7 +5563,7 @@ mod tests {
         let err = compile_string(
             "@for $i from \"a\" through 3 { a { b: $i; } }",
             io,
-            CompileOptions::new(&arena),
+            &mut CompileOptions::new(&arena),
             &arena,
         )
         .await
@@ -5552,14 +5585,14 @@ mod tests {
         let arena = Bump::new();
         let io: Rc<dyn Io> = Rc::new(VirtualIo::new());
         let logger = Rc::new(RecordLogger::new());
-        let opts = CompileOptions {
+        let mut opts = CompileOptions {
             logger: Some(logger.clone()),
             ..CompileOptions::new(&arena)
         };
         let result = compile_string(
             "@each $a, $b in ((1/2 3/4), (5/6 7/8)) { c { d: $a; e: $b; } }",
             io,
-            opts,
+            &mut opts,
             &arena,
         )
         .await
@@ -5581,7 +5614,7 @@ mod tests {
         let result = compile_string(
             "@each $x in (a b c) { d { e: $x; } }",
             io,
-            CompileOptions::new(&arena),
+            &mut CompileOptions::new(&arena),
             &arena,
         )
         .await
@@ -5600,7 +5633,7 @@ mod tests {
         let err = compile_string(
             "$x: ns.$y;\na { b: 1; }",
             io,
-            CompileOptions::new(&arena),
+            &mut CompileOptions::new(&arena),
             &arena,
         )
         .await
@@ -5619,7 +5652,7 @@ mod tests {
         let result = compile_string(
             "$x: 42;\na { b: $x; }",
             io,
-            CompileOptions::new(&arena),
+            &mut CompileOptions::new(&arena),
             &arena,
         )
         .await
@@ -5633,12 +5666,12 @@ mod tests {
         let span = make_span(&arena, "@import \"nonexistent-file\"");
         let (config, mut state) = test_visitor_with_root_stylesheet_and_cache(&arena);
         let dynamic_import = DynamicImport::new(
-            "nonexistent-file.scss".into(),
-            SassUrl::parse("nonexistent-file.scss").unwrap(),
+            arena.alloc_str("nonexistent-file.scss"),
+            ArenaUrl::parse(&arena, "nonexistent-file.scss").unwrap(),
             span,
         );
         let imports = vec![Import::Dynamic(dynamic_import)];
-        let rule = ImportRule::new(imports, span);
+        let rule = ImportRule::new(&arena, imports, span);
 
         let err = evaluate_import_rule(&config, &mut state, &arena, &rule)
             .await

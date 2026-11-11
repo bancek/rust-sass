@@ -35,8 +35,8 @@ impl<'parse> CallableDeclaration<'parse> {
     /// A content block's name is "@content" (Dart: `super("@content", ...)`).
     pub fn name(&self) -> &str {
         match self {
-            CallableDeclaration::Mixin(m) => &m.name,
-            CallableDeclaration::Function(f) => &f.name,
+            CallableDeclaration::Mixin(m) => m.name,
+            CallableDeclaration::Function(f) => f.name,
             CallableDeclaration::ContentBlock(_) => "@content",
         }
     }
@@ -44,8 +44,8 @@ impl<'parse> CallableDeclaration<'parse> {
     /// The callable's original name, without underscores converted to hyphens.
     pub fn original_name(&self) -> &str {
         match self {
-            CallableDeclaration::Mixin(m) => &m.original_name,
-            CallableDeclaration::Function(f) => &f.original_name,
+            CallableDeclaration::Mixin(m) => m.original_name,
+            CallableDeclaration::Function(f) => f.original_name,
             CallableDeclaration::ContentBlock(_) => "@content",
         }
     }
@@ -61,9 +61,9 @@ impl<'parse> CallableDeclaration<'parse> {
 
     pub fn children(&self) -> &[Statement<'parse>] {
         match self {
-            CallableDeclaration::Mixin(m) => &m.children,
-            CallableDeclaration::Function(f) => &f.children,
-            CallableDeclaration::ContentBlock(c) => &c.children,
+            CallableDeclaration::Mixin(m) => m.children,
+            CallableDeclaration::Function(f) => f.children,
+            CallableDeclaration::ContentBlock(c) => c.children,
         }
     }
 
@@ -79,8 +79,8 @@ impl<'parse> CallableDeclaration<'parse> {
     /// Content blocks never have one (Dart passes no comment to super).
     pub fn comment(&self) -> Option<&SilentComment<'parse>> {
         match self {
-            CallableDeclaration::Mixin(m) => m.comment.as_deref(),
-            CallableDeclaration::Function(f) => f.comment.as_deref(),
+            CallableDeclaration::Mixin(m) => m.comment,
+            CallableDeclaration::Function(f) => f.comment,
             CallableDeclaration::ContentBlock(_) => None,
         }
     }
@@ -91,15 +91,17 @@ mod tests {
     use super::*;
     use crate::ast::sass::parameter_list::ParameterList;
     use crate::common::file_span::BOGUS_SPAN;
+    use bumpalo::Bump;
 
-    fn params() -> ParameterList<'static> {
+    fn params<'p>() -> ParameterList<'p> {
         ParameterList::empty(BOGUS_SPAN)
     }
 
     #[test]
     fn test_mixin_declaration_name_normalization() {
         // Mirrors Go: TestMixinRuleNameNormalization.
-        let mr = MixinRule::new("foo_bar".into(), params(), vec![], BOGUS_SPAN, None);
+        let arena = Bump::new();
+        let mr = MixinRule::new(&arena, "foo_bar", params(), &[], BOGUS_SPAN, None);
         let decl = CallableDeclaration::Mixin(mr);
         assert_eq!(decl.name(), "foo-bar");
         assert_eq!(decl.original_name(), "foo_bar");
@@ -107,7 +109,8 @@ mod tests {
 
     #[test]
     fn test_function_declaration_name() {
-        let fr = FunctionRule::new("f_n".into(), params(), vec![], BOGUS_SPAN, None);
+        let arena = Bump::new();
+        let fr = FunctionRule::new(&arena, "f_n", params(), &[], BOGUS_SPAN, None);
         let decl = CallableDeclaration::Function(fr);
         assert_eq!(decl.name(), "f-n");
         assert_eq!(decl.original_name(), "f_n");
@@ -116,7 +119,7 @@ mod tests {
     #[test]
     fn test_content_block_declaration_name() {
         // Mirrors Go: TestContentBlockName — Dart passes "@content" as the name.
-        let cb = ContentBlock::new(params(), vec![], BOGUS_SPAN);
+        let cb = ContentBlock::new(params(), &[], BOGUS_SPAN);
         let decl = CallableDeclaration::ContentBlock(cb);
         assert_eq!(decl.name(), "@content");
         assert_eq!(decl.original_name(), "@content");
@@ -124,7 +127,8 @@ mod tests {
 
     #[test]
     fn test_declaration_accessors() {
-        let mr = MixinRule::new("m".into(), params(), vec![], BOGUS_SPAN, None);
+        let arena = Bump::new();
+        let mr = MixinRule::new(&arena, "m", params(), &[], BOGUS_SPAN, None);
         let decl = CallableDeclaration::Mixin(mr);
         assert!(decl.children().is_empty());
         assert!(decl.parameters().is_empty());

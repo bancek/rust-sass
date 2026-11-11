@@ -115,9 +115,9 @@ pub(crate) fn color_from_channels<'compile, 'parse>(
     config: &EvalConfig<'compile, 'parse>,
     state: &mut EvalState<'compile, 'parse>,
     space: ColorSpace,
-    channel0: Option<Value<'_>>,
-    channel1: Option<Value<'_>>,
-    channel2: Option<Value<'_>>,
+    channel0: Option<Value<'parse>>,
+    channel1: Option<Value<'parse>>,
+    channel2: Option<Value<'parse>>,
     alpha: Option<f64>,
     from_rgb_function: bool,
     clamp: bool,
@@ -125,7 +125,7 @@ pub(crate) fn color_from_channels<'compile, 'parse>(
 where
     'compile: 'parse,
 {
-    let to_num = |v: &Option<Value<'_>>| -> Option<SassNumber> {
+    let to_num = |v: &Option<Value<'parse>>| -> Option<SassNumber<'parse>> {
         v.as_deref().and_then(|v| match v {
             ValueKind::Number(n) => Some(n.clone()),
             _ => None,
@@ -154,8 +154,16 @@ where
                 None
             };
             let chs = color_space_chs(ColorSpace::Hsl);
-            let c1v = channel_from_value(&chs[1], c1.as_ref().map(force_percent).as_ref(), clamp)?;
-            let c2v = channel_from_value(&chs[2], c2.as_ref().map(force_percent).as_ref(), clamp)?;
+            let c1v = channel_from_value(
+                &chs[1],
+                c1.as_ref().map(|n| force_percent(arena, n)).as_ref(),
+                clamp,
+            )?;
+            let c2v = channel_from_value(
+                &chs[2],
+                c2.as_ref().map(|n| force_percent(arena, n)).as_ref(),
+                clamp,
+            )?;
             Ok(Value::new_with_arena(
                 arena,
                 ValueKind::Color(SassColor::new_color_for_space_internal(

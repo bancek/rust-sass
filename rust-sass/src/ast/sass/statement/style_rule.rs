@@ -23,7 +23,7 @@ use crate::ast::sass::statement::Statement;
 ///
 /// This applies its declarations to elements matching a given selector.
 pub struct StyleRule<'parse> {
-    pub children: Vec<Statement<'parse>>,
+    pub children: &'parse [Statement<'parse>],
     /// The selector the declarations apply to.
     ///
     /// This is only parsed once interpolation has been resolved. Exactly one
@@ -46,7 +46,7 @@ impl<'parse> StyleRule<'parse> {
     /// [`parsed_selector`](Self::parsed_selector) unset.
     pub fn new(
         selector: Interpolation<'parse>,
-        children: Vec<Statement<'parse>>,
+        children: &'parse [Statement<'parse>],
         span: FileSpan<'parse>,
     ) -> Self {
         StyleRule {
@@ -61,7 +61,7 @@ impl<'parse> StyleRule<'parse> {
     /// set and [`selector`](Self::selector) unset.
     pub fn with_parsed_selector(
         parsed_selector: InterpolatedSelectorList<'parse>,
-        children: Vec<Statement<'parse>>,
+        children: &'parse [Statement<'parse>],
         span: FileSpan<'parse>,
     ) -> Self {
         StyleRule {
@@ -92,7 +92,7 @@ impl<'parse> StyleRule<'parse> {
             None => write!(buf, "[parsed selector]").unwrap(),
         }
         write!(buf, " {{").unwrap();
-        for child in &self.children {
+        for child in self.children {
             write!(buf, " {child}").unwrap();
         }
         write!(buf, " }}").unwrap();
@@ -130,7 +130,7 @@ mod tests {
         'parse: 'compile,
     {
         let span = make_span(arena, text);
-        Interpolation::plain(text.into(), span)
+        Interpolation::plain(arena, text.into(), span)
     }
 
     #[test]
@@ -138,7 +138,7 @@ mod tests {
         let arena = Bump::new();
         let span = make_span(&arena, ".foo { }");
         let sel = make_interp(&arena, ".foo");
-        let sr = StyleRule::new(sel, vec![], span);
+        let sr = StyleRule::new(sel, &[], span);
         assert!(sr.selector.is_some());
     }
 
@@ -147,7 +147,7 @@ mod tests {
         let arena = Bump::new();
         let span = make_span(&arena, ".foo { }");
         let sel = make_interp(&arena, ".foo");
-        let sr = StyleRule::new(sel, vec![], span);
+        let sr = StyleRule::new(sel, &[], span);
         let s = format!("{sr}");
         assert!(s.contains(".foo"), "got {s:?}");
     }

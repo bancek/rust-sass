@@ -7,6 +7,7 @@
 // dart-source: lib/src/ast/sass/expression/unary_operation.dart
 // go-source: go/value/sass_expression_unary_operation.go
 
+use bumpalo::Bump;
 use std::fmt;
 use std::fmt::Write;
 
@@ -24,19 +25,20 @@ pub struct UnaryOperationExpression<'parse> {
     /// The operator being invoked.
     pub operator: UnaryOperator,
     /// The operand.
-    pub operand: Box<Expression<'parse>>,
+    pub operand: &'parse Expression<'parse>,
     pub span: FileSpan<'parse>,
 }
 
 impl<'parse> UnaryOperationExpression<'parse> {
     pub fn new(
+        arena: &'parse Bump,
         operator: UnaryOperator,
         operand: Expression<'parse>,
         span: FileSpan<'parse>,
     ) -> Self {
         UnaryOperationExpression {
             operator,
-            operand: Box::new(operand),
+            operand: arena.alloc(operand),
             span,
         }
     }
@@ -59,14 +61,14 @@ impl<'parse> UnaryOperationExpression<'parse> {
         if self.operator == UnaryOperator::Not {
             write!(buf, " ").unwrap();
         }
-        let needs_parens = matches!(self.operand.as_ref(), Expression::BinaryOperation(_))
-            || matches!(self.operand.as_ref(), Expression::UnaryOperation(_))
-            || matches!(self.operand.as_ref(), Expression::List(list)
+        let needs_parens = matches!(self.operand, Expression::BinaryOperation(_))
+            || matches!(self.operand, Expression::UnaryOperation(_))
+            || matches!(self.operand, Expression::List(list)
                 if !list.has_brackets && list.contents.len() >= 2);
         if needs_parens {
-            write!(buf, "({})", Expression::to_display_string(&self.operand)?).unwrap();
+            write!(buf, "({})", Expression::to_display_string(self.operand)?).unwrap();
         } else {
-            write!(buf, "{}", Expression::to_display_string(&self.operand)?).unwrap();
+            write!(buf, "{}", Expression::to_display_string(self.operand)?).unwrap();
         }
         Ok(buf)
     }
@@ -107,8 +109,12 @@ mod tests {
         let arena = Bump::new();
         let span = test_span(&arena, "-1", 0, 2);
         let inner = NumberExpression::new(1.0, span, None);
-        let expr =
-            UnaryOperationExpression::new(UnaryOperator::Minus, Expression::Number(inner), span);
+        let expr = UnaryOperationExpression::new(
+            &arena,
+            UnaryOperator::Minus,
+            Expression::Number(inner),
+            span,
+        );
         assert_eq!(expr.operator, UnaryOperator::Minus);
     }
 
@@ -118,7 +124,7 @@ mod tests {
         let fs = FileSource::new_in(&arena, "-5", None);
         let span = FileSpan::new(Some(fs), 0, 2);
         let operand = Expression::Number(NumberExpression::new(5.0, span, None));
-        let expr = UnaryOperationExpression::new(UnaryOperator::Minus, operand, span);
+        let expr = UnaryOperationExpression::new(&arena, UnaryOperator::Minus, operand, span);
         assert_eq!(format!("{}", expr), "-5");
     }
 
@@ -127,8 +133,12 @@ mod tests {
         let arena = Bump::new();
         let span = test_span(&arena, "-1", 0, 2);
         let inner = NumberExpression::new(1.0, span, None);
-        let expr =
-            UnaryOperationExpression::new(UnaryOperator::Minus, Expression::Number(inner), span);
+        let expr = UnaryOperationExpression::new(
+            &arena,
+            UnaryOperator::Minus,
+            Expression::Number(inner),
+            span,
+        );
         assert!(expr.source_interpolation().is_none());
     }
 }

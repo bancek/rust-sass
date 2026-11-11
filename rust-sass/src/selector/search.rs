@@ -61,7 +61,7 @@ impl<'parse> SelectorVisitor<'parse> for SelectorSearchVisitor {
         }
     }
     fn visit_complex_selector(&mut self, complex: &ComplexSelector<'parse>) -> SassResult<bool> {
-        for component in &complex.components {
+        for component in complex.components {
             if self.visit_compound_selector(&component.selector)? {
                 return Ok(true);
             }
@@ -69,7 +69,7 @@ impl<'parse> SelectorVisitor<'parse> for SelectorSearchVisitor {
         Ok(false)
     }
     fn visit_compound_selector(&mut self, compound: &CompoundSelector<'parse>) -> SassResult<bool> {
-        for simple in &compound.components {
+        for simple in compound.components {
             if simple.accept(self)? {
                 return Ok(true);
             }
@@ -77,7 +77,7 @@ impl<'parse> SelectorVisitor<'parse> for SelectorSearchVisitor {
         Ok(false)
     }
     fn visit_selector_list(&mut self, list: &SelectorList<'parse>) -> SassResult<bool> {
-        for complex in &list.components {
+        for complex in list.components {
             if self.visit_complex_selector(complex)? {
                 return Ok(true);
             }

@@ -12,7 +12,7 @@ use std::rc::Rc;
 
 use bumpalo::Bump;
 
-use crate::url::SassUrl;
+use crate::url::OwnedUrl;
 
 use crate::callable::Callable;
 use crate::deprecation::Deprecation;
@@ -50,12 +50,12 @@ pub struct CompileOptions<'compile, 'parse> {
     /// used as the base for relative imports and as the source-map entry;
     /// a relative value triggers the `COMPILE_STRING_RELATIVE_URL`
     /// deprecation unless a node-package importer is present.
-    pub url: Option<SassUrl>,
+    pub url: Option<OwnedUrl>,
     /// Package resolution configuration for `pkg:` URLs.
     pub package_config: Option<Rc<dyn PackageConfig>>,
     /// When set, legacy Node.js-style resolution applies and the
     /// `LEGACY_JS_API` deprecation fires.
-    pub node_package_importer: Option<&'parse NodePackageImporter>,
+    pub node_package_importer: Option<&'parse NodePackageImporter<'parse>>,
     /// Host-provided custom functions, registered before the built-ins so
     /// they take precedence on name conflicts.
     pub functions: Vec<Callable<'compile, 'parse>>,
@@ -115,10 +115,10 @@ impl<'compile: 'parse, 'parse> CompileOptions<'compile, 'parse> {
     /// Creates options with all defaults. The arena-backed `importer` defaults
     /// to a `NoOp` importer (replaced by the compile entry-point importer at
     /// compile time), matching `compile_string`'s behavior.
-    pub fn new(arena: &'compile Bump) -> Self {
+    pub fn new(_arena: &'compile Bump) -> Self {
         CompileOptions {
             importers: Vec::new(),
-            importer: Importer::new(arena, ImporterKind::NoOp),
+            importer: Importer::new(ImporterKind::NoOp),
             load_paths: Vec::new(),
             sass_path: String::new(),
             url: None,

@@ -43,7 +43,9 @@ pub struct InterpolationMap<'parse> {
     /// corresponds to the end of the component at the same index of
     /// `interpolation.contents`. Its length is always one less than the
     /// contents length because the last element always ends the string.
-    target_offsets: Vec<usize>,
+    ///
+    /// Allocated in the compile arena: the map itself is arena-resident.
+    target_offsets: &'parse [usize],
 }
 
 impl<'parse> InterpolationMap<'parse> {
@@ -54,7 +56,7 @@ impl<'parse> InterpolationMap<'parse> {
     /// generated string after `interpolation.contents[i]`.
     pub fn new(
         interpolation: Interpolation<'parse>,
-        target_offsets: Vec<usize>,
+        target_offsets: &'parse [usize],
     ) -> Result<Self, ArgumentError> {
         let expected = std::cmp::max(0, interpolation.contents.len().saturating_sub(1));
         if target_offsets.len() != expected {
@@ -223,7 +225,7 @@ impl<'parse> InterpolationMap<'parse> {
         // No URL-identity early return here: Dart `mapException` has none
         // (its idempotency is `_isMapped` on the empty-contents branch plus
         // `identical(source, target)` after `mapSpan`). The error carries an
-        // owned `SourceSpanWithContext` snapshot (strings + `Option<SassUrl>`,
+        // owned `SourceSpanWithContext` snapshot (strings + `Option<OwnedUrl>`,
         // no `FileSource` ref), so file identity is unrecoverable when URLs
         // are absent — `None == None` would wrongly skip mapping for every
         // URL-less error. The post-mapping no-op check below (same file +
@@ -524,7 +526,7 @@ mod tests {
     use crate::ast::sass::expression::Expression;
     use crate::ast::sass::expression_variable::VariableExpression;
     use crate::common::source_span_file_source::FileSource;
-    use crate::url::SassUrl;
+    use crate::url::OwnedUrl;
     use bumpalo::Bump;
 
     #[test]
@@ -533,9 +535,9 @@ mod tests {
         let fs = FileSource::new_in(&arena, "x", None);
         let span = FileSpan::new(Some(fs), 0, 1);
         let interp =
-            Interpolation::new(vec![InterpolationPart::Text("x".into())], vec![None], span)
+            Interpolation::new(&arena, vec![InterpolationPart::Text("x")], vec![None], span)
                 .unwrap();
-        assert!(InterpolationMap::new(interp, vec![]).is_ok());
+        assert!(InterpolationMap::new(interp, &[]).is_ok());
     }
 
     #[test]
@@ -544,9 +546,9 @@ mod tests {
         let fs = FileSource::new_in(&arena, "x", None);
         let span = FileSpan::new(Some(fs), 0, 1);
         let interp =
-            Interpolation::new(vec![InterpolationPart::Text("x".into())], vec![None], span)
+            Interpolation::new(&arena, vec![InterpolationPart::Text("x")], vec![None], span)
                 .unwrap();
-        let err = InterpolationMap::new(interp, vec![1]).unwrap_err();
+        let err = InterpolationMap::new(interp, &[1]).unwrap_err();
         assert!(err.message.contains("0 targetOffsets"));
     }
 
@@ -555,11 +557,11 @@ mod tests {
         let arena = Bump::new();
         let fs = FileSource::new_in(&arena, "hello", None);
         let span = FileSpan::new(Some(fs), 0, 5);
-        let interp = Interpolation::new(vec![], vec![], span).unwrap();
-        let m = InterpolationMap::new(interp, vec![]).unwrap();
+        let interp = Interpolation::new(&arena, vec![], vec![], span).unwrap();
+        let m = InterpolationMap::new(interp, &[]).unwrap();
 
-        let gen_url = SassUrl::parse("generated:///output").unwrap();
-        let gen_fs = FileSource::new_in(&arena, "output", Some(gen_url));
+        let gen_url = OwnedUrl::parse("generated:///output").unwrap();
+        let gen_fs = FileSource::new_in_owned(&arena, "output", Some(&gen_url));
         let gen_span = Span::File(FileSpan::new(Some(gen_fs), 2, 4));
 
         assert!(!m.is_mapped(&gen_span).unwrap());
@@ -581,22 +583,23 @@ mod tests {
 
         let var_span = FileSpan::new(Some(fs), 4, 8); // "expr"
         let hash_span = FileSpan::new(Some(fs), 2, 9); // "#{expr}"
-        let expr = Expression::Variable(VariableExpression::new("expr".into(), var_span, None));
+        let expr = Expression::Variable(VariableExpression::new(&arena, "expr", var_span, None));
         let interp = Interpolation::new(
+            &arena,
             vec![
-                InterpolationPart::Text("a.".into()),
-                InterpolationPart::Expression(Box::new(expr)),
-                InterpolationPart::Text(".b".into()),
+                InterpolationPart::Text("a."),
+                InterpolationPart::expression(&arena, expr),
+                InterpolationPart::Text(".b"),
             ],
             vec![None, Some(hash_span), None],
             file_span,
         )
         .unwrap();
 
-        let m = InterpolationMap::new(interp, vec![2, 7]).unwrap();
+        let m = InterpolationMap::new(interp, &[2, 7]).unwrap();
 
-        let gen_url = SassUrl::parse("generated:///output").unwrap();
-        let gen_fs = FileSource::new_in(&arena, "a.VALUE.b", Some(gen_url));
+        let gen_url = OwnedUrl::parse("generated:///output").unwrap();
+        let gen_fs = FileSource::new_in_owned(&arena, "a.VALUE.b", Some(&gen_url));
         let gen_span = Span::File(FileSpan::new(Some(gen_fs), 2, 7));
 
         assert!(!m.is_mapped(&gen_span).unwrap());
@@ -618,8 +621,8 @@ mod tests {
         let source = "abc def { ignore } ";
         let fs = FileSource::new_in(&arena, source, None);
         let span = FileSpan::new(Some(fs), 0, source.len());
-        let interp = Interpolation::plain(source.into(), span);
-        let m = InterpolationMap::new(interp, vec![]).unwrap();
+        let interp = Interpolation::plain(&arena, source.into(), span);
+        let m = InterpolationMap::new(interp, &[]).unwrap();
         assert_eq!(m.expand_interpolation_span_right(3).unwrap(), 5);
     }
 
@@ -629,8 +632,8 @@ mod tests {
         let source = "// */\n#{foo}";
         let fs = FileSource::new_in(&arena, source, None);
         let span = FileSpan::new(Some(fs), 0, source.len());
-        let interp = Interpolation::plain(source.into(), span);
-        let m = InterpolationMap::new(interp, vec![]).unwrap();
+        let interp = Interpolation::plain(&arena, source.into(), span);
+        let m = InterpolationMap::new(interp, &[]).unwrap();
         assert_eq!(
             m.expand_interpolation_span_left(source.len()).unwrap(),
             source.rfind("#{").unwrap()
@@ -642,8 +645,8 @@ mod tests {
         let arena = Bump::new();
         let fs = FileSource::new_in(&arena, "source", None);
         let span = FileSpan::new(Some(fs), 0, 6);
-        let interp = Interpolation::plain("source".into(), span);
-        let m = InterpolationMap::new(interp, vec![]).unwrap();
+        let interp = Interpolation::plain(&arena, "source".into(), span);
+        let m = InterpolationMap::new(interp, &[]).unwrap();
 
         let same_fs_span = Span::File(FileSpan::new(Some(fs), 0, 1));
         assert!(m.is_mapped(&same_fs_span).unwrap());
@@ -656,8 +659,8 @@ mod tests {
         let arena = Bump::new();
         let fs = FileSource::new_in(&arena, "source", None);
         let span = FileSpan::new(Some(fs), 0, 6);
-        let interp = Interpolation::plain("source".into(), span);
-        let m = InterpolationMap::new(interp, vec![]).unwrap();
+        let interp = Interpolation::plain(&arena, "source".into(), span);
+        let m = InterpolationMap::new(interp, &[]).unwrap();
         let target = Span::File(FileSpan::new(Some(fs), 1, 3));
         let mapped = m.map_span(&target).unwrap();
         match mapped {
@@ -677,8 +680,8 @@ mod tests {
         let arena = Bump::new();
         let fs_a = FileSource::new_in(&arena, "source", None);
         let span = FileSpan::new(Some(fs_a), 0, 6);
-        let interp = Interpolation::plain("source".into(), span);
-        let m = InterpolationMap::new(interp, vec![]).unwrap();
+        let interp = Interpolation::plain(&arena, "source".into(), span);
+        let m = InterpolationMap::new(interp, &[]).unwrap();
 
         let fs_b = FileSource::new_in(&arena, "source", None);
         assert_eq!(Some(fs_a), Some(fs_b), "setup: allocations compare equal");
@@ -698,8 +701,8 @@ mod tests {
         let arena = Bump::new();
         let fs_a = FileSource::new_in(&arena, "hello", None);
         let span = FileSpan::new(Some(fs_a), 0, 5);
-        let interp = Interpolation::new(vec![], vec![], span).unwrap();
-        let m = InterpolationMap::new(interp, vec![]).unwrap();
+        let interp = Interpolation::new(&arena, vec![], vec![], span).unwrap();
+        let m = InterpolationMap::new(interp, &[]).unwrap();
 
         let fs_b = FileSource::new_in(&arena, "hello", None);
         let target = Span::File(FileSpan::new(Some(fs_b), 2, 4));
@@ -732,18 +735,19 @@ mod tests {
 
         let var_span = FileSpan::new(Some(fs_a), 4, 8); // "expr"
         let hash_span = FileSpan::new(Some(fs_a), 2, 9); // "#{expr}"
-        let expr = Expression::Variable(VariableExpression::new("expr".into(), var_span, None));
+        let expr = Expression::Variable(VariableExpression::new(&arena, "expr", var_span, None));
         let interp = Interpolation::new(
+            &arena,
             vec![
-                InterpolationPart::Text("a.".into()),
-                InterpolationPart::Expression(Box::new(expr)),
-                InterpolationPart::Text(".b".into()),
+                InterpolationPart::Text("a."),
+                InterpolationPart::expression(&arena, expr),
+                InterpolationPart::Text(".b"),
             ],
             vec![None, Some(hash_span), None],
             file_span,
         )
         .unwrap();
-        let m = InterpolationMap::new(interp, vec![2, 7]).unwrap();
+        let m = InterpolationMap::new(interp, &[2, 7]).unwrap();
 
         let gen_fs = FileSource::new_in(&arena, "a.VALUE.b", None);
         let ctx =
@@ -781,8 +785,8 @@ mod tests {
         let arena = Bump::new();
         let fs = FileSource::new_in(&arena, "source", None);
         let span = FileSpan::new(Some(fs), 0, 6);
-        let interp = Interpolation::new(vec![], vec![], span).unwrap();
-        let m = InterpolationMap::new(interp, vec![]).unwrap();
+        let interp = Interpolation::new(&arena, vec![], vec![], span).unwrap();
+        let m = InterpolationMap::new(interp, &[]).unwrap();
         let ctx = SourceSpanWithContext::from_file_span(&FileSpan::new(Some(fs), 1, 3)).unwrap();
         let err = SassError::Format {
             message: "boom".into(),

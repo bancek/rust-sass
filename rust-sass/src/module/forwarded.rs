@@ -75,34 +75,34 @@ impl<'compile: 'parse, 'parse> ForwardedModuleView<'compile, 'parse> {
             variables: member_map::forwarded_map_ordered(
                 arena,
                 inner.variables_view(arena),
-                rule.prefix.as_deref(),
-                rule.shown_order_vars.as_deref(),
-                rule.shown_variables.as_ref(),
-                rule.hidden_variables.as_ref(),
+                rule.prefix,
+                rule.shown_order_vars,
+                rule.shown_variables,
+                rule.hidden_variables,
             ),
             variable_nodes: member_map::forwarded_map_ordered(
                 arena,
                 inner.variable_nodes_view(arena),
-                rule.prefix.as_deref(),
-                rule.shown_order_vars.as_deref(),
-                rule.shown_variables.as_ref(),
-                rule.hidden_variables.as_ref(),
+                rule.prefix,
+                rule.shown_order_vars,
+                rule.shown_variables,
+                rule.hidden_variables,
             ),
             functions: member_map::forwarded_map_ordered(
                 arena,
                 inner.functions_view(arena),
-                rule.prefix.as_deref(),
-                rule.shown_order_mf.as_deref(),
-                rule.shown_mixins_and_functions.as_ref(),
-                rule.hidden_mixins_and_functions.as_ref(),
+                rule.prefix,
+                rule.shown_order_mf,
+                rule.shown_mixins_and_functions,
+                rule.hidden_mixins_and_functions,
             ),
             mixins: member_map::forwarded_map_ordered(
                 arena,
                 inner.mixins_view(arena),
-                rule.prefix.as_deref(),
-                rule.shown_order_mf.as_deref(),
-                rule.shown_mixins_and_functions.as_ref(),
-                rule.hidden_mixins_and_functions.as_ref(),
+                rule.prefix,
+                rule.shown_order_mf,
+                rule.shown_mixins_and_functions,
+                rule.hidden_mixins_and_functions,
             ),
             inner,
             rule: rule.clone(),
@@ -119,14 +119,14 @@ impl<'compile: 'parse, 'parse> ForwardedModuleView<'compile, 'parse> {
         val: Value<'parse>,
         node_span: FileSpan<'parse>,
     ) -> SassResult<()> {
-        if let Some(ref shown) = self.rule.shown_variables {
+        if let Some(shown) = self.rule.shown_variables {
             if !shown.contains(name) {
                 return Err(Box::new(SassError::Script {
                     message: "Undefined variable.".into(),
                     argument_name: None,
                 }));
             }
-        } else if let Some(ref hidden) = self.rule.hidden_variables {
+        } else if let Some(hidden) = self.rule.hidden_variables {
             if hidden.contains(name) {
                 return Err(Box::new(SassError::Script {
                     message: "Undefined variable.".into(),
@@ -136,7 +136,7 @@ impl<'compile: 'parse, 'parse> ForwardedModuleView<'compile, 'parse> {
         }
 
         let inner_name = if let Some(ref prefix) = self.rule.prefix {
-            if let Some(stripped) = name.strip_prefix(prefix.as_str()) {
+            if let Some(stripped) = name.strip_prefix(prefix) {
                 stripped
             } else {
                 return Err(Box::new(SassError::Script {
@@ -159,7 +159,7 @@ impl<'compile: 'parse, 'parse> ForwardedModuleView<'compile, 'parse> {
         }
 
         let inner_name = if let Some(ref prefix) = self.rule.prefix {
-            if !name.starts_with(prefix.as_str()) {
+            if !name.starts_with(prefix) {
                 panic!("assertion failed: variable name does not have prefix");
             }
             &name[prefix.len()..]
@@ -192,16 +192,24 @@ impl<'compile: 'parse, 'parse> ForwardedModuleView<'compile, 'parse> {
         if let Some(ref prefix) = self.rule.prefix {
             filtered = filtered
                 .iter()
-                .filter(|name| name.starts_with(prefix.as_str()))
+                .filter(|name| name.starts_with(prefix))
                 .map(|name| name[prefix.len()..].to_string())
                 .collect();
         }
 
-        if let Some(ref safelist) = self.rule.shown_variables {
-            filtered = filtered.intersection(safelist).cloned().collect();
-        } else if let Some(ref blocklist) = self.rule.hidden_variables {
+        if let Some(safelist) = self.rule.shown_variables {
+            filtered = filtered
+                .iter()
+                .filter(|k| safelist.contains(k.as_str()))
+                .cloned()
+                .collect();
+        } else if let Some(blocklist) = self.rule.hidden_variables {
             if !blocklist.is_empty() {
-                filtered = filtered.difference(blocklist).cloned().collect();
+                filtered = filtered
+                    .iter()
+                    .filter(|k| !blocklist.contains(k.as_str()))
+                    .cloned()
+                    .collect();
             }
         }
 

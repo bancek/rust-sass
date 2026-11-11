@@ -38,3 +38,12 @@ pub mod static_import;
 pub mod supports_condition;
 pub mod unary_operator;
 pub mod visitor;
+
+use bumpalo::Bump;
+
+/// Arena-allocates a parsed sequence (expressions, pairs, branches, …).
+///
+/// The parser builds a temporary `Vec`; its buffer is freed after the copy.
+pub(crate) fn arena_slice<T>(arena: &Bump, items: Vec<T>) -> &[T] {
+    arena.alloc_slice_fill_iter(items)
+}

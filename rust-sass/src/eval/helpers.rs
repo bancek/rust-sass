@@ -61,7 +61,7 @@ use crate::environment::Environment;
 use crate::eval::expression::evaluate_expression;
 use crate::eval::importer::Importer;
 use crate::eval::{EvalConfig, EvalState, StackFrame};
-use crate::url::SassUrl;
+use crate::url::OwnedUrl;
 use crate::value::ValueKind;
 use crate::value::{SassNumber, Value};
 use bumpalo::Bump;
@@ -119,7 +119,7 @@ where
     let mut current = state.stack.as_ref();
     while let Some(frame) = current {
         let mut f = Frame {
-            uri: frame.span.source_url().cloned(),
+            uri: frame.span.source_url().map(|url| url.to_owned_url()),
             line: frame.span.start_location().line + 1,
             column: frame.span.start_location().column + 1,
             member: frame.name.clone(),
@@ -133,7 +133,7 @@ where
     // Step 3: Append span frame at end
     if let Some(s) = span {
         let mut f = Frame {
-            uri: s.source_url().cloned(),
+            uri: s.source_url().map(|url| url.to_owned_url()),
             line: s.start_location().line + 1,
             column: s.start_location().column + 1,
             member: state.member.clone(),
@@ -162,7 +162,7 @@ pub(crate) fn humanize_frame<'compile: 'parse, 'parse>(
     if let Some(cache) = import_cache {
         if let Some(uri) = frame.uri.as_ref() {
             let humanized = cache.humanize(uri);
-            if let Ok(h) = SassUrl::parse(&humanized) {
+            if let Ok(h) = OwnedUrl::parse(&humanized) {
                 frame.uri = Some(h);
             }
         }
@@ -312,7 +312,7 @@ where
     let old_importer = std::mem::replace(&mut state.importer, importer);
     let old_stylesheet = state
         .stylesheet
-        .replace(arena.alloc(Stylesheet::new(vec![], span)));
+        .replace(arena.alloc(Stylesheet::new(arena, &[], span)));
     let result = f(config, state).await;
     state.importer = old_importer;
     state.stylesheet = old_stylesheet;
@@ -338,7 +338,7 @@ where
     let old_importer = std::mem::replace(&mut state.importer, importer);
     let old_stylesheet = state
         .stylesheet
-        .replace(arena.alloc(Stylesheet::new(vec![], span)));
+        .replace(arena.alloc(Stylesheet::new(arena, &[], span)));
     let result = f(config, state).await;
     state.importer = old_importer;
     state.stylesheet = old_stylesheet;
@@ -817,11 +817,11 @@ where
 // state; this parses each back to a URL, silently dropping unparseable ones,
 // for error `loaded_urls` payloads.
 
-pub(crate) fn loaded_urls_list(state: &EvalState<'_, '_>) -> Vec<SassUrl> {
+pub(crate) fn loaded_urls_list(state: &EvalState<'_, '_>) -> Vec<OwnedUrl> {
     state
         .loaded_urls
         .iter()
-        .filter_map(|u| SassUrl::parse(u).ok())
+        .filter_map(|u| OwnedUrl::parse(u).ok())
         .collect()
 }
 
@@ -1052,7 +1052,7 @@ where
 
     for (i, param) in params.parameters.iter().enumerate() {
         if i < positional_count {
-            if named.contains(&param.name) {
+            if named.contains(param.name) {
                 return Err(Box::new(SassError::Script {
                     message: format!(
                         "Argument {} was passed both by position and by name.",
@@ -1061,7 +1061,7 @@ where
                     argument_name: None,
                 }));
             }
-        } else if named.contains(&param.name) {
+        } else if named.contains(param.name) {
             named_used += 1;
         } else if param.default_value.is_none() {
             // Dart `ParameterList.verify` reports `_originalParameterName`
@@ -1106,7 +1106,7 @@ where
     if named_used < named.len() {
         let unknown_names: Vec<String> = named
             .iter()
-            .filter(|n| !params.parameters.iter().any(|p| &p.name == *n))
+            .filter(|n| !params.parameters.iter().any(|p| p.name == *n))
             .cloned()
             .collect();
 
@@ -1162,10 +1162,7 @@ where
     'compile: 'parse,
 {
     if let Expression::Variable(ve) = expression {
-        if let Some(span) = state
-            .env
-            .get_variable_node(&ve.name, ve.namespace.as_deref())?
-        {
+        if let Some(span) = state.env.get_variable_node(ve.name, ve.namespace)? {
             return Ok(span);
         }
     }
@@ -1207,6 +1204,7 @@ pub(crate) fn style_rule<'s, 'parse>(
 // which Dart's nullable return distinguishes from `None`.
 
 pub(crate) fn merge_media_queries<'parse>(
+    arena: &'parse Bump,
     queries1: &[CssMediaQuery<'parse>],
     queries2: &[CssMediaQuery<'parse>],
 ) -> Option<Vec<CssMediaQuery<'parse>>> {
@@ -1216,7 +1214,7 @@ pub(crate) fn merge_media_queries<'parse>(
     let mut result = Vec::new();
     for q1 in queries1 {
         for q2 in queries2 {
-            match q1.merge(q2) {
+            match q1.merge(arena, q2) {
                 MediaQueryMergeResult::Successful(s) => {
                     result.push(s.query.clone());
                 }
@@ -1663,7 +1661,7 @@ where
 {
     let mut positional: Vec<Value<'parse>> = Vec::with_capacity(args.positional.len());
     let mut positional_nodes: Vec<FileSpan<'parse>> = Vec::with_capacity(args.positional.len());
-    for expr in &args.positional {
+    for expr in args.positional {
         let val = evaluate_expression(config, state, arena, expr).await?;
         let span = expression_node(config, state, expr)?;
         let cleaned = without_slash(config, state, arena, val, span)?;
@@ -1673,23 +1671,23 @@ where
 
     let mut named: IndexMap<String, Value<'parse>> = IndexMap::new();
     let mut named_nodes: IndexMap<String, FileSpan<'parse>> = IndexMap::new();
-    for (name, expr) in &args.named {
+    for (name, expr) in args.named {
         let span = expression_node(config, state, expr)?;
         let val = evaluate_expression(config, state, arena, expr).await?;
         let cleaned = without_slash(config, state, arena, val, span)?;
-        named.insert(name.clone(), cleaned);
-        named_nodes.insert(name.clone(), span);
+        named.insert((*name).to_string(), cleaned);
+        named_nodes.insert((*name).to_string(), span);
     }
 
     let mut separator = ListSeparator::Undecided;
 
-    if let Some(ref rest) = args.rest {
+    if let Some(rest) = args.rest {
         let rest_val = evaluate_expression(config, state, arena, rest).await?;
         let rest_span = expression_node(config, state, rest)?;
         match &*rest_val {
             ValueKind::Map(m) => {
                 add_rest_map(config, state, arena, &mut named, m, rest_span, rest.span()?)?;
-                for (key, _val) in &m.entries {
+                for (key, _val) in m.iter() {
                     if let ValueKind::String(s) = &**key {
                         named_nodes.insert(s.text.to_string(), rest_span);
                     }
@@ -1704,8 +1702,8 @@ where
                 separator = arg_list.list.separator;
                 for (key, val) in arg_list.keywords().iter() {
                     let cleaned = without_slash(config, state, arena, *val, rest_span)?;
-                    named.insert(key.clone(), cleaned);
-                    named_nodes.insert(key.clone(), rest_span);
+                    named.insert((*key).to_string(), cleaned);
+                    named_nodes.insert((*key).to_string(), rest_span);
                 }
             }
             ValueKind::List(l) => {
@@ -1724,7 +1722,7 @@ where
         }
     }
 
-    if let Some(ref kw_rest) = args.keyword_rest {
+    if let Some(kw_rest) = args.keyword_rest {
         let kw_val = evaluate_expression(config, state, arena, kw_rest).await?;
         let kw_span = expression_node(config, state, kw_rest)?;
         match &*kw_val {
@@ -1738,7 +1736,7 @@ where
                     kw_span,
                     kw_rest.span()?,
                 )?;
-                for (key, _val) in &m.entries {
+                for (key, _val) in m.iter() {
                     if let ValueKind::String(s) = &**key {
                         named_nodes.insert(s.text.to_string(), kw_span);
                     }
@@ -1809,18 +1807,18 @@ where
             .get(i)
             .copied()
             .unwrap_or(parameters[i].span);
-        state.env.set_local_variable(&parameters[i].name, val, span);
+        state.env.set_local_variable(parameters[i].name, val, span);
     }
 
     for param in parameters.iter().skip(positional.len()) {
-        if let Some(val) = named.get(&param.name) {
-            let span = named_nodes.get(&param.name).copied().unwrap_or(param.span);
-            state.env.set_local_variable(&param.name, *val, span);
+        if let Some(val) = named.get(param.name) {
+            let span = named_nodes.get(param.name).copied().unwrap_or(param.span);
+            state.env.set_local_variable(param.name, *val, span);
         } else if let Some(ref default_val) = param.default_value {
             let val = evaluate_expression(config, state, arena, default_val).await?;
             let span = expression_node(config, state, default_val)?;
             let cleaned = without_slash(config, state, arena, val, span)?;
-            state.env.set_local_variable(&param.name, cleaned, span);
+            state.env.set_local_variable(param.name, cleaned, span);
         } else {
             let params_span = params.span()?;
             return Err(Box::new(SassError::MultiSpan {
@@ -1836,7 +1834,7 @@ where
         }
     }
 
-    if let Some(ref rest_name) = params.rest_parameter {
+    if let Some(rest_name) = params.rest_parameter {
         let rest_values: Vec<Value<'parse>> = if positional.len() > parameters.len() {
             positional[parameters.len()..].to_vec()
         } else {
@@ -1844,7 +1842,7 @@ where
         };
         let unused_named: IndexMap<String, Value<'parse>> = named
             .iter()
-            .filter(|(k, _)| !parameters.iter().any(|p| &p.name == *k))
+            .filter(|(k, _)| !parameters.iter().any(|p| p.name == *k))
             .map(|(k, v)| (k.clone(), *v))
             .collect();
         let sep = if separator == ListSeparator::Undecided {
@@ -2156,7 +2154,7 @@ where
     let mut target_offsets: Vec<usize> = Vec::new();
     let mut first = true;
 
-    for part in &interpolation.contents {
+    for part in interpolation.contents {
         if !first && source_map {
             target_offsets.push(result.len());
         }
@@ -2200,6 +2198,7 @@ where
     state.in_supports_declaration = old_in_supports;
 
     let map = if source_map {
+        let target_offsets = arena.alloc_slice_clone(&target_offsets);
         let map = InterpolationMap::new(interpolation.clone(), target_offsets).map_err(|e| {
             SassError::Script {
                 message: e.message,
@@ -2288,7 +2287,7 @@ pub(crate) fn add_rest_map<'compile, 'parse>(
 where
     'compile: 'parse,
 {
-    for (key, val) in &map.entries {
+    for (key, val) in map.iter() {
         if let ValueKind::String(s) = &**key {
             let cleaned = without_slash(config, state, arena, *val, span)?;
             values.insert(s.text.to_string(), cleaned);
@@ -2335,15 +2334,21 @@ where
     let rest_args = match &args.rest {
         Some(rest_expr) => rest_expr,
         None => {
-            return Ok((args.positional.clone(), args.named.clone()));
+            return Ok((
+                args.positional.to_vec(),
+                args.named
+                    .iter()
+                    .map(|(k, v)| ((*k).to_string(), v.clone()))
+                    .collect(),
+            ));
         }
     };
 
-    let mut positional: Vec<Expression<'parse>> = args.positional.clone();
+    let mut positional: Vec<Expression<'parse>> = args.positional.to_vec();
     let mut named: IndexMap<String, Expression<'parse>> = args
         .named
         .iter()
-        .map(|(k, v)| (k.clone(), v.clone()))
+        .map(|(k, v)| ((*k).to_string(), v.clone()))
         .collect();
 
     let rest = evaluate_expression(config, state, arena, rest_args).await?;
@@ -2352,13 +2357,13 @@ where
 
     match &*rest {
         ValueKind::Map(m) => {
-            for (key, val) in &m.entries {
+            for (key, val) in m.iter() {
                 if let ValueKind::String(s) = &**key {
                     let cleaned = without_slash(config, state, arena, *val, rest_span)?;
                     named.insert(
                         s.text.to_string(),
                         Expression::Value(ValueExpression {
-                            value: Box::new(cleaned),
+                            value: cleaned,
                             span: rest_args_span,
                         }),
                     );
@@ -2377,16 +2382,16 @@ where
             for item in arg_list.as_list() {
                 let cleaned = without_slash(config, state, arena, *item, rest_span)?;
                 positional.push(Expression::Value(ValueExpression {
-                    value: Box::new(cleaned),
+                    value: cleaned,
                     span: rest_args_span,
                 }));
             }
             for (key, val) in arg_list.keywords().iter() {
                 let cleaned = without_slash(config, state, arena, *val, rest_span)?;
                 named.insert(
-                    key.clone(),
+                    (*key).to_string(),
                     Expression::Value(ValueExpression {
-                        value: Box::new(cleaned),
+                        value: cleaned,
                         span: rest_args_span,
                     }),
                 );
@@ -2396,7 +2401,7 @@ where
             for item in l.as_list() {
                 let cleaned = without_slash(config, state, arena, *item, rest_span)?;
                 positional.push(Expression::Value(ValueExpression {
-                    value: Box::new(cleaned),
+                    value: cleaned,
                     span: rest_args_span,
                 }));
             }
@@ -2404,7 +2409,7 @@ where
         _ => {
             let cleaned = without_slash(config, state, arena, rest, rest_span)?;
             positional.push(Expression::Value(ValueExpression {
-                value: Box::new(cleaned),
+                value: cleaned,
                 span: rest_args_span,
             }));
         }
@@ -2421,13 +2426,13 @@ where
 
     match &*keyword_rest {
         ValueKind::Map(m) => {
-            for (key, val) in &m.entries {
+            for (key, val) in m.iter() {
                 if let ValueKind::String(s) = &**key {
                     let cleaned = without_slash(config, state, arena, *val, kw_span)?;
                     named.insert(
                         s.text.to_string(),
                         Expression::Value(ValueExpression {
-                            value: Box::new(cleaned),
+                            value: cleaned,
                             span: kw_args_span,
                         }),
                     );
@@ -2504,9 +2509,7 @@ impl<'compile, 'parse> Callable<'compile, 'parse> {
     {
         Callable::new(
             arena,
-            CallableKind::PlainCss(PlainCssCallable {
-                name: "dummy".to_string(),
-            }),
+            CallableKind::PlainCss(PlainCssCallable { name: "dummy" }),
         )
     }
 }
@@ -2819,16 +2822,30 @@ mod tests {
         assert!(val.is_none());
     }
 
+    fn params_list<'compile: 'parse, 'parse>(
+        arena: &'compile Bump,
+        parameters: Vec<Parameter<'parse>>,
+        span: crate::common::file_span::FileSpan<'parse>,
+        rest_parameter: Option<&'parse str>,
+    ) -> ParameterList<'parse> {
+        ParameterList::new(
+            arena.alloc_slice_fill_iter(parameters),
+            span,
+            rest_parameter,
+        )
+    }
+
     // ── verifyParameterList ──
 
     #[rust_sass_macros::maybe_test]
     async fn test_verify_parameter_list_exact_match() {
         let arena = Bump::new();
         let span = make_span(&arena, "$x, $y");
-        let p = ParameterList::new(
+        let p = params_list(
+            &arena,
             vec![
-                Parameter::new("x".into(), span, None),
-                Parameter::new("y".into(), span, None),
+                Parameter::new(arena.alloc_str("x"), span, None),
+                Parameter::new(arena.alloc_str("y"), span, None),
             ],
             span,
             None,
@@ -2841,7 +2858,12 @@ mod tests {
     async fn test_verify_parameter_list_too_many_positional() {
         let arena = Bump::new();
         let span = make_span(&arena, "$x");
-        let p = ParameterList::new(vec![Parameter::new("x".into(), span, None)], span, None);
+        let p = params_list(
+            &arena,
+            vec![Parameter::new(arena.alloc_str("x"), span, None)],
+            span,
+            None,
+        );
         let err = verify_parameter_list(3, &HashSet::new(), Some(&p), span).unwrap_err();
         assert!(err.message().contains("Only 1 argument allowed"));
     }
@@ -2852,10 +2874,11 @@ mod tests {
         let span = make_span(&arena, "$x, $y");
         let span_x = make_span(&arena, "$x");
         let span_y = make_span(&arena, "$y");
-        let p = ParameterList::new(
+        let p = params_list(
+            &arena,
             vec![
-                Parameter::new("x".into(), span_x, None),
-                Parameter::new("y".into(), span_y, None),
+                Parameter::new(arena.alloc_str("x"), span_x, None),
+                Parameter::new(arena.alloc_str("y"), span_y, None),
             ],
             span,
             None,
@@ -2868,7 +2891,12 @@ mod tests {
     async fn test_verify_parameter_list_both_positional_and_named() {
         let arena = Bump::new();
         let span = make_span(&arena, "$x");
-        let p = ParameterList::new(vec![Parameter::new("x".into(), span, None)], span, None);
+        let p = params_list(
+            &arena,
+            vec![Parameter::new(arena.alloc_str("x"), span, None)],
+            span,
+            None,
+        );
         let mut names = HashSet::new();
         names.insert("x".into());
         let err = verify_parameter_list(1, &names, Some(&p), span).unwrap_err();
@@ -2881,7 +2909,12 @@ mod tests {
     async fn test_verify_parameter_list_unknown_named() {
         let arena = Bump::new();
         let span = make_span(&arena, "$x");
-        let p = ParameterList::new(vec![Parameter::new("x".into(), span, None)], span, None);
+        let p = params_list(
+            &arena,
+            vec![Parameter::new(arena.alloc_str("x"), span, None)],
+            span,
+            None,
+        );
         let mut names = HashSet::new();
         names.insert("z".into());
         let err = verify_parameter_list(1, &names, Some(&p), span).unwrap_err();
@@ -2896,10 +2929,11 @@ mod tests {
     async fn test_verify_parameter_list_rest_accepts_all() {
         let arena = Bump::new();
         let span = make_span(&arena, "$x...");
-        let p = ParameterList::new(
-            vec![Parameter::new("x".into(), span, None)],
+        let p = params_list(
+            &arena,
+            vec![Parameter::new(arena.alloc_str("x"), span, None)],
             span,
-            Some("rest".into()),
+            Some(arena.alloc_str("rest")),
         );
         let result = verify_parameter_list(10, &HashSet::new(), Some(&p), span);
         assert!(result.is_ok());
@@ -2925,19 +2959,21 @@ mod tests {
 
     #[rust_sass_macros::maybe_test]
     async fn test_merge_media_queries_empty_first() {
+        let arena = Bump::new();
         let q1: Vec<CssMediaQuery> = vec![];
         let q2 = vec![CssMediaQuery::test_type(
             Some("screen".into()),
             None,
             vec![],
         )];
-        let result = merge_media_queries(&q1, &q2);
+        let result = merge_media_queries(&arena, &q1, &q2);
         assert!(result.is_some());
         assert!(result.unwrap().is_empty());
     }
 
     #[rust_sass_macros::maybe_test]
     async fn test_merge_media_queries_matching() {
+        let arena = Bump::new();
         let q1 = vec![CssMediaQuery::test_type(
             Some("screen".into()),
             None,
@@ -2948,7 +2984,7 @@ mod tests {
             None,
             vec![],
         )];
-        let result = merge_media_queries(&q1, &q2);
+        let result = merge_media_queries(&arena, &q1, &q2);
         assert!(result.is_some());
         assert_eq!(result.unwrap().len(), 1);
     }
@@ -2994,7 +3030,15 @@ mod tests {
         let arena = Bump::new();
         let span = make_span(&arena, "a, b");
         let (config, mut state) = test_visitor(&arena);
-        let args = ArgumentList::new(vec![], IndexMap::new(), IndexMap::new(), span, None, None);
+        let args = ArgumentList::new(
+            &arena,
+            vec![],
+            IndexMap::new(),
+            IndexMap::new(),
+            span,
+            None,
+            None,
+        );
         let result = evaluate_arguments(&config, &mut state, &arena, &args)
             .await
             .unwrap();
@@ -3009,7 +3053,12 @@ mod tests {
         let arena = Bump::new();
         let span = make_span(&arena, "$x");
         let (config, mut state) = test_visitor(&arena);
-        let params = ParameterList::new(vec![Parameter::new("x".into(), span, None)], span, None);
+        let params = params_list(
+            &arena,
+            vec![Parameter::new(arena.alloc_str("x"), span, None)],
+            span,
+            None,
+        );
         let positional = vec![Value::new_with_arena(&arena, ValueKind::Null)];
         let named = IndexMap::new();
         let pos_nodes = vec![span];
@@ -3038,7 +3087,12 @@ mod tests {
         let arena = Bump::new();
         let span = make_span(&arena, "$x");
         let (config, mut state) = test_visitor(&arena);
-        let params = ParameterList::new(vec![Parameter::new("x".into(), span, None)], span, None);
+        let params = params_list(
+            &arena,
+            vec![Parameter::new(arena.alloc_str("x"), span, None)],
+            span,
+            None,
+        );
         let positional: Vec<Value> = vec![];
         let named = IndexMap::new();
         let pos_nodes: Vec<FileSpan> = vec![];
@@ -3067,20 +3121,22 @@ mod tests {
     // ── evaluateArguments rest/kwRest ──
 
     fn make_args<'parse>(
+        arena: &'parse Bump,
         positional: Vec<Expression<'parse>>,
         named: IndexMap<String, Expression<'parse>>,
         rest: Option<Box<Expression<'parse>>>,
         kw_rest: Option<Box<Expression<'parse>>>,
         span: FileSpan<'parse>,
     ) -> ArgumentList<'parse> {
-        ArgumentList {
+        ArgumentList::new(
+            arena,
             positional,
             named,
-            named_spans: IndexMap::new(),
+            IndexMap::new(),
             span,
-            rest,
-            keyword_rest: kw_rest,
-        }
+            rest.map(|expression| *expression),
+            kw_rest.map(|expression| *expression),
+        )
     }
 
     #[rust_sass_macros::maybe_test]
@@ -3088,27 +3144,28 @@ mod tests {
         let arena = Bump::new();
         let span = make_span(&arena, "test");
         let (config, mut state) = test_visitor(&arena);
-        let m = SassMap {
-            entries: {
-                let mut e = IndexMap::new();
-                e.insert(
-                    Value::new_with_arena(
-                        &arena,
-                        ValueKind::String(SassString {
-                            text: "k",
-                            has_quotes: false,
-                        }),
-                    ),
-                    Value::new_with_arena(&arena, ValueKind::Number(SassNumber::new(1.0, None))),
-                );
-                e
-            },
-        };
+        let m = SassMap::from_entries(
+            &arena,
+            [(
+                Value::new_with_arena(
+                    &arena,
+                    ValueKind::String(SassString {
+                        text: "k",
+                        has_quotes: false,
+                    }),
+                ),
+                Value::new_with_arena(
+                    &arena,
+                    ValueKind::Number(SassNumber::new(&arena, 1.0, None)),
+                ),
+            )],
+        );
         let args = make_args(
+            &arena,
             vec![],
             IndexMap::new(),
             Some(Box::new(Expression::Value(ValueExpression {
-                value: Box::new(Value::new_with_arena(&arena, ValueKind::Map(m))),
+                value: Value::new_with_arena(&arena, ValueKind::Map(m)),
                 span,
             }))),
             None,
@@ -3128,18 +3185,26 @@ mod tests {
         let span = make_span(&arena, "test");
         let (config, mut state) = test_visitor(&arena);
         let lst = SassList::new(
+            &arena,
             vec![
-                Value::new_with_arena(&arena, ValueKind::Number(SassNumber::new(1.0, None))),
-                Value::new_with_arena(&arena, ValueKind::Number(SassNumber::new(2.0, None))),
+                Value::new_with_arena(
+                    &arena,
+                    ValueKind::Number(SassNumber::new(&arena, 1.0, None)),
+                ),
+                Value::new_with_arena(
+                    &arena,
+                    ValueKind::Number(SassNumber::new(&arena, 2.0, None)),
+                ),
             ],
             ListSeparator::Comma,
             false,
         );
         let args = make_args(
+            &arena,
             vec![],
             IndexMap::new(),
             Some(Box::new(Expression::Value(ValueExpression {
-                value: Box::new(Value::new_with_arena(&arena, ValueKind::List(lst))),
+                value: Value::new_with_arena(&arena, ValueKind::List(lst)),
                 span,
             }))),
             None,
@@ -3158,13 +3223,14 @@ mod tests {
         let span = make_span(&arena, "test");
         let (config, mut state) = test_visitor(&arena);
         let args = make_args(
+            &arena,
             vec![],
             IndexMap::new(),
             Some(Box::new(Expression::Value(ValueExpression {
-                value: Box::new(Value::new_with_arena(
+                value: Value::new_with_arena(
                     &arena,
-                    ValueKind::Number(SassNumber::new(42.0, None)),
-                )),
+                    ValueKind::Number(SassNumber::new(&arena, 42.0, None)),
+                ),
                 span,
             }))),
             None,
@@ -3183,14 +3249,15 @@ mod tests {
         let span = make_span(&arena, "test");
         let (config, mut state) = test_visitor(&arena);
         let args = make_args(
+            &arena,
             vec![],
             IndexMap::new(),
             None,
             Some(Box::new(Expression::Value(ValueExpression {
-                value: Box::new(Value::new_with_arena(
+                value: Value::new_with_arena(
                     &arena,
-                    ValueKind::Number(SassNumber::new(1.0, None)),
-                )),
+                    ValueKind::Number(SassNumber::new(&arena, 1.0, None)),
+                ),
                 span,
             }))),
             span,
@@ -3210,11 +3277,12 @@ mod tests {
         let span = make_span(&arena, "test");
         let (config, mut state) = test_visitor(&arena);
         let args = make_args(
+            &arena,
             vec![Expression::Value(ValueExpression {
-                value: Box::new(Value::new_with_arena(
+                value: Value::new_with_arena(
                     &arena,
-                    ValueKind::Number(SassNumber::new(10.0, None)),
-                )),
+                    ValueKind::Number(SassNumber::new(&arena, 10.0, None)),
+                ),
                 span,
             })],
             IndexMap::new(),
@@ -3238,13 +3306,13 @@ mod tests {
         let span = make_span(&arena, "test");
         let (config, mut state) = test_visitor(&arena);
         let pos_expr = Expression::Value(ValueExpression {
-            value: Box::new(Value::new_with_arena(
+            value: Value::new_with_arena(
                 &arena,
-                ValueKind::Number(SassNumber::new(1.0, None)),
-            )),
+                ValueKind::Number(SassNumber::new(&arena, 1.0, None)),
+            ),
             span,
         });
-        let args = make_args(vec![pos_expr], IndexMap::new(), None, None, span);
+        let args = make_args(&arena, vec![pos_expr], IndexMap::new(), None, None, span);
         let (pos, named) = evaluate_macro_arguments(&config, &mut state, &arena, &args, span)
             .await
             .unwrap();
@@ -3257,27 +3325,28 @@ mod tests {
         let arena = Bump::new();
         let span = make_span(&arena, "test");
         let (config, mut state) = test_visitor(&arena);
-        let m = SassMap {
-            entries: {
-                let mut e = IndexMap::new();
-                e.insert(
-                    Value::new_with_arena(
-                        &arena,
-                        ValueKind::String(SassString {
-                            text: "k",
-                            has_quotes: false,
-                        }),
-                    ),
-                    Value::new_with_arena(&arena, ValueKind::Number(SassNumber::new(5.0, None))),
-                );
-                e
-            },
-        };
+        let m = SassMap::from_entries(
+            &arena,
+            [(
+                Value::new_with_arena(
+                    &arena,
+                    ValueKind::String(SassString {
+                        text: "k",
+                        has_quotes: false,
+                    }),
+                ),
+                Value::new_with_arena(
+                    &arena,
+                    ValueKind::Number(SassNumber::new(&arena, 5.0, None)),
+                ),
+            )],
+        );
         let args = make_args(
+            &arena,
             vec![],
             IndexMap::new(),
             Some(Box::new(Expression::Value(ValueExpression {
-                value: Box::new(Value::new_with_arena(&arena, ValueKind::Map(m))),
+                value: Value::new_with_arena(&arena, ValueKind::Map(m)),
                 span,
             }))),
             None,
@@ -3297,20 +3366,21 @@ mod tests {
         let span = make_span(&arena, "test");
         let (config, mut state) = test_visitor(&arena);
         let args = make_args(
+            &arena,
             vec![],
             IndexMap::new(),
             Some(Box::new(Expression::Value(ValueExpression {
-                value: Box::new(Value::new_with_arena(
+                value: Value::new_with_arena(
                     &arena,
-                    ValueKind::Number(SassNumber::new(1.0, None)),
-                )),
+                    ValueKind::Number(SassNumber::new(&arena, 1.0, None)),
+                ),
                 span,
             }))),
             Some(Box::new(Expression::Value(ValueExpression {
-                value: Box::new(Value::new_with_arena(
+                value: Value::new_with_arena(
                     &arena,
-                    ValueKind::Number(SassNumber::new(2.0, None)),
-                )),
+                    ValueKind::Number(SassNumber::new(&arena, 2.0, None)),
+                ),
                 span,
             }))),
             span,
@@ -3331,7 +3401,7 @@ mod tests {
         let arena = Bump::new();
         let span = make_span(&arena, "");
         let (config, mut state) = test_visitor(&arena);
-        let interp = Interpolation::plain("hello world".to_string(), Span::File(span));
+        let interp = Interpolation::plain(&arena, "hello world".to_string(), Span::File(span));
         let result = perform_interpolation(&config, &mut state, &arena, &interp, false)
             .await
             .unwrap();
@@ -3343,7 +3413,7 @@ mod tests {
         let arena = Bump::new();
         let span = make_span(&arena, "");
         let (config, mut state) = test_visitor(&arena);
-        let interp = Interpolation::plain("hello".to_string(), Span::File(span));
+        let interp = Interpolation::plain(&arena, "hello".to_string(), Span::File(span));
         let (result, map) =
             perform_interpolation_with_map(&config, &mut state, &arena, &interp, false)
                 .await
@@ -3364,10 +3434,11 @@ mod tests {
             span,
         });
         let interp = Interpolation::new(
+            &arena,
             vec![
-                InterpolationPart::Text("prefix:".into()),
-                InterpolationPart::Expression(Box::new(expr)),
-                InterpolationPart::Text("suffix".into()),
+                InterpolationPart::Text("prefix:"),
+                InterpolationPart::expression(&arena, expr),
+                InterpolationPart::Text("suffix"),
             ],
             vec![None, Some(span), None],
             Span::File(span),
@@ -3388,11 +3459,12 @@ mod tests {
         let (config, mut state) = test_visitor(&arena);
         let color = SassColor::rgb(255.0, 0.0, 0.0, 1.0);
         let expr = Expression::Value(ValueExpression {
-            value: Box::new(Value::new_with_arena(&arena, ValueKind::Color(color))),
+            value: Value::new_with_arena(&arena, ValueKind::Color(color)),
             span,
         });
         let interp = Interpolation::new(
-            vec![InterpolationPart::Expression(Box::new(expr))],
+            &arena,
+            vec![InterpolationPart::expression(&arena, expr)],
             vec![Some(span)],
             Span::File(span),
         )
@@ -3424,9 +3496,10 @@ mod tests {
         let arena = Bump::new();
         let span = make_span(&arena, "test");
         let (config, mut state) = test_visitor(&arena);
-        let num = SassNumber::new(42.0, None).with_slash(
-            SassNumber::new(1.0, Some("px")),
-            SassNumber::new(2.0, Some("px")),
+        let num = SassNumber::new(&arena, 42.0, None).with_slash(
+            &arena,
+            SassNumber::new(&arena, 1.0, Some("px")),
+            SassNumber::new(&arena, 2.0, Some("px")),
         );
         let val = Value::new_with_arena(&arena, ValueKind::Number(num));
 
@@ -3452,7 +3525,7 @@ mod tests {
         let arena = Bump::new();
         let span = make_span(&arena, "test");
         let (config, mut state) = test_visitor(&arena);
-        let num = SassNumber::new(42.0, None);
+        let num = SassNumber::new(&arena, 42.0, None);
         let val = Value::new_with_arena(&arena, ValueKind::Number(num));
 
         let result = without_slash(&config, &mut state, &arena, val, span).unwrap();
@@ -3479,19 +3552,29 @@ mod tests {
 
     #[rust_sass_macros::maybe_test]
     async fn test_slash_division_recommendation_simple() {
-        let num = SassNumber::new(1.0, Some("px"))
-            .with_slash(SassNumber::new(1.0, None), SassNumber::new(2.0, None));
+        let arena = Bump::new();
+        let num = SassNumber::new(&arena, 1.0, Some("px")).with_slash(
+            &arena,
+            SassNumber::new(&arena, 1.0, None),
+            SassNumber::new(&arena, 2.0, None),
+        );
         let got = slash_division_recommendation(&num).unwrap();
         assert_eq!(got, "math.div(1, 2)");
     }
 
     #[rust_sass_macros::maybe_test]
     async fn test_slash_division_recommendation_nested() {
-        let inner = SassNumber::new(1.0, Some("px")).with_slash(
-            SassNumber::new(1.0, Some("px")),
-            SassNumber::new(2.0, Some("px")),
+        let arena = Bump::new();
+        let inner = SassNumber::new(&arena, 1.0, Some("px")).with_slash(
+            &arena,
+            SassNumber::new(&arena, 1.0, Some("px")),
+            SassNumber::new(&arena, 2.0, Some("px")),
         );
-        let outer = SassNumber::new(42.0, None).with_slash(inner, SassNumber::new(3.0, Some("px")));
+        let outer = SassNumber::new(&arena, 42.0, None).with_slash(
+            &arena,
+            inner,
+            SassNumber::new(&arena, 3.0, Some("px")),
+        );
         let got = slash_division_recommendation(&outer).unwrap();
         assert_eq!(got, "math.div(math.div(1px, 2px), 3px)");
     }
@@ -3525,7 +3608,7 @@ mod tests {
             def_span,
         );
         let ve = Expression::Variable(VariableExpression {
-            name: "x".into(),
+            name: "x",
             span: ref_span,
             namespace: None,
         });
@@ -3543,7 +3626,7 @@ mod tests {
         let err = compile_string(
             "@function f() { $x: 1; }\na { b: f(); }",
             io,
-            CompileOptions::new(&arena),
+            &mut CompileOptions::new(&arena),
             &arena,
         )
         .await
@@ -3577,7 +3660,7 @@ mod tests {
         let err = compile_string(
             "@function f($a) { @return $a; }\n$m: 1;\n$n: 2;\na { b: f($m..., $n...); }",
             io,
-            CompileOptions::new(&arena),
+            &mut CompileOptions::new(&arena),
             &arena,
         )
         .await
@@ -3600,7 +3683,7 @@ mod tests {
         let err = compile_string(
             "@function f($a, $b) { @return $a; }\na { b: f(1, 2, 3, $c: 4); }",
             io,
-            CompileOptions::new(&arena),
+            &mut CompileOptions::new(&arena),
             &arena,
         )
         .await
@@ -3619,7 +3702,7 @@ mod tests {
         let err = compile_string(
             "@function f($a, $b) { @return $a; }\na { b: f(1, 2, 3); }",
             io,
-            CompileOptions::new(&arena),
+            &mut CompileOptions::new(&arena),
             &arena,
         )
         .await
@@ -3642,7 +3725,7 @@ mod tests {
         let err = compile_string(
             "@function f($foo_bar) { @return $foo_bar; }\na { b: f(); }",
             io,
-            CompileOptions::new(&arena),
+            &mut CompileOptions::new(&arena),
             &arena,
         )
         .await
@@ -3659,7 +3742,7 @@ mod tests {
         let err = compile_string(
             "@function f($foo_bar) { @return $foo_bar; }\na { b: f(1, $foo_bar: 2); }",
             io,
-            CompileOptions::new(&arena),
+            &mut CompileOptions::new(&arena),
             &arena,
         )
         .await
@@ -3682,7 +3765,7 @@ mod tests {
         let span = make_span(&arena, "reference");
         let (_config, state) = test_visitor(&arena);
         let ve = Expression::Variable(VariableExpression {
-            name: "missing".into(),
+            name: "missing",
             span,
             namespace: None,
         });
@@ -3697,12 +3780,19 @@ mod tests {
     where
         'compile: 'parse,
     {
-        let class = ClassSelector::new(".foo".into(), span);
-        let compound = CompoundSelector::new(vec![SimpleSelector::Class(class)], span).unwrap();
-        let comp = ComplexSelectorComponent::new(Box::new(compound), vec![], span);
-        let complex = ComplexSelector::new(vec![], vec![comp], span, false).unwrap();
+        let class = ClassSelector::new(".foo", span);
+        let compound =
+            CompoundSelector::new(arena, vec![SimpleSelector::Class(class)], span).unwrap();
+        let comp = ComplexSelectorComponent::new(arena, compound, vec![], span);
+        let complex = ComplexSelector::new(arena, vec![], vec![comp], span, false).unwrap();
         let selector = SelectorList::new(arena, vec![complex], span).unwrap();
-        let rule = ModifiableCssStyleRule::new(Rc::new(RefCell::new(selector)), span, None, false);
+        let rule = ModifiableCssStyleRule::new(
+            arena,
+            arena.alloc(RefCell::new(selector)),
+            span,
+            None,
+            false,
+        );
         ModifiableCssNode::new(arena, ModifiableCssNodeKind::StyleRule(rule))
     }
 
@@ -3716,7 +3806,7 @@ mod tests {
         let span = make_span(&arena, "a { b { } }");
         let root = ModifiableCssNode::new(
             &arena,
-            ModifiableCssNodeKind::Stylesheet(ModifiableCssStylesheet::new(span)),
+            ModifiableCssNodeKind::Stylesheet(ModifiableCssStylesheet::new(&arena, span)),
         );
         let outer = make_style_rule_node(&arena, span);
         let inner = make_style_rule_node(&arena, span);

@@ -10,7 +10,7 @@ pub enum ValueKind<'parse> {
     Boolean(SassBoolean), Null,
     String(SassString<'parse>), Number(SassNumber), Color(SassColor),
     List(SassList<'parse>), ArgumentList(SassArgumentList<'parse>),
-    Map(SassMap<'parse>), Calculation(Box<SassCalculation>),
+    Map(SassMap<'parse>), Calculation(&'parse SassCalculation<'parse>),
     Function(SassFunction<'parse>), Mixin(SassMixin<'parse>),
     Module(SassModule<'parse>),
 }
@@ -30,9 +30,9 @@ which is why it is an enum with static dispatch rather than a trait object.
 identity-compared values are `SassFunction`, `SassMixin` (whose equality is
 their `Callable`'s address identity), and `SassModule` (module address identity
 plus compile context). A `Cell<Option<i32>>` hash cache lives in
-`ValueInner` so repeated hashing (e.g. in an `IndexMap<Value, Value>` lookup)
+`ValueInner` so repeated hashing (e.g. an `ArenaMap<Value, Value>` lookup)
 does not re-walk a deep list or map; `SassMap` keys work through the reflexive
-`Borrow<Value>`.
+`Borrow<Value>` over the `ArenaMap` (see `architecture.md` §15).
 
 ### Value invariance
 
@@ -50,7 +50,7 @@ A **single struct** — not Go's three-way split (unitless / single-unit /
 complex):
 
 ```rust
-pub struct SassNumber { value: f64, numerator_units: Vec<String>, denominator_units: Vec<String>, as_slash: Option<Box<(SassNumber, SassNumber)>> }
+pub struct SassNumber<'parse> { value: f64, numerator_units: ArenaVec<&'parse str>, denominator_units: ArenaVec<&'parse str>, as_slash: Option<&'parse (SassNumber<'parse>, SassNumber<'parse>)> }
 ```
 
 Arithmetic dispatches at runtime on whether the operands have units. Why one
@@ -79,14 +79,14 @@ unit semantics: `sqrt` is unitless; `sin`/`cos`/`tan` coerce to radians → unit
 ### `SassColor`
 
 ```rust
-pub struct SassColor { space: ColorSpace, channel0: f64, channel1: f64, channel2: f64, alpha: f64, missing: u8, format: Option<ColorFormat> }
+pub struct SassColor<'parse> { space: ColorSpace, channel0: f64, channel1: f64, channel2: f64, alpha: f64, missing: u8, format: Option<ColorFormat<'parse>> }
 ```
 
 - `ColorSpace` is a 17-variant enum (three legacy `rgb`/`hsl`/`hwb`, four Lab-like
   `lab`/`lch`/`oklab`/`oklch`, and ten modern spaces).
 - Missing channels are `0.0` with a `missing: u8` bitmask; the bitmask
   propagates through every conversion.
-- `ColorFormat` is `RgbFunction | Preserved(String)` — `Preserved` stores the
+- `ColorFormat` is `RgbFunction | Preserved(&'parse str)` — `Preserved` stores the
   original source text (Dart's `SpanColorFormat`), which is why a literal
   `#f00` round-trips while `RgbFunction` forces `rgb()` output.
 - Named colors (148) use a reverse-alphabetical `LazyLock<HashMap>` so
@@ -113,8 +113,11 @@ pub struct SassColor { space: ColorSpace, channel0: f64, channel1: f64, channel2
 
 ### `SassCalculation`
 
-`{ name: String, arguments: Vec<CalcArgument> }` with `CalcArgument =
-Number | Calculation | String(text, quoted) | Interpolation | Operation`. Thirty-plus
+`SassCalculation<'parse> { name: &'parse str, arguments: &'parse [CalcArgument<'parse>] }`
+with `CalcArgument = Number | Calculation(&'parse SassCalculation) |
+String(&'parse str, quoted) | Interpolation | Operation`. The value holds
+`&'parse SassCalculation`, so calculations are arena-allocated like every other
+value. Thirty-plus
 constructors (`new_calc`, `new_min`, `new_max`, `new_clamp`, …) and a
 construct-time `simplify()` engine; `operate` folds sign bits. A `Cell<Option<usize>>`
 caches the hash.
@@ -139,12 +142,14 @@ flavor (`String | Interpolation`, mirroring Dart's `arg is SassString`), and
   slice of the source file or an arena-built temporary). `quote_inner_text`
   iterates `chars` (Dart iterates UTF-16 units), so non-ASCII text survives
   the plain-CSS `@import url()` re-quoting path unmangled.
-- `SassList { contents: Vec<Value>, separator: ListSeparator, has_brackets }`;
+- `SassList { contents: &'parse [Value], separator: ListSeparator, has_brackets }`;
   `ListSeparator` is `Space | Comma | Slash | Undecided`.
-- `SassArgumentList` embeds a list plus `keywords: IndexMap<String, Value>` and
-  a `were_keywords_accessed` flag (an arena `&'parse Cell<bool>`, so `keywords()`
-  marks it through shared references).
-- `SassMap` is `IndexMap<Value, Value>`. `hash_code` combines via the
+- `SassArgumentList` embeds a list plus
+  `keywords: ArenaMap<'parse, &'parse str, Value>` and a `were_keywords_accessed`
+  flag (an arena `&'parse Cell<bool>`, so `keywords()` marks it through shared
+  references).
+- `SassMap { entries: Option<ArenaMap<Value, Value>> }` — `None` is the empty
+  map, which is why `SassMap::empty()` needs no arena. `hash_code` combines via the
   unordered `hash::map_hash` (Dart `package:collection` `MapEquality.hash`:
   per-entry `3*key + 7*value` summed, then the Jenkins finalizer), so equal
   maps with different insertion orders hash equally.
@@ -160,8 +165,9 @@ pub struct SassFunction<'parse> { pub callable: Callable<'parse, 'parse>, compil
 ```
 
 Dart-exact: equality/hash are the callable's address identity, the serializer prints
-`callable.name()`, and `compile_context` (an `Rc<()>`, compared by `Rc::ptr_eq`)
-guards against using a function value across compilations. Lifetimes unify to
+`callable.name()`, and `compile_context` (a `Copy` `u64` token, compared with
+`==`; see `ref/compile-context.md`) guards against using a function value across
+compilations. Lifetimes unify to
 `<'parse, 'parse>` (same for `SassMixin`).
 
 ### `SassModule`

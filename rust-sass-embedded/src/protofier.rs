@@ -9,7 +9,6 @@
 
 use crate::embedded_sass::inbound_message::FunctionCallResponse;
 use std::collections::HashMap;
-use std::rc::Rc;
 
 use indexmap::IndexMap;
 
@@ -37,13 +36,13 @@ use crate::function::host_callable;
 ///
 /// Matches Go: Protofier (protofier.go).
 pub struct Protofier<'compile, 'parse> {
-    pub ctx: Rc<CompilationContext<'compile, 'parse>>,
+    pub ctx: &'compile CompilationContext<'compile, 'parse>,
     /// Argument lists protofied so far, in protofy order (1-based IDs).
     argument_lists: Vec<SassValue<'parse>>,
 }
 
 impl<'compile: 'parse, 'parse: 'compile> Protofier<'compile, 'parse> {
-    pub fn new(ctx: Rc<CompilationContext<'compile, 'parse>>) -> Self {
+    pub fn new(ctx: &'compile CompilationContext<'compile, 'parse>) -> Self {
         Protofier {
             ctx,
             argument_lists: Vec::new(),
@@ -124,6 +123,7 @@ impl<'compile: 'parse, 'parse: 'compile> Protofier<'compile, 'parse> {
             pv::Value::Number(n) => SassValue::new_with_arena(
                 self.ctx.arena,
                 ValueKind::Number(SassNumber::with_units(
+                    self.ctx.arena,
                     n.value,
                     n.numerators.clone(),
                     n.denominators.clone(),
@@ -170,7 +170,12 @@ impl<'compile: 'parse, 'parse: 'compile> Protofier<'compile, 'parse> {
                     }
                     SassValue::new_with_arena(
                         self.ctx.arena,
-                        ValueKind::List(SassList::new(contents, separator, l.has_brackets)),
+                        ValueKind::List(SassList::new(
+                            self.ctx.arena,
+                            contents,
+                            separator,
+                            l.has_brackets,
+                        )),
                     )
                 }
             }
@@ -189,7 +194,7 @@ impl<'compile: 'parse, 'parse: 'compile> Protofier<'compile, 'parse> {
                 }
                 SassValue::new_with_arena(
                     self.ctx.arena,
-                    ValueKind::Map(SassMap::from_entries(entries)),
+                    ValueKind::Map(SassMap::from_entries(self.ctx.arena, entries)),
                 )
             }
             pv::Value::Singleton(s) => match *s {
@@ -219,8 +224,7 @@ impl<'compile: 'parse, 'parse: 'compile> Protofier<'compile, 'parse> {
                 // Host-defined functions have no compilation ownership, so they
                 // use the plain constructor (compile context = None), matching
                 // Dart's `SassFunction(hostCallable(...))`.
-                let callable =
-                    host_callable(self.ctx.clone(), &h.signature, Some(h.id), self.ctx.arena)?;
+                let callable = host_callable(self.ctx, &h.signature, Some(h.id), self.ctx.arena)?;
                 SassValue::new_with_arena(
                     self.ctx.arena,
                     ValueKind::Function(SassFunction::new(callable)),
@@ -291,30 +295,40 @@ impl<'compile: 'parse, 'parse: 'compile> Protofier<'compile, 'parse> {
 
     fn protofy_calculation(&mut self, c: &SassCalculation) -> SassResult<pv::Calculation> {
         let mut arguments = Vec::with_capacity(c.arguments.len());
-        for arg in &c.arguments {
+        for arg in c.arguments {
             arguments.push(self.protofy_calculation_value(arg)?);
         }
         Ok(pv::Calculation {
-            name: c.name.clone(),
+            name: c.name.to_string(),
             arguments,
         })
     }
 
     fn protofy_calculation_value(
         &mut self,
-        arg: &CalcArgument,
+        arg: &CalcArgument<'_>,
     ) -> SassResult<ProtoCalculationValue> {
         let oneof = match arg {
             CalcArgument::Number(n) => calculation_value::Value::Number(pv::Number {
                 value: n.value,
-                numerators: n.numerator_units.clone(),
-                denominators: n.denominator_units.clone(),
+                numerators: n
+                    .numerator_units
+                    .iter()
+                    .map(|u| (*u).to_string())
+                    .collect::<Vec<String>>(),
+                denominators: n
+                    .denominator_units
+                    .iter()
+                    .map(|u| (*u).to_string())
+                    .collect::<Vec<String>>(),
             }),
             CalcArgument::Calculation(c) => {
                 calculation_value::Value::Calculation(self.protofy_calculation(c)?)
             }
-            CalcArgument::String(s, _quoted) => calculation_value::Value::String(s.clone()),
-            CalcArgument::Interpolation(s) => calculation_value::Value::Interpolation(s.clone()),
+            CalcArgument::String(s, _quoted) => calculation_value::Value::String((*s).to_string()),
+            CalcArgument::Interpolation(s) => {
+                calculation_value::Value::Interpolation((*s).to_string())
+            }
             CalcArgument::Operation(op) => {
                 calculation_value::Value::Operation(Box::new(calculation::CalculationOperation {
                     operator: protofy_calculation_operator(op.operator)?,
@@ -378,19 +392,30 @@ impl<'compile: 'parse, 'parse: 'compile> Protofier<'compile, 'parse> {
         Ok(static_value)
     }
 
-    fn deprotofy_calculation_value(&self, cv: &ProtoCalculationValue) -> SassResult<CalcArgument> {
+    fn deprotofy_calculation_value(
+        &self,
+        cv: &ProtoCalculationValue,
+    ) -> SassResult<CalcArgument<'parse>> {
         match cv
             .value
             .as_ref()
             .ok_or_else(|| script("Missing mandatory field value"))?
         {
-            calculation_value::Value::Number(n) => Ok(CalcArgument::Number(
-                SassNumber::with_units(n.value, n.numerators.clone(), n.denominators.clone()),
-            )),
-            calculation_value::Value::String(s) => Ok(CalcArgument::String(s.clone(), false)),
-            calculation_value::Value::Interpolation(s) => {
-                Ok(CalcArgument::String(format!("({s})"), false))
+            calculation_value::Value::Number(n) => {
+                Ok(CalcArgument::Number(SassNumber::with_units(
+                    self.ctx.arena,
+                    n.value,
+                    n.numerators.clone(),
+                    n.denominators.clone(),
+                )))
             }
+            calculation_value::Value::String(s) => {
+                Ok(CalcArgument::String(&*self.ctx.arena.alloc_str(s), false))
+            }
+            calculation_value::Value::Interpolation(s) => Ok(CalcArgument::String(
+                &*self.ctx.arena.alloc_str(&format!("({s})")),
+                false,
+            )),
             calculation_value::Value::Operation(op) => {
                 let operator = deprotofy_calculation_operator(op.operator)?;
                 let left = self.deprotofy_calculation_value(
@@ -406,14 +431,14 @@ impl<'compile: 'parse, 'parse: 'compile> Protofier<'compile, 'parse> {
                 // Matches Dart `_deprotofyCalculationValue`'s operation arm,
                 // which calls `SassCalculation.operate` (protofier.dart): this
                 // simplifies numeric operands (`1 + 2` -> `3`).
-                rust_sass::value::calculation::operate(operator, left, right)
+                rust_sass::value::calculation::operate(self.ctx.arena, operator, left, right)
             }
             calculation_value::Value::Calculation(c) => {
                 // Matches Dart: `_deprotofyCalculation` may simplify to a
                 // number (e.g. `min(3, 4)` -> `3`); the result is used directly
                 // as a calculation operand.
                 match self.deprotofy_calculation(c)?.kind() {
-                    ValueKind::Calculation(b) => Ok(CalcArgument::Calculation(b.clone())),
+                    ValueKind::Calculation(b) => Ok(CalcArgument::Calculation(b)),
                     ValueKind::Number(n) => Ok(CalcArgument::Number(n.clone())),
                     _ => Err(script("Internal error: expected a calculation")),
                 }
@@ -423,10 +448,10 @@ impl<'compile: 'parse, 'parse: 'compile> Protofier<'compile, 'parse> {
 
     fn protofy_argument_list(&mut self, a: &SassArgumentList<'parse>) -> SassResult<pv::Value> {
         let id = (self.argument_lists.len() + 1) as u32;
-        let contents = self.protofy_values(&a.list.contents)?;
+        let contents = self.protofy_values(a.list.contents)?;
         let mut keywords = HashMap::new();
-        for (k, v) in a.keywords_without_marking() {
-            keywords.insert(k.clone(), self.protofy_owned(v)?);
+        for (k, v) in a.keywords_without_marking().iter() {
+            keywords.insert((*k).to_string(), self.protofy_owned(v)?);
         }
         self.argument_lists.push(SassValue::new_with_arena(
             self.ctx.arena,
@@ -463,11 +488,19 @@ impl<'compile: 'parse, 'parse: 'compile> ValueVisitor<'parse> for Protofier<'com
         }))
     }
 
-    fn visit_number(&mut self, value: &SassNumber) -> SassResult<pv::Value> {
+    fn visit_number(&mut self, value: &SassNumber<'_>) -> SassResult<pv::Value> {
         Ok(pv::Value::Number(pv::Number {
             value: value.value,
-            numerators: value.numerator_units.clone(),
-            denominators: value.denominator_units.clone(),
+            numerators: value
+                .numerator_units
+                .iter()
+                .map(|u| (*u).to_string())
+                .collect::<Vec<String>>(),
+            denominators: value
+                .denominator_units
+                .iter()
+                .map(|u| (*u).to_string())
+                .collect::<Vec<String>>(),
         }))
     }
 
@@ -484,7 +517,7 @@ impl<'compile: 'parse, 'parse: 'compile> ValueVisitor<'parse> for Protofier<'com
     fn visit_list(&mut self, value: &ListValue<'_, 'parse>) -> SassResult<pv::Value> {
         match value {
             ListValue::List(l) => {
-                let contents = self.protofy_values(&l.contents)?;
+                let contents = self.protofy_values(l.contents)?;
                 Ok(pv::Value::List(pv::List {
                     separator: protofy_separator(l.separator)?,
                     has_brackets: l.has_brackets,
@@ -496,8 +529,8 @@ impl<'compile: 'parse, 'parse: 'compile> ValueVisitor<'parse> for Protofier<'com
     }
 
     fn visit_map(&mut self, value: &SassMap<'parse>) -> SassResult<pv::Value> {
-        let mut entries = Vec::with_capacity(value.entries.len());
-        for (k, v) in &value.entries {
+        let mut entries = Vec::with_capacity(value.len());
+        for (k, v) in value.iter() {
             entries.push(pv::map::Entry {
                 key: Some(self.protofy_owned(k)?),
                 value: Some(self.protofy_owned(v)?),
@@ -579,20 +612,29 @@ fn deprotofy_calculation_operator(op: i32) -> SassResult<CalculationOperator> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::compilation::test_context;
+    use crate::compilation::{test_context, test_host, HostContext};
+    use std::rc::Rc;
 
     use rust_sass::callable::{Callable, CallableKind, PlainCssCallable};
     use rust_sass::Bump;
 
-    fn test_ctx<'compile, 'parse>(arena: &'compile Bump) -> Rc<CompilationContext<'compile, 'parse>>
-    where
-        'compile: 'parse,
-    {
+    fn new_test_host() -> Rc<HostContext> {
         #[cfg(feature = "async")]
         let (_tx, rx) = futures::channel::mpsc::unbounded::<Vec<u8>>();
         #[cfg(not(feature = "async"))]
         let (_tx, rx) = std::sync::mpsc::channel::<Vec<u8>>();
-        test_context(rx, arena)
+        test_host(rx)
+    }
+
+    fn test_ctx<'compile, 'parse>(
+        host: &'compile HostContext,
+        arena: &'compile Bump,
+    ) -> &'compile CompilationContext<'compile, 'parse>
+    where
+        'compile: 'parse,
+        'parse: 'compile,
+    {
+        test_context(host, arena)
     }
 
     fn dummy<'compile, 'parse>(arena: &'compile Bump, name: &str) -> Callable<'compile, 'parse>
@@ -602,12 +644,14 @@ mod tests {
     {
         Callable::new(
             arena,
-            CallableKind::PlainCss(PlainCssCallable { name: name.into() }),
+            CallableKind::PlainCss(PlainCssCallable {
+                name: arena.alloc_str(name),
+            }),
         )
     }
 
     fn roundtrip<'compile, 'parse>(
-        ctx: &Rc<CompilationContext<'compile, 'parse>>,
+        ctx: &'compile CompilationContext<'compile, 'parse>,
         v: SassValue<'parse>,
     ) where
         'compile: 'parse,
@@ -619,14 +663,14 @@ mod tests {
 
     /// Protofies `v` and deprotofies the result, returning the value.
     fn roundtrip_deprotofy<'compile, 'parse>(
-        ctx: &Rc<CompilationContext<'compile, 'parse>>,
+        ctx: &'compile CompilationContext<'compile, 'parse>,
         v: &SassValue<'parse>,
     ) -> SassValue<'parse>
     where
         'compile: 'parse,
         'parse: 'compile,
     {
-        let mut protofier = Protofier::new(ctx.clone());
+        let mut protofier = Protofier::new(ctx);
         let proto = protofier.protofy(v).unwrap();
         let back = protofier.deprotofy(&proto).unwrap();
         assert!(
@@ -665,8 +709,9 @@ mod tests {
 
     #[test]
     fn argument_error_is_stored_on_the_context() {
+        let host = new_test_host();
         let arena = Bump::new();
-        let ctx = test_ctx(&arena);
+        let ctx = test_ctx(&host, &arena);
         let err = SassError::ArgumentError {
             name: Some("x".into()),
             message: "bad value".into(),
@@ -677,7 +722,7 @@ mod tests {
         assert!(ctx.protocol_error.borrow().is_none());
     }
 
-    fn rgb(r: f64, g: f64, b: f64, a: f64) -> SassColor {
+    fn rgb(r: f64, g: f64, b: f64, a: f64) -> SassColor<'static> {
         SassColor::for_space(
             ColorSpace::from_name("rgb", None).unwrap(),
             [r, g, b],
@@ -688,38 +733,41 @@ mod tests {
 
     #[test]
     fn roundtrip_boolean() {
+        let host = new_test_host();
         let arena = Bump::new();
-        let ctx = test_ctx(&arena);
+        let ctx = test_ctx(&host, &arena);
         roundtrip(
-            &ctx,
+            ctx,
             SassValue::new_with_arena(&arena, ValueKind::Boolean(SASS_TRUE)),
         );
         roundtrip(
-            &ctx,
+            ctx,
             SassValue::new_with_arena(&arena, ValueKind::Boolean(SASS_FALSE)),
         );
     }
 
     #[test]
     fn roundtrip_null() {
+        let host = new_test_host();
         let arena = Bump::new();
-        let ctx = test_ctx(&arena);
-        roundtrip(&ctx, SassValue::new_with_arena(&arena, ValueKind::Null));
+        let ctx = test_ctx(&host, &arena);
+        roundtrip(ctx, SassValue::new_with_arena(&arena, ValueKind::Null));
     }
 
     #[test]
     fn roundtrip_string() {
+        let host = new_test_host();
         let arena = Bump::new();
-        let ctx = test_ctx(&arena);
+        let ctx = test_ctx(&host, &arena);
         roundtrip(
-            &ctx,
+            ctx,
             SassValue::new_with_arena(
                 &arena,
                 ValueKind::String(SassString::new(arena.alloc_str("hello"), true)),
             ),
         );
         roundtrip(
-            &ctx,
+            ctx,
             SassValue::new_with_arena(
                 &arena,
                 ValueKind::String(SassString::new(arena.alloc_str("foo"), false)),
@@ -729,13 +777,15 @@ mod tests {
 
     #[test]
     fn roundtrip_number() {
+        let host = new_test_host();
         let arena = Bump::new();
-        let ctx = test_ctx(&arena);
+        let ctx = test_ctx(&host, &arena);
         roundtrip(
-            &ctx,
+            ctx,
             SassValue::new_with_arena(
                 &arena,
                 ValueKind::Number(SassNumber::with_units(
+                    &arena,
                     3.0,
                     vec!["px".into()],
                     vec!["s".into()],
@@ -743,22 +793,26 @@ mod tests {
             ),
         );
         roundtrip(
-            &ctx,
-            SassValue::new_with_arena(&arena, ValueKind::Number(SassNumber::new(42.0, None))),
+            ctx,
+            SassValue::new_with_arena(
+                &arena,
+                ValueKind::Number(SassNumber::new(&arena, 42.0, None)),
+            ),
         );
     }
 
     #[test]
     fn roundtrip_color() {
+        let host = new_test_host();
         let arena = Bump::new();
-        let ctx = test_ctx(&arena);
+        let ctx = test_ctx(&host, &arena);
         roundtrip(
-            &ctx,
+            ctx,
             SassValue::new_with_arena(&arena, ValueKind::Color(rgb(1.0, 2.0, 3.0, 0.5))),
         );
         // Missing channels round-trip as missing.
         roundtrip(
-            &ctx,
+            ctx,
             SassValue::new_with_arena(
                 &arena,
                 ValueKind::Color(SassColor::for_space(
@@ -773,17 +827,19 @@ mod tests {
 
     #[test]
     fn roundtrip_list() {
+        let host = new_test_host();
         let arena = Bump::new();
-        let ctx = test_ctx(&arena);
+        let ctx = test_ctx(&host, &arena);
         roundtrip(
-            &ctx,
+            ctx,
             SassValue::new_with_arena(
                 &arena,
                 ValueKind::List(SassList::new(
+                    &arena,
                     vec![
                         SassValue::new_with_arena(
                             &arena,
-                            ValueKind::Number(SassNumber::new(1.0, None)),
+                            ValueKind::Number(SassNumber::new(&arena, 1.0, None)),
                         ),
                         SassValue::new_with_arena(
                             &arena,
@@ -796,7 +852,7 @@ mod tests {
             ),
         );
         roundtrip(
-            &ctx,
+            ctx,
             SassValue::new_with_arena(
                 &arena,
                 ValueKind::List(SassList::empty(ListSeparator::Undecided, false)),
@@ -806,39 +862,44 @@ mod tests {
 
     #[test]
     fn roundtrip_map() {
+        let host = new_test_host();
         let arena = Bump::new();
-        let ctx = test_ctx(&arena);
+        let ctx = test_ctx(&host, &arena);
         roundtrip(
-            &ctx,
+            ctx,
             SassValue::new_with_arena(
                 &arena,
-                ValueKind::Map(SassMap::from_entries(vec![
-                    (
-                        SassValue::new_with_arena(
-                            &arena,
-                            ValueKind::String(SassString::new(arena.alloc_str("key"), true)),
+                ValueKind::Map(SassMap::from_entries(
+                    &arena,
+                    vec![
+                        (
+                            SassValue::new_with_arena(
+                                &arena,
+                                ValueKind::String(SassString::new(arena.alloc_str("key"), true)),
+                            ),
+                            SassValue::new_with_arena(
+                                &arena,
+                                ValueKind::Number(SassNumber::new(&arena, 1.0, None)),
+                            ),
                         ),
-                        SassValue::new_with_arena(
-                            &arena,
-                            ValueKind::Number(SassNumber::new(1.0, None)),
+                        (
+                            SassValue::new_with_arena(
+                                &arena,
+                                ValueKind::Number(SassNumber::new(&arena, 2.0, None)),
+                            ),
+                            SassValue::new_with_arena(&arena, ValueKind::Boolean(SASS_TRUE)),
                         ),
-                    ),
-                    (
-                        SassValue::new_with_arena(
-                            &arena,
-                            ValueKind::Number(SassNumber::new(2.0, None)),
-                        ),
-                        SassValue::new_with_arena(&arena, ValueKind::Boolean(SASS_TRUE)),
-                    ),
-                ])),
+                    ],
+                )),
             ),
         );
     }
 
     #[test]
     fn roundtrip_argument_list() {
+        let host = new_test_host();
         let arena = Bump::new();
-        let ctx = test_ctx(&arena);
+        let ctx = test_ctx(&host, &arena);
         let mut keywords = IndexMap::new();
         keywords.insert(
             "kw".to_string(),
@@ -848,14 +909,14 @@ mod tests {
             ),
         );
         roundtrip(
-            &ctx,
+            ctx,
             SassValue::new_with_arena(
                 &arena,
                 ValueKind::ArgumentList(SassArgumentList::new(
                     &arena,
                     vec![SassValue::new_with_arena(
                         &arena,
-                        ValueKind::Number(SassNumber::new(1.0, None)),
+                        ValueKind::Number(SassNumber::new(&arena, 1.0, None)),
                     )],
                     keywords,
                     ListSeparator::Comma,
@@ -866,27 +927,30 @@ mod tests {
 
     #[test]
     fn roundtrip_calculation() {
+        let host = new_test_host();
         let arena = Bump::new();
-        let ctx = test_ctx(&arena);
+        let ctx = test_ctx(&host, &arena);
         roundtrip(
-            &ctx,
+            ctx,
             SassValue::new_with_arena(
                 &arena,
-                ValueKind::Calculation(Box::new(SassCalculation::new_unsimplified(
+                ValueKind::Calculation(&*arena.alloc(SassCalculation::new_unsimplified(
+                    &arena,
                     "calc",
-                    vec![CalcArgument::String("var(--x)".into(), false)],
+                    vec![CalcArgument::String("var(--x)", false)],
                 ))),
             ),
         );
         roundtrip(
-            &ctx,
+            ctx,
             SassValue::new_with_arena(
                 &arena,
-                ValueKind::Calculation(Box::new(SassCalculation::new_unsimplified(
+                ValueKind::Calculation(&*arena.alloc(SassCalculation::new_unsimplified(
+                    &arena,
                     "min",
                     vec![
-                        CalcArgument::Number(SassNumber::new(1.0, Some("px"))),
-                        CalcArgument::String("var(--x)".into(), false),
+                        CalcArgument::Number(SassNumber::new(&arena, 1.0, Some("px"))),
+                        CalcArgument::String("var(--x)", false),
                     ],
                 ))),
             ),
@@ -895,25 +959,26 @@ mod tests {
 
     #[test]
     fn roundtrip_function_and_mixin() {
+        let host = new_test_host();
         let arena = Bump::new();
-        let ctx = test_ctx(&arena);
+        let ctx = test_ctx(&host, &arena);
         let fn_value = SassFunction::new(dummy(&arena, "f"));
         let mixin_value = SassMixin::new(dummy(&arena, "m"));
         let fn_id = ctx.functions.borrow_mut().get_id(&fn_value);
         let mixin_id = ctx.mixins.borrow_mut().get_id(&mixin_value);
         roundtrip(
-            &ctx,
+            ctx,
             SassValue::new_with_arena(&arena, ValueKind::Function(fn_value.clone())),
         );
         roundtrip(
-            &ctx,
+            ctx,
             SassValue::new_with_arena(&arena, ValueKind::Mixin(mixin_value.clone())),
         );
         assert_eq!(fn_id, 0);
         assert_eq!(mixin_id, 0); // separate registry, also starts at 0
                                  // The round-trip returns the stored value (with its compile context).
         let back = roundtrip_deprotofy(
-            &ctx,
+            ctx,
             &SassValue::new_with_arena(&arena, ValueKind::Function(fn_value.clone())),
         );
         assert!(back.equals(&SassValue::new_with_arena(
@@ -924,8 +989,9 @@ mod tests {
 
     #[test]
     fn roundtrip_module() {
+        let host = new_test_host();
         let arena = Bump::new();
-        let ctx = test_ctx(&arena);
+        let ctx = test_ctx(&host, &arena);
         let module = rust_sass::module::Module::new(
             &arena,
             rust_sass::module::ModuleKind::BuiltIn(rust_sass::module::BuiltInModule::new(
@@ -940,23 +1006,24 @@ mod tests {
         let id = ctx.modules.borrow_mut().get_id(&value);
         assert_eq!(id, 0);
         roundtrip(
-            &ctx,
+            ctx,
             SassValue::new_with_arena(&arena, ValueKind::Module(value)),
         );
     }
 
     #[test]
     fn argument_list_referenced_by_id_returns_same_value() {
+        let host = new_test_host();
         let arena = Bump::new();
-        let ctx = test_ctx(&arena);
-        let mut protofier = Protofier::new(ctx.clone());
+        let ctx = test_ctx(&host, &arena);
+        let mut protofier = Protofier::new(ctx);
         let arg_list = SassValue::new_with_arena(
             &arena,
             ValueKind::ArgumentList(SassArgumentList::new(
                 &arena,
                 vec![SassValue::new_with_arena(
                     &arena,
-                    ValueKind::Number(SassNumber::new(7.0, None)),
+                    ValueKind::Number(SassNumber::new(&arena, 7.0, None)),
                 )],
                 IndexMap::new(),
                 ListSeparator::Undecided,

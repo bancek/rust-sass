@@ -28,7 +28,6 @@ use crate::eval::statement::combine_css;
 use crate::eval::statement::load_module;
 use crate::eval::warn::warn_deprecation;
 use crate::functions::meta::meta_module;
-use std::rc::Rc;
 
 use bumpalo::Bump;
 #[cfg(feature = "async")]
@@ -51,7 +50,7 @@ use crate::deprecation::{CALL_STRING, WITH_PRIVATE};
 use crate::environment::Environment;
 use crate::eval::{EvalConfig, EvalState, EvaluateVisitor};
 use crate::module::{Module, ModuleKind};
-use crate::url::SassUrl;
+use crate::url::OwnedUrl;
 use crate::value::{
     assert_mixin, assert_string, SassFunction, SassMap, SassMixin, SassModule, SassString, Value,
     ValueKind, SASS_FALSE, SASS_TRUE,
@@ -152,6 +151,7 @@ where
                 .unwrap_or_else(|| Value::new_with_arena(arena, ValueKind::Null));
             let rest_expr = Expression::Value(ValueExpression::new(rest_val, span));
             let arg_list = ArgumentList::new(
+                arena,
                 vec![],
                 IndexMap::new(),
                 IndexMap::new(),
@@ -177,13 +177,17 @@ where
             let fn_callable = state
                 .env
                 .get_function(&normalized, None)?
-                .or_else(|| config.built_in_functions.borrow().get(&normalized).cloned())
+                .or_else(|| {
+                    config
+                        .built_in_functions
+                        .borrow()
+                        .get(normalized.as_str())
+                        .cloned()
+                })
                 .unwrap_or_else(|| {
                     Callable::new(
                         arena,
-                        CallableKind::PlainCss(PlainCssCallable {
-                            name: s.text.to_string(),
-                        }),
+                        CallableKind::PlainCss(PlainCssCallable { name: s.text }),
                     )
                 });
             let span = state.callable_span.unwrap_or(BOGUS_SPAN);
@@ -196,7 +200,7 @@ where
             let keyword_rest = match &*rest_val {
                 ValueKind::ArgumentList(al) if !al.keywords.is_empty() => {
                     let mut kw_entries: Vec<(Value<'parse>, Value<'parse>)> = Vec::new();
-                    for (name, val) in &al.keywords {
+                    for (name, val) in al.keywords.iter() {
                         kw_entries.push((
                             Value::new_with_arena(
                                 arena,
@@ -205,7 +209,7 @@ where
                             *val,
                         ));
                     }
-                    let kw_map = SassMap::from_entries(kw_entries);
+                    let kw_map = SassMap::from_entries(arena, kw_entries);
                     Some(Expression::Value(ValueExpression::new(
                         Value::new_with_arena(arena, ValueKind::Map(kw_map)),
                         span,
@@ -216,6 +220,7 @@ where
 
             let rest_expr = Expression::Value(ValueExpression::new(rest_val, span));
             let arg_list = ArgumentList::new(
+                arena,
                 vec![],
                 IndexMap::new(),
                 IndexMap::new(),
@@ -268,10 +273,10 @@ where
     let mixins = create_meta_mixins(v, arena);
 
     for f in &fns {
-        meta_mod.add_function(*f);
+        meta_mod.add_function(arena, *f);
     }
     for m in &mixins {
-        meta_mod.add_mixin(*m);
+        meta_mod.add_mixin(arena, *m);
     }
 
     let module = Module::new(arena, ModuleKind::BuiltIn(meta_mod));
@@ -284,8 +289,8 @@ where
     for fn_ in &fns {
         match fn_.kind() {
             CallableKind::BuiltIn(b) => {
-                let wrapped = b.with_deprecation_warning("meta", None);
-                let key = wrapped.name().replace("_", "-");
+                let wrapped = b.with_deprecation_warning(arena, "meta", None);
+                let key = arena.alloc_str(&wrapped.name().replace("_", "-"));
                 v.config
                     .built_in_functions
                     .borrow_mut()
@@ -416,7 +421,7 @@ where
     // handles — never `&mut state` (see `ref/eval.md` borrow patterns).
     let env = v.state.env;
     let built_in_functions = v.config.built_in_functions;
-    let compile_context = v.config.compile_context.clone();
+    let compile_context = v.config.compile_context;
 
     [
         // --- global-variable-exists ---
@@ -427,8 +432,9 @@ where
                 "$name, $module: null",
                 arena,
                 {
-                    let cctx = compile_context.clone();
-                    Rc::new(
+                    let cctx = compile_context;
+                    crate::callable::built_in_callback(
+                        arena,
                         move |_config: &EvalConfig<'compile, 'parse>,
                               state: &mut EvalState<'compile, 'parse>,
                               args: Vec<Value<'parse>>,
@@ -458,7 +464,8 @@ where
         Callable::new(
             arena,
             CallableKind::BuiltIn(meta_fn("variable-exists", "$name", arena, {
-                Rc::new(
+                crate::callable::built_in_callback(
+                    arena,
                     move |_config: &EvalConfig<'compile, 'parse>,
                           state: &mut EvalState<'compile, 'parse>,
                           args: Vec<Value<'parse>>,
@@ -479,8 +486,9 @@ where
         Callable::new(
             arena,
             CallableKind::BuiltIn(meta_fn("function-exists", "$name, $module: null", arena, {
-                let cctx = compile_context.clone();
-                Rc::new(
+                let cctx = compile_context;
+                crate::callable::built_in_callback(
+                    arena,
                     move |_config: &EvalConfig<'compile, 'parse>,
                           state: &mut EvalState<'compile, 'parse>,
                           args: Vec<Value<'parse>>,
@@ -512,8 +520,9 @@ where
         Callable::new(
             arena,
             CallableKind::BuiltIn(meta_fn("mixin-exists", "$name, $module: null", arena, {
-                let cctx = compile_context.clone();
-                Rc::new(
+                let cctx = compile_context;
+                crate::callable::built_in_callback(
+                    arena,
                     move |_config: &EvalConfig<'compile, 'parse>,
                           state: &mut EvalState<'compile, 'parse>,
                           args: Vec<Value<'parse>>,
@@ -542,7 +551,8 @@ where
         Callable::new(
             arena,
             CallableKind::BuiltIn(meta_fn("content-exists", "", arena, {
-                Rc::new(
+                crate::callable::built_in_callback(
+                    arena,
                     move |_config: &EvalConfig<'compile, 'parse>,
                           state: &mut EvalState<'compile, 'parse>,
                           _args: Vec<Value<'parse>>,
@@ -568,8 +578,9 @@ where
         Callable::new(
             arena,
             CallableKind::BuiltIn(meta_fn("module-variables", "$module", arena, {
-                let cctx = compile_context.clone();
-                Rc::new(
+                let cctx = compile_context;
+                crate::callable::built_in_callback(
+                    arena,
                     move |_config: &EvalConfig<'compile, 'parse>,
                           state: &mut EvalState<'compile, 'parse>,
                           args: Vec<Value<'parse>>,
@@ -579,6 +590,7 @@ where
                         let mut m = SassMap::empty();
                         for (name, val) in module.variables().entries() {
                             m.set(
+                                arena,
                                 Value::new_with_arena(
                                     arena,
                                     ValueKind::String(SassString::new(
@@ -598,8 +610,9 @@ where
         Callable::new(
             arena,
             CallableKind::BuiltIn(meta_fn("module-functions", "$module", arena, {
-                let cctx = compile_context.clone();
-                Rc::new(
+                let cctx = compile_context;
+                crate::callable::built_in_callback(
+                    arena,
                     move |_config: &EvalConfig<'compile, 'parse>,
                           state: &mut EvalState<'compile, 'parse>,
                           args: Vec<Value<'parse>>,
@@ -609,6 +622,7 @@ where
                         let mut m = SassMap::empty();
                         for (name, fn_) in module.functions().entries() {
                             m.set(
+                                arena,
                                 Value::new_with_arena(
                                     arena,
                                     ValueKind::String(SassString::new(
@@ -620,7 +634,7 @@ where
                                     arena,
                                     ValueKind::Function(SassFunction::with_compile_context(
                                         fn_,
-                                        Some(cctx.clone()),
+                                        Some(cctx),
                                     )),
                                 ),
                             );
@@ -634,8 +648,9 @@ where
         Callable::new(
             arena,
             CallableKind::BuiltIn(meta_fn("module-mixins", "$module", arena, {
-                let cctx = compile_context.clone();
-                Rc::new(
+                let cctx = compile_context;
+                crate::callable::built_in_callback(
+                    arena,
                     move |_config: &EvalConfig<'compile, 'parse>,
                           state: &mut EvalState<'compile, 'parse>,
                           args: Vec<Value<'parse>>,
@@ -645,6 +660,7 @@ where
                         let mut m = SassMap::empty();
                         for (name, mx) in module.mixins().entries() {
                             m.set(
+                                arena,
                                 Value::new_with_arena(
                                     arena,
                                     ValueKind::String(SassString::new(
@@ -656,7 +672,7 @@ where
                                     arena,
                                     ValueKind::Mixin(SassMixin::with_compile_context(
                                         mx,
-                                        Some(cctx.clone()),
+                                        Some(cctx),
                                     )),
                                 ),
                             );
@@ -674,8 +690,9 @@ where
                 "$name, $css: false, $module: null",
                 arena,
                 {
-                    let cctx = compile_context.clone();
-                    Rc::new(
+                    let cctx = compile_context;
+                    crate::callable::built_in_callback(
+                        arena,
                         move |_config: &EvalConfig<'compile, 'parse>,
                               state: &mut EvalState<'compile, 'parse>,
                               args: Vec<Value<'parse>>,
@@ -696,14 +713,12 @@ where
                                         argument_name: None,
                                     }));
                                 }
-                                let pc = PlainCssCallable {
-                                    name: name.text.to_string(),
-                                };
+                                let pc = PlainCssCallable { name: name.text };
                                 return Ok(Value::new_with_arena(
                                     arena,
                                     ValueKind::Function(SassFunction::with_compile_context(
                                         Callable::new(arena, CallableKind::PlainCss(pc)),
-                                        Some(cctx.clone()),
+                                        Some(cctx),
                                     )),
                                 ));
                             }
@@ -712,7 +727,10 @@ where
                             let callable = match module {
                                 Some(module) => module.functions().get(&normalized),
                                 None => env.get_function(&normalized, None)?.or_else(|| {
-                                    built_in_functions.borrow().get(&normalized).cloned()
+                                    built_in_functions
+                                        .borrow()
+                                        .get(normalized.as_str())
+                                        .cloned()
                                 }),
                             };
                             match callable {
@@ -720,7 +738,7 @@ where
                                     arena,
                                     ValueKind::Function(SassFunction::with_compile_context(
                                         c,
-                                        Some(cctx.clone()),
+                                        Some(cctx),
                                     )),
                                 )),
                                 None => Err(function_not_found(name)?),
@@ -734,8 +752,9 @@ where
         Callable::new(
             arena,
             CallableKind::BuiltIn(meta_fn("get-mixin", "$name, $module: null", arena, {
-                let cctx = compile_context.clone();
-                Rc::new(
+                let cctx = compile_context;
+                crate::callable::built_in_callback(
+                    arena,
                     move |_config: &EvalConfig<'compile, 'parse>,
                           state: &mut EvalState<'compile, 'parse>,
                           args: Vec<Value<'parse>>,
@@ -754,10 +773,7 @@ where
                         match local {
                             Some(c) => Ok(Value::new_with_arena(
                                 arena,
-                                ValueKind::Mixin(SassMixin::with_compile_context(
-                                    c,
-                                    Some(cctx.clone()),
-                                )),
+                                ValueKind::Mixin(SassMixin::with_compile_context(c, Some(cctx))),
                             )),
                             None => Err(mixin_not_found(name)?),
                         }
@@ -769,8 +785,9 @@ where
         Callable::new(
             arena,
             CallableKind::BuiltIn(meta_fn("get-module", "$module", arena, {
-                let cctx = compile_context.clone();
-                Rc::new(
+                let cctx = compile_context;
+                crate::callable::built_in_callback(
+                    arena,
                     move |_config: &EvalConfig<'compile, 'parse>,
                           state: &mut EvalState<'compile, 'parse>,
                           args: Vec<Value<'parse>>,
@@ -779,10 +796,7 @@ where
                         let module = get_module(&args[0], state.env, &cctx)?;
                         Ok(Value::new_with_arena(
                             arena,
-                            ValueKind::Module(SassModule::with_compile_context(
-                                module,
-                                Some(cctx.clone()),
-                            )),
+                            ValueKind::Module(SassModule::with_compile_context(module, Some(cctx))),
                         ))
                     },
                 )
@@ -792,14 +806,15 @@ where
         Callable::new(
             arena,
             CallableKind::BuiltIn(meta_fn_async("load", r"$url, $with: null", arena, {
-                let cctx = compile_context.clone();
-                Rc::new(
+                let cctx = compile_context;
+                crate::callable::built_in_callback_async(
+                    arena,
                     move |config,
                           state,
                           args,
                           _arena|
                           -> LocalBoxFuture<'_, SassResult<Value<'parse>>> {
-                        let cctx = cctx.clone();
+                        let cctx = cctx;
                         box_rec!(load_impl(config, state, args, arena, cctx))
                     },
                 )
@@ -809,14 +824,15 @@ where
         Callable::new(
             arena,
             CallableKind::BuiltIn(meta_fn_async("call", r"$function, $args...", arena, {
-                let cctx = compile_context.clone();
-                Rc::new(
+                let cctx = compile_context;
+                crate::callable::built_in_callback_async(
+                    arena,
                     move |config,
                           state,
                           args,
                           _arena|
                           -> LocalBoxFuture<'_, SassResult<Value<'parse>>> {
-                        let cctx = cctx.clone();
+                        let cctx = cctx;
                         box_rec!(call_impl(config, state, arena, args, cctx))
                     },
                 )
@@ -962,7 +978,7 @@ where
     'compile: 'parse,
 {
     let url_val = assert_string(url_arg, Some("url"))?;
-    let url = SassUrl::parse(url_val.text).map_err(|error| {
+    let url = OwnedUrl::parse(url_val.text).map_err(|error| {
         Box::new(SassError::Script {
             message: error.message,
             argument_name: None,
@@ -997,7 +1013,7 @@ where
         let span = state.callable_span.unwrap_or(BOGUS_SPAN);
         let mut values: IndexMap<String, ConfiguredValue> = IndexMap::new();
         let mut private_deprecation = false;
-        for (variable, val) in &with_map.entries {
+        for (variable, val) in with_map.iter() {
             let name_str = match &**variable {
                 ValueKind::String(s) => s.text.replace("_", "-"),
                 _ => {
@@ -1033,7 +1049,9 @@ where
     };
 
     let callable_node_span = state.callable_span.unwrap_or(BOGUS_SPAN);
-    let base_url = callable_node_span.source_url().cloned();
+    let base_url = callable_node_span
+        .source_url()
+        .map(|url| url.to_owned_url());
     let (module, _first_load) = load_module(
         config,
         state,
@@ -1093,6 +1111,7 @@ where
         .unwrap_or_else(|| Value::new_with_arena(arena, ValueKind::Null));
     let rest_expr = Expression::Value(ValueExpression::new(rest_val, span));
     let arg_list = ArgumentList::new(
+        arena,
         vec![],
         IndexMap::new(),
         IndexMap::new(),
@@ -1136,21 +1155,22 @@ where
     'compile: 'parse,
     'parse: 'compile,
 {
-    let compile_context = v.config.compile_context.clone();
+    let compile_context = v.config.compile_context;
 
     [
         // --- css ---
         Callable::new(
             arena,
             CallableKind::BuiltIn(meta_mixin_fn_async("css", "$module", false, arena, {
-                let cctx = compile_context.clone();
-                Rc::new(
+                let cctx = compile_context;
+                crate::callable::built_in_callback_async(
+                    arena,
                     move |config,
                           state,
                           args,
                           __arena|
                           -> LocalBoxFuture<'_, SassResult<Value<'parse>>> {
-                        let cctx = cctx.clone();
+                        let cctx = cctx;
                         box_rec!(css_impl(config, state, args, cctx, arena))
                     },
                 )
@@ -1165,7 +1185,7 @@ where
                 false,
                 arena,
                 {
-                    Rc::new(
+                    crate::callable::built_in_callback_async(arena,
                     move |config,
                           state,
                           args,
@@ -1186,14 +1206,14 @@ where
                 true,
                 arena,
                 {
-                    let cctx = compile_context.clone();
-                    Rc::new(
+                    let cctx = compile_context;
+                    crate::callable::built_in_callback_async(arena,
                     move |config,
                           state,
                           args,
                           __arena|
                           -> LocalBoxFuture<'_, SassResult<Value<'parse>>> {
-                        let cctx = cctx.clone();
+                        let cctx = cctx;
                         box_rec!(apply_impl(config, state, args, cctx, arena))
                     },
                 )
@@ -1312,7 +1332,7 @@ mod tests {
         )
     }
     fn num_val<'compile: 'parse, 'parse>(arena: &'compile Bump, v: f64) -> Value<'parse> {
-        Value::new_with_arena(arena, ValueKind::Number(SassNumber::new(v, None)))
+        Value::new_with_arena(arena, ValueKind::Number(SassNumber::new(arena, v, None)))
     }
 
     fn noop_callable<'compile, 'parse>(
@@ -1326,9 +1346,11 @@ mod tests {
         Callable::new(
             arena,
             CallableKind::BuiltIn(BuiltInCallable::new(
-                name.to_string(),
+                arena,
+                name,
                 ParameterList::empty(BOGUS_SPAN),
-                Rc::new(
+                crate::callable::built_in_callback(
+                    arena,
                     |_config: &EvalConfig<'compile, 'parse>,
                      _state: &mut EvalState<'compile, 'parse>,
                      _args: Vec<Value<'parse>>,
@@ -1440,7 +1462,7 @@ mod tests {
         for (k, v_) in vars {
             var_map.insert(
                 k.to_string(),
-                Value::new_with_arena(arena, ValueKind::Number(SassNumber::new(*v_, None))),
+                Value::new_with_arena(arena, ValueKind::Number(SassNumber::new(arena, *v_, None))),
             );
         }
         let mod_ = BuiltInModule::new(arena, namespace.to_string(), &fns, &mixins, var_map);
@@ -1670,10 +1692,10 @@ mod tests {
         let mut v = new_visitor(&arena);
         // Host globals live in `_builtInFunctions` in Dart, so register here
         // (normalized key) rather than in the `global_functions` side list.
-        v.config
-            .built_in_functions
-            .borrow_mut()
-            .insert("global-fn".to_string(), noop_callable(&arena, "global-fn"));
+        v.config.built_in_functions.borrow_mut().insert(
+            arena.alloc_str("global-fn"),
+            noop_callable(&arena, "global-fn"),
+        );
         assert_bool(
             &eval_ok(
                 &mut v,
@@ -1706,7 +1728,7 @@ mod tests {
         v.config
             .built_in_functions
             .borrow_mut()
-            .insert("my-fn".to_string(), noop_callable(&arena, "my_fn"));
+            .insert(arena.alloc_str("my-fn"), noop_callable(&arena, "my_fn"));
         for (name, want) in [
             ("apply", false),
             ("load-css", false),
@@ -1737,7 +1759,7 @@ mod tests {
         let err = compile_string(
             "@use \"sass:meta\";\n@include meta.load-css(\"sass:math\", $with: ());\na { b: 1; }",
             io,
-            CompileOptions::new(&arena),
+            &mut CompileOptions::new(&arena),
             &arena,
         )
         .await
@@ -1773,7 +1795,7 @@ mod tests {
             "$x: 0 !default;\nb { c: $x; }\n".to_string(),
         );
         let io: Rc<dyn Io> = Rc::new(VirtualIo::with_files(files));
-        let result = compile("/main.scss", io, CompileOptions::new(&arena), &arena)
+        let result = compile("/main.scss", io, &mut CompileOptions::new(&arena), &arena)
             .await
             .unwrap();
         assert!(result.css().contains("c: 0;"), "got: {}", result.css());
@@ -1831,7 +1853,7 @@ mod tests {
         );
         files.insert("/other.scss".to_string(), "$value: c;".to_string());
         let io: Rc<dyn Io> = Rc::new(VirtualIo::with_files(files));
-        let result = compile("/main.scss", io, CompileOptions::new(&arena), &arena)
+        let result = compile("/main.scss", io, &mut CompileOptions::new(&arena), &arena)
             .await
             .unwrap();
         assert!(
@@ -1852,7 +1874,7 @@ mod tests {
         );
         files.insert("/other.scss".to_string(), "a {b: c}".to_string());
         let io: Rc<dyn Io> = Rc::new(VirtualIo::with_files(files));
-        let result = compile("/main.scss", io, CompileOptions::new(&arena), &arena)
+        let result = compile("/main.scss", io, &mut CompileOptions::new(&arena), &arena)
             .await
             .unwrap();
         // `@use` emits the module once; `meta.css` emits its CSS again.
@@ -2043,7 +2065,7 @@ mod tests {
             panic!("expected Map")
         };
         assert_eq!(m.len(), 1);
-        for (k, val) in &m.entries {
+        for (k, val) in m.iter() {
             let ValueKind::String(ks) = &**k else {
                 panic!("key not string")
             };
@@ -2066,7 +2088,7 @@ mod tests {
         let ValueKind::Map(m) = got.kind() else {
             panic!("expected Map")
         };
-        for (k, val) in &m.entries {
+        for (k, val) in m.iter() {
             let ValueKind::String(ks) = &**k else {
                 panic!("key not string")
             };
@@ -2106,7 +2128,7 @@ mod tests {
         v.config
             .built_in_functions
             .borrow_mut()
-            .insert("builtin-fn".into(), fn_);
+            .insert("builtin-fn", fn_);
         let got = eval_ok(
             &mut v,
             "get-function",
@@ -2127,7 +2149,7 @@ mod tests {
         v.config
             .built_in_functions
             .borrow_mut()
-            .insert("builtin-fn".into(), noop_callable(&arena, "builtin-fn"));
+            .insert("builtin-fn", noop_callable(&arena, "builtin-fn"));
         module_with(&mut v, &arena, "m", vec![], vec![], &[]);
         assert_script_err(
             eval_fn(
@@ -2386,7 +2408,7 @@ mod tests {
         let err = compile_string(
             "@use \"sass:meta\";\n$m: meta.load(\"http://[\");\n",
             io,
-            CompileOptions::new(&arena),
+            &mut CompileOptions::new(&arena),
             &arena,
         )
         .await
@@ -2407,7 +2429,7 @@ mod tests {
         let err = compile_string(
             "@use \"sass:meta\";\n@include meta.load-css(\"http://[::1\");\n",
             io,
-            CompileOptions::new(&arena),
+            &mut CompileOptions::new(&arena),
             &arena,
         )
         .await
@@ -2426,7 +2448,7 @@ mod tests {
             let err = compile_string(
                 &format!("@use \"sass:meta\";\n$m: meta.load(\"{url}\");\n"),
                 io,
-                CompileOptions::new(&arena),
+                &mut CompileOptions::new(&arena),
                 &arena,
             )
             .await
@@ -2463,6 +2485,7 @@ mod tests {
         let mut v = new_visitor(&arena);
         let mut with = SassMap::empty();
         with.set(
+            &arena,
             Value::new_with_arena(
                 &arena,
                 ValueKind::String(SassString::new(arena.alloc_str("a_b"), true)),
@@ -2470,6 +2493,7 @@ mod tests {
             num_val(&arena, 1.0),
         );
         with.set(
+            &arena,
             Value::new_with_arena(
                 &arena,
                 ValueKind::String(SassString::new(arena.alloc_str("a-b"), true)),
@@ -2501,6 +2525,7 @@ mod tests {
         v.config.logger = logger.clone();
         let mut with = SassMap::empty();
         with.set(
+            &arena,
             Value::new_with_arena(
                 &arena,
                 ValueKind::String(SassString::new(arena.alloc_str("-priv"), true)),

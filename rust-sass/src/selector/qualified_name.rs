@@ -21,8 +21,8 @@ use crate::value::hash::{hash_combine, string_hash_code};
 /// introduced in dart-sass 1.106.0. Rust models the variants as an enum.
 ///
 /// [`UniversalSelector`]: crate::selector::universal::UniversalSelector
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
-pub enum SelectorNamespace {
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum SelectorNamespace<'parse> {
     /// The default namespace for the document (`div`).
     Default,
     /// Matches any possible namespace (`*|div`).
@@ -30,12 +30,12 @@ pub enum SelectorNamespace {
     /// The absence of a namespace (`|div`).
     None,
     /// An explicitly named namespace (`foo|div`).
-    Named(String),
+    Named(&'parse str),
 }
 
-impl SelectorNamespace {
+impl<'parse> SelectorNamespace<'parse> {
     /// Creates an explicitly-named namespace.
-    pub fn named(name: String) -> Self {
+    pub fn named(name: &'parse str) -> Self {
         SelectorNamespace::Named(name)
     }
 
@@ -62,17 +62,17 @@ impl SelectorNamespace {
 /// A [qualified name].
 ///
 /// [qualified name]: https://www.w3.org/TR/css3-namespace/#css-qnames
-#[derive(Clone, Debug)]
-pub struct QualifiedName {
+#[derive(Clone, Copy, Debug)]
+pub struct QualifiedName<'parse> {
     /// The identifier name, with escapes resolved.
-    pub name: String,
+    pub name: &'parse str,
     /// The namespace.
-    pub namespace: SelectorNamespace,
+    pub namespace: SelectorNamespace<'parse>,
 }
 
-impl QualifiedName {
+impl<'parse> QualifiedName<'parse> {
     /// Creates a qualified name in the default namespace.
-    pub fn new(name: String) -> Self {
+    pub fn new(name: &'parse str) -> Self {
         QualifiedName {
             name,
             namespace: SelectorNamespace::Default,
@@ -80,13 +80,13 @@ impl QualifiedName {
     }
 
     /// Creates a qualified name with an explicit namespace.
-    pub fn new_with_namespace(name: String, namespace: SelectorNamespace) -> Self {
+    pub fn new_with_namespace(name: &'parse str, namespace: SelectorNamespace<'parse>) -> Self {
         QualifiedName { name, namespace }
     }
 
     /// Renders this name, matching Dart's `QualifiedName.toString`.
     pub fn to_css_string(&self) -> SassResult<String> {
-        let name = to_css_identifier(&self.name)?;
+        let name = to_css_identifier(self.name)?;
         match &self.namespace {
             SelectorNamespace::Default => Ok(name),
             SelectorNamespace::Any => Ok(format!("*|{name}")),
@@ -97,32 +97,32 @@ impl QualifiedName {
 
     // Matches Dart: combines the name and namespace hashes.
     pub fn hash_code(&self) -> i32 {
-        hash_combine(string_hash_code(&self.name), self.namespace.hash_code())
+        hash_combine(string_hash_code(self.name), self.namespace.hash_code())
     }
 }
 
 // Renders `name`, or `namespace|name` when a namespace is present,
 // matching Dart's `toString()`.
-impl fmt::Display for QualifiedName {
+impl fmt::Display for QualifiedName<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self.to_css_string() {
             Ok(s) => f.write_str(&s),
-            Err(_) => f.write_str(&self.name),
+            Err(_) => f.write_str(self.name),
         }
     }
 }
 
 // Matches Dart: structural equality over name and namespace.
-impl PartialEq for QualifiedName {
+impl PartialEq for QualifiedName<'_> {
     fn eq(&self, other: &Self) -> bool {
         self.name == other.name && self.namespace == other.namespace
     }
 }
 
-impl Eq for QualifiedName {}
+impl Eq for QualifiedName<'_> {}
 
 // Hashes via `hash_code`, matching Dart's `hashCode`.
-impl Hash for QualifiedName {
+impl Hash for QualifiedName<'_> {
     fn hash<H: Hasher>(&self, state: &mut H) {
         state.write_i32(self.hash_code());
     }
@@ -137,69 +137,65 @@ mod tests {
 
     #[test]
     fn test_new_qualified_name() {
-        let q = QualifiedName::new("div".into());
+        let q = QualifiedName::new("div");
         assert_eq!(q.name, "div");
         assert_eq!(q.namespace, SelectorNamespace::Default);
     }
 
     #[test]
     fn test_new_with_namespace() {
-        let ns = SelectorNamespace::named("svg".into());
-        let q = QualifiedName::new_with_namespace("circle".into(), ns.clone());
+        let ns = SelectorNamespace::named("svg");
+        let q = QualifiedName::new_with_namespace("circle", ns);
         assert_eq!(q.name, "circle");
         assert_eq!(q.namespace, ns);
     }
 
     #[test]
     fn test_new_with_empty_namespace() {
-        let q = QualifiedName::new_with_namespace("test".into(), SelectorNamespace::None);
+        let q = QualifiedName::new_with_namespace("test", SelectorNamespace::None);
         assert_eq!(q.namespace, SelectorNamespace::None);
     }
 
     #[test]
     fn test_eq_same_name_no_namespace() {
-        let q1 = QualifiedName::new("div".into());
-        let q2 = QualifiedName::new("div".into());
+        let q1 = QualifiedName::new("div");
+        let q2 = QualifiedName::new("div");
         assert_eq!(q1, q2);
     }
 
     #[test]
     fn test_eq_different_name() {
-        let q1 = QualifiedName::new("div".into());
-        let q2 = QualifiedName::new("span".into());
+        let q1 = QualifiedName::new("div");
+        let q2 = QualifiedName::new("span");
         assert_ne!(q1, q2);
     }
 
     #[test]
     fn test_eq_same_namespace() {
-        let ns = SelectorNamespace::named("svg".into());
-        let q1 = QualifiedName::new_with_namespace("div".into(), ns.clone());
-        let q2 = QualifiedName::new_with_namespace("div".into(), ns);
+        let ns = SelectorNamespace::named("svg");
+        let q1 = QualifiedName::new_with_namespace("div", ns);
+        let q2 = QualifiedName::new_with_namespace("div", ns);
         assert_eq!(q1, q2);
     }
 
     #[test]
     fn test_eq_different_namespace() {
-        let q1 =
-            QualifiedName::new_with_namespace("div".into(), SelectorNamespace::named("svg".into()));
-        let q2 = QualifiedName::new_with_namespace(
-            "div".into(),
-            SelectorNamespace::named("html".into()),
-        );
+        let q1 = QualifiedName::new_with_namespace("div", SelectorNamespace::named("svg"));
+        let q2 = QualifiedName::new_with_namespace("div", SelectorNamespace::named("html"));
         assert_ne!(q1, q2);
     }
 
     #[test]
     fn test_eq_none_namespaces() {
-        let q1 = QualifiedName::new_with_namespace("div".into(), SelectorNamespace::None);
-        let q2 = QualifiedName::new_with_namespace("div".into(), SelectorNamespace::None);
+        let q1 = QualifiedName::new_with_namespace("div", SelectorNamespace::None);
+        let q2 = QualifiedName::new_with_namespace("div", SelectorNamespace::None);
         assert_eq!(q1, q2);
     }
 
     #[test]
     fn test_hash_same() {
-        let q1 = QualifiedName::new("div".into());
-        let q2 = QualifiedName::new("div".into());
+        let q1 = QualifiedName::new("div");
+        let q2 = QualifiedName::new("div");
         let mut h1 = DefaultHasher::new();
         let mut h2 = DefaultHasher::new();
         q1.hash(&mut h1);
@@ -209,32 +205,31 @@ mod tests {
 
     #[test]
     fn test_display_default() {
-        let q = QualifiedName::new("div".into());
+        let q = QualifiedName::new("div");
         assert_eq!(q.to_string(), "div");
     }
 
     #[test]
     fn test_display_named() {
-        let q =
-            QualifiedName::new_with_namespace("div".into(), SelectorNamespace::named("svg".into()));
+        let q = QualifiedName::new_with_namespace("div", SelectorNamespace::named("svg"));
         assert_eq!(q.to_string(), "svg|div");
     }
 
     #[test]
     fn test_display_any() {
-        let q = QualifiedName::new_with_namespace("div".into(), SelectorNamespace::Any);
+        let q = QualifiedName::new_with_namespace("div", SelectorNamespace::Any);
         assert_eq!(q.to_string(), "*|div");
     }
 
     #[test]
     fn test_display_none() {
-        let q = QualifiedName::new_with_namespace("div".into(), SelectorNamespace::None);
+        let q = QualifiedName::new_with_namespace("div", SelectorNamespace::None);
         assert_eq!(q.to_string(), "|div");
     }
 
     #[test]
     fn test_display_escaped_name() {
-        let q = QualifiedName::new("foo.bar".into());
+        let q = QualifiedName::new("foo.bar");
         assert_eq!(q.to_string(), "foo\\.bar");
     }
 }

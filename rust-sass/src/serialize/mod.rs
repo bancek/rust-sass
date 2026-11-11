@@ -753,7 +753,7 @@ mod tests {
     use crate::common::source_span_file_source::FileSource;
     use crate::compile::{compile_string, CompileOptions};
     use crate::io::{DefaultIo, Io};
-    use crate::url::SassUrl;
+    use crate::url::OwnedUrl;
     use bumpalo::Bump;
     use std::rc::Rc;
 
@@ -764,11 +764,11 @@ mod tests {
     #[rust_sass_macros::maybe_async]
     async fn compile_nested(source: &str) -> String {
         let arena = bumpalo::Bump::new();
-        let opts = CompileOptions {
+        let mut opts = CompileOptions {
             style: OutputStyle::Nested,
             ..CompileOptions::new(&arena)
         };
-        compile_string(source, test_io(), opts, &arena)
+        compile_string(source, test_io(), &mut opts, &arena)
             .await
             .unwrap()
             .css()
@@ -779,14 +779,14 @@ mod tests {
         CssStylesheet::new(vec![], BOGUS_SPAN)
     }
 
-    fn stylesheet_with_comment(comment: &str) -> CssStylesheet<'static> {
-        let comment_node = CssNode::Comment(CssComment::new(comment.to_string(), BOGUS_SPAN));
+    fn stylesheet_with_comment(comment: &'static str) -> CssStylesheet<'static> {
+        let comment_node = CssNode::Comment(CssComment::new(comment, BOGUS_SPAN));
         CssStylesheet::new(vec![comment_node], BOGUS_SPAN)
     }
 
-    fn preserved_comment(text: &str) -> CssNode<'static> {
+    fn preserved_comment(text: &'static str) -> CssNode<'static> {
         CssNode::Comment(CssComment {
-            text: text.to_string(),
+            text,
             is_preserved: true,
             span: BOGUS_SPAN,
             is_group_end: false,
@@ -823,13 +823,13 @@ mod tests {
         // sourcesContent can actually be emitted.
         let arena = Bump::new();
         let text = "/* hello */";
-        let fs = FileSource::new_in(
+        let fs = FileSource::new_in_owned(
             &arena,
             text,
-            Some(SassUrl::parse("file:///input.scss").unwrap()),
+            Some(&OwnedUrl::parse("file:///input.scss").unwrap()),
         );
         let span = FileSpan::new(Some(fs), 0, text.len());
-        let comment = CssNode::Comment(CssComment::new(text.to_string(), span));
+        let comment = CssNode::Comment(CssComment::new(text, span));
         let stylesheet = CssStylesheet::new(vec![comment], span);
 
         let with = SerializeOptions {
@@ -986,11 +986,11 @@ mod tests {
     async fn test_nested_charset_expanded_prefix() {
         // Nested joins Expanded for the charset prefix (BOM is compressed-only).
         let arena = bumpalo::Bump::new();
-        let opts = CompileOptions {
+        let mut opts = CompileOptions {
             style: OutputStyle::Nested,
             ..CompileOptions::new(&arena)
         };
-        let result = compile_string("a{content:\"café\"}", test_io(), opts, &arena).await;
+        let result = compile_string("a{content:\"café\"}", test_io(), &mut opts, &arena).await;
         let css = result.unwrap().css().to_string();
         assert!(
             css.starts_with("@charset \"UTF-8\";\n"),
@@ -1053,11 +1053,11 @@ mod tests {
     async fn test_nested_compressed_closer_unchanged() {
         // Regression pin: the touched closer arm leaves compressed alone.
         let arena = bumpalo::Bump::new();
-        let opts = CompileOptions {
+        let mut opts = CompileOptions {
             style: OutputStyle::Compressed,
             ..CompileOptions::new(&arena)
         };
-        let result = compile_string("a{b:c}", test_io(), opts, &arena).await;
+        let result = compile_string("a{b:c}", test_io(), &mut opts, &arena).await;
         let css = result.unwrap().css().to_string();
         assert_eq!(css, "a{b:c}");
     }

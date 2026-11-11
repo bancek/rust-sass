@@ -7,12 +7,12 @@
 // dart-source: lib/src/value/map.dart
 // go-source: go/value/map.go
 
+use crate::arena_map::ArenaMap;
 use crate::value::hash::list_hash;
 use crate::value::hash::map_hash;
 use crate::value::ListSeparator;
 use crate::value::SassList;
 use bumpalo::Bump;
-use indexmap::IndexMap;
 
 use crate::common::SassResult;
 use crate::serialize::SerializeVisitor;
@@ -23,16 +23,91 @@ use crate::value::ValueVisitor;
 /// A SassScript map.
 #[derive(Clone, Debug)]
 pub struct SassMap<'parse> {
-    /// The contents of the map.
-    pub entries: IndexMap<Value<'parse>, Value<'parse>>,
+    /// The contents of the map. `None` is the empty map, which lets
+    /// [`SassMap::empty`] exist without an arena; every non-empty map's
+    /// entries live in the compile arena.
+    pub entries: Option<ArenaMap<'parse, Value<'parse>, Value<'parse>>>,
 }
 
 impl<'parse> SassMap<'parse> {
     /// Returns an empty map.
     pub fn empty() -> Self {
-        SassMap {
-            entries: IndexMap::new(),
+        SassMap { entries: None }
+    }
+
+    /// Creates a map from `iter`, keeping the first value when a key
+    /// appears more than once.
+    pub fn from_entries(
+        arena: &'parse Bump,
+        iter: impl IntoIterator<Item = (Value<'parse>, Value<'parse>)>,
+    ) -> Self {
+        let mut entries = ArenaMap::new_in(arena);
+        for (k, v) in iter {
+            if !entries.contains_key(&k) {
+                entries.insert(k, v);
+            }
         }
+        SassMap {
+            entries: if entries.is_empty() {
+                None
+            } else {
+                Some(entries)
+            },
+        }
+    }
+
+    /// Returns the number of entries in the map.
+    pub fn len(&self) -> usize {
+        self.entries.as_ref().map_or(0, ArenaMap::len)
+    }
+
+    /// Returns `true` when the map has no entries.
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
+    /// Iterates entries in insertion order.
+    pub fn iter(&self) -> impl Iterator<Item = (&Value<'parse>, &Value<'parse>)> + '_ {
+        self.entries.iter().flat_map(ArenaMap::iter)
+    }
+
+    /// Returns the value associated with `key`, if any.
+    pub fn get(&self, key: &Value<'parse>) -> Option<&Value<'parse>> {
+        self.entries.as_ref()?.get(key)
+    }
+
+    /// Returns `true` when `key` is present in the map.
+    pub fn contains(&self, key: &Value<'parse>) -> bool {
+        self.entries
+            .as_ref()
+            .is_some_and(|entries| entries.contains_key(key))
+    }
+
+    /// Inserts `val` under `key`, replacing any previous value.
+    pub fn set(&mut self, arena: &'parse Bump, key: Value<'parse>, val: Value<'parse>) {
+        match &mut self.entries {
+            Some(entries) => {
+                entries.insert(key, val);
+            }
+            None => {
+                let mut entries = ArenaMap::new_in(arena);
+                entries.insert(key, val);
+                self.entries = Some(entries);
+            }
+        }
+    }
+
+    /// Removes `key` and its value from the map, if present.
+    pub fn delete(&mut self, key: &Value<'parse>) {
+        if let Some(entries) = &mut self.entries {
+            entries.shift_remove(key);
+        }
+    }
+
+    /// Returns a copy of `self` with its own entry table (allocated in the
+    /// same arena, so it is retained until the compilation ends).
+    pub fn copy(&self) -> Self {
+        self.clone()
     }
 
     /// Returns a valid CSS representation of `self`.
@@ -59,64 +134,14 @@ impl<'parse> SassMap<'parse> {
         Ok(visitor.into_string())
     }
 
-    /// Creates a map from `iter`, keeping the first value when a key
-    /// appears more than once.
-    pub fn from_entries(iter: impl IntoIterator<Item = (Value<'parse>, Value<'parse>)>) -> Self {
-        let mut m = SassMap::empty();
-        for (k, v) in iter {
-            if !m.entries.contains_key(&k) {
-                m.entries.insert(k, v);
-            }
-        }
-        m
-    }
-
-    /// Returns the number of entries in the map.
-    pub fn len(&self) -> usize {
-        self.entries.len()
-    }
-
-    /// Returns `true` when the map has no entries.
-    pub fn is_empty(&self) -> bool {
-        self.entries.is_empty()
-    }
-
-    /// Returns the value associated with `key`, if any.
-    pub fn get(&self, key: &Value<'parse>) -> Option<&Value<'parse>> {
-        self.entries.get(key)
-    }
-
-    /// Returns `true` when `key` is present in the map.
-    pub fn contains(&self, key: &Value<'parse>) -> bool {
-        self.entries.contains_key(key)
-    }
-
-    /// Inserts `val` under `key`, replacing any previous value.
-    pub fn set(&mut self, key: Value<'parse>, val: Value<'parse>) {
-        self.entries.insert(key, val);
-    }
-
-    /// Removes `key` and its value from the map, if present.
-    pub fn delete(&mut self, key: &Value<'parse>) {
-        self.entries.shift_remove(key);
-    }
-
-    /// Returns a copy of `self` with its own entry table.
-    pub fn copy(&self) -> Self {
-        SassMap {
-            entries: self.entries.clone(),
-        }
-    }
-
     /// This value as a list: one space-separated key/value pair per entry.
     ///
     /// All SassScript values can be used as lists; maps count as lists of
     /// pairs.
     pub fn as_list<'compile: 'parse>(&self, arena: &'compile Bump) -> Vec<Value<'parse>> {
-        self.entries
-            .iter()
+        self.iter()
             .map(|(k, v)| {
-                let pair = SassList::new(vec![*k, *v], ListSeparator::Space, false);
+                let pair = SassList::new(arena, vec![*k, *v], ListSeparator::Space, false);
                 Value::new_with_arena(arena, ValueKind::List(pair))
             })
             .collect()
@@ -126,14 +151,13 @@ impl<'parse> SassMap<'parse> {
     /// empty list; otherwise the combine is order-independent so equal
     /// maps with different insertion orders hash equally.
     pub fn hash_code(&self) -> i32 {
-        if self.entries.is_empty() {
+        if self.is_empty() {
             return list_hash(&[]);
         }
         // Dart `mapHash` is unordered (package:collection MapEquality): equal
         // maps with different insertion orders must hash equally, so the
         // combine must be order-independent (summed, not iterated).
         let flat: Vec<(i32, i32)> = self
-            .entries
             .iter()
             .map(|(k, v)| (k.hash_code(), v.hash_code()))
             .collect();
@@ -143,16 +167,11 @@ impl<'parse> SassMap<'parse> {
     /// Compares this map to `other` entry-wise, ignoring insertion order.
     /// An empty map additionally equals an empty list.
     pub fn equals(&self, other: &SassMap<'parse>) -> bool {
-        if self.entries.len() != other.entries.len() {
+        if self.len() != other.len() {
             return false;
         }
-        for (k, v) in &self.entries {
-            match other.entries.get(k) {
-                Some(ov) if v == ov => continue,
-                _ => return false,
-            }
-        }
-        true
+        self.iter()
+            .all(|(k, v)| matches!(other.get(k), Some(ov) if v == ov))
     }
 
     /// The separator for this value as a list: comma for a non-empty map,
@@ -161,7 +180,7 @@ impl<'parse> SassMap<'parse> {
     /// All SassScript values can be used as lists; maps count as lists of
     /// pairs.
     pub fn separator(&self) -> ListSeparator {
-        if self.entries.is_empty() {
+        if self.is_empty() {
             ListSeparator::Undecided
         } else {
             ListSeparator::Comma
@@ -195,10 +214,13 @@ mod tests {
     #[test]
     fn test_map_get() {
         let arena = Bump::new();
-        let m = SassMap::from_entries(vec![(
-            ValueKind::unitless_number(&arena, 1.0),
-            ValueKind::unitless_number(&arena, 42.0),
-        )]);
+        let m = SassMap::from_entries(
+            &arena,
+            vec![(
+                ValueKind::unitless_number(&arena, 1.0),
+                ValueKind::unitless_number(&arena, 42.0),
+            )],
+        );
         let v = m.get(&ValueKind::unitless_number(&arena, 1.0));
         assert!(v.is_some());
         assert!(m.get(&ValueKind::unitless_number(&arena, 99.0)).is_none());
@@ -209,12 +231,14 @@ mod tests {
         let arena = Bump::new();
         let mut m = SassMap::empty();
         m.set(
+            &arena,
             ValueKind::unitless_number(&arena, 1.0),
             ValueKind::unitless_number(&arena, 10.0),
         );
         assert_eq!(m.len(), 1);
         assert!(m.contains(&ValueKind::unitless_number(&arena, 1.0)));
         m.set(
+            &arena,
             ValueKind::unitless_number(&arena, 1.0),
             ValueKind::unitless_number(&arena, 20.0),
         );
@@ -226,10 +250,13 @@ mod tests {
     #[test]
     fn test_map_delete() {
         let arena = Bump::new();
-        let mut m = SassMap::from_entries(vec![(
-            ValueKind::unitless_number(&arena, 1.0),
-            ValueKind::unitless_number(&arena, 10.0),
-        )]);
+        let mut m = SassMap::from_entries(
+            &arena,
+            vec![(
+                ValueKind::unitless_number(&arena, 1.0),
+                ValueKind::unitless_number(&arena, 10.0),
+            )],
+        );
         m.delete(&ValueKind::unitless_number(&arena, 1.0));
         assert_eq!(m.len(), 0);
         assert!(!m.contains(&ValueKind::unitless_number(&arena, 1.0)));
@@ -238,12 +265,16 @@ mod tests {
     #[test]
     fn test_map_copy() {
         let arena = Bump::new();
-        let m = SassMap::from_entries(vec![(
-            ValueKind::unitless_number(&arena, 1.0),
-            ValueKind::unitless_number(&arena, 10.0),
-        )]);
+        let m = SassMap::from_entries(
+            &arena,
+            vec![(
+                ValueKind::unitless_number(&arena, 1.0),
+                ValueKind::unitless_number(&arena, 10.0),
+            )],
+        );
         let mut c = m.copy();
         c.set(
+            &arena,
             ValueKind::unitless_number(&arena, 1.0),
             ValueKind::unitless_number(&arena, 99.0),
         );
@@ -259,10 +290,13 @@ mod tests {
     fn test_map_as_list() {
         let arena = Bump::new();
         let bump = Bump::new();
-        let m = SassMap::from_entries(vec![(
-            string_val(&bump, "a"),
-            ValueKind::unitless_number(&arena, 1.0),
-        )]);
+        let m = SassMap::from_entries(
+            &arena,
+            vec![(
+                string_val(&bump, "a"),
+                ValueKind::unitless_number(&arena, 1.0),
+            )],
+        );
         let pairs = m.as_list(&arena);
         assert_eq!(pairs.len(), 1);
     }
@@ -270,19 +304,28 @@ mod tests {
     #[test]
     fn test_map_equals() {
         let arena = Bump::new();
-        let m1 = SassMap::from_entries(vec![(
-            ValueKind::unitless_number(&arena, 1.0),
-            ValueKind::unitless_number(&arena, 10.0),
-        )]);
-        let m2 = SassMap::from_entries(vec![(
-            ValueKind::unitless_number(&arena, 1.0),
-            ValueKind::unitless_number(&arena, 10.0),
-        )]);
+        let m1 = SassMap::from_entries(
+            &arena,
+            vec![(
+                ValueKind::unitless_number(&arena, 1.0),
+                ValueKind::unitless_number(&arena, 10.0),
+            )],
+        );
+        let m2 = SassMap::from_entries(
+            &arena,
+            vec![(
+                ValueKind::unitless_number(&arena, 1.0),
+                ValueKind::unitless_number(&arena, 10.0),
+            )],
+        );
         assert!(m1.equals(&m2));
-        let m3 = SassMap::from_entries(vec![(
-            ValueKind::unitless_number(&arena, 2.0),
-            ValueKind::unitless_number(&arena, 10.0),
-        )]);
+        let m3 = SassMap::from_entries(
+            &arena,
+            vec![(
+                ValueKind::unitless_number(&arena, 2.0),
+                ValueKind::unitless_number(&arena, 10.0),
+            )],
+        );
         assert!(!m1.equals(&m3));
     }
 
@@ -300,14 +343,20 @@ mod tests {
     #[test]
     fn test_map_hash_code() {
         let arena = Bump::new();
-        let m1 = SassMap::from_entries(vec![(
-            ValueKind::unitless_number(&arena, 1.0),
-            ValueKind::unitless_number(&arena, 10.0),
-        )]);
-        let m2 = SassMap::from_entries(vec![(
-            ValueKind::unitless_number(&arena, 1.0),
-            ValueKind::unitless_number(&arena, 10.0),
-        )]);
+        let m1 = SassMap::from_entries(
+            &arena,
+            vec![(
+                ValueKind::unitless_number(&arena, 1.0),
+                ValueKind::unitless_number(&arena, 10.0),
+            )],
+        );
+        let m2 = SassMap::from_entries(
+            &arena,
+            vec![(
+                ValueKind::unitless_number(&arena, 1.0),
+                ValueKind::unitless_number(&arena, 10.0),
+            )],
+        );
         assert_eq!(m1.hash_code(), m2.hash_code());
     }
 
@@ -334,8 +383,8 @@ mod tests {
         let vb = ValueKind::unitless_number(&arena, 4e-11);
         assert_eq!(ka.hash_code(), 1, "precondition: distinct fuzzy codes");
         assert_eq!(kb.hash_code(), 2, "precondition: distinct fuzzy codes");
-        let m1 = SassMap::from_entries(vec![(ka, va), (kb, vb)]);
-        let m2 = SassMap::from_entries(vec![(kb, vb), (ka, va)]);
+        let m1 = SassMap::from_entries(&arena, vec![(ka, va), (kb, vb)]);
+        let m2 = SassMap::from_entries(&arena, vec![(kb, vb), (ka, va)]);
         assert!(m1.equals(&m2), "swapped maps must be equal (precondition)");
         assert_eq!(
             m1.hash_code(),
@@ -348,10 +397,13 @@ mod tests {
     fn test_map_separator() {
         let arena = Bump::new();
         assert_eq!(SassMap::empty().separator(), ListSeparator::Undecided);
-        let m = SassMap::from_entries(vec![(
-            ValueKind::unitless_number(&arena, 1.0),
-            ValueKind::unitless_number(&arena, 1.0),
-        )]);
+        let m = SassMap::from_entries(
+            &arena,
+            vec![(
+                ValueKind::unitless_number(&arena, 1.0),
+                ValueKind::unitless_number(&arena, 1.0),
+            )],
+        );
         assert_eq!(m.separator(), ListSeparator::Comma);
     }
 
@@ -363,7 +415,7 @@ mod tests {
             &arena,
             ValueKind::String(SassString::new(arena.alloc_str("a"), true)),
         );
-        map.set(key, ValueKind::unitless_number(&arena, 1.0));
+        map.set(&arena, key, ValueKind::unitless_number(&arena, 1.0));
         let v = Value::new_with_arena(&arena, ValueKind::Map(map));
         assert!(v.to_css_string(true).is_err());
     }
@@ -376,7 +428,7 @@ mod tests {
             &arena,
             ValueKind::String(SassString::new(arena.alloc_str("a"), true)),
         );
-        map.set(key, ValueKind::unitless_number(&arena, 1.0));
+        map.set(&arena, key, ValueKind::unitless_number(&arena, 1.0));
         let v = Value::new_with_arena(&arena, ValueKind::Map(map));
         assert_eq!(v.to_display_string().unwrap(), "(\"a\": 1)");
     }

@@ -7,6 +7,7 @@
 // dart-source: lib/src/ast/sass/expression/function.dart
 // go-source: go/value/sass_expression_function.go
 
+use bumpalo::Bump;
 use std::fmt;
 use std::fmt::Write;
 
@@ -25,15 +26,15 @@ use crate::ast::sass::interpolation::Interpolation;
 pub struct FunctionExpression<'parse> {
     /// The namespace of the function being invoked, or [`None`] if it's
     /// invoked without a namespace.
-    pub namespace: Option<String>,
+    pub namespace: Option<&'parse str>,
     /// The name of the function being invoked, with underscores converted to
     /// hyphens.
     ///
     /// If this function is a plain CSS function, use
     /// [`original_name`](Self::original_name) instead.
-    pub name: String,
+    pub name: &'parse str,
     /// The name of the function being invoked, with underscores left as-is.
-    pub original_name: String,
+    pub original_name: &'parse str,
     /// The arguments to pass to the function.
     pub arguments: ArgumentList<'parse>,
     pub span: FileSpan<'parse>,
@@ -41,16 +42,17 @@ pub struct FunctionExpression<'parse> {
 
 impl<'parse> FunctionExpression<'parse> {
     pub fn new(
-        original_name: String,
+        arena: &'parse Bump,
+        original_name: &str,
         arguments: ArgumentList<'parse>,
         span: FileSpan<'parse>,
-        namespace: Option<String>,
+        namespace: Option<&str>,
     ) -> Self {
-        let name = original_name.replace('_', "-");
+        let name = arena.alloc_str(&original_name.replace('_', "-"));
         FunctionExpression {
-            namespace,
+            namespace: namespace.map(|ns| &*arena.alloc_str(ns)),
             name,
-            original_name,
+            original_name: arena.alloc_str(original_name),
             arguments,
             span,
         }
@@ -122,7 +124,7 @@ mod tests {
         let arena = Bump::new();
         let fs = FileSource::new_in(&arena, "fn()", None);
         let span = FileSpan::new(Some(fs), 0, 4);
-        let expr = FunctionExpression::new("fn".into(), ArgumentList::empty(span), span, None);
+        let expr = FunctionExpression::new(&arena, "fn", ArgumentList::empty(span), span, None);
         assert_eq!(expr.original_name, "fn");
         assert_eq!(expr.name, "fn");
     }
@@ -132,7 +134,8 @@ mod tests {
         let arena = Bump::new();
         let fs = FileSource::new_in(&arena, "fn_name()", None);
         let span = FileSpan::new(Some(fs), 0, 10);
-        let expr = FunctionExpression::new("fn_name".into(), ArgumentList::empty(span), span, None);
+        let expr =
+            FunctionExpression::new(&arena, "fn_name", ArgumentList::empty(span), span, None);
         assert_eq!(expr.name, "fn-name");
     }
 
@@ -141,7 +144,7 @@ mod tests {
         let arena = Bump::new();
         let fs = FileSource::new_in(&arena, "fn()", None);
         let span = FileSpan::new(Some(fs), 0, 4);
-        let expr = FunctionExpression::new("fn".into(), ArgumentList::empty(span), span, None);
+        let expr = FunctionExpression::new(&arena, "fn", ArgumentList::empty(span), span, None);
         assert!(expr.source_interpolation().is_none());
     }
 
@@ -150,7 +153,7 @@ mod tests {
         let arena = Bump::new();
         let fs = FileSource::new_in(&arena, "fn()", None);
         let span = FileSpan::new(Some(fs), 0, 4);
-        let expr = FunctionExpression::new("fn".into(), ArgumentList::empty(span), span, None);
+        let expr = FunctionExpression::new(&arena, "fn", ArgumentList::empty(span), span, None);
         assert_eq!(format!("{expr}"), "fn()");
     }
 }

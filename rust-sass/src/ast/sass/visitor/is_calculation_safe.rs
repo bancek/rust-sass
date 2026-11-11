@@ -113,7 +113,7 @@ impl<'parse> ExpressionVisitor<'parse> for IsCalculationSafeVisitor {
         if node.contents.len() <= 1 {
             return Ok(false);
         }
-        for expr in &node.contents {
+        for expr in node.contents {
             let safe = expr.accept(self)?;
             if !safe {
                 return Ok(false);
@@ -182,6 +182,8 @@ impl<'parse> ExpressionVisitor<'parse> for IsCalculationSafeVisitor {
 
 #[cfg(test)]
 mod tests {
+    use crate::ast::sass::arena_slice;
+
     use super::*;
     use crate::ast::sass::argument_list::ArgumentList;
     use crate::ast::sass::binary_operator::BinaryOperator;
@@ -222,7 +224,7 @@ mod tests {
         let arena = Bump::new();
         let span = test_span(&arena, "calc()", 0, 6);
         let args = ArgumentList::empty(span);
-        let expr = Expression::Function(FunctionExpression::new("calc".into(), args, span, None));
+        let expr = Expression::Function(FunctionExpression::new(&arena, "calc", args, span, None));
         let mut v = IsCalculationSafeVisitor::new();
         assert!(expr.accept(&mut v).unwrap());
     }
@@ -231,7 +233,7 @@ mod tests {
     fn test_variable() {
         let arena = Bump::new();
         let span = test_span(&arena, "$x", 0, 2);
-        let expr = Expression::Variable(VariableExpression::new("x".into(), span, None));
+        let expr = Expression::Variable(VariableExpression::new(&arena, "x", span, None));
         let mut v = IsCalculationSafeVisitor::new();
         assert!(expr.accept(&mut v).unwrap());
     }
@@ -259,7 +261,7 @@ mod tests {
         let arena = Bump::new();
         let span = test_span(&arena, "red", 0, 3);
         let color = SassColor::rgb(1.0, 2.0, 3.0, 1.0);
-        let expr = Expression::Color(ColorExpression::new(color, span));
+        let expr = Expression::Color(ColorExpression::new(&arena, color, span));
         let mut v = IsCalculationSafeVisitor::new();
         assert!(!expr.accept(&mut v).unwrap());
     }
@@ -272,6 +274,7 @@ mod tests {
         let left = Expression::Number(NumberExpression::new(1.0, left_span, None));
         let right = Expression::Number(NumberExpression::new(2.0, right_span, None));
         let expr = Expression::BinaryOperation(BinaryOperationExpression::new(
+            &arena,
             BinaryOperator::Plus,
             left,
             right,
@@ -288,6 +291,7 @@ mod tests {
         let left = Expression::Number(NumberExpression::new(1.0, left_span, None));
         let right = Expression::Number(NumberExpression::new(2.0, right_span, None));
         let expr = Expression::BinaryOperation(BinaryOperationExpression::new(
+            &arena,
             BinaryOperator::Equals,
             left,
             right,
@@ -305,7 +309,7 @@ mod tests {
             Expression::Number(NumberExpression::new(2.0, span, None)),
         ];
         let expr = Expression::List(ListExpression::new(
-            contents,
+            arena_slice(&arena, contents),
             ListSeparator::Space,
             span,
             false,
@@ -323,7 +327,7 @@ mod tests {
             Expression::Number(NumberExpression::new(2.0, span, None)),
         ];
         let expr = Expression::List(ListExpression::new(
-            contents,
+            arena_slice(&arena, contents),
             ListSeparator::Comma,
             span,
             false,
@@ -341,7 +345,7 @@ mod tests {
             Expression::Number(NumberExpression::new(2.0, span, None)),
         ];
         let expr = Expression::List(ListExpression::new(
-            contents,
+            arena_slice(&arena, contents),
             ListSeparator::Space,
             span,
             true,
@@ -356,7 +360,7 @@ mod tests {
         let span = test_span(&arena, "1", 0, 1);
         let contents = vec![Expression::Number(NumberExpression::new(1.0, span, None))];
         let expr = Expression::List(ListExpression::new(
-            contents,
+            arena_slice(&arena, contents),
             ListSeparator::Space,
             span,
             false,
@@ -369,7 +373,7 @@ mod tests {
     fn test_string_unquoted() {
         let arena = Bump::new();
         let span = test_span(&arena, "foo", 0, 3);
-        let text = Interpolation::plain("foo".into(), span);
+        let text = Interpolation::plain(&arena, "foo".into(), span);
         let expr = Expression::String(StringExpression::new(text, false));
         let mut v = IsCalculationSafeVisitor::new();
         assert!(expr.accept(&mut v).unwrap());
@@ -379,7 +383,7 @@ mod tests {
     fn test_string_quoted() {
         let arena = Bump::new();
         let span = test_span(&arena, "\"foo\"", 0, 5);
-        let text = Interpolation::plain("foo".into(), span);
+        let text = Interpolation::plain(&arena, "foo".into(), span);
         let expr = Expression::String(StringExpression::new(text, true));
         let mut v = IsCalculationSafeVisitor::new();
         assert!(!expr.accept(&mut v).unwrap());
@@ -389,7 +393,7 @@ mod tests {
     fn test_string_important() {
         let arena = Bump::new();
         let span = test_span(&arena, "!important", 0, 10);
-        let text = Interpolation::plain("!important".into(), span);
+        let text = Interpolation::plain(&arena, "!important".into(), span);
         let expr = Expression::String(StringExpression::new(text, false));
         let mut v = IsCalculationSafeVisitor::new();
         assert!(!expr.accept(&mut v).unwrap());
@@ -402,6 +406,7 @@ mod tests {
         let inner_span = test_span(&arena, "-1", 1, 2);
         let inner = Expression::Number(NumberExpression::new(1.0, inner_span, None));
         let expr = Expression::UnaryOperation(UnaryOperationExpression::new(
+            &arena,
             UnaryOperator::Minus,
             inner,
             span,
@@ -426,7 +431,7 @@ mod tests {
         // continuation (not `+`) but char[1] IS `+` → unsafe (false).
         let arena = Bump::new();
         let span = test_span(&arena, "é+foo", 0, 6);
-        let text = Interpolation::plain("é+foo".into(), span);
+        let text = Interpolation::plain(&arena, "é+foo".into(), span);
         let expr = Expression::String(StringExpression::new(text, false));
         let mut v = IsCalculationSafeVisitor::new();
         assert!(

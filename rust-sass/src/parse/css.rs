@@ -155,7 +155,7 @@ fn css_import_rule_impl<'b>(
                         buf.write_char_code(')');
                         let span =
                             span_from_impl(scanner, &state.parser_state, url_start)?.file_span()?;
-                        buf.interpolation(span)
+                        buf.interpolation(state.arena, span)
                             .map_err(|e| Box::new(ParseError::Sass(e)))?
                     } else {
                         let span = url_expr.span()?;
@@ -169,7 +169,8 @@ fn css_import_rule_impl<'b>(
                 // Wrap as interpolation
                 let expr_span = url_expr.span()?;
                 Interpolation::new(
-                    vec![InterpolationPart::Expression(Box::new(url_expr))],
+                    state.arena,
+                    vec![InterpolationPart::expression(state.arena, url_expr)],
                     vec![Some(expr_span)],
                     Span::File(expr_span),
                 )
@@ -186,6 +187,7 @@ fn css_import_rule_impl<'b>(
     let span = span_from_impl(scanner, &state.parser_state, start)?.file_span()?;
     let import_span = span_from_impl(scanner, &state.parser_state, url_start)?.file_span()?;
     Ok(ImportRule::new(
+        state.arena,
         vec![Import::Static(StaticImport::new(
             url,
             import_span,
@@ -237,7 +239,7 @@ pub(crate) fn css_parentheses_impl<'b>(
     let expression = expression_until_comma(scanner, state, false)?;
     scanner.expect_char(')')?;
     let span = span_from_impl(scanner, &state.parser_state, start)?.file_span()?;
-    Ok(ParenthesizedExpression::new(expression, span))
+    Ok(ParenthesizedExpression::new(state.arena, expression, span))
 }
 
 // ======================================================================
@@ -314,7 +316,7 @@ pub(crate) fn css_identifier_like_impl<'b>(
             whitespace_impl(scanner, &mut state.parser_state, true)?;
             if allow_empty_second_arg && args.len() == 1 && scanner.peek_char(0) == ')' as i32 {
                 args.push(Expression::String(StringExpression::new(
-                    Interpolation::plain(String::new(), scanner.empty_span()),
+                    Interpolation::plain(state.arena, String::new(), scanner.empty_span()),
                     false,
                 )));
                 break;
@@ -343,10 +345,19 @@ pub(crate) fn css_identifier_like_impl<'b>(
     // Matches Dart: spanFrom(beforeArguments) — the args span starts after
     // the `(` (at the `beforeArguments` state), not at the function name.
     let arg_span = scanner.span_from(before_arguments);
-    let arg_list = ArgumentList::new(args, IndexMap::new(), IndexMap::new(), arg_span, None, None);
+    let arg_list = ArgumentList::new(
+        state.arena,
+        args,
+        IndexMap::new(),
+        IndexMap::new(),
+        arg_span,
+        None,
+        None,
+    );
     let span = span_from_impl(scanner, &state.parser_state, start)?.file_span()?;
     Ok(Expression::Function(FunctionExpression::new(
-        plain.to_string(),
+        state.arena,
+        &plain,
         arg_list,
         span,
         None,

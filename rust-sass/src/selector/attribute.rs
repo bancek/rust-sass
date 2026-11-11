@@ -7,6 +7,8 @@
 // dart-source: lib/src/ast/selector/attribute.dart + lib/src/extend/functions.dart
 // go-source: go/value/selector_attribute.go + go/value/selector_extend_functions.go
 
+use bumpalo::Bump;
+
 use crate::selector::selector_assert_not_bogus_impl;
 use crate::selector::simple_base_unify;
 use crate::selector::WarnLogger;
@@ -65,7 +67,7 @@ pub struct AttributeSelector<'parse> {
     /// The source span covering this selector.
     pub span: FileSpan<'parse>,
     /// The name of the attribute being selected for.
-    pub name: QualifiedName,
+    pub name: QualifiedName<'parse>,
     /// The operator defining the semantics of [`value`](Self::value).
     ///
     /// `None` matches any element with the attribute, whatever its value;
@@ -75,20 +77,20 @@ pub struct AttributeSelector<'parse> {
     ///
     /// Its precise meaning is defined by [`op`](Self::op). `None` matches
     /// regardless of value; it is `None` exactly when `op` is `None`.
-    pub value: Option<String>,
+    pub value: Option<&'parse str>,
     /// The modifier saying how the match is processed, such as a
     /// case-sensitivity flag (see the selectors-4
     /// [attribute-case](https://www.w3.org/TR/selectors-4/#attribute-case)
     /// section).
     ///
     /// Always `None` when [`op`](Self::op) is `None`.
-    pub modifier: Option<String>,
+    pub modifier: Option<&'parse str>,
 }
 
 impl<'parse> AttributeSelector<'parse> {
     /// Creates an attribute selector matching any element with a property of
     /// the given `name`.
-    pub fn new(name: QualifiedName, span: FileSpan<'parse>) -> Self {
+    pub fn new(name: QualifiedName<'parse>, span: FileSpan<'parse>) -> Self {
         AttributeSelector {
             span,
             name,
@@ -101,11 +103,11 @@ impl<'parse> AttributeSelector<'parse> {
     /// Creates an attribute selector matching elements with a property named
     /// `name` whose value satisfies `value` under the semantics of `op`.
     pub fn new_with_operator(
-        name: QualifiedName,
+        name: QualifiedName<'parse>,
         op: AttributeOperator,
-        value: String,
+        value: &'parse str,
         span: FileSpan<'parse>,
-        modifier: Option<String>,
+        modifier: Option<&'parse str>,
     ) -> Self {
         AttributeSelector {
             span,
@@ -199,7 +201,11 @@ impl<'parse> AttributeSelector<'parse> {
     }
 
     // Matches Dart: attribute selectors reject suffixes.
-    pub fn add_suffix(&self, _suffix: &str) -> SassResult<SimpleSelector<'parse>> {
+    pub fn add_suffix(
+        &self,
+        _arena: &'parse Bump,
+        _suffix: &str,
+    ) -> SassResult<SimpleSelector<'parse>> {
         Err(Box::new(SassError::Script {
             message: "attribute selector cannot have a suffix".into(),
             argument_name: None,
@@ -253,7 +259,7 @@ mod tests {
 
     #[test]
     fn test_new_attribute_selector() {
-        let name = QualifiedName::new("href".into());
+        let name = QualifiedName::new("href");
         let s = AttributeSelector::new(name, BOGUS_SPAN);
         assert_eq!(s.name.name, "href");
         assert_eq!(s.op, None);
@@ -262,24 +268,24 @@ mod tests {
 
     #[test]
     fn test_new_attribute_selector_with_operator() {
-        let name = QualifiedName::new("class".into());
+        let name = QualifiedName::new("class");
         let s = AttributeSelector::new_with_operator(
             name,
             AttributeOperator::Equal,
-            "foo".into(),
+            "foo",
             BOGUS_SPAN,
             None,
         );
         assert_eq!(s.op, Some(AttributeOperator::Equal));
-        assert_eq!(s.value, Some("foo".into()));
+        assert_eq!(s.value, Some("foo"));
     }
 
     #[test]
     fn test_attribute_value_backslash_stays_quoted() {
         let s = AttributeSelector::new_with_operator(
-            QualifiedName::new("a".into()),
+            QualifiedName::new("a"),
             AttributeOperator::Equal,
-            "\\b".into(),
+            "\\b",
             BOGUS_SPAN,
             None,
         );
@@ -298,39 +304,40 @@ mod tests {
 
     #[test]
     fn test_attribute_selector_is_invisible() {
-        let s = AttributeSelector::new(QualifiedName::new("href".into()), BOGUS_SPAN);
+        let s = AttributeSelector::new(QualifiedName::new("href"), BOGUS_SPAN);
         assert!(!s.is_invisible());
     }
 
     #[test]
     fn test_attribute_selector_is_bogus() {
-        let s = AttributeSelector::new(QualifiedName::new("href".into()), BOGUS_SPAN);
+        let s = AttributeSelector::new(QualifiedName::new("href"), BOGUS_SPAN);
         assert!(!s.is_bogus());
     }
 
     #[test]
     fn test_attribute_selector_specificity() {
-        let s = AttributeSelector::new(QualifiedName::new("href".into()), BOGUS_SPAN);
+        let s = AttributeSelector::new(QualifiedName::new("href"), BOGUS_SPAN);
         assert_eq!(s.specificity(), 1000);
     }
 
     #[test]
     fn test_attribute_selector_add_suffix() {
-        let s = AttributeSelector::new(QualifiedName::new("href".into()), BOGUS_SPAN);
-        assert!(s.add_suffix("x").is_err());
+        let s = AttributeSelector::new(QualifiedName::new("href"), BOGUS_SPAN);
+        let arena = bumpalo::Bump::new();
+        assert!(s.add_suffix(&arena, "x").is_err());
     }
 
     #[test]
     fn test_attribute_selector_partial_eq() {
-        let name = QualifiedName::new("href".into());
-        let s1 = AttributeSelector::new(name.clone(), BOGUS_SPAN);
-        let s2 = AttributeSelector::new(name.clone(), BOGUS_SPAN);
+        let name = QualifiedName::new("href");
+        let s1 = AttributeSelector::new(name, BOGUS_SPAN);
+        let s2 = AttributeSelector::new(name, BOGUS_SPAN);
         assert_eq!(s1, s2);
 
         let s3 = AttributeSelector::new_with_operator(
-            name.clone(),
+            name,
             AttributeOperator::Equal,
-            "x".into(),
+            "x",
             BOGUS_SPAN,
             None,
         );
@@ -339,7 +346,7 @@ mod tests {
         let s4 = AttributeSelector::new_with_operator(
             name,
             AttributeOperator::Equal,
-            "x".into(),
+            "x",
             BOGUS_SPAN,
             None,
         );
@@ -348,24 +355,24 @@ mod tests {
 
     #[test]
     fn test_attribute_selector_hash_code() {
-        let name = QualifiedName::new("href".into());
-        let s1 = AttributeSelector::new(name.clone(), BOGUS_SPAN);
+        let name = QualifiedName::new("href");
+        let s1 = AttributeSelector::new(name, BOGUS_SPAN);
         let s2 = AttributeSelector::new(name, BOGUS_SPAN);
         assert_eq!(s1.hash_code(), s2.hash_code());
     }
 
     #[test]
     fn test_attribute_selector_to_css_string() {
-        let s = AttributeSelector::new(QualifiedName::new("href".into()), BOGUS_SPAN);
+        let s = AttributeSelector::new(QualifiedName::new("href"), BOGUS_SPAN);
         assert_eq!(s.to_css_string(true).unwrap(), "[href]");
     }
 
     #[test]
     fn test_attribute_selector_to_css_string_with_value() {
         let s = AttributeSelector::new_with_operator(
-            QualifiedName::new("class".into()),
+            QualifiedName::new("class"),
             AttributeOperator::Equal,
-            "foo".into(),
+            "foo",
             BOGUS_SPAN,
             None,
         );
@@ -374,7 +381,7 @@ mod tests {
 
     #[test]
     fn test_attribute_selector_assert_not_bogus() {
-        let s = AttributeSelector::new(QualifiedName::new("href".into()), BOGUS_SPAN);
+        let s = AttributeSelector::new(QualifiedName::new("href"), BOGUS_SPAN);
         assert!(s.assert_not_bogus(None, None).is_ok());
     }
 }

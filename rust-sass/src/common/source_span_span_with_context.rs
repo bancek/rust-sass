@@ -8,7 +8,7 @@
 // go-source: go/sasscommon/source_span_span_with_context.go + go/sasscommon/source_span_highlighter.go
 
 use crate::common::source_span_highlighter::Highlighter;
-use crate::url::SassUrl;
+use crate::url::OwnedUrl;
 
 use std::fmt::Write;
 
@@ -36,7 +36,7 @@ use crate::io::Io;
 #[derive(Debug, Clone, PartialEq)]
 pub struct SourceSpanWithContext {
     /// The URL of the source, if known.
-    pub source_url: Option<SassUrl>,
+    pub source_url: Option<OwnedUrl>,
     /// The 0-based start location of the span.
     pub start: SourceLocation,
     /// The 0-based end location of the span (exclusive).
@@ -83,7 +83,7 @@ impl SourceSpanWithContext {
         end: SourceLocation,
         text: String,
         context: String,
-        source_url: Option<SassUrl>,
+        source_url: Option<OwnedUrl>,
     ) -> SassResult<Self> {
         if !context.contains(&text) {
             return Err(Box::new(SassError::Script {
@@ -513,7 +513,7 @@ mod tests {
             end,
             text.to_string(),
             context.to_string(),
-            Some(SassUrl::parse(url).unwrap()),
+            Some(OwnedUrl::parse(url).unwrap()),
         )
         .unwrap()
     }

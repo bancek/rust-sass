@@ -21,7 +21,7 @@ use crate::ast::sass::expression::Expression;
 #[derive(Clone, Debug)]
 pub struct ConfiguredVariable<'parse> {
     /// The name of the variable being configured, without the leading `$`.
-    pub name: String,
+    pub name: &'parse str,
     /// The variable's value.
     pub expression: Expression<'parse>,
     pub span: FileSpan<'parse>,
@@ -35,7 +35,7 @@ impl<'parse> ConfiguredVariable<'parse> {
     /// Creates a configured variable; `guarded` is true for `!default`-marked
     /// `@forward ... with` entries.
     pub fn new(
-        name: String,
+        name: &'parse str,
         expression: Expression<'parse>,
         span: FileSpan<'parse>,
         guarded: bool,
@@ -67,7 +67,7 @@ impl<'parse> ConfiguredVariable<'parse> {
         write!(
             buf,
             "${}: {}",
-            to_css_identifier(&self.name)?,
+            to_css_identifier(self.name)?,
             Expression::to_display_string(&self.expression)?
         )
         .unwrap();
@@ -108,7 +108,7 @@ mod tests {
         let arena = Bump::new();
         let span = make_span(&arena, "$name: true");
         let bool_expr = Expression::Boolean(BooleanExpression::new(true, span));
-        let cv = ConfiguredVariable::new("name".into(), bool_expr.clone(), span, false);
+        let cv = ConfiguredVariable::new("name", bool_expr.clone(), span, false);
 
         assert_eq!(cv.name, "name");
         assert!(!cv.is_guarded);
@@ -119,7 +119,7 @@ mod tests {
         let arena = Bump::new();
         let span = make_span(&arena, "$name: true !default");
         let bool_expr = Expression::Boolean(BooleanExpression::new(true, span));
-        let cv = ConfiguredVariable::new("name".into(), bool_expr.clone(), span, true);
+        let cv = ConfiguredVariable::new("name", bool_expr.clone(), span, true);
 
         assert!(cv.is_guarded);
     }
@@ -131,7 +131,7 @@ mod tests {
         let span = FileSpan::new(Some(fs), 0, 11);
         let bool_expr =
             Expression::Boolean(BooleanExpression::new(true, FileSpan::new(Some(fs), 7, 11)));
-        let cv = ConfiguredVariable::new("name".into(), bool_expr, span, false);
+        let cv = ConfiguredVariable::new("name", bool_expr, span, false);
         let got = cv.name_span().unwrap();
         assert_eq!(got.text(), "$name");
     }
@@ -141,7 +141,7 @@ mod tests {
         let arena = Bump::new();
         let span = make_span(&arena, "$name: true");
         let bool_expr = Expression::Boolean(BooleanExpression::new(true, span));
-        let cv = ConfiguredVariable::new("name".into(), bool_expr, span, false);
+        let cv = ConfiguredVariable::new("name", bool_expr, span, false);
         assert_eq!(format!("{cv}"), "$name: true");
     }
 
@@ -150,7 +150,7 @@ mod tests {
         let arena = Bump::new();
         let span = make_span(&arena, "$name: true !default");
         let bool_expr = Expression::Boolean(BooleanExpression::new(true, span));
-        let cv = ConfiguredVariable::new("name".into(), bool_expr, span, true);
+        let cv = ConfiguredVariable::new("name", bool_expr, span, true);
         assert_eq!(format!("{cv}"), "$name: true !default");
     }
 
@@ -159,7 +159,7 @@ mod tests {
         let arena = Bump::new();
         let span = make_span(&arena, "$name: true");
         let bool_expr = Expression::Boolean(BooleanExpression::new(true, span));
-        let cv = ConfiguredVariable::new("name".into(), bool_expr, span, false);
+        let cv = ConfiguredVariable::new("name", bool_expr, span, false);
         assert_eq!(cv.span().unwrap(), span);
     }
 }

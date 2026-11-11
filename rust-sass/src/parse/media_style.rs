@@ -278,7 +278,7 @@ pub(crate) fn media_query_list_impl<'b>(
     }
     let span = span_from_impl(scanner, &state.parser_state, start)?.file_span()?;
     buffer
-        .interpolation(span)
+        .interpolation(state.arena, span)
         .map_err(|e| ParseError::from(e).into())
 }
 
@@ -306,7 +306,9 @@ mod tests {
         let fs = FileSource::new_in(arena, text, None);
         let scanner = SpanScanner::new(fs);
         let state = StylesheetState {
+            arena,
             parser_state: ParserState {
+                arena,
                 syntax: Syntax::Scss,
                 interpolation_map: None,
                 in_expression: false,

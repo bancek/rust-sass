@@ -14,10 +14,11 @@
 // dart-source: lib/src/visitor/serialize.dart (visitColor, _writeChannel, _writeLegacyColor, _tryHexOrNamedRgb, _tryIntegerRgbChannels, _canUseHex, _writeRgb, _writeHsl, _writeHwb, _writeColorFunction, _maybeWriteSlashAlpha, _capture, _asInt)
 // go-source: go/value/visitor_color.go
 
-use crate::serialize::value::visit_number_impl;
+use bumpalo::Bump;
 use std::fmt::Write;
 
 use crate::common::SassResult;
+use crate::serialize::value::visit_number_impl;
 use crate::serialize::{OutputStyle, SerializeState};
 use crate::source_map_buffer::SourceMapBuffer;
 use crate::util::character;
@@ -133,7 +134,11 @@ fn write_channel(
             } else {
                 // Matches Dart: visitNumber(SassNumber(channel, unit)) → wraps in calc()
                 // Matches Go:  VisitNumber(NewSingleUnitNumber(v, unit)) → wraps in calc()
-                let number = SassNumber::new(v, if unit.is_empty() { None } else { Some(unit) });
+                // Serialization has no arena, so the synthetic number uses a
+                // throwaway one (same pattern as the selector comparisons).
+                let arena = Bump::new();
+                let number =
+                    SassNumber::new(&arena, v, if unit.is_empty() { None } else { Some(unit) });
                 visit_number_impl(buf, state, &number)
             }
         }
@@ -664,7 +669,7 @@ mod tests {
             Some(0.0),
             Some(0.0),
             Some(1.0),
-            Some(ColorFormat::Preserved("#f00".into())),
+            Some(ColorFormat::Preserved("#f00")),
         )
         .unwrap();
         assert_eq!(cs(&c), "#f00");

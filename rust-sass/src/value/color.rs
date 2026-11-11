@@ -51,8 +51,8 @@ use crate::value::ValueVisitor;
 // directly. Dart's `channels`/`channelsOrNull` list getters have no
 // counterpart here — callers read the fields (plus the `*_or_nil`/`*_missing`
 // accessors) directly.
-#[derive(Clone, Debug)]
-pub struct SassColor {
+#[derive(Clone, Copy, Debug)]
+pub struct SassColor<'parse> {
     /// This color's space.
     pub space: ColorSpace,
     /// This color's first channel (0.0 when missing).
@@ -78,21 +78,22 @@ pub struct SassColor {
     pub missing: u8,
     /// The format this color was originally written in, if one is preserved
     /// for expanded-mode serialization.
-    pub format: Option<ColorFormat>,
+    pub format: Option<ColorFormat<'parse>>,
 }
 
 /// The source format a color was defined in.
 ///
 /// When a color is serialized in expanded mode it keeps its original format.
-#[derive(Clone, Debug, PartialEq)]
-pub enum ColorFormat {
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum ColorFormat<'parse> {
     /// A color defined with the `rgb()` or `rgba()` functions.
     RgbFunction,
     /// A color serialized as the exact text it was written with.
     ///
-    /// Dart tracks this as a source span to avoid a substring allocation;
-    /// the Rust port stores the text itself.
-    Preserved(String),
+    /// Dart tracks this as a source span to avoid a substring allocation; the
+    /// port borrows the text from the compile arena instead, so recording a
+    /// colour's source text does not allocate.
+    Preserved(&'parse str),
 }
 
 /// A SassScript color space.
@@ -661,9 +662,9 @@ impl ColorSpace {
     }
 }
 
-impl SassColor {
+impl<'parse> SassColor<'parse> {
     /// Creates a color in the `rgb` space.
-    pub fn rgb(red: f64, green: f64, blue: f64, alpha: f64) -> SassColor {
+    pub fn rgb(red: f64, green: f64, blue: f64, alpha: f64) -> Self {
         SassColor {
             space: ColorSpace::Rgb,
             channel0: red,
@@ -680,7 +681,7 @@ impl SassColor {
     /// A missing alpha is a [missing component](https://www.w3.org/TR/css-color-4/#missing)
     /// (usually equivalent to transparent); alpha must be in `0..=1`.
     /// A negative saturation shifts the hue 180° and is negated.
-    pub fn hsl(hue: f64, saturation: f64, lightness: f64, alpha: f64) -> SassResult<SassColor> {
+    pub fn hsl(hue: f64, saturation: f64, lightness: f64, alpha: f64) -> SassResult<Self> {
         let a = number::fuzzy_assert_range(alpha, 0, 1, Some("alpha")).map_err(|e| {
             SassError::Script {
                 message: format!("{}: {}", e.name, e.message),
@@ -708,7 +709,7 @@ impl SassColor {
     ///
     /// A missing alpha is a [missing component](https://www.w3.org/TR/css-color-4/#missing)
     /// (usually equivalent to transparent); alpha must be in `0..=1`.
-    pub fn hwb(hue: f64, whiteness: f64, blackness: f64, alpha: f64) -> SassResult<SassColor> {
+    pub fn hwb(hue: f64, whiteness: f64, blackness: f64, alpha: f64) -> SassResult<Self> {
         let a = number::fuzzy_assert_range(alpha, 0, 1, Some("alpha")).map_err(|e| {
             SassError::Script {
                 message: format!("{}: {}", e.name, e.message),
@@ -730,7 +731,7 @@ impl SassColor {
     /// Alpha must be in `0..=1`; `None`-style missing channels are handled
     /// by [`for_space`](Self::for_space)/
     /// [`new_color_for_space_internal`](Self::new_color_for_space_internal).
-    pub fn srgb(red: f64, green: f64, blue: f64, alpha: f64) -> SassResult<SassColor> {
+    pub fn srgb(red: f64, green: f64, blue: f64, alpha: f64) -> SassResult<Self> {
         SassColor::new_color_for_space_internal(
             ColorSpace::Srgb,
             Some(red),
@@ -741,7 +742,7 @@ impl SassColor {
     }
 
     /// Creates a color in the `srgb-linear` space (alpha must be in `0..=1`).
-    pub fn srgb_linear(red: f64, green: f64, blue: f64, alpha: f64) -> SassResult<SassColor> {
+    pub fn srgb_linear(red: f64, green: f64, blue: f64, alpha: f64) -> SassResult<Self> {
         SassColor::new_color_for_space_internal(
             ColorSpace::SrgbLinear,
             Some(red),
@@ -752,7 +753,7 @@ impl SassColor {
     }
 
     /// Creates a color in the `display-p3` space (alpha must be in `0..=1`).
-    pub fn display_p3(red: f64, green: f64, blue: f64, alpha: f64) -> SassResult<SassColor> {
+    pub fn display_p3(red: f64, green: f64, blue: f64, alpha: f64) -> SassResult<Self> {
         SassColor::new_color_for_space_internal(
             ColorSpace::DisplayP3,
             Some(red),
@@ -763,7 +764,7 @@ impl SassColor {
     }
 
     /// Creates a color in the `display-p3-linear` space (alpha in `0..=1`).
-    pub fn display_p3_linear(red: f64, green: f64, blue: f64, alpha: f64) -> SassResult<SassColor> {
+    pub fn display_p3_linear(red: f64, green: f64, blue: f64, alpha: f64) -> SassResult<Self> {
         SassColor::new_color_for_space_internal(
             ColorSpace::DisplayP3Linear,
             Some(red),
@@ -774,7 +775,7 @@ impl SassColor {
     }
 
     /// Creates a color in the `a98-rgb` space (alpha must be in `0..=1`).
-    pub fn a98_rgb(red: f64, green: f64, blue: f64, alpha: f64) -> SassResult<SassColor> {
+    pub fn a98_rgb(red: f64, green: f64, blue: f64, alpha: f64) -> SassResult<Self> {
         SassColor::new_color_for_space_internal(
             ColorSpace::A98Rgb,
             Some(red),
@@ -785,7 +786,7 @@ impl SassColor {
     }
 
     /// Creates a color in the `prophoto-rgb` space (alpha in `0..=1`).
-    pub fn prophoto_rgb(red: f64, green: f64, blue: f64, alpha: f64) -> SassResult<SassColor> {
+    pub fn prophoto_rgb(red: f64, green: f64, blue: f64, alpha: f64) -> SassResult<Self> {
         SassColor::new_color_for_space_internal(
             ColorSpace::ProphotoRgb,
             Some(red),
@@ -796,7 +797,7 @@ impl SassColor {
     }
 
     /// Creates a color in the `rec2020` space (alpha must be in `0..=1`).
-    pub fn rec2020(red: f64, green: f64, blue: f64, alpha: f64) -> SassResult<SassColor> {
+    pub fn rec2020(red: f64, green: f64, blue: f64, alpha: f64) -> SassResult<Self> {
         SassColor::new_color_for_space_internal(
             ColorSpace::Rec2020,
             Some(red),
@@ -807,7 +808,7 @@ impl SassColor {
     }
 
     /// Creates a color in the `xyz` (`XyzD65`) space (alpha in `0..=1`).
-    pub fn xyz_d65(x: f64, y: f64, z: f64, alpha: f64) -> SassResult<SassColor> {
+    pub fn xyz_d65(x: f64, y: f64, z: f64, alpha: f64) -> SassResult<Self> {
         SassColor::new_color_for_space_internal(
             ColorSpace::XyzD65,
             Some(x),
@@ -818,7 +819,7 @@ impl SassColor {
     }
 
     /// Creates a color in the `xyz-d50` space (alpha must be in `0..=1`).
-    pub fn xyz_d50(x: f64, y: f64, z: f64, alpha: f64) -> SassResult<SassColor> {
+    pub fn xyz_d50(x: f64, y: f64, z: f64, alpha: f64) -> SassResult<Self> {
         SassColor::new_color_for_space_internal(
             ColorSpace::XyzD50,
             Some(x),
@@ -829,7 +830,7 @@ impl SassColor {
     }
 
     /// Creates a color in the `lab` space (alpha must be in `0..=1`).
-    pub fn lab(lightness: f64, a: f64, b: f64, alpha: f64) -> SassResult<SassColor> {
+    pub fn lab(lightness: f64, a: f64, b: f64, alpha: f64) -> SassResult<Self> {
         SassColor::new_color_for_space_internal(
             ColorSpace::Lab,
             Some(lightness),
@@ -843,7 +844,7 @@ impl SassColor {
     ///
     /// A negative chroma is negated and shifts the hue 180°; alpha must be
     /// in `0..=1`.
-    pub fn lch(lightness: f64, chroma: f64, hue: f64, alpha: f64) -> SassResult<SassColor> {
+    pub fn lch(lightness: f64, chroma: f64, hue: f64, alpha: f64) -> SassResult<Self> {
         SassColor::new_color_for_space_internal(
             ColorSpace::Lch,
             Some(lightness),
@@ -854,7 +855,7 @@ impl SassColor {
     }
 
     /// Creates a color in the `oklab` space (alpha must be in `0..=1`).
-    pub fn oklab(lightness: f64, a: f64, b: f64, alpha: f64) -> SassResult<SassColor> {
+    pub fn oklab(lightness: f64, a: f64, b: f64, alpha: f64) -> SassResult<Self> {
         SassColor::new_color_for_space_internal(
             ColorSpace::Oklab,
             Some(lightness),
@@ -868,7 +869,7 @@ impl SassColor {
     ///
     /// A negative chroma is negated and shifts the hue 180°; alpha must be
     /// in `0..=1`.
-    pub fn oklch(lightness: f64, chroma: f64, hue: f64, alpha: f64) -> SassResult<SassColor> {
+    pub fn oklch(lightness: f64, chroma: f64, hue: f64, alpha: f64) -> SassResult<Self> {
         SassColor::new_color_for_space_internal(
             ColorSpace::Oklch,
             Some(lightness),
@@ -887,8 +888,8 @@ impl SassColor {
         green: Option<f64>,
         blue: Option<f64>,
         alpha: Option<f64>,
-        format: Option<ColorFormat>,
-    ) -> SassResult<SassColor> {
+        format: Option<ColorFormat<'parse>>,
+    ) -> SassResult<Self> {
         if let Some(a) = alpha {
             number::fuzzy_assert_range(a, 0, 1, Some("alpha")).map_err(|e| SassError::Script {
                 message: format!("{}: {}", e.name, e.message),
@@ -915,7 +916,7 @@ impl SassColor {
         channels: [f64; 3],
         alpha: f64,
         missing: [bool; 4],
-    ) -> SassColor {
+    ) -> Self {
         let mut m = 0u8;
         if missing[0] {
             m |= 1;
@@ -1266,7 +1267,7 @@ impl SassColor {
 
     /// Records the source [`ColorFormat`] used for expanded-mode
     /// serialization.
-    pub fn set_format(&mut self, f: Option<ColorFormat>) {
+    pub fn set_format(&mut self, f: Option<ColorFormat<'parse>>) {
         self.format = f;
     }
 
@@ -1282,7 +1283,7 @@ impl SassColor {
         c1: Option<f64>,
         c2: Option<f64>,
         alpha: Option<f64>,
-    ) -> SassResult<SassColor> {
+    ) -> SassResult<Self> {
         if let Some(a) = alpha {
             number::fuzzy_assert_range(a, 0, 1, Some("alpha")).map_err(|e| SassError::Script {
                 message: format!("{}: {}", e.name, e.message),
@@ -1306,7 +1307,7 @@ pub(crate) fn new_color_for_space_internal_no_check(
     c1: Option<f64>,
     c2: Option<f64>,
     alpha: Option<f64>,
-) -> SassColor {
+) -> SassColor<'static> {
     match space {
         ColorSpace::Hsl => {
             let s = c1.map(|s| {
@@ -1380,18 +1381,18 @@ fn new_color_for_space_no_check(
     c1: Option<f64>,
     c2: Option<f64>,
     alpha: Option<f64>,
-) -> SassColor {
+) -> SassColor<'static> {
     new_color_for_space_no_check_fmt(space, c0, c1, c2, alpha, None)
 }
 
-fn new_color_for_space_no_check_fmt(
+fn new_color_for_space_no_check_fmt<'parse>(
     space: ColorSpace,
     c0: Option<f64>,
     c1: Option<f64>,
     c2: Option<f64>,
     alpha: Option<f64>,
-    format: Option<ColorFormat>,
-) -> SassColor {
+    format: Option<ColorFormat<'parse>>,
+) -> SassColor<'parse> {
     let c0v = c0.unwrap_or(0.0);
     let c1v = c1.unwrap_or(0.0);
     let c2v = c2.unwrap_or(0.0);

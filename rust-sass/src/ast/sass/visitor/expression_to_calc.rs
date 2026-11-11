@@ -35,6 +35,7 @@ use crate::ast::sass::unary_operator::UnaryOperator;
 use crate::ast::sass::visitor::replace_expression::ReplaceExpressionVisitor;
 use crate::common::ast_node::AstNode;
 use crate::common::exception::SassResult;
+use bumpalo::Bump;
 
 /// Converts `expression` to an equivalent `calc()`.
 ///
@@ -44,13 +45,16 @@ use crate::common::exception::SassResult;
 ///
 /// Matches Dart: expressionToCalc
 pub fn expression_to_calc<'parse>(
+    arena: &'parse Bump,
     expression: &Expression<'parse>,
 ) -> SassResult<FunctionExpression<'parse>> {
-    let mut visitor = MakeExpressionCalculationSafe::new();
+    let mut visitor = MakeExpressionCalculationSafe::new(arena);
     let expr = expression.accept(&mut visitor)?;
     Ok(FunctionExpression::new(
-        "calc".into(),
+        arena,
+        "calc",
         ArgumentList::new(
+            arena,
             vec![expr],
             IndexMap::new(),
             IndexMap::new(),
@@ -72,25 +76,21 @@ pub fn expression_to_calc<'parse>(
 /// workaround), unary `+`/`-` (which `calc()` doesn't support, rewritten to a
 /// bare operand / `-1 * operand`), while plain functions and `if()` pass
 /// through untouched.
-pub struct MakeExpressionCalculationSafe {
-    inner: ReplaceExpressionVisitor,
+pub struct MakeExpressionCalculationSafe<'parse> {
+    inner: ReplaceExpressionVisitor<'parse>,
+    arena: &'parse Bump,
 }
 
-impl Default for MakeExpressionCalculationSafe {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl MakeExpressionCalculationSafe {
-    pub fn new() -> Self {
+impl<'parse> MakeExpressionCalculationSafe<'parse> {
+    pub fn new(arena: &'parse Bump) -> Self {
         Self {
-            inner: ReplaceExpressionVisitor::new(),
+            inner: ReplaceExpressionVisitor::new(arena),
+            arena,
         }
     }
 }
 
-impl<'parse> ExpressionVisitor<'parse> for MakeExpressionCalculationSafe {
+impl<'parse> ExpressionVisitor<'parse> for MakeExpressionCalculationSafe<'parse> {
     type Output = Expression<'parse>;
 
     fn visit_binary_operation(
@@ -100,8 +100,10 @@ impl<'parse> ExpressionVisitor<'parse> for MakeExpressionCalculationSafe {
         if node.operator == BinaryOperator::Modulo {
             let span = node.span()?;
             Ok(Expression::Function(FunctionExpression::new(
-                "max".into(),
+                self.arena,
+                "max",
                 ArgumentList::new(
+                    self.arena,
                     vec![Expression::BinaryOperation(node.clone())],
                     IndexMap::new(),
                     IndexMap::new(),
@@ -110,12 +112,13 @@ impl<'parse> ExpressionVisitor<'parse> for MakeExpressionCalculationSafe {
                     None,
                 ),
                 span,
-                Some("math".into()),
+                Some("math"),
             )))
         } else {
             let left = node.left.accept(self)?;
             let right = node.right.accept(self)?;
             Ok(Expression::BinaryOperation(BinaryOperationExpression::new(
+                self.arena,
                 node.operator,
                 left,
                 right,
@@ -138,12 +141,14 @@ impl<'parse> ExpressionVisitor<'parse> for MakeExpressionCalculationSafe {
         &mut self,
         node: &FunctionExpression<'parse>,
     ) -> SassResult<Expression<'parse>> {
-        let args = ReplaceExpressionVisitor::replace_argument_list(self, &node.arguments)?;
+        let args =
+            ReplaceExpressionVisitor::replace_argument_list(self.arena, self, &node.arguments)?;
         Ok(Expression::Function(FunctionExpression::new(
-            node.original_name.clone(),
+            self.arena,
+            node.original_name,
             args,
             node.span,
-            node.namespace.clone(),
+            node.namespace,
         )))
     }
 
@@ -162,7 +167,8 @@ impl<'parse> ExpressionVisitor<'parse> for MakeExpressionCalculationSafe {
         &mut self,
         node: &LegacyIfExpression<'parse>,
     ) -> SassResult<Expression<'parse>> {
-        let args = ReplaceExpressionVisitor::replace_argument_list(self, &node.arguments)?;
+        let args =
+            ReplaceExpressionVisitor::replace_argument_list(self.arena, self, &node.arguments)?;
         Ok(Expression::LegacyIf(LegacyIfExpression::new(
             args, node.span,
         )))
@@ -170,11 +176,11 @@ impl<'parse> ExpressionVisitor<'parse> for MakeExpressionCalculationSafe {
 
     fn visit_list(&mut self, node: &ListExpression<'parse>) -> SassResult<Expression<'parse>> {
         let mut contents = Vec::with_capacity(node.contents.len());
-        for item in &node.contents {
+        for item in node.contents {
             contents.push(item.accept(self)?);
         }
         Ok(Expression::List(ListExpression::new(
-            contents,
+            crate::ast::sass::arena_slice(self.arena, contents),
             node.separator,
             node.span,
             node.has_brackets,
@@ -183,10 +189,13 @@ impl<'parse> ExpressionVisitor<'parse> for MakeExpressionCalculationSafe {
 
     fn visit_map(&mut self, node: &MapExpression<'parse>) -> SassResult<Expression<'parse>> {
         let mut pairs = Vec::with_capacity(node.pairs.len());
-        for (k, v) in &node.pairs {
+        for (k, v) in node.pairs {
             pairs.push((k.accept(self)?, v.accept(self)?));
         }
-        Ok(Expression::Map(MapExpression::new(pairs, node.span)))
+        Ok(Expression::Map(MapExpression::new(
+            crate::ast::sass::arena_slice(self.arena, pairs),
+            node.span,
+        )))
     }
 
     fn visit_null(&mut self, node: &NullExpression<'parse>) -> SassResult<Expression<'parse>> {
@@ -203,7 +212,7 @@ impl<'parse> ExpressionVisitor<'parse> for MakeExpressionCalculationSafe {
     ) -> SassResult<Expression<'parse>> {
         let expr = node.expression.accept(self)?;
         Ok(Expression::Parenthesized(ParenthesizedExpression::new(
-            expr, node.span,
+            self.arena, expr, node.span,
         )))
     }
 
@@ -215,7 +224,8 @@ impl<'parse> ExpressionVisitor<'parse> for MakeExpressionCalculationSafe {
     }
 
     fn visit_string(&mut self, node: &StringExpression<'parse>) -> SassResult<Expression<'parse>> {
-        let text = ReplaceExpressionVisitor::replace_interpolation(self, &node.text)?;
+        let arena = self.arena;
+        let text = ReplaceExpressionVisitor::replace_interpolation(self, arena, &node.text)?;
         Ok(Expression::String(StringExpression::new(
             text,
             node.has_quotes,
@@ -226,8 +236,11 @@ impl<'parse> ExpressionVisitor<'parse> for MakeExpressionCalculationSafe {
         &mut self,
         node: &SupportsExpression<'parse>,
     ) -> SassResult<Expression<'parse>> {
-        let cond = ReplaceExpressionVisitor::replace_supports_condition(self, &node.condition)?;
-        Ok(Expression::Supports(SupportsExpression::new(cond)))
+        let cond =
+            ReplaceExpressionVisitor::replace_supports_condition(self, node.condition, self.arena)?;
+        Ok(Expression::Supports(SupportsExpression::new(
+            self.arena, cond,
+        )))
     }
 
     fn visit_unary_operation(
@@ -238,6 +251,7 @@ impl<'parse> ExpressionVisitor<'parse> for MakeExpressionCalculationSafe {
             UnaryOperator::Plus => Ok((*node.operand).clone()),
             UnaryOperator::Minus => {
                 Ok(Expression::BinaryOperation(BinaryOperationExpression::new(
+                    self.arena,
                     BinaryOperator::Times,
                     Expression::Number(NumberExpression::new(-1.0, node.span, None)),
                     (*node.operand).clone(),
@@ -246,6 +260,7 @@ impl<'parse> ExpressionVisitor<'parse> for MakeExpressionCalculationSafe {
             _ => {
                 let operand = node.operand.accept(self)?;
                 Ok(Expression::UnaryOperation(UnaryOperationExpression::new(
+                    self.arena,
                     node.operator,
                     operand,
                     node.span,
@@ -268,6 +283,8 @@ impl<'parse> ExpressionVisitor<'parse> for MakeExpressionCalculationSafe {
 
 #[cfg(test)]
 mod tests {
+    use crate::ast::sass::arena_slice;
+
     use super::*;
     use crate::ast::sass::expression::Expression;
     use crate::ast::sass::expression_if::{
@@ -295,7 +312,7 @@ mod tests {
         let arena = Bump::new();
         let span = test_span(&arena, "42");
         let expr = Expression::Number(NumberExpression::new(42.0, span, None));
-        let fe = expression_to_calc(&expr).unwrap();
+        let fe = expression_to_calc(&arena, &expr).unwrap();
         assert_eq!(fe.original_name, "calc");
         assert_eq!(fe.arguments.positional.len(), 1);
     }
@@ -306,13 +323,13 @@ mod tests {
         let span = test_span(&arena, "5 % 3");
         let left = Expression::Number(NumberExpression::new(5.0, span, None));
         let right = Expression::Number(NumberExpression::new(3.0, span, None));
-        let node = BinaryOperationExpression::new(BinaryOperator::Modulo, left, right);
-        let mut visitor = MakeExpressionCalculationSafe::new();
+        let node = BinaryOperationExpression::new(&arena, BinaryOperator::Modulo, left, right);
+        let mut visitor = MakeExpressionCalculationSafe::new(&arena);
         let result = visitor.visit_binary_operation(&node).unwrap();
         match result {
             Expression::Function(fe) => {
                 assert_eq!(fe.original_name, "max");
-                assert_eq!(fe.namespace.as_deref(), Some("math"));
+                assert_eq!(fe.namespace, Some("math"));
             }
             _ => panic!("expected FunctionExpression"),
         }
@@ -324,8 +341,8 @@ mod tests {
         let span = test_span(&arena, "5 + 3");
         let left = Expression::Number(NumberExpression::new(5.0, span, None));
         let right = Expression::Number(NumberExpression::new(3.0, span, None));
-        let node = BinaryOperationExpression::new(BinaryOperator::Plus, left, right);
-        let mut visitor = MakeExpressionCalculationSafe::new();
+        let node = BinaryOperationExpression::new(&arena, BinaryOperator::Plus, left, right);
+        let mut visitor = MakeExpressionCalculationSafe::new(&arena);
         let result = visitor.visit_binary_operation(&node).unwrap();
         assert!(matches!(result, Expression::BinaryOperation(_)));
     }
@@ -337,6 +354,7 @@ mod tests {
         let branches = vec![
             IfBranch {
                 condition: Some(IfConditionExpression::Sass(IfConditionSass::new(
+                    &arena,
                     Expression::Boolean(BooleanExpression::new(true, span)),
                     span,
                 ))),
@@ -347,8 +365,8 @@ mod tests {
                 expression: Expression::Number(NumberExpression::new(2.0, span, None)),
             },
         ];
-        let node = IfExpression::new(branches, span).unwrap();
-        let mut visitor = MakeExpressionCalculationSafe::new();
+        let node = IfExpression::new(arena_slice(&arena, branches), span).unwrap();
+        let mut visitor = MakeExpressionCalculationSafe::new(&arena);
         let result = visitor.visit_if(&node).unwrap();
         assert!(matches!(result, Expression::If(_)));
     }
@@ -357,10 +375,18 @@ mod tests {
     fn test_visit_interpolated_function_identity() {
         let arena = Bump::new();
         let span = test_span(&arena, "fn(1)");
-        let name = Interpolation::plain("fn".into(), span);
-        let args = ArgumentList::new(vec![], IndexMap::new(), IndexMap::new(), span, None, None);
+        let name = Interpolation::plain(&arena, "fn".into(), span);
+        let args = ArgumentList::new(
+            &arena,
+            vec![],
+            IndexMap::new(),
+            IndexMap::new(),
+            span,
+            None,
+            None,
+        );
         let node = InterpolatedFunctionExpression::new(name, args, span);
-        let mut visitor = MakeExpressionCalculationSafe::new();
+        let mut visitor = MakeExpressionCalculationSafe::new(&arena);
         let result = visitor.visit_interpolated_function(&node).unwrap();
         assert!(matches!(result, Expression::InterpolatedFunction(_)));
     }
@@ -370,8 +396,8 @@ mod tests {
         let arena = Bump::new();
         let span = test_span(&arena, "+5");
         let operand = Expression::Number(NumberExpression::new(5.0, span, None));
-        let node = UnaryOperationExpression::new(UnaryOperator::Plus, operand, span);
-        let mut visitor = MakeExpressionCalculationSafe::new();
+        let node = UnaryOperationExpression::new(&arena, UnaryOperator::Plus, operand, span);
+        let mut visitor = MakeExpressionCalculationSafe::new(&arena);
         let result = visitor.visit_unary_operation(&node).unwrap();
         match result {
             Expression::Number(n) => assert_eq!(n.value, 5.0),
@@ -384,13 +410,13 @@ mod tests {
         let arena = Bump::new();
         let span = test_span(&arena, "-5");
         let operand = Expression::Number(NumberExpression::new(5.0, span, None));
-        let node = UnaryOperationExpression::new(UnaryOperator::Minus, operand, span);
-        let mut visitor = MakeExpressionCalculationSafe::new();
+        let node = UnaryOperationExpression::new(&arena, UnaryOperator::Minus, operand, span);
+        let mut visitor = MakeExpressionCalculationSafe::new(&arena);
         let result = visitor.visit_unary_operation(&node).unwrap();
         match result {
             Expression::BinaryOperation(bin) => {
                 assert_eq!(bin.operator, BinaryOperator::Times);
-                match &*bin.left {
+                match bin.left {
                     Expression::Number(n) => assert_eq!(n.value, -1.0),
                     _ => panic!("expected NumberExpression for left"),
                 }
@@ -404,8 +430,8 @@ mod tests {
         let arena = Bump::new();
         let span = test_span(&arena, "/5");
         let operand = Expression::Number(NumberExpression::new(5.0, span, None));
-        let node = UnaryOperationExpression::new(UnaryOperator::Divide, operand, span);
-        let mut visitor = MakeExpressionCalculationSafe::new();
+        let node = UnaryOperationExpression::new(&arena, UnaryOperator::Divide, operand, span);
+        let mut visitor = MakeExpressionCalculationSafe::new(&arena);
         let result = visitor.visit_unary_operation(&node).unwrap();
         assert!(matches!(result, Expression::UnaryOperation(_)));
     }
@@ -415,7 +441,7 @@ mod tests {
         let arena = Bump::new();
         let span = test_span(&arena, "null");
         let node = NullExpression::new(span);
-        let mut visitor = MakeExpressionCalculationSafe::new();
+        let mut visitor = MakeExpressionCalculationSafe::new(&arena);
         let result = visitor.visit_null(&node).unwrap();
         assert!(matches!(result, Expression::Null(_)));
     }

@@ -47,13 +47,13 @@ pub struct SelectorListInner<'parse> {
     /// The components of this selector.
     ///
     /// This is never empty.
-    pub components: Vec<ComplexSelector<'parse>>,
+    pub components: &'parse [ComplexSelector<'parse>],
 }
 
 impl<'parse> SelectorListInner<'parse> {
     pub fn hash_code(&self) -> i32 {
         let mut h = 0;
-        for comp in &self.components {
+        for comp in self.components {
             h = hash_combine(h, comp.hash_code());
         }
         h
@@ -103,7 +103,7 @@ impl<'parse> SelectorList<'parse> {
         }
         Ok(SelectorList(arena.alloc(SelectorListInner {
             span,
-            components: components.to_vec(),
+            components: &*arena.alloc_slice_fill_iter(components),
         })))
     }
 
@@ -115,7 +115,7 @@ impl<'parse> SelectorList<'parse> {
     // `:not` of invisible, etc.). Matches Dart: `Selector.isInvisible`
     // as realized by `_IsInvisibleVisitor` on `SelectorList`.
     pub fn is_invisible(&self) -> bool {
-        for comp in &self.0.components {
+        for comp in self.0.components {
             if !comp.is_invisible() {
                 return false;
             }
@@ -126,7 +126,7 @@ impl<'parse> SelectorList<'parse> {
     // Whether any complex in the list is bogus. Matches Dart:
     // `Selector.isBogus` as realized by `_IsBogusVisitor` on `SelectorList`.
     pub fn is_bogus(&self) -> bool {
-        for comp in &self.0.components {
+        for comp in self.0.components {
             if comp.is_bogus() {
                 return true;
             }
@@ -138,7 +138,7 @@ impl<'parse> SelectorList<'parse> {
     // `@extend`/nesting). Matches Dart: `Selector.isUseless` as realized by
     // `_IsUselessVisitor` on `SelectorList`.
     pub fn is_useless(&self) -> bool {
-        for comp in &self.0.components {
+        for comp in self.0.components {
             if comp.is_useless() {
                 return true;
             }
@@ -149,7 +149,7 @@ impl<'parse> SelectorList<'parse> {
     // Whether any complex is bogus apart from a leading combinator.
     // Matches Dart: `Selector.isBogusOtherThanLeadingCombinator`.
     pub fn is_bogus_other_than_leading_combinator(&self) -> bool {
-        for comp in &self.0.components {
+        for comp in self.0.components {
             if comp.is_bogus_other_than_leading_combinator() {
                 return true;
             }
@@ -160,7 +160,7 @@ impl<'parse> SelectorList<'parse> {
     // Whether every complex is invisible even ignoring bogus combinators.
     // Matches Dart: `Selector.isInvisibleOtherThanBogusCombinators`.
     pub fn is_invisible_other_than_bogus_combinators(&self) -> bool {
-        for comp in &self.0.components {
+        for comp in self.0.components {
             if !comp.is_invisible_other_than_bogus_combinators() {
                 return false;
             }
@@ -173,9 +173,9 @@ impl<'parse> SelectorList<'parse> {
     // Matches Dart: `Selector.containsParentSelector` via
     // `_ContainsParentSelectorVisitor`.
     pub fn contains_parent_selector(&self) -> SassResult<bool> {
-        for complex in &self.0.components {
-            for comp in &complex.components {
-                for simple in &comp.selector.components {
+        for complex in self.0.components {
+            for comp in complex.components {
+                for simple in comp.selector.components {
                     if simple.contains_parent_selector()? {
                         return Ok(true);
                     }
@@ -224,7 +224,7 @@ impl<'parse> SelectorList<'parse> {
     /// more. Matches Dart: `SelectorList.isSuperselector`
     /// (via `listIsSuperselector` in extend/functions.dart).
     pub fn is_superselector(&self, other: &SelectorList<'parse>) -> SassResult<bool> {
-        list_is_superselector(&self.0.components, &other.0.components)
+        list_is_superselector(self.0.components, other.0.components)
     }
 
     /// Returns a selector list matching only elements matched by both `self`
@@ -236,10 +236,12 @@ impl<'parse> SelectorList<'parse> {
         other: &SelectorList<'parse>,
     ) -> SassResult<Option<SelectorList<'parse>>> {
         let mut contents: Vec<ComplexSelector<'parse>> = Vec::new();
-        for complex1 in &self.0.components {
-            for complex2 in &other.0.components {
+        for complex1 in self.0.components {
+            for complex2 in other.0.components {
                 let span = complex1.span()?;
-                if let Some(unified) = unify_complex(&[complex1.clone(), complex2.clone()], span)? {
+                if let Some(unified) =
+                    unify_complex(arena, &[complex1.clone(), complex2.clone()], span)?
+                {
                     contents.extend(unified);
                 }
             }
@@ -329,20 +331,21 @@ impl<'parse> SelectorList<'parse> {
                 .0
                 .components
                 .iter()
-                .map(|parent_complex| parent_complex.concatenate(complex, span, false))
+                .map(|parent_complex| parent_complex.concatenate(arena, complex, span, false))
                 .collect();
             return Ok(result);
         }
 
         let mut new_complexes: Vec<ComplexSelector<'parse>> = Vec::new();
-        for component in &complex.components {
+        for component in complex.components {
             let resolved = self.nest_within_compound(arena, component, parent)?;
             match resolved {
                 None => {
                     if new_complexes.is_empty() {
                         let span = complex.span()?;
                         new_complexes.push(ComplexSelector::new(
-                            complex.leading_combinators.clone(),
+                            arena,
+                            complex.leading_combinators.to_vec(),
                             vec![component.clone()],
                             span,
                             false,
@@ -350,7 +353,7 @@ impl<'parse> SelectorList<'parse> {
                     } else {
                         let span = complex.span()?;
                         for nc in &mut new_complexes {
-                            *nc = nc.with_additional_component(component, span, false);
+                            *nc = nc.with_additional_component(arena, component, span, false);
                         }
                     }
                 }
@@ -360,13 +363,14 @@ impl<'parse> SelectorList<'parse> {
                     } else {
                         let span = complex.span()?;
                         for rc in resolved_vec {
-                            let mut new_lc = complex.leading_combinators.clone();
+                            let mut new_lc = complex.leading_combinators.to_vec();
                             if !rc.leading_combinators.is_empty() {
-                                new_lc.extend_from_slice(&rc.leading_combinators);
+                                new_lc.extend_from_slice(rc.leading_combinators);
                             }
                             new_complexes.push(ComplexSelector::new(
+                                arena,
                                 new_lc,
-                                rc.components.clone(),
+                                rc.components.to_vec(),
                                 span,
                                 rc.line_break,
                             )?);
@@ -378,7 +382,7 @@ impl<'parse> SelectorList<'parse> {
                     for nc in &new_complexes {
                         let span = nc.span()?;
                         for rc in resolved_vec {
-                            updated.push(nc.concatenate(rc, span, false));
+                            updated.push(nc.concatenate(arena, rc, span, false));
                         }
                     }
                     new_complexes = updated;
@@ -396,9 +400,9 @@ impl<'parse> SelectorList<'parse> {
     ) -> SassResult<Option<Vec<ComplexSelector<'parse>>>> {
         let simples = &component.selector.components;
         let mut contains_selector_pseudo = false;
-        for simple in simples {
+        for simple in simples.iter() {
             if let SimpleSelector::Pseudo(ref ps) = simple {
-                if let Some(ref sel) = ps.selector {
+                if let Some(sel) = ps.selector {
                     if sel.contains_parent_selector()? {
                         contains_selector_pseudo = true;
                         break;
@@ -415,7 +419,7 @@ impl<'parse> SelectorList<'parse> {
 
         let resolved_simples: Vec<SimpleSelector<'parse>> = if contains_selector_pseudo {
             let mut result = Vec::with_capacity(simples.len());
-            for simple in simples {
+            for simple in simples.iter() {
                 if let SimpleSelector::Pseudo(ref ps) = simple {
                     if let Some(ref sel) = ps.selector {
                         if sel.contains_parent_selector().map_err(|e| {
@@ -424,7 +428,7 @@ impl<'parse> SelectorList<'parse> {
                                 "parent selector".into(),
                             )
                         })? {
-                            let nested = match sel.as_ref() {
+                            let nested = match sel {
                                 Selector::List(ref list) => list
                                     .nest_within(arena, Some(parent), false, false)
                                     .map_err(|e| {
@@ -443,7 +447,7 @@ impl<'parse> SelectorList<'parse> {
                                     }))
                                 }
                             };
-                            let psel = ps.with_selector(&nested).map_err(|e| {
+                            let psel = ps.with_selector(arena, &nested).map_err(|e| {
                                 e.with_additional_span(
                                     SourceSpanWithContext::from_file_span(&first_simple_span)
                                         .unwrap(),
@@ -467,17 +471,19 @@ impl<'parse> SelectorList<'parse> {
         } else {
             let component_span = component.selector.span()?;
             let compound =
-                CompoundSelector::new(resolved_simples, component_span).map_err(|e| {
+                CompoundSelector::new(arena, resolved_simples, component_span).map_err(|e| {
                     e.with_additional_span(
                         SourceSpanWithContext::from_file_span(&first_simple_span).unwrap(),
                         "parent selector".into(),
                     )
                 })?;
             let cs = ComplexSelector::new(
+                arena,
                 vec![],
                 vec![ComplexSelectorComponent::new(
-                    Box::new(compound),
-                    component.combinators.clone(),
+                    arena,
+                    compound,
+                    component.combinators.to_vec(),
                     component.span,
                 )],
                 component.span,
@@ -499,12 +505,12 @@ impl<'parse> SelectorList<'parse> {
 
         if simples.len() == 1 && parent_selector.suffix().is_none() {
             let with_combinators =
-                parent.with_additional_combinators(arena, &component.combinators)?;
-            return Ok(Some(with_combinators.0.components.clone()));
+                parent.with_additional_combinators(arena, component.combinators)?;
+            return Ok(Some(with_combinators.0.components.to_vec()));
         }
 
         let mut result = Vec::new();
-        for complex in &parent.0.components {
+        for complex in parent.0.components {
             let last_component = &complex.components[complex.components.len() - 1];
             if !last_component.combinators.is_empty() {
                 let trimmed = last_component.span.trim_right()?;
@@ -536,17 +542,17 @@ impl<'parse> SelectorList<'parse> {
                     Vec::with_capacity(last_simples.len() + resolved_simples.len() - 1);
                 combined.extend_from_slice(last_simples);
                 combined.extend_from_slice(&resolved_simples[1..]);
-                CompoundSelector::new(combined, component_span)
+                CompoundSelector::new(arena, combined, component_span)
             } else {
                 let added = last_simples[last_simples.len() - 1]
-                    .add_suffix(suffix.unwrap_or(""))
+                    .add_suffix(arena, suffix.unwrap_or(""))
                     .map_err(wrap_err)?;
                 let mut combined =
                     Vec::with_capacity(last_simples.len() + resolved_simples.len() - 1);
                 combined.extend_from_slice(&last_simples[..last_simples.len() - 1]);
                 combined.push(added);
                 combined.extend_from_slice(&resolved_simples[1..]);
-                CompoundSelector::new(combined, component_span)
+                CompoundSelector::new(arena, combined, component_span)
             }
             .map_err(wrap_err)?;
 
@@ -554,13 +560,15 @@ impl<'parse> SelectorList<'parse> {
                 Vec::with_capacity(complex.components.len());
             comps.extend_from_slice(&complex.components[..complex.components.len() - 1]);
             comps.push(ComplexSelectorComponent::new(
-                Box::new(last),
-                component.combinators.clone(),
+                arena,
+                last,
+                component.combinators.to_vec(),
                 component.span,
             ));
 
             let cs = ComplexSelector::new(
-                complex.leading_combinators.clone(),
+                arena,
+                complex.leading_combinators.to_vec(),
                 comps,
                 component.span,
                 complex.line_break,
@@ -581,9 +589,9 @@ impl<'parse> SelectorList<'parse> {
         arena: &'compile Bump,
     ) -> SassResult<Value<'parse>> {
         let mut complexes: Vec<Value<'parse>> = Vec::with_capacity(self.0.components.len());
-        for complex in &self.0.components {
+        for complex in self.0.components {
             let mut parts: Vec<Value<'parse>> = Vec::new();
-            for lc in &complex.leading_combinators {
+            for lc in complex.leading_combinators {
                 parts.push(Value::new_with_arena(
                     arena,
                     ValueKind::String(SassString::new(
@@ -592,7 +600,7 @@ impl<'parse> SelectorList<'parse> {
                     )),
                 ));
             }
-            for comp in &complex.components {
+            for comp in complex.components {
                 parts.push(Value::new_with_arena(
                     arena,
                     ValueKind::String(SassString::new(
@@ -600,7 +608,7 @@ impl<'parse> SelectorList<'parse> {
                         false,
                     )),
                 ));
-                for c in &comp.combinators {
+                for c in comp.combinators {
                     parts.push(Value::new_with_arena(
                         arena,
                         ValueKind::String(SassString::new(
@@ -612,12 +620,12 @@ impl<'parse> SelectorList<'parse> {
             }
             complexes.push(Value::new_with_arena(
                 arena,
-                ValueKind::List(SassList::new(parts, ListSeparator::Space, false)),
+                ValueKind::List(SassList::new(arena, parts, ListSeparator::Space, false)),
             ));
         }
         Ok(Value::new_with_arena(
             arena,
-            ValueKind::List(SassList::new(complexes, ListSeparator::Comma, false)),
+            ValueKind::List(SassList::new(arena, complexes, ListSeparator::Comma, false)),
         ))
     }
 
@@ -632,8 +640,8 @@ impl<'parse> SelectorList<'parse> {
             return Ok(*self);
         }
         let mut new_components = Vec::with_capacity(self.0.components.len());
-        for comp in &self.0.components {
-            new_components.push(comp.with_additional_combinators(combinators, false));
+        for comp in self.0.components {
+            new_components.push(comp.with_additional_combinators(arena, combinators, false));
         }
         SelectorList::new(arena, new_components, self.0.span)
     }
@@ -702,8 +710,8 @@ impl<'parse> From<SelectorList<'parse>> for SelectorListIdentity<'parse> {
 /// `_containsParentSelector` (ast/selector/list.dart), realized through
 /// `_ParentSelectorVisitor` (a `SelectorSearchVisitor`).
 fn complex_contains_parent_selector<'parse>(complex: &ComplexSelector<'parse>) -> SassResult<bool> {
-    for component in &complex.components {
-        for simple in &component.selector.components {
+    for component in complex.components {
+        for simple in component.selector.components {
             if simple.contains_parent_selector()? {
                 return Ok(true);
             }
@@ -722,9 +730,9 @@ fn complex_contains_parent_selector<'parse>(complex: &ComplexSelector<'parse>) -
 fn find_parent_selector_with_suffix<'parse>(
     list: &'parse SelectorList<'parse>,
 ) -> Option<&'parse ParentSelector<'parse>> {
-    for complex in &list.0.components {
-        for component in &complex.components {
-            for simple in &component.selector.components {
+    for complex in list.0.components {
+        for component in complex.components {
+            for simple in component.selector.components {
                 if let Some(ps) = simple_parent_selector_with_suffix(simple) {
                     return Some(ps);
                 }
@@ -742,11 +750,8 @@ fn simple_parent_selector_with_suffix<'parse>(
     match simple {
         SimpleSelector::Parent(ps) if ps.suffix().is_some() => Some(ps),
         SimpleSelector::Pseudo(pseudo) => match pseudo.selector {
-            Some(ref sel) => match sel.as_ref() {
-                Selector::List(inner) => find_parent_selector_with_suffix(inner),
-                _ => None,
-            },
-            None => None,
+            Some(Selector::List(inner)) => find_parent_selector_with_suffix(inner),
+            _ => None,
         },
         _ => None,
     }
@@ -818,17 +823,17 @@ mod tests {
     use crate::selector::parent::ParentSelector;
     use crate::selector::SimpleSelector;
 
-    fn make_complex(name: &str) -> ComplexSelector<'static> {
-        let s = SimpleSelector::Class(ClassSelector::new(name.into(), BOGUS_SPAN));
-        let compound = Box::new(CompoundSelector::new(vec![s], BOGUS_SPAN).unwrap());
-        let component = ComplexSelectorComponent::new(compound, vec![], BOGUS_SPAN);
-        ComplexSelector::new(vec![], vec![component], BOGUS_SPAN, false).unwrap()
+    fn make_complex<'p>(arena: &'p Bump, name: &'static str) -> ComplexSelector<'p> {
+        let s = SimpleSelector::Class(ClassSelector::new(name, BOGUS_SPAN));
+        let compound = CompoundSelector::new(arena, vec![s], BOGUS_SPAN).unwrap();
+        let component = ComplexSelectorComponent::new(arena, compound, vec![], BOGUS_SPAN);
+        ComplexSelector::new(arena, vec![], vec![component], BOGUS_SPAN, false).unwrap()
     }
 
     #[test]
     fn test_new() {
         let arena = Bump::new();
-        let c = make_complex("foo");
+        let c = make_complex(&arena, "foo");
         let list = SelectorList::new(&arena, vec![c], BOGUS_SPAN).unwrap();
         assert_eq!(list.0.components.len(), 1);
     }
@@ -842,34 +847,38 @@ mod tests {
     #[test]
     fn test_is_invisible() {
         let arena = Bump::new();
-        let list = SelectorList::new(&arena, vec![make_complex("foo")], BOGUS_SPAN).unwrap();
+        let list =
+            SelectorList::new(&arena, vec![make_complex(&arena, "foo")], BOGUS_SPAN).unwrap();
         assert!(!list.is_invisible());
     }
 
     #[test]
     fn test_is_bogus() {
         let arena = Bump::new();
-        let list = SelectorList::new(&arena, vec![make_complex("foo")], BOGUS_SPAN).unwrap();
+        let list =
+            SelectorList::new(&arena, vec![make_complex(&arena, "foo")], BOGUS_SPAN).unwrap();
         assert!(!list.is_bogus());
     }
 
     #[test]
     fn test_is_useless() {
         let arena = Bump::new();
-        let list = SelectorList::new(&arena, vec![make_complex("foo")], BOGUS_SPAN).unwrap();
+        let list =
+            SelectorList::new(&arena, vec![make_complex(&arena, "foo")], BOGUS_SPAN).unwrap();
         assert!(!list.is_useless());
     }
 
     #[test]
     fn test_contains_parent_selector() {
         let arena = Bump::new();
-        let list = SelectorList::new(&arena, vec![make_complex("foo")], BOGUS_SPAN).unwrap();
+        let list =
+            SelectorList::new(&arena, vec![make_complex(&arena, "foo")], BOGUS_SPAN).unwrap();
         assert!(!list.contains_parent_selector().unwrap());
 
         let parent = SimpleSelector::Parent(ParentSelector::new(&arena, BOGUS_SPAN, None));
-        let compound = Box::new(CompoundSelector::new(vec![parent], BOGUS_SPAN).unwrap());
-        let comp = ComplexSelectorComponent::new(compound, vec![], BOGUS_SPAN);
-        let complex = ComplexSelector::new(vec![], vec![comp], BOGUS_SPAN, false).unwrap();
+        let compound = CompoundSelector::new(&arena, vec![parent], BOGUS_SPAN).unwrap();
+        let comp = ComplexSelectorComponent::new(&arena, compound, vec![], BOGUS_SPAN);
+        let complex = ComplexSelector::new(&arena, vec![], vec![comp], BOGUS_SPAN, false).unwrap();
         let list2 = SelectorList::new(&arena, vec![complex], BOGUS_SPAN).unwrap();
         assert!(list2.contains_parent_selector().unwrap());
     }
@@ -877,18 +886,21 @@ mod tests {
     #[test]
     fn test_structural_eq() {
         let arena = Bump::new();
-        let list1 = SelectorList::new(&arena, vec![make_complex("foo")], BOGUS_SPAN).unwrap();
-        let list2 = SelectorList::new(&arena, vec![make_complex("foo")], BOGUS_SPAN).unwrap();
+        let list1 =
+            SelectorList::new(&arena, vec![make_complex(&arena, "foo")], BOGUS_SPAN).unwrap();
+        let list2 =
+            SelectorList::new(&arena, vec![make_complex(&arena, "foo")], BOGUS_SPAN).unwrap();
         assert_eq!(list1, list2, "structural equality: same components");
     }
 
     #[test]
     fn test_structural_ne() {
         let arena = Bump::new();
-        let list1 = SelectorList::new(&arena, vec![make_complex("foo")], BOGUS_SPAN).unwrap();
+        let list1 =
+            SelectorList::new(&arena, vec![make_complex(&arena, "foo")], BOGUS_SPAN).unwrap();
         let list2 = SelectorList::new(
             &arena,
-            vec![make_complex("foo"), make_complex("bar")],
+            vec![make_complex(&arena, "foo"), make_complex(&arena, "bar")],
             BOGUS_SPAN,
         )
         .unwrap();
@@ -898,15 +910,18 @@ mod tests {
     #[test]
     fn test_content_eq() {
         let arena = Bump::new();
-        let list1 = SelectorList::new(&arena, vec![make_complex("foo")], BOGUS_SPAN).unwrap();
-        let list2 = SelectorList::new(&arena, vec![make_complex("foo")], BOGUS_SPAN).unwrap();
+        let list1 =
+            SelectorList::new(&arena, vec![make_complex(&arena, "foo")], BOGUS_SPAN).unwrap();
+        let list2 =
+            SelectorList::new(&arena, vec![make_complex(&arena, "foo")], BOGUS_SPAN).unwrap();
         assert!(list1.content_eq(&list2));
     }
 
     #[test]
     fn test_clone_shares_identity() {
         let arena = Bump::new();
-        let list1 = SelectorList::new(&arena, vec![make_complex("foo")], BOGUS_SPAN).unwrap();
+        let list1 =
+            SelectorList::new(&arena, vec![make_complex(&arena, "foo")], BOGUS_SPAN).unwrap();
         let list2 = list1;
         assert_eq!(list1, list2, "clone is structurally equal");
         assert_eq!(
@@ -919,8 +934,10 @@ mod tests {
     #[test]
     fn test_identity_different_not_equal() {
         let arena = Bump::new();
-        let list1 = SelectorList::new(&arena, vec![make_complex("foo")], BOGUS_SPAN).unwrap();
-        let list2 = SelectorList::new(&arena, vec![make_complex("foo")], BOGUS_SPAN).unwrap();
+        let list1 =
+            SelectorList::new(&arena, vec![make_complex(&arena, "foo")], BOGUS_SPAN).unwrap();
+        let list2 =
+            SelectorList::new(&arena, vec![make_complex(&arena, "foo")], BOGUS_SPAN).unwrap();
         assert_ne!(
             list1.identity(),
             list2.identity(),
@@ -935,12 +952,14 @@ mod tests {
     fn test_selector_list_identity_hashmap_key() {
         let arena = Bump::new();
         let mut map: HashMap<SelectorListIdentity, i32> = HashMap::new();
-        let list = SelectorList::new(&arena, vec![make_complex("foo")], BOGUS_SPAN).unwrap();
+        let list =
+            SelectorList::new(&arena, vec![make_complex(&arena, "foo")], BOGUS_SPAN).unwrap();
         let id = list.identity();
         map.insert(id, 1);
         assert_eq!(map.get(&id), Some(&1));
 
-        let list2 = SelectorList::new(&arena, vec![make_complex("foo")], BOGUS_SPAN).unwrap();
+        let list2 =
+            SelectorList::new(&arena, vec![make_complex(&arena, "foo")], BOGUS_SPAN).unwrap();
         let id2 = list2.identity();
         assert_eq!(map.get(&id2), None, "different Rc should not be found");
     }
@@ -948,7 +967,8 @@ mod tests {
     #[test]
     fn test_with_additional_combinators() {
         let arena = Bump::new();
-        let list = SelectorList::new(&arena, vec![make_complex("foo")], BOGUS_SPAN).unwrap();
+        let list =
+            SelectorList::new(&arena, vec![make_complex(&arena, "foo")], BOGUS_SPAN).unwrap();
         let comb = CssValue::new(Combinator::Child, BOGUS_SPAN);
         let result = list.with_additional_combinators(&arena, &[comb]).unwrap();
         assert_eq!(result.0.components.len(), 1);
@@ -956,8 +976,9 @@ mod tests {
 
     #[test]
     fn test_flatten_vertically() {
-        let a = vec![make_complex("1a")];
-        let b = vec![make_complex("2a")];
+        let arena = Bump::new();
+        let a = vec![make_complex(&arena, "1a")];
+        let b = vec![make_complex(&arena, "2a")];
         let result = flatten_vertically(vec![a, b]);
         assert_eq!(result.len(), 2);
     }
@@ -965,14 +986,16 @@ mod tests {
     #[test]
     fn test_selector_list_to_css_string() {
         let arena = Bump::new();
-        let list = SelectorList::new(&arena, vec![make_complex("foo")], BOGUS_SPAN).unwrap();
+        let list =
+            SelectorList::new(&arena, vec![make_complex(&arena, "foo")], BOGUS_SPAN).unwrap();
         assert_eq!(list.to_css_string(true).unwrap(), ".foo");
     }
 
     #[test]
     fn test_selector_list_assert_not_bogus() {
         let arena = Bump::new();
-        let list = SelectorList::new(&arena, vec![make_complex("foo")], BOGUS_SPAN).unwrap();
+        let list =
+            SelectorList::new(&arena, vec![make_complex(&arena, "foo")], BOGUS_SPAN).unwrap();
         assert!(list.assert_not_bogus(None, None).is_ok());
     }
 }

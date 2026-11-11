@@ -12,7 +12,6 @@
 use crate::value::assert_common_list_style;
 use crate::value::ListSeparator;
 use crate::value::SassList;
-use std::rc::Rc;
 
 use bumpalo::Bump;
 
@@ -62,7 +61,8 @@ where
         vec![
             (
                 "$red, $green, $blue, $alpha",
-                Rc::new(
+                crate::callable::built_in_callback(
+                    arena,
                     move |config: &EvalConfig<'compile, 'parse>,
                           state: &mut EvalState<'compile, 'parse>,
                           args: Vec<Value<'parse>>,
@@ -73,7 +73,8 @@ where
             ),
             (
                 "$red, $green, $blue",
-                Rc::new(
+                crate::callable::built_in_callback(
+                    arena,
                     move |config: &EvalConfig<'compile, 'parse>,
                           state: &mut EvalState<'compile, 'parse>,
                           args: Vec<Value<'parse>>,
@@ -84,7 +85,8 @@ where
             ),
             (
                 "$color, $alpha",
-                Rc::new(
+                crate::callable::built_in_callback(
+                    arena,
                     move |_config: &EvalConfig<'compile, 'parse>,
                           _state: &mut EvalState<'compile, 'parse>,
                           args: Vec<Value<'parse>>,
@@ -95,7 +97,8 @@ where
             ),
             (
                 "$channels",
-                Rc::new(
+                crate::callable::built_in_callback(
+                    arena,
                     move |config: &EvalConfig<'compile, 'parse>,
                           state: &mut EvalState<'compile, 'parse>,
                           args: Vec<Value<'parse>>,
@@ -135,7 +138,8 @@ where
         vec![
             (
                 "$red, $green, $blue, $alpha",
-                Rc::new(
+                crate::callable::built_in_callback(
+                    arena,
                     move |config: &EvalConfig<'compile, 'parse>,
                           state: &mut EvalState<'compile, 'parse>,
                           args: Vec<Value<'parse>>,
@@ -146,7 +150,8 @@ where
             ),
             (
                 "$red, $green, $blue",
-                Rc::new(
+                crate::callable::built_in_callback(
+                    arena,
                     move |config: &EvalConfig<'compile, 'parse>,
                           state: &mut EvalState<'compile, 'parse>,
                           args: Vec<Value<'parse>>,
@@ -157,7 +162,8 @@ where
             ),
             (
                 "$color, $alpha",
-                Rc::new(
+                crate::callable::built_in_callback(
+                    arena,
                     move |_config: &EvalConfig<'compile, 'parse>,
                           _state: &mut EvalState<'compile, 'parse>,
                           args: Vec<Value<'parse>>,
@@ -168,7 +174,8 @@ where
             ),
             (
                 "$channels",
-                Rc::new(
+                crate::callable::built_in_callback(
+                    arena,
                     move |config: &EvalConfig<'compile, 'parse>,
                           state: &mut EvalState<'compile, 'parse>,
                           args: Vec<Value<'parse>>,
@@ -268,9 +275,9 @@ fn rgb_two_arg<'compile: 'parse, 'parse>(
     let b = rgb.channel2;
     if second.is_special_number() {
         let mut v = vec![
-            Value::new_with_arena(arena, ValueKind::Number(SassNumber::new(r, None))),
-            Value::new_with_arena(arena, ValueKind::Number(SassNumber::new(g, None))),
-            Value::new_with_arena(arena, ValueKind::Number(SassNumber::new(b, None))),
+            Value::new_with_arena(arena, ValueKind::Number(SassNumber::new(arena, r, None))),
+            Value::new_with_arena(arena, ValueKind::Number(SassNumber::new(arena, g, None))),
+            Value::new_with_arena(arena, ValueKind::Number(SassNumber::new(arena, b, None))),
         ];
         v.push(*second);
         return function_string(arena, name, &v);
@@ -304,7 +311,8 @@ where
         vec![
             (
                 "$hue, $saturation, $lightness, $alpha",
-                Rc::new(
+                crate::callable::built_in_callback(
+                    arena,
                     move |config: &EvalConfig<'compile, 'parse>,
                           state: &mut EvalState<'compile, 'parse>,
                           args: Vec<Value<'parse>>,
@@ -315,7 +323,8 @@ where
             ),
             (
                 "$hue, $saturation, $lightness",
-                Rc::new(
+                crate::callable::built_in_callback(
+                    arena,
                     move |config: &EvalConfig<'compile, 'parse>,
                           state: &mut EvalState<'compile, 'parse>,
                           args: Vec<Value<'parse>>,
@@ -326,7 +335,8 @@ where
             ),
             (
                 "$hue, $saturation",
-                Rc::new(
+                crate::callable::built_in_callback(
+                    arena,
                     move |_config: &EvalConfig<'compile, 'parse>,
                           _state: &mut EvalState<'compile, 'parse>,
                           args: Vec<Value<'parse>>,
@@ -344,7 +354,8 @@ where
             ),
             (
                 "$channels",
-                Rc::new(
+                crate::callable::built_in_callback(
+                    arena,
                     move |config: &EvalConfig<'compile, 'parse>,
                           state: &mut EvalState<'compile, 'parse>,
                           args: Vec<Value<'parse>>,
@@ -384,7 +395,8 @@ where
         vec![
             (
                 "$hue, $saturation, $lightness, $alpha",
-                Rc::new(
+                crate::callable::built_in_callback(
+                    arena,
                     move |config: &EvalConfig<'compile, 'parse>,
                           state: &mut EvalState<'compile, 'parse>,
                           args: Vec<Value<'parse>>,
@@ -395,7 +407,8 @@ where
             ),
             (
                 "$hue, $saturation, $lightness",
-                Rc::new(
+                crate::callable::built_in_callback(
+                    arena,
                     move |config: &EvalConfig<'compile, 'parse>,
                           state: &mut EvalState<'compile, 'parse>,
                           args: Vec<Value<'parse>>,
@@ -406,7 +419,8 @@ where
             ),
             (
                 "$hue, $saturation",
-                Rc::new(
+                crate::callable::built_in_callback(
+                    arena,
                     move |_config: &EvalConfig<'compile, 'parse>,
                           _state: &mut EvalState<'compile, 'parse>,
                           args: Vec<Value<'parse>>,
@@ -424,7 +438,8 @@ where
             ),
             (
                 "$channels",
-                Rc::new(
+                crate::callable::built_in_callback(
+                    arena,
                     move |config: &EvalConfig<'compile, 'parse>,
                           state: &mut EvalState<'compile, 'parse>,
                           args: Vec<Value<'parse>>,
@@ -740,6 +755,7 @@ where
                                     components: Value::new_with_arena(
                                         arena,
                                         ValueKind::List(SassList::new(
+                                            arena,
                                             nl,
                                             ListSeparator::Space,
                                             false,
@@ -760,7 +776,7 @@ where
                                 arena,
                                 ValueKind::Number(before.clone()),
                             ));
-                            let sl = SassList::new(nl, ListSeparator::Space, false);
+                            let sl = SassList::new(arena, nl, ListSeparator::Space, false);
                             return Ok(Some(SlashResult {
                                 components: Value::new_with_arena(arena, ValueKind::List(sl)),
                                 alpha: Some(Value::new_with_arena(
@@ -791,16 +807,17 @@ where
     let source = FileSource::new_in(arena, s, None);
     let mut scanner = SpanScanner::new(source);
     let state = ParserState {
+        arena,
         syntax: Syntax::Scss,
         interpolation_map: None,
         in_expression: false,
     };
 
-    if let Ok(num_expr) = number_impl(&mut scanner, &state) {
+    if let Ok(num_expr) = number_impl(arena, &mut scanner, &state) {
         if scanner.is_done() {
             return Ok(Value::new_with_arena(
                 arena,
-                ValueKind::Number(SassNumber::new(num_expr.value, num_expr.unit.as_deref())),
+                ValueKind::Number(SassNumber::new(arena, num_expr.value, num_expr.unit)),
             ));
         }
     }
@@ -829,17 +846,20 @@ where
         vec![
             (
                 "$hue, $whiteness, $blackness, $alpha: 1",
-                Rc::new(
+                crate::callable::built_in_callback(
+                    arena,
                     move |config: &EvalConfig<'compile, 'parse>,
                           state: &mut EvalState<'compile, 'parse>,
                           args: Vec<Value<'parse>>,
                           arena: &'compile Bump| {
                         let inner = SassList::new(
+                            arena,
                             vec![args[0], args[1], args[2]],
                             ListSeparator::Space,
                             false,
                         );
                         let outer = SassList::new(
+                            arena,
                             vec![
                                 Value::new_with_arena(arena, ValueKind::List(inner)),
                                 args[3],
@@ -861,7 +881,8 @@ where
             ),
             (
                 "$channels",
-                Rc::new(
+                crate::callable::built_in_callback(
+                    arena,
                     move |config: &EvalConfig<'compile, 'parse>,
                           state: &mut EvalState<'compile, 'parse>,
                           args: Vec<Value<'parse>>,
@@ -901,7 +922,8 @@ where
         "$channels",
         "sass:color",
         arena,
-        Rc::new(
+        crate::callable::built_in_callback(
+            arena,
             move |config: &EvalConfig<'compile, 'parse>,
                   state: &mut EvalState<'compile, 'parse>,
                   args: Vec<Value<'parse>>,
@@ -937,7 +959,8 @@ where
         "$channels",
         "sass:color",
         arena,
-        Rc::new(
+        crate::callable::built_in_callback(
+            arena,
             move |config: &EvalConfig<'compile, 'parse>,
                   state: &mut EvalState<'compile, 'parse>,
                   args: Vec<Value<'parse>>,
@@ -975,7 +998,8 @@ where
         "$channels",
         "sass:color",
         arena,
-        Rc::new(
+        crate::callable::built_in_callback(
+            arena,
             move |config: &EvalConfig<'compile, 'parse>,
                   state: &mut EvalState<'compile, 'parse>,
                   args: Vec<Value<'parse>>,
@@ -1013,7 +1037,8 @@ where
         "$channels",
         "sass:color",
         arena,
-        Rc::new(
+        crate::callable::built_in_callback(
+            arena,
             move |config: &EvalConfig<'compile, 'parse>,
                   state: &mut EvalState<'compile, 'parse>,
                   args: Vec<Value<'parse>>,
@@ -1051,7 +1076,8 @@ where
         "$channels",
         "sass:color",
         arena,
-        Rc::new(
+        crate::callable::built_in_callback(
+            arena,
             move |config: &EvalConfig<'compile, 'parse>,
                   state: &mut EvalState<'compile, 'parse>,
                   args: Vec<Value<'parse>>,

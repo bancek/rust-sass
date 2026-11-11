@@ -42,6 +42,7 @@ use crate::ast::sass::supports_condition::{
 };
 use crate::common::ast_node::AstNode;
 use crate::common::exception::{SassError, SassResult};
+use bumpalo::Bump;
 
 /// A visitor that recursively traverses each expression in a SassScript AST
 /// and replaces its contents with the values returned by nested recursion.
@@ -62,64 +63,62 @@ use crate::common::exception::{SassError, SassResult};
 ///
 /// Each helper takes the calling visitor as `visitor` so overrides compose
 /// through nested recursion.
-pub struct ReplaceExpressionVisitor;
-
-impl Default for ReplaceExpressionVisitor {
-    fn default() -> Self {
-        Self::new()
-    }
+pub struct ReplaceExpressionVisitor<'parse> {
+    arena: &'parse Bump,
 }
 
-impl ReplaceExpressionVisitor {
-    pub fn new() -> Self {
-        ReplaceExpressionVisitor
+impl<'parse> ReplaceExpressionVisitor<'parse> {
+    pub fn new(arena: &'parse Bump) -> Self {
+        ReplaceExpressionVisitor { arena }
     }
 
-    pub fn replace_argument_list<
-        'parse,
-        V: ExpressionVisitor<'parse, Output = Expression<'parse>>,
-    >(
+    pub fn replace_argument_list<V: ExpressionVisitor<'parse, Output = Expression<'parse>>>(
+        arena: &'parse Bump,
         visitor: &mut V,
         args: &ArgumentList<'parse>,
     ) -> SassResult<ArgumentList<'parse>> {
         let mut positional = Vec::with_capacity(args.positional.len());
-        for e in &args.positional {
+        for e in args.positional {
             positional.push(e.accept(visitor)?);
         }
         let mut named = IndexMap::with_capacity(args.named.len());
-        for (k, v) in &args.named {
-            named.insert(k.clone(), v.accept(visitor)?);
+        for (k, v) in args.named {
+            named.insert(k.to_string(), v.accept(visitor)?);
+        }
+        let mut named_spans = IndexMap::with_capacity(args.named_spans.len());
+        for (k, v) in args.named_spans {
+            named_spans.insert(k.to_string(), *v);
         }
         let rest = match args.rest {
-            Some(ref e) => Some(e.accept(visitor)?),
+            Some(e) => Some(e.accept(visitor)?),
             None => None,
         };
         let keyword_rest = match args.keyword_rest {
-            Some(ref e) => Some(e.accept(visitor)?),
+            Some(e) => Some(e.accept(visitor)?),
             None => None,
         };
         Ok(ArgumentList::new(
+            arena,
             positional,
             named,
-            args.named_spans.clone(),
+            named_spans,
             args.span,
             rest,
             keyword_rest,
         ))
     }
 
-    pub fn replace_supports_condition<
-        'parse,
-        V: ExpressionVisitor<'parse, Output = Expression<'parse>>,
-    >(
+    pub fn replace_supports_condition<V: ExpressionVisitor<'parse, Output = Expression<'parse>>>(
         visitor: &mut V,
         condition: &SupportsCondition<'parse>,
+        arena: &'parse Bump,
     ) -> SassResult<SupportsCondition<'parse>> {
         match condition {
             SupportsCondition::Operation(op) => {
-                let left = Self::replace_supports_condition(visitor, &op.left)?;
-                let right = Self::replace_supports_condition(visitor, &op.right)?;
+                let left = Self::replace_supports_condition(visitor, op.left, arena)?;
+                let right = Self::replace_supports_condition(visitor, op.right, arena)?;
                 Ok(SupportsCondition::Operation(SupportsOperation::new(
+                    arena,
                     left,
                     right,
                     op.operator,
@@ -127,9 +126,9 @@ impl ReplaceExpressionVisitor {
                 )))
             }
             SupportsCondition::Negation(neg) => {
-                let inner = Self::replace_supports_condition(visitor, &neg.condition)?;
+                let inner = Self::replace_supports_condition(visitor, neg.condition, arena)?;
                 Ok(SupportsCondition::Negation(SupportsNegation::new(
-                    inner, neg.span,
+                    arena, inner, neg.span,
                 )))
             }
             SupportsCondition::Interpolation(interp) => {
@@ -163,31 +162,34 @@ impl ReplaceExpressionVisitor {
         }
     }
 
-    pub fn replace_interpolation<
-        'parse,
-        V: ExpressionVisitor<'parse, Output = Expression<'parse>>,
-    >(
+    pub fn replace_interpolation<V: ExpressionVisitor<'parse, Output = Expression<'parse>>>(
         visitor: &mut V,
+        arena: &'parse Bump,
         interp: &Interpolation<'parse>,
     ) -> SassResult<Interpolation<'parse>> {
         let mut new_contents = Vec::with_capacity(interp.contents.len());
-        for part in &interp.contents {
+        for part in interp.contents {
             match part {
                 InterpolationPart::Expression(expr) => {
                     let replaced = expr.accept(visitor)?;
-                    new_contents.push(InterpolationPart::Expression(Box::new(replaced)));
+                    new_contents.push(InterpolationPart::expression(arena, replaced));
                 }
                 InterpolationPart::Text(s) => {
-                    new_contents.push(InterpolationPart::Text(s.clone()));
+                    new_contents.push(InterpolationPart::Text(s));
                 }
             }
         }
-        Interpolation::new(new_contents, interp.spans.clone(), interp.span.clone())
-            .map_err(|e| Box::new(SassError::from(e)))
+        Interpolation::new(
+            arena,
+            new_contents,
+            interp.spans.to_vec(),
+            interp.span.clone(),
+        )
+        .map_err(|e| Box::new(SassError::from(e)))
     }
 }
 
-impl<'parse> ExpressionVisitor<'parse> for ReplaceExpressionVisitor {
+impl<'parse> ExpressionVisitor<'parse> for ReplaceExpressionVisitor<'parse> {
     type Output = Expression<'parse>;
 
     fn visit_binary_operation(
@@ -197,6 +199,7 @@ impl<'parse> ExpressionVisitor<'parse> for ReplaceExpressionVisitor {
         let left = node.left.accept(self)?;
         let right = node.right.accept(self)?;
         Ok(Expression::BinaryOperation(BinaryOperationExpression::new(
+            self.arena,
             node.operator,
             left,
             right,
@@ -218,18 +221,19 @@ impl<'parse> ExpressionVisitor<'parse> for ReplaceExpressionVisitor {
         &mut self,
         node: &FunctionExpression<'parse>,
     ) -> SassResult<Expression<'parse>> {
-        let args = Self::replace_argument_list(self, &node.arguments)?;
+        let args = Self::replace_argument_list(self.arena, self, &node.arguments)?;
         Ok(Expression::Function(FunctionExpression::new(
-            node.original_name.clone(),
+            self.arena,
+            node.original_name,
             args,
             node.span,
-            node.namespace.clone(),
+            node.namespace,
         )))
     }
 
     fn visit_if(&mut self, node: &IfExpression<'parse>) -> SassResult<Expression<'parse>> {
         let mut new_branches = Vec::with_capacity(node.branches.len());
-        for branch in &node.branches {
+        for branch in node.branches {
             let condition = match &branch.condition {
                 Some(c) => Some(c.accept(self)?),
                 None => None,
@@ -240,15 +244,19 @@ impl<'parse> ExpressionVisitor<'parse> for ReplaceExpressionVisitor {
                 expression,
             });
         }
-        Ok(Expression::If(IfExpression::new(new_branches, node.span)?))
+        Ok(Expression::If(IfExpression::new(
+            crate::ast::sass::arena_slice(self.arena, new_branches),
+            node.span,
+        )?))
     }
 
     fn visit_interpolated_function(
         &mut self,
         node: &InterpolatedFunctionExpression<'parse>,
     ) -> SassResult<Expression<'parse>> {
-        let name = Self::replace_interpolation(self, &node.name)?;
-        let args = Self::replace_argument_list(self, &node.arguments)?;
+        let arena = self.arena;
+        let name = Self::replace_interpolation(self, arena, &node.name)?;
+        let args = Self::replace_argument_list(self.arena, self, &node.arguments)?;
         Ok(Expression::InterpolatedFunction(
             InterpolatedFunctionExpression::new(name, args, node.span),
         ))
@@ -258,7 +266,7 @@ impl<'parse> ExpressionVisitor<'parse> for ReplaceExpressionVisitor {
         &mut self,
         node: &LegacyIfExpression<'parse>,
     ) -> SassResult<Expression<'parse>> {
-        let args = Self::replace_argument_list(self, &node.arguments)?;
+        let args = Self::replace_argument_list(self.arena, self, &node.arguments)?;
         Ok(Expression::LegacyIf(LegacyIfExpression::new(
             args, node.span,
         )))
@@ -266,11 +274,11 @@ impl<'parse> ExpressionVisitor<'parse> for ReplaceExpressionVisitor {
 
     fn visit_list(&mut self, node: &ListExpression<'parse>) -> SassResult<Expression<'parse>> {
         let mut contents = Vec::with_capacity(node.contents.len());
-        for item in &node.contents {
+        for item in node.contents {
             contents.push(item.accept(self)?);
         }
         Ok(Expression::List(ListExpression::new(
-            contents,
+            crate::ast::sass::arena_slice(self.arena, contents),
             node.separator,
             node.span,
             node.has_brackets,
@@ -279,10 +287,13 @@ impl<'parse> ExpressionVisitor<'parse> for ReplaceExpressionVisitor {
 
     fn visit_map(&mut self, node: &MapExpression<'parse>) -> SassResult<Expression<'parse>> {
         let mut pairs = Vec::with_capacity(node.pairs.len());
-        for (k, v) in &node.pairs {
+        for (k, v) in node.pairs {
             pairs.push((k.accept(self)?, v.accept(self)?));
         }
-        Ok(Expression::Map(MapExpression::new(pairs, node.span)))
+        Ok(Expression::Map(MapExpression::new(
+            crate::ast::sass::arena_slice(self.arena, pairs),
+            node.span,
+        )))
     }
 
     fn visit_null(&mut self, node: &NullExpression<'parse>) -> SassResult<Expression<'parse>> {
@@ -299,7 +310,7 @@ impl<'parse> ExpressionVisitor<'parse> for ReplaceExpressionVisitor {
     ) -> SassResult<Expression<'parse>> {
         let expr = node.expression.accept(self)?;
         Ok(Expression::Parenthesized(ParenthesizedExpression::new(
-            expr, node.span,
+            self.arena, expr, node.span,
         )))
     }
 
@@ -311,7 +322,8 @@ impl<'parse> ExpressionVisitor<'parse> for ReplaceExpressionVisitor {
     }
 
     fn visit_string(&mut self, node: &StringExpression<'parse>) -> SassResult<Expression<'parse>> {
-        let text = Self::replace_interpolation(self, &node.text)?;
+        let arena = self.arena;
+        let text = Self::replace_interpolation(self, arena, &node.text)?;
         Ok(Expression::String(StringExpression::new(
             text,
             node.has_quotes,
@@ -322,8 +334,10 @@ impl<'parse> ExpressionVisitor<'parse> for ReplaceExpressionVisitor {
         &mut self,
         node: &SupportsExpression<'parse>,
     ) -> SassResult<Expression<'parse>> {
-        let cond = Self::replace_supports_condition(self, &node.condition)?;
-        Ok(Expression::Supports(SupportsExpression::new(cond)))
+        let cond = Self::replace_supports_condition(self, node.condition, self.arena)?;
+        Ok(Expression::Supports(SupportsExpression::new(
+            self.arena, cond,
+        )))
     }
 
     fn visit_unary_operation(
@@ -332,6 +346,7 @@ impl<'parse> ExpressionVisitor<'parse> for ReplaceExpressionVisitor {
     ) -> SassResult<Expression<'parse>> {
         let operand = node.operand.accept(self)?;
         Ok(Expression::UnaryOperation(UnaryOperationExpression::new(
+            self.arena,
             node.operator,
             operand,
             node.span,
@@ -350,7 +365,7 @@ impl<'parse> ExpressionVisitor<'parse> for ReplaceExpressionVisitor {
     }
 }
 
-impl<'parse> IfConditionExpressionVisitor<'parse> for ReplaceExpressionVisitor {
+impl<'parse> IfConditionExpressionVisitor<'parse> for ReplaceExpressionVisitor<'parse> {
     type Output = IfConditionExpression<'parse>;
 
     fn visit_parenthesized(
@@ -359,7 +374,7 @@ impl<'parse> IfConditionExpressionVisitor<'parse> for ReplaceExpressionVisitor {
     ) -> SassResult<IfConditionExpression<'parse>> {
         let expr = node.expression.accept(self)?;
         Ok(IfConditionExpression::Parenthesized(
-            IfConditionParenthesized::new(expr, node.span),
+            IfConditionParenthesized::new(self.arena, expr, node.span),
         ))
     }
 
@@ -369,7 +384,7 @@ impl<'parse> IfConditionExpressionVisitor<'parse> for ReplaceExpressionVisitor {
     ) -> SassResult<IfConditionExpression<'parse>> {
         let expr = node.expression.accept(self)?;
         Ok(IfConditionExpression::Negation(IfConditionNegation::new(
-            expr, node.span,
+            self.arena, expr, node.span,
         )))
     }
 
@@ -378,12 +393,15 @@ impl<'parse> IfConditionExpressionVisitor<'parse> for ReplaceExpressionVisitor {
         node: &IfConditionOperation<'parse>,
     ) -> SassResult<IfConditionExpression<'parse>> {
         let mut exprs = Vec::with_capacity(node.expressions.len());
-        for e in &node.expressions {
+        for e in node.expressions {
             exprs.push(e.accept(self)?);
         }
         Ok(IfConditionExpression::Operation(
-            IfConditionOperation::new(exprs, node.operator)
-                .map_err(|e| Box::new(SassError::from(e)))?,
+            IfConditionOperation::new(
+                crate::ast::sass::arena_slice(self.arena, exprs),
+                node.operator,
+            )
+            .map_err(|e| Box::new(SassError::from(e)))?,
         ))
     }
 
@@ -391,9 +409,11 @@ impl<'parse> IfConditionExpressionVisitor<'parse> for ReplaceExpressionVisitor {
         &mut self,
         node: &IfConditionFunction<'parse>,
     ) -> SassResult<IfConditionExpression<'parse>> {
-        let name = Self::replace_interpolation(self, &node.name)?;
-        let arguments = Self::replace_interpolation(self, &node.arguments)?;
-        Ok(IfConditionExpression::Function(Box::new(
+        let arena = self.arena;
+        let name = Self::replace_interpolation(self, arena, &node.name)?;
+        let arena = self.arena;
+        let arguments = Self::replace_interpolation(self, arena, &node.arguments)?;
+        Ok(IfConditionExpression::Function(self.arena.alloc(
             IfConditionFunction::new(name, arguments, node.span),
         )))
     }
@@ -404,7 +424,7 @@ impl<'parse> IfConditionExpressionVisitor<'parse> for ReplaceExpressionVisitor {
     ) -> SassResult<IfConditionExpression<'parse>> {
         let expr = node.expression.accept(self)?;
         Ok(IfConditionExpression::Sass(IfConditionSass::new(
-            expr, node.span,
+            self.arena, expr, node.span,
         )))
     }
 
@@ -412,13 +432,16 @@ impl<'parse> IfConditionExpressionVisitor<'parse> for ReplaceExpressionVisitor {
         &mut self,
         node: &IfConditionRaw<'parse>,
     ) -> SassResult<IfConditionExpression<'parse>> {
-        let text = Self::replace_interpolation(self, &node.text)?;
+        let arena = self.arena;
+        let text = Self::replace_interpolation(self, arena, &node.text)?;
         Ok(IfConditionExpression::Raw(IfConditionRaw::new(text)))
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use crate::ast::sass::arena_slice;
+
     use super::*;
     use crate::ast::sass::binary_operator::BinaryOperator;
     use crate::ast::sass::expression::Expression;
@@ -453,10 +476,10 @@ mod tests {
     #[test]
     fn test_replace_binary_operation() {
         let arena = Bump::new();
-        let mut v = ReplaceExpressionVisitor::new();
+        let mut v = ReplaceExpressionVisitor::new(&arena);
         let left = Expression::Boolean(BooleanExpression::new(true, test_span(&arena, "true")));
         let right = Expression::Boolean(BooleanExpression::new(false, test_span(&arena, "false")));
-        let node = BinaryOperationExpression::new(BinaryOperator::And, left, right);
+        let node = BinaryOperationExpression::new(&arena, BinaryOperator::And, left, right);
         let result = Expression::BinaryOperation(node).accept(&mut v).unwrap();
         assert!(matches!(result, Expression::BinaryOperation(_)));
     }
@@ -464,7 +487,7 @@ mod tests {
     #[test]
     fn test_replace_boolean_identity() {
         let arena = Bump::new();
-        let mut v = ReplaceExpressionVisitor::new();
+        let mut v = ReplaceExpressionVisitor::new(&arena);
         let node = BooleanExpression::new(true, test_span(&arena, "true"));
         let result = Expression::Boolean(node.clone()).accept(&mut v).unwrap();
         assert!(matches!(result, Expression::Boolean(_)));
@@ -473,7 +496,7 @@ mod tests {
     #[test]
     fn test_replace_null_identity() {
         let arena = Bump::new();
-        let mut v = ReplaceExpressionVisitor::new();
+        let mut v = ReplaceExpressionVisitor::new(&arena);
         let node = NullExpression::new(test_span(&arena, "null"));
         let result = Expression::Null(node).accept(&mut v).unwrap();
         assert!(matches!(result, Expression::Null(_)));
@@ -482,7 +505,7 @@ mod tests {
     #[test]
     fn test_replace_number_identity() {
         let arena = Bump::new();
-        let mut v = ReplaceExpressionVisitor::new();
+        let mut v = ReplaceExpressionVisitor::new(&arena);
         let node = NumberExpression::new(1.0, test_span(&arena, "1"), None);
         let result = Expression::Number(node).accept(&mut v).unwrap();
         assert!(matches!(result, Expression::Number(_)));
@@ -491,8 +514,8 @@ mod tests {
     #[test]
     fn test_replace_variable_identity() {
         let arena = Bump::new();
-        let mut v = ReplaceExpressionVisitor::new();
-        let node = VariableExpression::new("x".into(), test_span(&arena, "$x"), None);
+        let mut v = ReplaceExpressionVisitor::new(&arena);
+        let node = VariableExpression::new(&arena, "x", test_span(&arena, "$x"), None);
         let result = Expression::Variable(node).accept(&mut v).unwrap();
         assert!(matches!(result, Expression::Variable(_)));
     }
@@ -500,9 +523,10 @@ mod tests {
     #[test]
     fn test_replace_function() {
         let arena = Bump::new();
-        let mut v = ReplaceExpressionVisitor::new();
+        let mut v = ReplaceExpressionVisitor::new(&arena);
         let span = test_span(&arena, "fn(1)");
         let args = ArgumentList::new(
+            &arena,
             vec![Expression::Number(NumberExpression::new(
                 1.0,
                 test_span(&arena, "1"),
@@ -514,7 +538,7 @@ mod tests {
             None,
             None,
         );
-        let node = FunctionExpression::new("fn".into(), args, span, None);
+        let node = FunctionExpression::new(&arena, "fn", args, span, None);
         let result = Expression::Function(node).accept(&mut v).unwrap();
         match result {
             Expression::Function(fe) => {
@@ -527,13 +551,24 @@ mod tests {
     #[test]
     fn test_replace_list() {
         let arena = Bump::new();
-        let mut v = ReplaceExpressionVisitor::new();
+        let mut v = ReplaceExpressionVisitor::new(&arena);
         let span = test_span(&arena, "(a, b)");
         let items = vec![
-            Expression::String(StringExpression::plain("a", test_span(&arena, "a"), true)),
-            Expression::String(StringExpression::plain("b", test_span(&arena, "b"), true)),
+            Expression::String(StringExpression::plain(
+                &arena,
+                "a",
+                test_span(&arena, "a"),
+                true,
+            )),
+            Expression::String(StringExpression::plain(
+                &arena,
+                "b",
+                test_span(&arena, "b"),
+                true,
+            )),
         ];
-        let node = ListExpression::new(items, ListSeparator::Comma, span, true);
+        let node =
+            ListExpression::new(arena_slice(&arena, items), ListSeparator::Comma, span, true);
         let result = Expression::List(node).accept(&mut v).unwrap();
         match result {
             Expression::List(le) => {
@@ -546,13 +581,21 @@ mod tests {
     #[test]
     fn test_replace_map() {
         let arena = Bump::new();
-        let mut v = ReplaceExpressionVisitor::new();
+        let mut v = ReplaceExpressionVisitor::new(&arena);
         let span = test_span(&arena, "(a: 1)");
         let node = MapExpression::new(
-            vec![(
-                Expression::String(StringExpression::plain("a", test_span(&arena, "a"), false)),
-                Expression::Number(NumberExpression::new(1.0, test_span(&arena, "1"), None)),
-            )],
+            arena_slice(
+                &arena,
+                vec![(
+                    Expression::String(StringExpression::plain(
+                        &arena,
+                        "a",
+                        test_span(&arena, "a"),
+                        false,
+                    )),
+                    Expression::Number(NumberExpression::new(1.0, test_span(&arena, "1"), None)),
+                )],
+            ),
             span,
         );
         let result = Expression::Map(node).accept(&mut v).unwrap();
@@ -567,8 +610,8 @@ mod tests {
     #[test]
     fn test_replace_string() {
         let arena = Bump::new();
-        let mut v = ReplaceExpressionVisitor::new();
-        let text = Interpolation::plain("hello".into(), test_span(&arena, "hello"));
+        let mut v = ReplaceExpressionVisitor::new(&arena);
+        let text = Interpolation::plain(&arena, "hello".into(), test_span(&arena, "hello"));
         let node = StringExpression::new(text, true);
         let result = Expression::String(node).accept(&mut v).unwrap();
         match result {
@@ -582,9 +625,9 @@ mod tests {
     #[test]
     fn test_replace_parenthesized() {
         let arena = Bump::new();
-        let mut v = ReplaceExpressionVisitor::new();
+        let mut v = ReplaceExpressionVisitor::new(&arena);
         let inner = Expression::Number(NumberExpression::new(1.0, test_span(&arena, "1"), None));
-        let node = ParenthesizedExpression::new(inner, test_span(&arena, "(1)"));
+        let node = ParenthesizedExpression::new(&arena, inner, test_span(&arena, "(1)"));
         let result = Expression::Parenthesized(node).accept(&mut v).unwrap();
         assert!(matches!(result, Expression::Parenthesized(_)));
     }
@@ -592,24 +635,46 @@ mod tests {
     #[test]
     fn test_replace_supports_condition() {
         let arena = Bump::new();
-        let mut v = ReplaceExpressionVisitor::new();
+        let mut v = ReplaceExpressionVisitor::new(&arena);
         let left = SupportsCondition::Declaration(SupportsDeclaration::new(
-            Expression::String(StringExpression::plain("a", test_span(&arena, "a"), false)),
-            Expression::String(StringExpression::plain("b", test_span(&arena, "b"), false)),
+            Expression::String(StringExpression::plain(
+                &arena,
+                "a",
+                test_span(&arena, "a"),
+                false,
+            )),
+            Expression::String(StringExpression::plain(
+                &arena,
+                "b",
+                test_span(&arena, "b"),
+                false,
+            )),
             test_span(&arena, "(a: b)"),
         ));
         let right = SupportsCondition::Declaration(SupportsDeclaration::new(
-            Expression::String(StringExpression::plain("c", test_span(&arena, "c"), false)),
-            Expression::String(StringExpression::plain("d", test_span(&arena, "d"), false)),
+            Expression::String(StringExpression::plain(
+                &arena,
+                "c",
+                test_span(&arena, "c"),
+                false,
+            )),
+            Expression::String(StringExpression::plain(
+                &arena,
+                "d",
+                test_span(&arena, "d"),
+                false,
+            )),
             test_span(&arena, "(c: d)"),
         ));
         let cond = SupportsCondition::Operation(SupportsOperation::new(
+            &arena,
             left,
             right,
             BooleanOperator::And,
             test_span(&arena, "(a: b) and (c: d)"),
         ));
-        let result = ReplaceExpressionVisitor::replace_supports_condition(&mut v, &cond).unwrap();
+        let result =
+            ReplaceExpressionVisitor::replace_supports_condition(&mut v, &cond, &arena).unwrap();
         assert!(matches!(result, SupportsCondition::Operation(_)));
     }
 
@@ -620,15 +685,16 @@ mod tests {
         // catchable error (Dart throws `SassException`), not abort the
         // process via `unreachable!()/panic!`.
         let arena = Bump::new();
-        let mut v = ReplaceExpressionVisitor::new();
-        let name = Interpolation::plain("unknown-fn".into(), test_span(&arena, "unknown-fn"));
-        let args = Interpolation::plain("(1)".into(), test_span(&arena, "(1)"));
+        let mut v = ReplaceExpressionVisitor::new(&arena);
+        let name =
+            Interpolation::plain(&arena, "unknown-fn".into(), test_span(&arena, "unknown-fn"));
+        let args = Interpolation::plain(&arena, "(1)".into(), test_span(&arena, "(1)"));
         let cond = SupportsCondition::Function(SupportsFunction::new(
             name,
             args,
             test_span(&arena, "unknown-fn(1)"),
         ));
-        let err = ReplaceExpressionVisitor::replace_supports_condition(&mut v, &cond)
+        let err = ReplaceExpressionVisitor::replace_supports_condition(&mut v, &cond, &arena)
             .expect_err("SupportsFunction must error, not panic");
         match *err {
             SassError::Sass { message, .. } => assert!(
@@ -639,10 +705,10 @@ mod tests {
         }
         // Same via the Anything variant.
         let anything = SupportsCondition::Anything(SupportsAnything::new(
-            Interpolation::plain("x".into(), test_span(&arena, "x")),
+            Interpolation::plain(&arena, "x".into(), test_span(&arena, "x")),
             test_span(&arena, "(x)"),
         ));
-        let err = ReplaceExpressionVisitor::replace_supports_condition(&mut v, &anything)
+        let err = ReplaceExpressionVisitor::replace_supports_condition(&mut v, &anything, &arena)
             .expect_err("SupportsAnything must error, not panic");
         match *err {
             SassError::Sass { message, .. } => assert!(
@@ -652,8 +718,8 @@ mod tests {
             other => panic!("expected SassError::Sass, got {other:?}"),
         }
         // And end-to-end through expression_to_calc on a SupportsExpression.
-        let expr = Expression::Supports(SupportsExpression::new(cond));
-        let err = expression_to_calc(&expr)
+        let expr = Expression::Supports(SupportsExpression::new(&arena, cond));
+        let err = expression_to_calc(&arena, &expr)
             .expect_err("expression_to_calc over SupportsFunction must error");
         match *err {
             SassError::Sass { message, .. } => assert!(
@@ -667,16 +733,23 @@ mod tests {
     #[test]
     fn test_replace_interpolation() {
         let arena = Bump::new();
-        let mut v = ReplaceExpressionVisitor::new();
+        let mut v = ReplaceExpressionVisitor::new(&arena);
         let span = test_span(&arena, "a #{$x} b");
         let expr_span = test_span(&arena, "#{$x}");
         let interp = Interpolation::new(
+            &arena,
             vec![
-                InterpolationPart::Text("a ".into()),
-                InterpolationPart::Expression(Box::new(Expression::Variable(
-                    VariableExpression::new("x".into(), test_span(&arena, "$x"), None),
-                ))),
-                InterpolationPart::Text(" b".into()),
+                InterpolationPart::Text("a "),
+                InterpolationPart::expression(
+                    &arena,
+                    Expression::Variable(VariableExpression::new(
+                        &arena,
+                        "x",
+                        test_span(&arena, "$x"),
+                        None,
+                    )),
+                ),
+                InterpolationPart::Text(" b"),
             ],
             vec![None, Some(expr_span), None],
             span,

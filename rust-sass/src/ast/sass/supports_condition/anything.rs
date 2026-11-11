@@ -1,3 +1,5 @@
+use bumpalo::Bump;
+
 // Copyright 2020 Google Inc. Use of this source code is governed by an
 // MIT-style license that can be found in the LICENSE file or at
 // https://opensource.org/licenses/MIT.
@@ -37,7 +39,7 @@ impl<'parse> SupportsAnything<'parse> {
 
     // Rebuilds an interpolation with the same text by splicing the stored
     // contents back between the surrounding `before`/`after` source slices.
-    pub fn to_interpolation(&self) -> SassResult<Interpolation<'parse>> {
+    pub fn to_interpolation(&self, arena: &'parse Bump) -> SassResult<Interpolation<'parse>> {
         let contents_span = Span::File(self.contents.span()?);
         let before = self
             .span
@@ -52,7 +54,7 @@ impl<'parse> SupportsAnything<'parse> {
         buf.write(before.text());
         buf.add_interpolation(&self.contents);
         buf.write(after.text());
-        buf.interpolation(self.span)
+        buf.interpolation(arena, self.span)
     }
 
     // Returns a copy of this condition with `span` as its span.
@@ -108,7 +110,7 @@ mod tests {
     fn test_construction_and_display() {
         let arena = Bump::new();
         let span = test_span(&arena, "(foo)", 0, 5);
-        let contents = Interpolation::plain("foo".into(), test_span(&arena, "foo", 1, 4));
+        let contents = Interpolation::plain(&arena, "foo".into(), test_span(&arena, "foo", 1, 4));
         let cond = SupportsAnything::new(contents, span);
         assert_eq!(format!("{cond}"), "(foo)");
         cond.span().unwrap();

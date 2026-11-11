@@ -32,6 +32,7 @@ use crate::common::span_scanner::{LineScannerState, SpanScanner};
 use crate::parse::stylesheet::Syntax;
 use crate::util::character;
 use crate::util::character::MAX_ALLOWED_CHARACTER;
+use bumpalo::Bump;
 
 /// The abstract base class for all parsers (Dart: `class Parser`), providing
 /// utility methods and common token parsing.
@@ -49,6 +50,9 @@ use crate::util::character::MAX_ALLOWED_CHARACTER;
 /// callers such as [`Parser::raw_text`] hold both disjoint borrows at once
 /// instead of re-borrowing `&mut self` twice.)
 pub struct ParserState<'parse> {
+    /// The compile arena, for parser-local text that an AST node will hold
+    /// (identifier results).
+    pub arena: &'parse Bump,
     /// Which syntax is being parsed. Controls newline handling in
     /// [`Parser::whitespace_without_comments`] and silent-comment rejection.
     pub syntax: Syntax,
@@ -77,6 +81,7 @@ impl<'parse> Parser<'parse> {
     /// text; the Rust port takes an arena-allocated `FileSource` (which owns
     /// the text and URL) plus the `Syntax` that Dart expressed via subclasses.
     pub fn new(
+        arena: &'parse Bump,
         source: &'parse FileSource<'parse>,
         syntax: Syntax,
         interpolation_map: Option<&'parse InterpolationMap<'parse>>,
@@ -84,6 +89,7 @@ impl<'parse> Parser<'parse> {
         Parser {
             scanner: SpanScanner::new(source),
             state: ParserState {
+                arena,
                 syntax,
                 interpolation_map,
                 in_expression: false,
@@ -103,7 +109,7 @@ impl<'parse> Parser<'parse> {
 pub fn parse_identifier(text: &str) -> SassResult<String> {
     let arena = bumpalo::Bump::new();
     let fs = FileSource::new_in(&arena, text, None);
-    let mut parser = Parser::new(fs, Syntax::Scss, None);
+    let mut parser = Parser::new(&arena, fs, Syntax::Scss, None);
     let result =
         wrap_span_format_exception_impl(&mut parser.scanner, &mut parser.state, |s, st| {
             let result = identifier_impl(s, st, false, false)?;
@@ -127,7 +133,7 @@ pub fn is_identifier(text: &str) -> bool {
 pub fn is_variable_declaration_like(text: &str) -> SassResult<bool> {
     let arena = bumpalo::Bump::new();
     let fs = FileSource::new_in(&arena, text, None);
-    let mut parser = Parser::new(fs, Syntax::Scss, None);
+    let mut parser = Parser::new(&arena, fs, Syntax::Scss, None);
     if !parser.scanner.scan_char('$') {
         return Ok(false);
     }
@@ -221,7 +227,7 @@ impl<'parse> Parser<'parse> {
 pub(crate) fn index_after_whitespace_and_comments(text: &str) -> usize {
     let arena = bumpalo::Bump::new();
     let fs = FileSource::new_in(&arena, text, None);
-    let mut parser = Parser::new(fs, Syntax::Scss, None);
+    let mut parser = Parser::new(&arena, fs, Syntax::Scss, None);
     let _ = whitespace_impl(&mut parser.scanner, &mut parser.state, true);
     parser.scanner.pos()
 }
@@ -501,6 +507,18 @@ pub(crate) fn identifier_impl<'parse>(
     Ok(sb)
 }
 
+/// Like [`identifier_impl`], but hands the result back as a slice of the
+/// compile arena instead of an owned `String`.
+pub(crate) fn identifier_str_impl<'parse>(
+    arena: &'parse Bump,
+    scanner: &mut SpanScanner<'parse>,
+    state: &ParserState<'parse>,
+    normalize: bool,
+    unit: bool,
+) -> ParseResult<'parse, &'parse str> {
+    Ok(arena.alloc_str(&identifier_impl(scanner, state, normalize, unit)?))
+}
+
 impl<'parse> Parser<'parse> {
     /// Consumes a plain CSS identifier. See [`identifier_impl`].
     pub fn identifier(&mut self, normalize: bool, unit: bool) -> ParseResult<'parse, String> {
@@ -697,7 +715,7 @@ pub(crate) fn declaration_value_impl<'parse>(
 
         if escaped {
             if next == 'u' as i32 || next == 'U' as i32 {
-                let url = try_url_impl(scanner)?;
+                let url = try_url_impl(state.arena, scanner)?;
                 if !url.is_empty() {
                     sb.push_str(&url);
                 } else {
@@ -779,7 +797,7 @@ pub(crate) fn declaration_value_impl<'parse>(
                 sb.push(';');
             }
             'u' | 'U' => {
-                let url = try_url_impl(scanner)?;
+                let url = try_url_impl(state.arena, scanner)?;
                 if !url.is_empty() {
                     sb.push_str(&url);
                 } else {
@@ -838,6 +856,7 @@ impl<'parse> Parser<'parse> {
 /// `url(<raw-url>)`: on bare failure Ruby Sass behavior applies — return
 /// empty so the caller re-parses it as a function expression.
 pub(crate) fn try_url_impl<'parse>(
+    arena: &'parse Bump,
     scanner: &mut SpanScanner<'parse>,
 ) -> ParseResult<'parse, String> {
     let start = scanner.state();
@@ -849,6 +868,7 @@ pub(crate) fn try_url_impl<'parse>(
         return Ok(String::new());
     }
     let mut temp_state = ParserState {
+        arena,
         syntax: Syntax::Scss,
         interpolation_map: None,
         in_expression: false,
@@ -1173,7 +1193,7 @@ impl<'parse> Parser<'parse> {
     /// Consumes a `url()` token if possible. See [`try_url_impl`]: the empty
     /// string means "not a raw URL" (Dart's `null`).
     pub fn try_url(&mut self) -> ParseResult<'parse, String> {
-        try_url_impl(&mut self.scanner)
+        try_url_impl(self.state.arena, &mut self.scanner)
     }
 }
 
@@ -1718,13 +1738,16 @@ pub(crate) fn span_from_to_impl<'parse>(
         return Ok(Span::File(span));
     }
     let map = state.interpolation_map.unwrap();
-    Ok(Span::Lazy(LazyFileSpan::new(move || {
-        let mapped = map.map_span(&Span::File(span))?;
-        match mapped {
-            Span::File(fs) => Ok(fs),
-            _ => Ok(span),
-        }
-    })))
+    Ok(Span::Lazy(LazyFileSpan::new(
+        scanner.source().arena(),
+        move || {
+            let mapped = map.map_span(&Span::File(span))?;
+            match mapped {
+                Span::File(fs) => Ok(fs),
+                _ => Ok(span),
+            }
+        },
+    )))
 }
 
 /// Like `scanner.span_from_position`, but passes the span through the
@@ -1744,13 +1767,16 @@ pub(crate) fn span_from_position_impl<'parse>(
         return Ok(Span::File(span));
     }
     let map = state.interpolation_map.unwrap();
-    Ok(Span::Lazy(LazyFileSpan::new(move || {
-        let mapped = map.map_span(&Span::File(span))?;
-        match mapped {
-            Span::File(fs) => Ok(fs),
-            _ => Ok(span),
-        }
-    })))
+    Ok(Span::Lazy(LazyFileSpan::new(
+        scanner.source().arena(),
+        move || {
+            let mapped = map.map_span(&Span::File(span))?;
+            match mapped {
+                Span::File(fs) => Ok(fs),
+                _ => Ok(span),
+            }
+        },
+    )))
 }
 
 impl<'parse> Parser<'parse> {
@@ -2262,7 +2288,7 @@ mod tests {
         'parse: 'compile,
     {
         let fs = FileSource::new_in(arena, text, None);
-        Parser::new(fs, Syntax::Scss, None)
+        Parser::new(arena, fs, Syntax::Scss, None)
     }
 
     fn make_scanner<'compile, 'parse>(arena: &'compile Bump, text: &str) -> SpanScanner<'parse>
@@ -3567,10 +3593,10 @@ mod tests {
             "setup: allocations must not be identical"
         );
         let interp_span = FileSpan::new(Some(interp_fs), 0, interp_text.len());
-        let interp = Interpolation::new(vec![], vec![], interp_span).unwrap();
-        let map = InterpolationMap::new(interp, vec![]).unwrap();
+        let interp = Interpolation::new(arena, vec![], vec![], interp_span).unwrap();
+        let map = InterpolationMap::new(interp, &[]).unwrap();
         let map_ref: &'parse InterpolationMap<'parse> = arena.alloc(map);
-        let parser = Parser::new(gen_fs, Syntax::Scss, Some(map_ref));
+        let parser = Parser::new(arena, gen_fs, Syntax::Scss, Some(map_ref));
         (parser, map_ref, gen_fs)
     }
 

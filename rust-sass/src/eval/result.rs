@@ -9,7 +9,7 @@
 //   evaluate.dart)
 // go-source: go/eval/evaluate_result.go
 
-use crate::url::SassUrl;
+use crate::url::OwnedUrl;
 
 use crate::ast::css::stylesheet::CssStylesheet;
 use crate::eval::import_cache::ImportCache;
@@ -30,7 +30,7 @@ pub struct EvaluateResult<'compile, 'parse> {
     pub stylesheet: CssStylesheet<'parse>,
 
     /// The canonical URLs of all stylesheets loaded during compilation.
-    pub loaded_urls: Vec<SassUrl>,
+    pub loaded_urls: Vec<OwnedUrl>,
 
     /// The import cache used during evaluation, returned for post-evaluation
     /// processing (e.g., source map URL rewriting). None if no cache was used.

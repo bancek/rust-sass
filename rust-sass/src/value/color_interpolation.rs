@@ -12,7 +12,7 @@ use crate::util::number;
 use crate::value::color::{new_color_for_space_internal_no_check, ColorSpace, SassColor};
 use crate::value::interpolation_method::{HueInterpolationMethod, InterpolationMethod};
 
-impl SassColor {
+impl<'parse> SassColor<'parse> {
     /// Returns a color partway between `self` and `other` following the CSS
     /// Color 4 [color interpolation] procedure.
     ///
@@ -25,29 +25,29 @@ impl SassColor {
     /// survive conversion become zero.
     pub fn interpolate(
         &self,
-        other: &SassColor,
+        other: &SassColor<'parse>,
         method: &InterpolationMethod,
         legacy_missing: bool,
         weight: Option<f64>,
-    ) -> SassResult<SassColor> {
+    ) -> SassResult<Self> {
         interpolate_colors(self, other, method, legacy_missing, weight)
     }
 }
 
-fn interpolate_colors(
-    c: &SassColor,
-    other: &SassColor,
+fn interpolate_colors<'parse>(
+    c: &SassColor<'parse>,
+    other: &SassColor<'parse>,
     method: &InterpolationMethod,
     legacy_missing: bool,
     weight: Option<f64>,
-) -> SassResult<SassColor> {
+) -> SassResult<SassColor<'parse>> {
     let w = weight.unwrap_or(0.5);
 
     if number::fuzzy_equals(w, 0.0) {
-        return Ok(other.clone());
+        return Ok(*other);
     }
     if number::fuzzy_equals(w, 1.0) {
-        return Ok(c.clone());
+        return Ok(*c);
     }
 
     if !(0.0..=1.0).contains(&w) {
@@ -214,7 +214,7 @@ mod tests {
     #[test]
     fn test_interpolate_identity() {
         let c1 = SassColor::for_space(ColorSpace::Srgb, [0.5, 0.5, 0.5], 1.0, [false; 4]);
-        let c2 = c1.clone();
+        let c2 = c1;
         let method = InterpolationMethod::new(ColorSpace::Srgb, None).unwrap();
         let result = c1.interpolate(&c2, &method, false, Some(0.5)).unwrap();
         assert_eq!(result.space, ColorSpace::Srgb);

@@ -11,6 +11,8 @@ use crate::common::span_error::SpanError;
 use std::fmt;
 use std::fmt::Write;
 
+use bumpalo::Bump;
+
 use crate::common::ast_node::AstNode;
 use crate::common::exception::{SassError, SassResult};
 use crate::common::file_span::FileSpan;
@@ -23,36 +25,37 @@ use crate::ast::sass::statement::content_block::ContentBlock;
 #[derive(Clone, Debug)]
 pub struct IncludeRule<'parse> {
     /// The mixin name as written, without underscore-to-hyphen conversion.
-    pub original_name: String,
+    pub original_name: &'parse str,
     /// The name of the mixin being invoked, with underscores converted to
     /// hyphens.
-    pub name: String,
+    pub name: &'parse str,
     /// The arguments to pass to the mixin.
     pub arguments: ArgumentList<'parse>,
     /// The namespace of the mixin being invoked, or `None` when it's
     /// invoked without a namespace.
-    pub namespace: Option<String>,
+    pub namespace: Option<&'parse str>,
     /// The block invoked for `@content` rules in the mixin being invoked,
     /// or `None` when this passes no content block.
-    pub content: Option<Box<ContentBlock<'parse>>>,
+    pub content: Option<&'parse ContentBlock<'parse>>,
     pub span: FileSpan<'parse>,
 }
 
 impl<'parse> IncludeRule<'parse> {
     pub fn new(
-        original_name: String,
+        arena: &'parse Bump,
+        original_name: &'parse str,
         arguments: ArgumentList<'parse>,
         span: FileSpan<'parse>,
-        namespace: Option<String>,
-        content: Option<ContentBlock<'parse>>,
+        namespace: Option<&'parse str>,
+        content: Option<&'parse ContentBlock<'parse>>,
     ) -> Self {
-        let name = original_name.replace('_', "-");
+        let name = arena.alloc_str(&original_name.replace('_', "-"));
         IncludeRule {
             original_name,
             name,
             arguments,
             namespace,
-            content: content.map(Box::new),
+            content,
             span,
         }
     }
@@ -185,10 +188,10 @@ impl<'parse> IncludeRule<'parse> {
     pub fn to_display_string(&self) -> SassResult<String> {
         let mut buf = String::new();
         write!(buf, "@include ").unwrap();
-        if let Some(ref ns) = self.namespace {
+        if let Some(ns) = self.namespace {
             write!(buf, "{}.", to_css_identifier(ns)?).unwrap();
         }
-        write!(buf, "{}", to_css_identifier(&self.name)?).unwrap();
+        write!(buf, "{}", to_css_identifier(self.name)?).unwrap();
         if !self.arguments.is_empty() || self.arguments.rest.is_some() {
             write!(buf, "({})", self.arguments).unwrap();
         }
@@ -229,7 +232,7 @@ mod tests {
         let arena = Bump::new();
         let span = make_span(&arena, "@include foo;");
         let args = ArgumentList::empty(span);
-        let ir = IncludeRule::new("foo".into(), args, span, None, None);
+        let ir = IncludeRule::new(&arena, "foo", args, span, None, None);
         assert_eq!(ir.name, "foo");
         assert_eq!(ir.original_name, "foo");
     }
@@ -239,7 +242,7 @@ mod tests {
         let arena = Bump::new();
         let span = make_span(&arena, "@include my_mixin;");
         let args = ArgumentList::empty(span);
-        let ir = IncludeRule::new("my_mixin".into(), args, span, None, None);
+        let ir = IncludeRule::new(&arena, "my_mixin", args, span, None, None);
         assert_eq!(ir.name, "my-mixin");
     }
 
@@ -248,7 +251,7 @@ mod tests {
         let arena = Bump::new();
         let span = make_span(&arena, "@include foo;");
         let args = ArgumentList::empty(span);
-        let ir = IncludeRule::new("foo".into(), args, span, None, None);
+        let ir = IncludeRule::new(&arena, "foo", args, span, None, None);
         let s = format!("{ir}");
         assert!(s.starts_with("@include foo"), "got {s:?}");
     }
@@ -260,7 +263,7 @@ mod tests {
         let arena = Bump::new();
         let span = make_span(&arena, "@include ns.foo;");
         let args = ArgumentList::empty(span);
-        let ir = IncludeRule::new("foo".into(), args, span, Some("ns".into()), None);
+        let ir = IncludeRule::new(&arena, "foo", args, span, Some("ns"), None);
         assert_eq!(ir.name_span().unwrap().text(), "foo");
         assert_eq!(
             ir.namespace_span().unwrap().unwrap().text(),
@@ -276,7 +279,7 @@ mod tests {
         let arena = Bump::new();
         let span = make_span(&arena, "+ns.foo");
         let args = ArgumentList::empty(span);
-        let ir = IncludeRule::new("foo".into(), args, span, Some("ns".into()), None);
+        let ir = IncludeRule::new(&arena, "foo", args, span, Some("ns"), None);
         assert_eq!(ir.namespace_span().unwrap().unwrap().text(), "ns");
         assert_eq!(ir.name_span().unwrap().text(), "foo");
     }

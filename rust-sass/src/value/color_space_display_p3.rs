@@ -25,7 +25,7 @@ pub(crate) fn display_p3_convert(
     c1: Option<f64>,
     c2: Option<f64>,
     alpha: Option<f64>,
-) -> SassResult<SassColor> {
+) -> SassResult<SassColor<'static>> {
     if dest == ColorSpace::DisplayP3Linear {
         let r_lin = c0.map(color_utils::srgb_and_display_p3_to_linear);
         let g_lin = c1.map(color_utils::srgb_and_display_p3_to_linear);

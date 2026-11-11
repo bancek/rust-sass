@@ -9,8 +9,8 @@
 
 use crate::common::time::SassTime;
 use crate::parse::stylesheet::Syntax;
-use crate::url::resolve_file_path;
-use crate::url::SassUrl;
+use crate::url::OwnedUrl;
+use crate::url::{resolve_file_path, Url};
 use std::collections::hash_map;
 use std::collections::HashMap;
 use std::path::Path;
@@ -38,9 +38,9 @@ pub struct CanonicalizeResult<'parse> {
     /// Importer that canonicalized the URL.
     pub importer: Importer<'parse>,
     /// Canonical URL returned by the importer.
-    pub canonical_url: SassUrl,
+    pub canonical_url: OwnedUrl,
     /// URL passed to the importer (resolved relative to the base URL, if any).
-    pub original_url: SassUrl,
+    pub original_url: OwnedUrl,
 }
 
 /// In-memory cache of parsed stylesheets imported by Sass.
@@ -53,15 +53,19 @@ pub struct ImportCache<'compile, 'parse> {
     pub arena: &'compile Bump,
     importers: Vec<Importer<'parse>>,
     parse_selectors: bool,
+    /// The compilation's I/O handle. Stack-owned (the cache lives in
+    /// `EvalState`), so importers borrow it per call instead of cloning it
+    /// into arena values.
+    io: Rc<dyn Io>,
 
-    canonicalize_cache: HashMap<(SassUrl, bool), Option<CanonicalizeResult<'parse>>>,
+    canonicalize_cache: HashMap<(OwnedUrl, bool), Option<CanonicalizeResult<'parse>>>,
     per_importer_canonicalize_cache:
-        HashMap<(Importer<'parse>, SassUrl, bool), Option<CanonicalizeResult<'parse>>>,
-    non_canonical_relative_urls: HashMap<(Importer<'parse>, SassUrl, bool), SassUrl>,
+        HashMap<(Importer<'parse>, OwnedUrl, bool), Option<CanonicalizeResult<'parse>>>,
+    non_canonical_relative_urls: HashMap<(Importer<'parse>, OwnedUrl, bool), OwnedUrl>,
 
-    import_cache: HashMap<SassUrl, Option<&'parse Stylesheet<'parse>>>,
-    results_cache: HashMap<SassUrl, ImporterResult>,
-    load_times: HashMap<SassUrl, SassTime>,
+    import_cache: HashMap<OwnedUrl, Option<&'parse Stylesheet<'parse>>>,
+    results_cache: HashMap<OwnedUrl, ImporterResult>,
+    load_times: HashMap<OwnedUrl, SassTime>,
 }
 
 impl<'compile: 'parse, 'parse> ImportCache<'compile, 'parse> {
@@ -77,11 +81,13 @@ impl<'compile: 'parse, 'parse> ImportCache<'compile, 'parse> {
         arena: &'compile Bump,
         importers: Vec<Importer<'parse>>,
         parse_selectors: bool,
+        io: Rc<dyn Io>,
     ) -> Self {
         ImportCache {
             arena,
             importers,
             parse_selectors,
+            io,
             canonicalize_cache: HashMap::new(),
             per_importer_canonicalize_cache: HashMap::new(),
             non_canonical_relative_urls: HashMap::new(),
@@ -94,8 +100,8 @@ impl<'compile: 'parse, 'parse> ImportCache<'compile, 'parse> {
     /// Creates an import cache without any globally-available importers.
     ///
     /// Matches Dart: `ImportCache.none`.
-    pub fn new_none(arena: &'compile Bump, parse_selectors: bool) -> Self {
-        ImportCache::new(arena, Vec::new(), parse_selectors)
+    pub fn new_none(arena: &'compile Bump, parse_selectors: bool, io: Rc<dyn Io>) -> Self {
+        ImportCache::new(arena, Vec::new(), parse_selectors, io)
     }
 
     /// Creates an import cache with only the passed importers.
@@ -105,8 +111,9 @@ impl<'compile: 'parse, 'parse> ImportCache<'compile, 'parse> {
         arena: &'compile Bump,
         importers: Vec<Importer<'parse>>,
         parse_selectors: bool,
+        io: Rc<dyn Io>,
     ) -> Self {
-        ImportCache::new(arena, importers.to_vec(), parse_selectors)
+        ImportCache::new(arena, importers.to_vec(), parse_selectors, io)
     }
 
     pub fn new_with_options(
@@ -118,9 +125,15 @@ impl<'compile: 'parse, 'parse> ImportCache<'compile, 'parse> {
         io: Rc<dyn Io>,
         package_config: Option<Rc<dyn PackageConfig>>,
     ) -> Self {
-        let importers =
-            ImportCache::to_importers(arena, importers, load_paths, sass_path, io, package_config);
-        ImportCache::new(arena, importers, parse_selectors)
+        let importers = ImportCache::to_importers(
+            arena,
+            importers,
+            load_paths,
+            sass_path,
+            Rc::clone(&io),
+            package_config,
+        );
+        ImportCache::new(arena, importers, parse_selectors, io)
     }
 
     fn to_importers(
@@ -133,10 +146,9 @@ impl<'compile: 'parse, 'parse> ImportCache<'compile, 'parse> {
     ) -> Vec<Importer<'parse>> {
         let mut result = importers;
         for path in load_paths {
-            result.push(Importer::new(
-                arena,
-                ImporterKind::Filesystem(FilesystemImporter::new(&path, Rc::clone(&io))),
-            ));
+            result.push(Importer::new(ImporterKind::Filesystem(
+                FilesystemImporter::new(arena, &path, Rc::clone(&io)),
+            )));
         }
         if !sass_path.is_empty() {
             let sep = if cfg!(target_os = "windows") {
@@ -146,18 +158,18 @@ impl<'compile: 'parse, 'parse> ImportCache<'compile, 'parse> {
             };
             for path in sass_path.split(sep) {
                 if !path.is_empty() {
-                    result.push(Importer::new(
-                        arena,
-                        ImporterKind::Filesystem(FilesystemImporter::new(path, Rc::clone(&io))),
-                    ));
+                    result.push(Importer::new(ImporterKind::Filesystem(
+                        FilesystemImporter::new(arena, path, Rc::clone(&io)),
+                    )));
                 }
             }
         }
         if let Some(pc) = package_config {
-            result.push(Importer::new(
+            result.push(Importer::new(ImporterKind::Package(PackageImporter::new(
                 arena,
-                ImporterKind::Package(PackageImporter::new(pc, Rc::clone(&io))),
-            ));
+                pc,
+                Rc::clone(&io),
+            ))));
         }
         result
     }
@@ -178,9 +190,9 @@ impl<'compile: 'parse, 'parse> ImportCache<'compile, 'parse> {
     #[rust_sass_macros::maybe_async]
     pub async fn canonicalize(
         &mut self,
-        url: &SassUrl,
+        url: &impl Url,
         base_importer: Option<&Importer<'parse>>,
-        base_url: Option<&SassUrl>,
+        base_url: Option<&OwnedUrl>,
         for_import: bool,
         warn_logger: &dyn WarnLogger<'parse>,
     ) -> SassResult<Option<CanonicalizeResult<'parse>>> {
@@ -195,6 +207,16 @@ impl<'compile: 'parse, 'parse> ImportCache<'compile, 'parse> {
         // no URLs, containing rules, or cache keys change for them).
         // No cache write here: upstream has no import cache, and a result
         // may vary by containing URL while the global keys omit it.
+        // Only materialized when a cache key or an importer call needs the
+        // owned form (a cache hit allocates nothing).
+        let owned;
+        let url: &OwnedUrl = match url.as_owned() {
+            Some(url) => url,
+            None => {
+                owned = url.to_owned_url();
+                &owned
+            }
+        };
         if for_import && url.scheme().is_empty() && base_url.is_some() {
             let any_opt_in = self.importers.iter().any(|i| match i.kind() {
                 ImporterKind::User(u) => u.prefers_raw_load_paths(),
@@ -233,7 +255,7 @@ impl<'compile: 'parse, 'parse> ImportCache<'compile, 'parse> {
         // Matches Dart (import_cache.dart:165-187): whenever a scheme-less
         // (relative) URL is loaded, the base importer is tried first with the
         // URL resolved against the base URL (if any). File bases use
-        // `resolve_file_path`; other bases use `SassUrl::resolve`.
+        // `resolve_file_path`; other bases use `OwnedUrl::resolve`.
         if let Some(base_imp) = base_importer {
             if url.scheme().is_empty() {
                 let resolved_url = if url.is_file_like() && base_url.is_some_and(|b| b.is_file()) {
@@ -243,7 +265,7 @@ impl<'compile: 'parse, 'parse> ImportCache<'compile, 'parse> {
                 } else {
                     url.clone()
                 };
-                let key = (*base_imp, resolved_url.clone(), for_import);
+                let key = (base_imp.clone(), resolved_url.clone(), for_import);
 
                 if let Some(cached) = self.per_importer_canonicalize_cache.get(&key) {
                     if let Some(cr) = cached {
@@ -286,7 +308,7 @@ impl<'compile: 'parse, 'parse> ImportCache<'compile, 'parse> {
         let importers = std::mem::take(&mut self.importers);
         let _n = importers.len();
         for (i, importer) in importers.iter().enumerate() {
-            let per_key = (*importer, url.clone(), for_import);
+            let per_key = (importer.clone(), url.clone(), for_import);
             if let Some(cached) = self.per_importer_canonicalize_cache.get(&per_key) {
                 match cached {
                     Some(cr) => {
@@ -324,7 +346,7 @@ impl<'compile: 'parse, 'parse> ImportCache<'compile, 'parse> {
                 (cr, false, _) => {
                     if cacheable {
                         for importer in importers.iter().take(i) {
-                            let prev_key = (*importer, url.clone(), for_import);
+                            let prev_key = (importer.clone(), url.clone(), for_import);
                             self.per_importer_canonicalize_cache.insert(prev_key, None);
                         }
                         cacheable = false;
@@ -360,11 +382,11 @@ impl<'compile: 'parse, 'parse> ImportCache<'compile, 'parse> {
     async fn canonicalize_with(
         &mut self,
         importer: &Importer<'parse>,
-        url: &SassUrl,
-        base_url: Option<&SassUrl>,
+        url: &OwnedUrl,
+        base_url: Option<&OwnedUrl>,
         for_import: bool,
         warn_logger: &dyn WarnLogger<'parse>,
-        raw_url: Option<&SassUrl>,
+        raw_url: Option<&OwnedUrl>,
     ) -> SassResult<(Option<CanonicalizeResult<'parse>>, bool)> {
         let raw = raw_url.filter(|_| match importer.kind() {
             ImporterKind::User(u) => u.prefers_raw_load_paths(),
@@ -388,18 +410,22 @@ impl<'compile: 'parse, 'parse> ImportCache<'compile, 'parse> {
 
         let result = match importer.kind() {
             ImporterKind::Filesystem(fs) => {
-                fs.canonicalize(url, &mut canonicalize_ctx, warn_logger)
+                fs.canonicalize(&*self.io, url, &mut canonicalize_ctx, warn_logger)
                     .await
             }
             ImporterKind::Package(p) => {
-                p.canonicalize(url, &mut canonicalize_ctx, warn_logger)
+                p.canonicalize(&*self.io, url, &mut canonicalize_ctx, warn_logger)
                     .await
             }
             ImporterKind::NodePackage(np) => {
-                np.canonicalize(url, &mut canonicalize_ctx, warn_logger)
+                np.canonicalize(&*self.io, url, &mut canonicalize_ctx, warn_logger)
                     .await
             }
-            _ => importer.canonicalize(call_url, &mut canonicalize_ctx).await,
+            _ => {
+                importer
+                    .canonicalize(&*self.io, call_url, &mut canonicalize_ctx)
+                    .await
+            }
         }?;
 
         let cacheable = !pass_containing_url || !canonicalize_ctx.was_containing_url_accessed();
@@ -423,7 +449,7 @@ impl<'compile: 'parse, 'parse> ImportCache<'compile, 'parse> {
                 }
                 Ok((
                     Some(CanonicalizeResult {
-                        importer: *importer,
+                        importer: importer.clone(),
                         canonical_url,
                         // The URL the importer actually saw (raw in the
                         // opt-in path, resolved otherwise).
@@ -445,9 +471,9 @@ impl<'compile: 'parse, 'parse> ImportCache<'compile, 'parse> {
     #[rust_sass_macros::maybe_async]
     pub async fn import(
         &mut self,
-        url: &SassUrl,
+        url: &OwnedUrl,
         base_importer: Option<&Importer<'parse>>,
-        base_url: Option<&SassUrl>,
+        base_url: Option<&OwnedUrl>,
         for_import: bool,
         warn_logger: &dyn WarnLogger<'parse>,
     ) -> SassResult<Option<(Importer<'parse>, &'parse Stylesheet<'parse>)>> {
@@ -481,8 +507,8 @@ impl<'compile: 'parse, 'parse> ImportCache<'compile, 'parse> {
     pub async fn import_canonical(
         &mut self,
         importer: &Importer<'parse>,
-        canonical_url: &SassUrl,
-        original_url: Option<&SassUrl>,
+        canonical_url: &OwnedUrl,
+        original_url: Option<&OwnedUrl>,
     ) -> SassResult<Option<&'parse Stylesheet<'parse>>> {
         let resolved_url = match original_url {
             Some(orig) => orig
@@ -495,7 +521,7 @@ impl<'compile: 'parse, 'parse> ImportCache<'compile, 'parse> {
             hash_map::Entry::Occupied(entry) => Ok(*entry.get()),
             hash_map::Entry::Vacant(entry) => {
                 let load_time = SassTime::now();
-                let result = importer.load(canonical_url).await?;
+                let result = importer.load(&*self.io, canonical_url).await?;
                 if result.is_none() {
                     // Dart records `load_times` success-only
                     // (import_cache.dart:328-333): a miss inserts `None` into
@@ -531,7 +557,7 @@ impl<'compile: 'parse, 'parse> ImportCache<'compile, 'parse> {
     /// the current working directory (sass/dart-sass#2777).
     ///
     /// Matches Dart: `ImportCache.humanize`.
-    pub fn humanize(&self, canonical_url: &SassUrl) -> String {
+    pub fn humanize(&self, canonical_url: &OwnedUrl) -> String {
         let shortest = self
             .canonicalize_cache
             .values()
@@ -560,7 +586,7 @@ impl<'compile: 'parse, 'parse> ImportCache<'compile, 'parse> {
     ///
     /// Falls back to the canonical URL itself when it was not loaded by this
     /// cache. Matches Dart: `ImportCache.sourceMapUrl`.
-    pub fn source_map_url(&self, canonical_url: &SassUrl) -> SassUrl {
+    pub fn source_map_url(&self, canonical_url: &OwnedUrl) -> OwnedUrl {
         self.results_cache
             .get(canonical_url)
             .map(|r| r.source_map_url().clone())
@@ -571,15 +597,15 @@ impl<'compile: 'parse, 'parse> ImportCache<'compile, 'parse> {
     /// was never loaded.
     ///
     /// Matches Dart: `ImportCache.loadTime` (internal).
-    pub fn load_time(&self, canonical_url: &SassUrl) -> Option<&SassTime> {
+    pub fn load_time(&self, canonical_url: &OwnedUrl) -> Option<&SassTime> {
         self.load_times.get(canonical_url)
     }
 
     /// Clears all cached canonicalizations that could produce `canonical_url`.
     ///
     /// Matches Dart: `ImportCache.clearCanonicalize` (internal/nodoc).
-    pub fn clear_canonicalize(&mut self, canonical_url: &SassUrl) {
-        let keys: Vec<(SassUrl, bool)> = self.canonicalize_cache.keys().cloned().collect();
+    pub fn clear_canonicalize(&mut self, canonical_url: &OwnedUrl) {
+        let keys: Vec<(OwnedUrl, bool)> = self.canonicalize_cache.keys().cloned().collect();
         for key in keys {
             for importer in &self.importers {
                 if importer.could_canonicalize(&key.0, canonical_url) {
@@ -589,7 +615,7 @@ impl<'compile: 'parse, 'parse> ImportCache<'compile, 'parse> {
             }
         }
 
-        let per_keys: Vec<(Importer<'parse>, SassUrl, bool)> = self
+        let per_keys: Vec<(Importer<'parse>, OwnedUrl, bool)> = self
             .per_importer_canonicalize_cache
             .keys()
             .cloned()
@@ -606,7 +632,7 @@ impl<'compile: 'parse, 'parse> ImportCache<'compile, 'parse> {
     ///
     /// No effect when the file was not cached. Matches Dart:
     /// `ImportCache.clearImport` (internal/nodoc).
-    pub fn clear_import(&mut self, canonical_url: &SassUrl) {
+    pub fn clear_import(&mut self, canonical_url: &OwnedUrl) {
         self.results_cache.remove(canonical_url);
         self.import_cache.remove(canonical_url);
     }
@@ -614,7 +640,7 @@ impl<'compile: 'parse, 'parse> ImportCache<'compile, 'parse> {
 
 fn parse_stylesheet<'compile: 'parse, 'parse>(
     contents: &str,
-    url: &SassUrl,
+    url: &OwnedUrl,
     syntax: &Syntax,
     parse_selectors: bool,
     arena: &'compile Bump,
@@ -649,19 +675,18 @@ mod tests {
     }
 
     fn make_fs_importer<'compile: 'parse, 'parse>(
-        arena: &'compile Bump,
+        _arena: &'compile Bump,
         io: Rc<dyn Io>,
     ) -> Importer<'parse> {
-        Importer::new(
-            arena,
-            ImporterKind::Filesystem(FilesystemImporter::new_no_load_path(io)),
-        )
+        Importer::new(ImporterKind::Filesystem(
+            FilesystemImporter::new_no_load_path(io),
+        ))
     }
 
     #[test]
     fn new_creates_empty_caches() {
         let arena = Bump::new();
-        let cache = ImportCache::new_none(&arena, false);
+        let cache = ImportCache::new_none(&arena, false, make_io());
         assert!(cache.importers.is_empty());
         assert!(cache.canonicalize_cache.is_empty());
         assert!(cache.import_cache.is_empty());
@@ -713,11 +738,11 @@ mod tests {
         std::fs::write(&path, b"a { color: red; }").unwrap();
 
         let importer = make_fs_importer(&arena, Rc::clone(&io));
-        let mut cache = ImportCache::new(&arena, vec![importer], false);
-        let url = SassUrl::parse(&format!("file:///{}", path.to_string_lossy())).unwrap();
+        let mut cache = ImportCache::new(&arena, vec![importer.clone()], false, Rc::clone(&io));
+        let url = OwnedUrl::parse(&format!("file:///{}", path.to_string_lossy())).unwrap();
 
         let result = cache
-            .canonicalize(&url, None, None, false, &BufferedWarnLogger::new(&arena))
+            .canonicalize(&url, None, None, false, &BufferedWarnLogger::new())
             .await
             .unwrap()
             .unwrap();
@@ -733,15 +758,15 @@ mod tests {
         std::fs::write(&path, b"a { color: red; }").unwrap();
 
         let importer = make_fs_importer(&arena2, Rc::clone(&io));
-        let mut cache = ImportCache::new(&arena2, vec![importer], false);
-        let url = SassUrl::parse(&format!("file:///{}", path.to_string_lossy())).unwrap();
+        let mut cache = ImportCache::new(&arena2, vec![importer.clone()], false, Rc::clone(&io));
+        let url = OwnedUrl::parse(&format!("file:///{}", path.to_string_lossy())).unwrap();
 
         let r1 = cache
-            .canonicalize(&url, None, None, false, &BufferedWarnLogger::new(&arena2))
+            .canonicalize(&url, None, None, false, &BufferedWarnLogger::new())
             .await
             .unwrap();
         let r2 = cache
-            .canonicalize(&url, None, None, false, &BufferedWarnLogger::new(&arena2))
+            .canonicalize(&url, None, None, false, &BufferedWarnLogger::new())
             .await
             .unwrap();
         // Both should return the same result (second from cache)
@@ -761,8 +786,8 @@ mod tests {
 
         let arena = Bump::new();
         let importer = make_fs_importer(&arena, Rc::clone(&io));
-        let mut cache = ImportCache::new(&arena, vec![], false);
-        let url = SassUrl::parse(&format!("file:///{}", canonical)).unwrap();
+        let mut cache = ImportCache::new(&arena, vec![], false, Rc::clone(&io));
+        let url = OwnedUrl::parse(&format!("file:///{}", canonical)).unwrap();
 
         let stylesheet = cache
             .import_canonical(&importer, &url, None)
@@ -782,8 +807,8 @@ mod tests {
 
         let arena = Bump::new();
         let importer = make_fs_importer(&arena, Rc::clone(&io));
-        let mut cache = ImportCache::new(&arena, vec![], false);
-        let url = SassUrl::parse(&format!("file:///{}", canonical)).unwrap();
+        let mut cache = ImportCache::new(&arena, vec![], false, Rc::clone(&io));
+        let url = OwnedUrl::parse(&format!("file:///{}", canonical)).unwrap();
 
         let _s1 = cache.import_canonical(&importer, &url, None).await.unwrap();
         // Second call should hit cache
@@ -797,38 +822,41 @@ mod tests {
     /// sass/dart-sass#2208 — a relative URL resolved from different base URLs
     /// must not be globally cached.
     #[derive(Debug)]
-    struct ContainingUrlProbeImporter {
-        fs: FilesystemImporter,
+    struct ContainingUrlProbeImporter<'parse> {
+        fs: FilesystemImporter<'parse>,
+        io: Rc<dyn Io>,
         // Test-probe call log; a named alias would be single-use test noise.
         #[allow(clippy::type_complexity)]
         calls: Rc<RefCell<Vec<(String, Option<String>)>>>,
     }
 
     #[rust_sass_macros::maybe_async]
-    impl UserImporter for ContainingUrlProbeImporter {
+    impl<'parse> UserImporter for ContainingUrlProbeImporter<'parse> {
         fn canonicalize<'a>(
             &'a self,
-            url: &'a SassUrl,
+            url: &'a OwnedUrl,
             context: &'a mut CanonicalizeContext,
-        ) -> LocalBoxFuture<'a, SassResult<Option<SassUrl>>> {
+        ) -> LocalBoxFuture<'a, SassResult<Option<OwnedUrl>>> {
             if url.scheme() == "file" {
                 let fs = &self.fs;
-                return Box::pin(
-                    async move { fs.canonicalize(url, context, &NoOpWarnLogger).await },
-                );
+                let io = &*self.io;
+                return Box::pin(async move {
+                    fs.canonicalize(io, url, context, &NoOpWarnLogger).await
+                });
             }
             let containing = context.containing_url().cloned();
             let calls = self.calls.clone();
             let fs = self.fs.clone();
+            let io = Rc::clone(&self.io);
             Box::pin(async move {
                 calls
                     .borrow_mut()
                     .push((url.to_string(), containing.as_ref().map(|c| c.to_string())));
                 if url.to_string() == "y" {
                     if let Some(base) = containing {
-                        let x = SassUrl::parse("x.scss").unwrap();
+                        let x = OwnedUrl::parse("x.scss").unwrap();
                         if let Some(fu) = resolve_file_path(&x, &base) {
-                            return fs.canonicalize(&fu, context, &NoOpWarnLogger).await;
+                            return fs.canonicalize(&*io, &fu, context, &NoOpWarnLogger).await;
                         }
                     }
                 }
@@ -838,10 +866,11 @@ mod tests {
 
         fn load<'a>(
             &'a self,
-            url: &'a SassUrl,
+            url: &'a OwnedUrl,
         ) -> LocalBoxFuture<'a, SassResult<Option<ImporterResult>>> {
             let fs = &self.fs;
-            Box::pin(async move { fs.load(url).await })
+            let io = &*self.io;
+            Box::pin(async move { fs.load(io, url).await })
         }
 
         fn is_non_canonical_scheme(&self, scheme: &str) -> bool {
@@ -861,16 +890,18 @@ mod tests {
             std::fs::write(base.join(sub).join("x.scss"), "").unwrap();
         }
         std::fs::write(base.join("main.scss"), "").unwrap();
-        let f = |p: &str| SassUrl::file_url_from_abs_path(&base.join(p).to_string_lossy()).unwrap();
+        let f =
+            |p: &str| OwnedUrl::file_url_from_abs_path(&base.join(p).to_string_lossy()).unwrap();
 
         let fs_imp = make_fs_importer(&arena, Rc::clone(&io));
         let probe = Rc::new(ContainingUrlProbeImporter {
             fs: FilesystemImporter::new_no_load_path(Rc::clone(&io)),
+            io: Rc::clone(&io),
             calls: Rc::new(RefCell::new(Vec::new())),
         });
-        let probe_imp = Importer::new(&arena, ImporterKind::User(probe.clone()));
-        let mut cache = ImportCache::new(&arena, vec![probe_imp], false);
-        let warn = BufferedWarnLogger::new(&arena);
+        let probe_imp = Importer::new(ImporterKind::User(probe.clone()));
+        let mut cache = ImportCache::new(&arena, vec![probe_imp.clone()], false, Rc::clone(&io));
+        let warn = BufferedWarnLogger::new();
 
         // main.scss loads `@use "sub1/test"` and `@use "sub1/sub2/test"`.
         let main = f("main.scss");
@@ -878,7 +909,7 @@ mod tests {
         let sub2 = f("sub1/sub2/test.scss");
         let r = cache
             .canonicalize(
-                &SassUrl::parse("sub1/test").unwrap(),
+                &OwnedUrl::parse("sub1/test").unwrap(),
                 Some(&fs_imp),
                 Some(&main),
                 false,
@@ -890,7 +921,7 @@ mod tests {
         assert_eq!(r.canonical_url, sub1);
         let r = cache
             .canonicalize(
-                &SassUrl::parse("sub1/sub2/test").unwrap(),
+                &OwnedUrl::parse("sub1/sub2/test").unwrap(),
                 Some(&fs_imp),
                 Some(&main),
                 false,
@@ -907,7 +938,7 @@ mod tests {
         // files.
         let r1 = cache
             .canonicalize(
-                &SassUrl::parse("y").unwrap(),
+                &OwnedUrl::parse("y").unwrap(),
                 Some(&fs_imp),
                 Some(&sub1),
                 false,
@@ -918,7 +949,7 @@ mod tests {
             .unwrap();
         let r2 = cache
             .canonicalize(
-                &SassUrl::parse("y").unwrap(),
+                &OwnedUrl::parse("y").unwrap(),
                 Some(&fs_imp),
                 Some(&sub2),
                 false,
@@ -940,8 +971,8 @@ mod tests {
     #[test]
     fn source_map_url_falls_back_to_canonical() {
         let arena = Bump::new();
-        let cache = ImportCache::new_none(&arena, false);
-        let url = SassUrl::parse("file:///style.scss").unwrap();
+        let cache = ImportCache::new_none(&arena, false, make_io());
+        let url = OwnedUrl::parse("file:///style.scss").unwrap();
         assert_eq!(cache.source_map_url(&url).as_str(), "file:///style.scss");
     }
 
@@ -963,9 +994,9 @@ mod tests {
     impl UserImporter for RawProbeImporter {
         fn canonicalize<'a>(
             &'a self,
-            url: &'a SassUrl,
+            url: &'a OwnedUrl,
             context: &'a mut CanonicalizeContext,
-        ) -> LocalBoxFuture<'a, SassResult<Option<SassUrl>>> {
+        ) -> LocalBoxFuture<'a, SassResult<Option<OwnedUrl>>> {
             let seen_url = url.to_string();
             let seen_containing = context
                 .containing_url_without_marking()
@@ -974,14 +1005,14 @@ mod tests {
             Box::pin(async move {
                 calls.borrow_mut().push((seen_url.clone(), seen_containing));
                 Ok(Some(
-                    SassUrl::parse(&format!("file:///probe/{seen_url}")).unwrap(),
+                    OwnedUrl::parse(&format!("file:///probe/{seen_url}")).unwrap(),
                 ))
             })
         }
 
         fn load<'a>(
             &'a self,
-            _url: &'a SassUrl,
+            _url: &'a OwnedUrl,
         ) -> LocalBoxFuture<'a, SassResult<Option<ImporterResult>>> {
             Box::pin(async move { Ok(None) })
         }
@@ -998,14 +1029,14 @@ mod tests {
             calls: Rc::new(RefCell::new(Vec::new())),
             raw: true,
         });
-        let probe_imp = Importer::new(&arena, ImporterKind::User(probe.clone()));
-        let mut cache = ImportCache::new(&arena, vec![probe_imp], false);
-        let warn = BufferedWarnLogger::new(&arena);
+        let probe_imp = Importer::new(ImporterKind::User(probe.clone()));
+        let mut cache = ImportCache::new(&arena, vec![probe_imp.clone()], false, make_io());
+        let warn = BufferedWarnLogger::new();
         // Fake file base (no filesystem needed — the probe serves all URLs).
-        let base = SassUrl::parse("file:///sub/test.scss").unwrap();
+        let base = OwnedUrl::parse("file:///sub/test.scss").unwrap();
         let r = cache
             .canonicalize(
-                &SassUrl::parse("y").unwrap(),
+                &OwnedUrl::parse("y").unwrap(),
                 Some(&probe_imp),
                 Some(&base),
                 false,
@@ -1030,13 +1061,13 @@ mod tests {
             calls: Rc::new(RefCell::new(Vec::new())),
             raw: false,
         });
-        let probe_imp = Importer::new(&arena, ImporterKind::User(probe.clone()));
-        let mut cache = ImportCache::new(&arena, vec![probe_imp], false);
-        let warn = BufferedWarnLogger::new(&arena);
-        let base = SassUrl::parse("file:///sub/test.scss").unwrap();
+        let probe_imp = Importer::new(ImporterKind::User(probe.clone()));
+        let mut cache = ImportCache::new(&arena, vec![probe_imp.clone()], false, make_io());
+        let warn = BufferedWarnLogger::new();
+        let base = OwnedUrl::parse("file:///sub/test.scss").unwrap();
         let r = cache
             .canonicalize(
-                &SassUrl::parse("y").unwrap(),
+                &OwnedUrl::parse("y").unwrap(),
                 Some(&probe_imp),
                 Some(&base),
                 false,
@@ -1064,7 +1095,7 @@ mod tests {
         std::fs::create_dir_all(dir.path().join("sub")).unwrap();
         std::fs::write(dir.path().join("sub").join("y.scss"), "a { b: c; }").unwrap();
         let base =
-            SassUrl::file_url_from_abs_path(&dir.path().join("sub/test.scss").to_string_lossy())
+            OwnedUrl::file_url_from_abs_path(&dir.path().join("sub/test.scss").to_string_lossy())
                 .unwrap();
 
         let arena = Bump::new();
@@ -1074,17 +1105,17 @@ mod tests {
             calls: Rc::new(RefCell::new(Vec::new())),
             raw: false,
         });
-        let out_imp = Importer::new(&arena, ImporterKind::User(out.clone()));
+        let out_imp = Importer::new(ImporterKind::User(out.clone()));
         let inn = Rc::new(RawProbeImporter {
             calls: Rc::new(RefCell::new(Vec::new())),
             raw: true,
         });
-        let in_imp = Importer::new(&arena, ImporterKind::User(inn.clone()));
-        let mut cache = ImportCache::new(&arena, vec![out_imp, in_imp], false);
-        let warn = BufferedWarnLogger::new(&arena);
+        let in_imp = Importer::new(ImporterKind::User(inn.clone()));
+        let mut cache = ImportCache::new(&arena, vec![out_imp, in_imp], false, Rc::clone(&io));
+        let warn = BufferedWarnLogger::new();
         let r = cache
             .canonicalize(
-                &SassUrl::parse("y").unwrap(),
+                &OwnedUrl::parse("y").unwrap(),
                 Some(&fs_imp),
                 Some(&base),
                 true,
@@ -1113,7 +1144,7 @@ mod tests {
         std::fs::create_dir_all(dir.path().join("sub")).unwrap();
         std::fs::write(dir.path().join("sub").join("y.scss"), "a { b: c; }").unwrap();
         let base =
-            SassUrl::file_url_from_abs_path(&dir.path().join("sub/test.scss").to_string_lossy())
+            OwnedUrl::file_url_from_abs_path(&dir.path().join("sub/test.scss").to_string_lossy())
                 .unwrap();
 
         let arena = Bump::new();
@@ -1123,12 +1154,12 @@ mod tests {
             calls: Rc::new(RefCell::new(Vec::new())),
             raw: true,
         });
-        let in_imp = Importer::new(&arena, ImporterKind::User(inn.clone()));
-        let mut cache = ImportCache::new(&arena, vec![in_imp], false);
-        let warn = BufferedWarnLogger::new(&arena);
+        let in_imp = Importer::new(ImporterKind::User(inn.clone()));
+        let mut cache = ImportCache::new(&arena, vec![in_imp.clone()], false, Rc::clone(&io));
+        let warn = BufferedWarnLogger::new();
         let r = cache
             .canonicalize(
-                &SassUrl::parse("y").unwrap(),
+                &OwnedUrl::parse("y").unwrap(),
                 Some(&fs_imp),
                 Some(&base),
                 false,
@@ -1151,8 +1182,8 @@ mod tests {
 
         let arena = Bump::new();
         let importer = make_fs_importer(&arena, Rc::clone(&io));
-        let mut cache = ImportCache::new(&arena, vec![], false);
-        let url = SassUrl::parse(&format!("file:///{}", canonical)).unwrap();
+        let mut cache = ImportCache::new(&arena, vec![], false, Rc::clone(&io));
+        let url = OwnedUrl::parse(&format!("file:///{}", canonical)).unwrap();
 
         cache.import_canonical(&importer, &url, None).await.unwrap();
         cache.clear_import(&url);
@@ -1173,14 +1204,14 @@ mod tests {
         impl UserImporter for NoneImporter {
             fn canonicalize<'a>(
                 &'a self,
-                url: &'a SassUrl,
+                url: &'a OwnedUrl,
                 _ctx: &'a mut CanonicalizeContext,
-            ) -> LocalBoxFuture<'a, SassResult<Option<SassUrl>>> {
+            ) -> LocalBoxFuture<'a, SassResult<Option<OwnedUrl>>> {
                 Box::pin(async move { Ok(Some(url.clone())) })
             }
             fn load<'a>(
                 &'a self,
-                _url: &'a SassUrl,
+                _url: &'a OwnedUrl,
             ) -> LocalBoxFuture<'a, SassResult<Option<ImporterResult>>> {
                 Box::pin(async move { Ok(None) })
             }
@@ -1188,9 +1219,9 @@ mod tests {
 
         let arena = Bump::new();
         let io = make_io();
-        let importer = Importer::new(&arena, ImporterKind::User(Rc::new(NoneImporter)));
-        let mut cache = ImportCache::new(&arena, vec![], false);
-        let url = SassUrl::parse("file:///does-not-exist-xyz.scss").unwrap();
+        let importer = Importer::new(ImporterKind::User(Rc::new(NoneImporter)));
+        let mut cache = ImportCache::new(&arena, vec![], false, Rc::clone(&io));
+        let url = OwnedUrl::parse("file:///does-not-exist-xyz.scss").unwrap();
 
         let result = cache.import_canonical(&importer, &url, None).await.unwrap();
         assert!(result.is_none());
@@ -1203,7 +1234,7 @@ mod tests {
         let path = dir.path().join("hit.scss");
         std::fs::write(&path, b"a { color: red; }").unwrap();
         let canonical = io.canonicalize(&path).await.unwrap();
-        let hit_url = SassUrl::parse(&format!("file:///{}", canonical)).unwrap();
+        let hit_url = OwnedUrl::parse(&format!("file:///{}", canonical)).unwrap();
         let fs_importer = make_fs_importer(&arena, Rc::clone(&io));
         cache
             .import_canonical(&fs_importer, &hit_url, None)
@@ -1222,18 +1253,18 @@ mod tests {
         let arena = Bump::new();
         let io = make_io();
         let importer = make_fs_importer(&arena, Rc::clone(&io));
-        let mut cache = ImportCache::new(&arena, vec![importer], false);
+        let mut cache = ImportCache::new(&arena, vec![importer.clone()], false, Rc::clone(&io));
 
-        let canonical = SassUrl::parse("file:///app/dep/_lib.scss").unwrap();
-        let schemeless = SassUrl::parse("dep/_lib.scss").unwrap();
+        let canonical = OwnedUrl::parse("file:///app/dep/_lib.scss").unwrap();
+        let schemeless = OwnedUrl::parse("dep/_lib.scss").unwrap();
         assert!(!schemeless.has_scheme());
-        let with_scheme = SassUrl::parse("file:///app/dep/_lib.scss").unwrap();
+        let with_scheme = OwnedUrl::parse("file:///app/dep/_lib.scss").unwrap();
         assert!(with_scheme.has_scheme());
         for original in [schemeless, with_scheme] {
             cache.canonicalize_cache.insert(
                 (original.clone(), false),
                 Some(CanonicalizeResult {
-                    importer,
+                    importer: importer.clone(),
                     canonical_url: canonical.clone(),
                     original_url: original,
                 }),
@@ -1250,10 +1281,10 @@ mod tests {
         let arena = Bump::new();
         let io = make_io();
         let importer = make_fs_importer(&arena, Rc::clone(&io));
-        let mut cache = ImportCache::new(&arena, vec![importer], false);
+        let mut cache = ImportCache::new(&arena, vec![importer.clone()], false, Rc::clone(&io));
 
-        let canonical = SassUrl::parse("file:///app/dep/_lib.scss").unwrap();
-        let schemeless = SassUrl::parse("dep/_lib.scss").unwrap();
+        let canonical = OwnedUrl::parse("file:///app/dep/_lib.scss").unwrap();
+        let schemeless = OwnedUrl::parse("dep/_lib.scss").unwrap();
         cache.canonicalize_cache.insert(
             (schemeless.clone(), false),
             Some(CanonicalizeResult {

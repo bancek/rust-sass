@@ -29,6 +29,8 @@ pub mod util;
 pub mod visitor;
 pub mod weave;
 
+use bumpalo::Bump;
+
 use crate::serialize::SerializeVisitor;
 use std::fmt;
 use std::hash::{Hash, Hasher};
@@ -301,23 +303,6 @@ impl<'parse> SimpleSelector<'parse> {
         }
     }
 
-    // Whether this needs complex non-local reasoning to decide super- or
-    // sub-selector relations (pseudo-elements and pseudos with selector
-    // arguments). Matches Dart: `SimpleSelector.hasComplicatedSuperselectorSemantics`
-    // (@internal).
-    pub fn has_complicated_superselector_semantics(&self) -> bool {
-        match self {
-            SimpleSelector::Attribute(a) => a.has_complicated_superselector_semantics(),
-            SimpleSelector::Class(c) => c.has_complicated_superselector_semantics(),
-            SimpleSelector::Id(i) => i.has_complicated_superselector_semantics(),
-            SimpleSelector::Pseudo(p) => p.has_complicated_superselector_semantics(),
-            SimpleSelector::Parent(p) => p.has_complicated_superselector_semantics(),
-            SimpleSelector::Placeholder(p) => p.has_complicated_superselector_semantics(),
-            SimpleSelector::Type(t) => t.has_complicated_superselector_semantics(),
-            SimpleSelector::Universal(u) => u.has_complicated_superselector_semantics(),
-        }
-    }
-
     pub fn hash_code(&self) -> i32 {
         match self {
             SimpleSelector::Attribute(a) => a.hash_code(),
@@ -351,16 +336,20 @@ impl<'parse> SimpleSelector<'parse> {
     // Returns a copy of `self` as though written with `suffix` appended.
     // Assumes a valid identifier suffix; otherwise returns a script error.
     // Matches Dart: `SimpleSelector.addSuffix` (@internal).
-    pub fn add_suffix(&self, suffix: &str) -> SassResult<SimpleSelector<'parse>> {
+    pub fn add_suffix(
+        &self,
+        arena: &'parse Bump,
+        suffix: &str,
+    ) -> SassResult<SimpleSelector<'parse>> {
         match self {
-            SimpleSelector::Attribute(a) => a.add_suffix(suffix),
-            SimpleSelector::Class(c) => c.add_suffix(suffix),
-            SimpleSelector::Id(i) => i.add_suffix(suffix),
-            SimpleSelector::Pseudo(p) => p.add_suffix(suffix),
-            SimpleSelector::Parent(p) => p.add_suffix(suffix),
-            SimpleSelector::Placeholder(p) => p.add_suffix(suffix),
-            SimpleSelector::Type(t) => t.add_suffix(suffix),
-            SimpleSelector::Universal(u) => u.add_suffix(suffix),
+            SimpleSelector::Attribute(a) => a.add_suffix(arena, suffix),
+            SimpleSelector::Class(c) => c.add_suffix(arena, suffix),
+            SimpleSelector::Id(i) => i.add_suffix(arena, suffix),
+            SimpleSelector::Pseudo(p) => p.add_suffix(arena, suffix),
+            SimpleSelector::Parent(p) => p.add_suffix(arena, suffix),
+            SimpleSelector::Placeholder(p) => p.add_suffix(arena, suffix),
+            SimpleSelector::Type(t) => t.add_suffix(arena, suffix),
+            SimpleSelector::Universal(u) => u.add_suffix(arena, suffix),
         }
     }
 
@@ -375,34 +364,32 @@ impl<'parse> SimpleSelector<'parse> {
         }
         if let SimpleSelector::Pseudo(ref p) = other {
             if p.is_class {
-                if let Some(ref sel) = p.selector {
-                    if let Selector::List(ref list) = sel.as_ref() {
-                        let n = &p.normalized_name;
-                        if n == "is"
-                            || n == "matches"
-                            || n == "where"
-                            || n == "any"
-                            || n == "nth-child"
-                            || n == "nth-last-child"
-                        {
-                            for complex in &list.0.components {
-                                if complex.components.is_empty() {
-                                    return Ok(false);
-                                }
-                                let last_comp = &complex.components[complex.components.len() - 1];
-                                let mut found = false;
-                                for comp in &last_comp.selector.components {
-                                    if self.is_superselector(comp)? {
-                                        found = true;
-                                        break;
-                                    }
-                                }
-                                if !found {
-                                    return Ok(false);
+                if let Some(Selector::List(ref list)) = p.selector {
+                    let n = p.normalized_name;
+                    if n == "is"
+                        || n == "matches"
+                        || n == "where"
+                        || n == "any"
+                        || n == "nth-child"
+                        || n == "nth-last-child"
+                    {
+                        for complex in list.0.components {
+                            if complex.components.is_empty() {
+                                return Ok(false);
+                            }
+                            let last_comp = &complex.components[complex.components.len() - 1];
+                            let mut found = false;
+                            for comp in last_comp.selector.components {
+                                if self.is_superselector(comp)? {
+                                    found = true;
+                                    break;
                                 }
                             }
-                            return Ok(true);
+                            if !found {
+                                return Ok(false);
+                            }
                         }
+                        return Ok(true);
                     }
                 }
             }
@@ -528,6 +515,25 @@ impl<'parse> PartialEq for SimpleSelector<'parse> {
 }
 
 impl<'parse> Eq for SimpleSelector<'parse> {}
+
+impl SimpleSelector<'_> {
+    // Whether this needs complex non-local reasoning to decide super- or
+    // sub-selector relations (pseudo-elements and pseudos with selector
+    // arguments). Matches Dart: `SimpleSelector.hasComplicatedSuperselectorSemantics`
+    // (@internal).
+    pub fn has_complicated_superselector_semantics(&self) -> bool {
+        match self {
+            SimpleSelector::Attribute(a) => a.has_complicated_superselector_semantics(),
+            SimpleSelector::Class(c) => c.has_complicated_superselector_semantics(),
+            SimpleSelector::Id(i) => i.has_complicated_superselector_semantics(),
+            SimpleSelector::Pseudo(p) => p.has_complicated_superselector_semantics(),
+            SimpleSelector::Parent(p) => p.has_complicated_superselector_semantics(),
+            SimpleSelector::Placeholder(p) => p.has_complicated_superselector_semantics(),
+            SimpleSelector::Type(t) => t.has_complicated_superselector_semantics(),
+            SimpleSelector::Universal(u) => u.has_complicated_superselector_semantics(),
+        }
+    }
+}
 
 impl<'parse> Hash for SimpleSelector<'parse> {
     fn hash<H: Hasher>(&self, state: &mut H) {

@@ -9,6 +9,9 @@
 
 use std::fmt;
 
+use bumpalo::Bump;
+
+use crate::arena_map::ArenaVec;
 use crate::common::ast_node::AstNode;
 use crate::common::exception::{SassError, SassResult};
 use crate::common::file_span::FileSpan;
@@ -21,7 +24,7 @@ use crate::ast::css::node::CssNode;
 #[derive(Clone, Debug)]
 pub struct CssMediaRule<'parse> {
     /// The queries for this rule. This is never empty.
-    pub queries: Vec<CssMediaQuery<'parse>>,
+    pub queries: &'parse [CssMediaQuery<'parse>],
     /// The child statements of this rule.
     pub children: Vec<CssNode<'parse>>,
     /// The source span for this rule.
@@ -36,7 +39,10 @@ pub struct CssMediaRule<'parse> {
 
 impl<'parse> CssMediaRule<'parse> {
     /// Creates a media rule. Fails when `queries` is empty.
-    pub fn new(queries: Vec<CssMediaQuery<'parse>>, span: FileSpan<'parse>) -> SassResult<Self> {
+    pub fn new(
+        queries: &'parse [CssMediaQuery<'parse>],
+        span: FileSpan<'parse>,
+    ) -> SassResult<Self> {
         if queries.is_empty() {
             return Err(Box::new(SassError::Script {
                 message: "queries may not be empty.".into(),
@@ -85,16 +91,20 @@ impl<'parse> fmt::Display for CssMediaRule<'parse> {
 #[derive(Clone, Debug)]
 pub struct ModifiableCssMediaRule<'parse> {
     /// The queries for this rule. This is never empty.
-    pub queries: Vec<CssMediaQuery<'parse>>,
+    pub queries: &'parse [CssMediaQuery<'parse>],
     /// The source span for this rule.
     pub span: FileSpan<'parse>,
     /// The child statements of this rule.
-    pub children: Vec<ModifiableCssNode<'parse>>,
+    pub children: ArenaVec<'parse, ModifiableCssNode<'parse>>,
 }
 
 impl<'parse> ModifiableCssMediaRule<'parse> {
     /// Creates a modifiable media rule. Fails when `queries` is empty.
-    pub fn new(queries: Vec<CssMediaQuery<'parse>>, span: FileSpan<'parse>) -> SassResult<Self> {
+    pub fn new(
+        arena: &'parse Bump,
+        queries: Vec<CssMediaQuery<'parse>>,
+        span: FileSpan<'parse>,
+    ) -> SassResult<Self> {
         if queries.is_empty() {
             return Err(Box::new(SassError::Script {
                 message: "queries may not be empty.".into(),
@@ -102,9 +112,9 @@ impl<'parse> ModifiableCssMediaRule<'parse> {
             }));
         }
         Ok(ModifiableCssMediaRule {
-            queries,
+            queries: &*arena.alloc_slice_fill_iter(queries),
             span,
-            children: Vec::new(),
+            children: ArenaVec::new_in(arena),
         })
     }
 }
@@ -152,7 +162,7 @@ mod tests {
         let arena = Bump::new();
         let span = make_span(&arena, "test");
         let q = CssMediaQuery::test_type(Some("screen".into()), None, vec![]);
-        let r = ModifiableCssMediaRule::new(vec![q], span).unwrap();
+        let r = ModifiableCssMediaRule::new(&arena, vec![q], span).unwrap();
         assert_eq!(r.queries.len(), 1);
     }
 
@@ -160,7 +170,7 @@ mod tests {
     fn test_media_rule_empty_queries() {
         let arena = Bump::new();
         let span = make_span(&arena, "test");
-        let result = ModifiableCssMediaRule::new(vec![], span);
+        let result = ModifiableCssMediaRule::new(&arena, vec![], span);
         assert!(result.is_err());
     }
 }

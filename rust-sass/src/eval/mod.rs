@@ -22,8 +22,13 @@ use std::collections::HashSet;
 use std::fmt;
 use std::rc::Rc;
 
+use allocator_api2::vec::Vec as AllocVec;
 use bumpalo::Bump;
 use indexmap::IndexMap;
+
+use crate::arena_map::ArenaMap;
+
+type ArenaVec<'p, T> = AllocVec<T, &'p Bump>;
 
 use crate::ast::sass::expression::Expression;
 use crate::ast::sass::statement::{Statement, Stylesheet};
@@ -37,7 +42,7 @@ use crate::environment::Environment;
 use crate::io::Io;
 use crate::logger::Logger;
 use crate::module::Module;
-use crate::url::SassUrl;
+use crate::url::OwnedUrl;
 use crate::value::Value;
 
 // ===========================================================================
@@ -141,19 +146,20 @@ pub struct StackFrame<'compile, 'parse> {
 /// offset, and the file-source identity (address) to disambiguate
 /// same-offset spans from different sources.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
-pub struct WarnKey {
+pub struct WarnKey<'parse> {
     pub message: String,
-    pub source_url: Option<Rc<str>>,
+    /// The arena-canonical URL text (`ArenaUrl::text`); borrowing avoids an
+    /// allocation for every warning, including duplicates.
+    pub source_url: Option<&'parse str>,
     pub start_offset: usize,
     /// Identity of the FileSource to distinguish same-offset spans in different sources.
     pub file_id: usize,
 }
 
-impl WarnKey {
-    pub fn from_span<'parse>(message: &str, span: FileSpan<'parse>) -> Self {
+impl<'parse> WarnKey<'parse> {
+    pub fn from_span(message: &str, span: FileSpan<'parse>) -> Self {
         WarnKey {
             message: message.to_string(),
-            // Shared, formatted once per source (see `FileSource::url_str_cached`).
             source_url: span.url_str_cached(),
             start_offset: span.start_location().offset,
             file_id: span.file().map(|fs| fs as *const _ as usize).unwrap_or(0),
@@ -193,11 +199,12 @@ pub struct EvalConfig<'compile, 'parse> {
     /// RefCell` — meta callbacks capture the reference (Copy).
     ///
     /// Matches Dart: `_EvaluateVisitor._builtInFunctions`.
-    pub built_in_functions: &'parse RefCell<IndexMap<String, Callable<'compile, 'parse>>>,
+    pub built_in_functions:
+        &'parse RefCell<ArenaMap<'parse, &'parse str, Callable<'compile, 'parse>>>,
     /// User-supplied callables available as global functions. Shared mutable
     /// via arena `&'parse RefCell` — meta callbacks capture the reference
     /// (Copy).
-    pub global_functions: &'parse RefCell<Vec<Callable<'compile, 'parse>>>,
+    pub global_functions: &'parse RefCell<ArenaVec<'parse, Callable<'compile, 'parse>>>,
     /// Logger used to print warnings.
     ///
     /// Matches Dart: `_EvaluateVisitor._logger`.
@@ -225,7 +232,7 @@ pub struct EvalConfig<'compile, 'parse> {
     /// Matches Dart: `_EvaluateVisitor._nodeImporter`. Stored as a presence
     /// flag: when set, `stdin` URLs are not recorded in `loaded_urls` and the
     /// legacy `NodeImporter` path applies (Dart: `_EvaluateVisitor._asNodeSass`).
-    pub node_importer: Option<&'parse NodePackageImporter>,
+    pub node_importer: Option<&'parse NodePackageImporter<'parse>>,
     /// Host filesystem seam, threaded through config rather than per function.
     pub io: Rc<dyn Io>,
     /// `--unicode` from the CLI; drives the glyph set for embedded error text
@@ -254,8 +261,8 @@ impl<'compile: 'parse, 'parse> EvalConfig<'compile, 'parse> {
     ) -> Self {
         EvalConfig {
             built_in_modules: IndexMap::new(),
-            built_in_functions: &*arena.alloc(RefCell::new(IndexMap::new())),
-            global_functions: &*arena.alloc(RefCell::new(Vec::new())),
+            built_in_functions: &*arena.alloc(RefCell::new(ArenaMap::new_in(arena))),
+            global_functions: &*arena.alloc(RefCell::new(ArenaVec::new_in(arena))),
             logger,
             quiet_deps: false,
             source_map: false,
@@ -447,7 +454,7 @@ pub struct EvalState<'compile, 'parse> {
     /// emitted per location.
     ///
     /// Matches Dart: `_EvaluateVisitor._warningsEmitted`.
-    pub warnings_emitted: HashSet<WarnKey>,
+    pub warnings_emitted: HashSet<WarnKey<'parse>>,
 
     // ── Import / URL tracking ──
     /// Cache used to import other stylesheets. Flows by ownership: created in
@@ -462,7 +469,7 @@ pub struct EvalState<'compile, 'parse> {
     /// Matches Dart: `_EvaluateVisitor._importer`.
     pub importer: Importer<'parse>,
     /// Canonical URL of the stylesheet being evaluated, if it has one.
-    pub source_url: Option<SassUrl>,
+    pub source_url: Option<OwnedUrl>,
     /// Canonical URLs of all stylesheets loaded during compilation.
     ///
     /// Matches Dart: `_EvaluateVisitor._loadedUrls`.
@@ -522,7 +529,7 @@ impl<'compile: 'parse, 'parse> EvalState<'compile, 'parse> {
             in_dependency: false,
             warnings_emitted: HashSet::new(),
             import_cache: None,
-            importer: Importer::new(_arena, ImporterKind::NoOp),
+            importer: Importer::new(ImporterKind::NoOp),
             source_url: None,
             loaded_urls: Vec::new(),
             stylesheet: None,
@@ -612,7 +619,7 @@ use crate::extend::store::{DefaultExtensionStore, ExtensionStore};
 pub async fn evaluate<'compile, 'parse>(
     stylesheet: &'parse Stylesheet<'parse>,
     import_cache: Option<ImportCache<'compile, 'parse>>,
-    node_importer: Option<&'parse NodePackageImporter>,
+    node_importer: Option<&'parse NodePackageImporter<'parse>>,
     importer: Importer<'parse>,
     functions: Vec<Callable<'compile, 'parse>>,
     logger: Rc<dyn Logger>,
@@ -638,7 +645,7 @@ where
 
     // Register user functions (matching Go's RegisterUserFunctions)
     for f in functions.iter() {
-        let normalized = f.name().replace('_', "-");
+        let normalized = arena.alloc_str(&f.name().replace('_', "-"));
         v.config
             .built_in_functions
             .borrow_mut()
@@ -664,7 +671,7 @@ where
     // fallback for deprecation warnings (Dart: run() line 714).
     let node_span = stylesheet.span;
     helpers::with_evaluation_context(&v.config, &mut v.state, node_span, async |config, state| {
-        let ss = ModifiableCssStylesheet::new(node_span);
+        let ss = ModifiableCssStylesheet::new(arena, node_span);
         let root = ModifiableCssNode::new(arena, ModifiableCssNodeKind::Stylesheet(ss));
         state.root = Some(root.clone());
         state.parent = Some(root);
@@ -679,15 +686,15 @@ where
                     state.loaded_urls.push(url_str);
                 }
             }
-            state.source_url = Some(url.clone());
+            state.source_url = Some(url.to_owned_url());
         }
 
         // Set importer + stylesheet + extension_store
         state.importer = importer;
         state.stylesheet = Some(stylesheet);
         state.extension_store = Some(DefaultExtensionStore::new(
+            arena,
             ExtendMode::Normal,
-            config.io.clone(),
             config.unicode,
         ));
 
@@ -721,7 +728,7 @@ where
     };
     let css = ModifiableCssNode::new(
         arena,
-        ModifiableCssNodeKind::Stylesheet(ModifiableCssStylesheet::new(node_span)),
+        ModifiableCssNodeKind::Stylesheet(ModifiableCssStylesheet::new(arena, node_span)),
     );
     for child in &css_children {
         css.add_child(child)?;
@@ -732,18 +739,18 @@ where
         .state
         .extension_store
         .take()
-        .map(|es| ExtensionStore::Default(Rc::new(RefCell::new(es))))
+        .map(|es| ExtensionStore::Default(arena.alloc(RefCell::new(es))))
         .unwrap_or(ExtensionStore::Empty);
     let pre_mod = v.state.pre_module_comments.take().unwrap_or_default();
     let root_module = v.state.env.to_module(arena, &css, &pre_mod, ext_store);
     let combined = statement::combine_css(arena, &root_module, false)?;
 
     // Build result
-    let loaded_urls: Vec<SassUrl> = v
+    let loaded_urls: Vec<OwnedUrl> = v
         .state
         .loaded_urls
         .iter()
-        .filter_map(|s| SassUrl::parse(s).ok())
+        .filter_map(|s| OwnedUrl::parse(s).ok())
         .collect();
 
     Ok(EvaluateResult {
@@ -855,7 +862,7 @@ impl<'compile: 'parse, 'parse> Evaluator<'compile, 'parse> {
         import_cache: Option<ImportCache<'compile, 'parse>>,
         importer: Importer<'parse>,
         functions: Vec<Callable<'compile, 'parse>>,
-        node_importer: Option<&'parse NodePackageImporter>,
+        node_importer: Option<&'parse NodePackageImporter<'parse>>,
         logger: Rc<dyn Logger>,
         quiet_deps: bool,
         source_map: bool,
@@ -874,7 +881,7 @@ impl<'compile: 'parse, 'parse> Evaluator<'compile, 'parse> {
         visitor.config.node_importer = node_importer;
 
         for f in functions {
-            let normalized = f.name().replace('_', "-");
+            let normalized = arena.alloc_str(&f.name().replace('_', "-"));
             visitor
                 .config
                 .built_in_functions
@@ -895,7 +902,7 @@ impl<'compile: 'parse, 'parse> Evaluator<'compile, 'parse> {
             &self.visitor.config,
             &mut self.visitor.state,
             self.visitor.arena,
-            self.importer,
+            self.importer.clone(),
             expression,
         )
         .await
@@ -908,7 +915,7 @@ impl<'compile: 'parse, 'parse> Evaluator<'compile, 'parse> {
             &self.visitor.config,
             &mut self.visitor.state,
             self.visitor.arena,
-            self.importer,
+            self.importer.clone(),
             declaration,
         )
         .await
@@ -946,7 +953,7 @@ mod evaluate_tests {
     {
         let fs = FileSource::new_in(arena, source, None);
         let stylesheet = arena.alloc(
-            match StylesheetParser::new(fs, Syntax::Scss, None).parse() {
+            match StylesheetParser::new(fs, Syntax::Scss, None, arena).parse() {
                 Ok(s) => s,
                 Err(e) => match *e {
                     ParseError::Sass(inner) => return Err(inner),
@@ -964,7 +971,7 @@ mod evaluate_tests {
             stylesheet,
             None,
             None,
-            Importer::new(arena, ImporterKind::NoOp),
+            Importer::new(ImporterKind::NoOp),
             vec![],
             logger,
             false,
@@ -1035,7 +1042,7 @@ mod evaluate_tests {
         let io = Rc::new(VirtualIo::new());
         let mut evaluator = Evaluator::new(
             None,
-            Importer::new(&arena, ImporterKind::NoOp),
+            Importer::new(ImporterKind::NoOp),
             vec![],
             None,
             logger,
@@ -1048,7 +1055,7 @@ mod evaluate_tests {
 
         let expr = Expression::Number(NumberExpression {
             value: 1.0,
-            unit: Some("px".to_string()),
+            unit: Some("px"),
             span: BOGUS_SPAN,
         });
         let result = evaluator.evaluate(&expr).await.unwrap();
@@ -1075,8 +1082,10 @@ mod evaluate_tests {
         );
         let io: Rc<dyn Io> = Rc::new(VirtualIo::with_files(files));
         let mut opts = CompileOptions::new(&arena);
-        opts.url = Some(SassUrl::parse("file:///entry.scss").unwrap());
-        let err = compile("/entry.scss", io, opts, &arena).await.unwrap_err();
+        opts.url = Some(OwnedUrl::parse("file:///entry.scss").unwrap());
+        let err = compile("/entry.scss", io, &mut opts, &arena)
+            .await
+            .unwrap_err();
         // `Sass` at the throw site, `Runtime` with trace at the boundary —
         // either way the entrypoint URL must be stamped (pre-fix: `vec![]`).
         assert!(
@@ -1113,7 +1122,7 @@ mod evaluate_tests {
             message: "m".into(),
             span: span.clone(),
             cause: None,
-            loaded_urls: vec![SassUrl::parse("file:///entry.scss").unwrap()],
+            loaded_urls: vec![OwnedUrl::parse("file:///entry.scss").unwrap()],
         }
         .with_additional_span(span, "extra".into());
         assert!(

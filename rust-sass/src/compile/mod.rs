@@ -42,7 +42,7 @@ use std::path::Path;
 use std::path::PathBuf;
 use std::rc::Rc;
 
-use crate::url::SassUrl;
+use crate::url::OwnedUrl;
 use bumpalo::Bump;
 
 use crate::ast::sass::statement::Stylesheet;
@@ -71,7 +71,7 @@ pub use result::{CompileResult, StylesheetError};
 pub async fn compile_string<'compile, 'parse>(
     source: &str,
     io: Rc<dyn Io>,
-    mut opts: CompileOptions<'compile, 'parse>,
+    opts: &mut CompileOptions<'compile, 'parse>,
     arena: &'compile Bump,
 ) -> SassResult<CompileResult<'compile, 'parse>>
 where
@@ -146,12 +146,11 @@ where
 
     // Default importer to FilesystemImporter with no load path
     let importer = if matches!(opts.importer.kind(), ImporterKind::NoOp) {
-        Importer::new(
-            arena,
-            ImporterKind::Filesystem(FilesystemImporter::new_no_load_path(io.clone())),
-        )
+        Importer::new(ImporterKind::Filesystem(
+            FilesystemImporter::new_no_load_path(io.clone()),
+        ))
     } else {
-        opts.importer
+        opts.importer.clone()
     };
 
     let node_importer = opts.node_package_importer;
@@ -204,7 +203,7 @@ where
 async fn compile_stylesheet_inner<'compile, 'parse>(
     stylesheet: &'parse Stylesheet<'parse>,
     import_cache: ImportCache<'compile, 'parse>,
-    node_importer: Option<&'parse NodePackageImporter>,
+    node_importer: Option<&'parse NodePackageImporter<'parse>>,
     importer: Importer<'parse>,
     functions: Vec<Callable<'compile, 'parse>>,
     logger: Rc<dyn Logger>,
@@ -287,7 +286,7 @@ where
                         if let Some(file) = sspan.file() {
                             *url_str = data_url_from_string(file.text());
                         }
-                    } else if let Ok(parsed) = SassUrl::parse(url_str) {
+                    } else if let Ok(parsed) = OwnedUrl::parse(url_str) {
                         if let Some(import_cache) = &eval_result.import_cache {
                             *url_str = import_cache.source_map_url(&parsed).to_string();
                         }
@@ -326,7 +325,7 @@ where
 /// `compile_bytes` entry (which receives raw bytes from JS).
 pub fn decode_source_utf8<'a>(
     source_bytes: &'a [u8],
-    url: Option<SassUrl>,
+    url: Option<OwnedUrl>,
     arena: &'a Bump,
 ) -> Result<&'a str, Box<SassError>> {
     match std::str::from_utf8(source_bytes) {
@@ -334,6 +333,7 @@ pub fn decode_source_utf8<'a>(
         Err(e) => {
             let lossy = String::from_utf8_lossy(source_bytes).into_owned();
             let valid_up_to = e.valid_up_to();
+            let url = url.map(|url| &*arena.alloc(crate::url::ArenaUrl::from_owned(arena, &url)));
             let fs = FileSource::new_in(arena, &lossy, url);
             let span = FileSpan::new(Some(fs), valid_up_to, valid_up_to);
             let span_ctx = SourceSpanWithContext::from_file_span(&span).unwrap_or_else(|_| {
@@ -377,7 +377,7 @@ pub fn decode_source_utf8<'a>(
 pub async fn compile<'compile, 'parse>(
     path: &str,
     io: Rc<dyn Io>,
-    opts: CompileOptions<'compile, 'parse>,
+    opts: &mut CompileOptions<'compile, 'parse>,
     arena: &'compile Bump,
 ) -> SassResult<CompileResult<'compile, 'parse>>
 where
@@ -401,7 +401,7 @@ where
                 })?,
         );
 
-    let file_url = SassUrl::file_url_from_abs_path(&abs_path.to_string_lossy()).map_err(|_| {
+    let file_url = OwnedUrl::file_url_from_abs_path(&abs_path.to_string_lossy()).map_err(|_| {
         SassError::Script {
             message: format!("Could not create URL from path: {path}"),
             argument_name: None,
@@ -410,10 +410,7 @@ where
 
     let source = decode_source_utf8(&source_bytes, Some(file_url.clone()), arena)?;
 
-    let mut compile_opts = CompileOptions {
-        url: Some(file_url),
-        ..opts
-    };
+    opts.url = Some(file_url);
 
     // Dart honors an explicit `syntax` verbatim (compile.dart:71-72): only a
     // `None` (default `Scss` here) is re-inferred from the path. (A2b: an
@@ -422,11 +419,11 @@ where
     // from "explicit Scss" — the CLI always sets it via `syntax_for`, so this
     // keeps Dart's behavior for the paths that can express explicitness
     // (explicit Sass/Css pass through; only default-Scss is inferred).
-    if compile_opts.syntax == Syntax::Scss {
-        compile_opts.syntax = syntax_for_path(&abs_path.to_string_lossy());
+    if opts.syntax == Syntax::Scss {
+        opts.syntax = syntax_for_path(&abs_path.to_string_lossy());
     }
 
-    compile_string(source, io, compile_opts, arena).await
+    compile_string(source, io, opts, arena).await
 }
 
 /// Builds a [`CompileOptions`] from individual settings and compiles a Sass
@@ -439,7 +436,7 @@ pub async fn compile_string_to_result<'compile, 'parse>(
     source: &str,
     io: Rc<dyn Io>,
     syntax: Syntax,
-    url: Option<SassUrl>,
+    url: Option<OwnedUrl>,
     importers: Vec<Importer<'parse>>,
     importer: Importer<'parse>,
     functions: Vec<Callable<'compile, 'parse>>,
@@ -459,7 +456,7 @@ where
     'compile: 'parse,
     'parse: 'compile,
 {
-    let opts = CompileOptions {
+    let mut opts = CompileOptions {
         importers,
         importer,
         functions,
@@ -478,7 +475,7 @@ where
         ..CompileOptions::new(arena)
     };
 
-    compile_string(source, io, opts, arena).await
+    compile_string(source, io, &mut opts, arena).await
 }
 
 /// Compiles the stylesheet at `source` to `destination`.
@@ -494,7 +491,7 @@ pub async fn compile_stylesheet<'compile, 'parse>(
     io: Rc<dyn IoExt>,
     source: &str,
     destination: &str,
-    opts: CompileOptions<'compile, 'parse>,
+    mut opts: CompileOptions<'compile, 'parse>,
     arena: &'compile Bump,
 ) -> Result<(), StylesheetError>
 where
@@ -502,9 +499,9 @@ where
     'parse: 'compile,
 {
     let emit_error_css = opts.emit_error_css;
-    // Captured before `opts` is moved into `compile_string`/`compile` below; used
-    // to render the error with the matching glyph set (`unicode: false` -> ASCII,
-    // matching Dart's `--no-unicode`).
+    // Captured before `opts` is borrowed mutably by `compile_string`/`compile`
+    // below; used to render the error with the matching glyph set
+    // (`unicode: false` -> ASCII, matching Dart's `--no-unicode`).
     let unicode = opts.unicode;
 
     let result = if source.is_empty() {
@@ -513,9 +510,9 @@ where
             message: format!("Error reading stdin: {}.", e),
         })?;
         let stdin_str = String::from_utf8_lossy(&stdin_bytes).into_owned();
-        compile_string(&stdin_str, io.clone(), opts, arena).await
+        compile_string(&stdin_str, io.clone(), &mut opts, arena).await
     } else {
-        compile(source, io.clone(), opts, arena).await
+        compile(source, io.clone(), &mut opts, arena).await
     };
 
     match result {
@@ -632,7 +629,7 @@ mod tests {
     #[test]
     fn decode_source_utf8_invalid_uses_provided_url() {
         let arena = Bump::new();
-        let url = SassUrl::parse("file:///input.scss").unwrap();
+        let url = OwnedUrl::parse("file:///input.scss").unwrap();
         let err = decode_source_utf8(b"\xff", Some(url), &arena).unwrap_err();
         let span = err.span().unwrap();
         assert_eq!(
@@ -647,7 +644,7 @@ mod tests {
         let result = compile_string(
             "a { color: red; }",
             test_io(),
-            CompileOptions::new(&arena),
+            &mut CompileOptions::new(&arena),
             &arena,
         )
         .await
@@ -659,7 +656,7 @@ mod tests {
     #[rust_sass_macros::maybe_test]
     async fn test_compile_string_empty() {
         let arena = Bump::new();
-        let result = compile_string("", test_io(), CompileOptions::new(&arena), &arena)
+        let result = compile_string("", test_io(), &mut CompileOptions::new(&arena), &arena)
             .await
             .unwrap();
         assert_eq!(result.css(), "");
@@ -668,11 +665,11 @@ mod tests {
     #[rust_sass_macros::maybe_test]
     async fn test_compile_string_compressed() {
         let arena = Bump::new();
-        let opts = CompileOptions {
+        let mut opts = CompileOptions {
             style: OutputStyle::Compressed,
             ..CompileOptions::new(&arena)
         };
-        let result = compile_string("a { color: red; }", test_io(), opts, &arena)
+        let result = compile_string("a { color: red; }", test_io(), &mut opts, &arena)
             .await
             .unwrap();
         assert!(!result.css().contains('\n'));
@@ -681,11 +678,11 @@ mod tests {
     #[rust_sass_macros::maybe_test]
     async fn test_compile_string_source_map() {
         let arena = Bump::new();
-        let opts = CompileOptions {
+        let mut opts = CompileOptions {
             source_map: true,
             ..CompileOptions::new(&arena)
         };
-        let result = compile_string("a { color: red; }", test_io(), opts, &arena)
+        let result = compile_string("a { color: red; }", test_io(), &mut opts, &arena)
             .await
             .unwrap();
         assert!(result.source_map().is_some());
@@ -697,7 +694,7 @@ mod tests {
         let result = compile_string(
             "a { color: red; }",
             test_io(),
-            CompileOptions::new(&arena),
+            &mut CompileOptions::new(&arena),
             &arena,
         )
         .await
@@ -711,7 +708,7 @@ mod tests {
         let result = compile_string(
             "a { content: \"café\"; }",
             test_io(),
-            CompileOptions::new(&arena),
+            &mut CompileOptions::new(&arena),
             &arena,
         )
         .await
@@ -722,11 +719,11 @@ mod tests {
     #[rust_sass_macros::maybe_test]
     async fn test_compile_string_charset_compressed() {
         let arena = Bump::new();
-        let opts = CompileOptions {
+        let mut opts = CompileOptions {
             style: OutputStyle::Compressed,
             ..CompileOptions::new(&arena)
         };
-        let result = compile_string("a { content: \"café\"; }", test_io(), opts, &arena)
+        let result = compile_string("a { content: \"café\"; }", test_io(), &mut opts, &arena)
             .await
             .unwrap();
         assert!(result.css().starts_with("\u{FEFF}"));
@@ -735,11 +732,11 @@ mod tests {
     #[rust_sass_macros::maybe_test]
     async fn test_compile_string_charset_disabled() {
         let arena = Bump::new();
-        let opts = CompileOptions {
+        let mut opts = CompileOptions {
             charset: false,
             ..CompileOptions::new(&arena)
         };
-        let result = compile_string("a { content: \"café\"; }", test_io(), opts, &arena)
+        let result = compile_string("a { content: \"café\"; }", test_io(), &mut opts, &arena)
             .await
             .unwrap();
         assert!(!result.css().starts_with("@charset"));
@@ -752,7 +749,7 @@ mod tests {
         let result = compile_string(
             "$x: 1px + red;",
             test_io(),
-            CompileOptions::new(&arena),
+            &mut CompileOptions::new(&arena),
             &arena,
         )
         .await;
@@ -762,11 +759,11 @@ mod tests {
     #[rust_sass_macros::maybe_test]
     async fn test_compile_string_emit_error_css() {
         let arena = Bump::new();
-        let opts = CompileOptions {
+        let mut opts = CompileOptions {
             emit_error_css: true,
             ..CompileOptions::new(&arena)
         };
-        let result = compile_string("@error \"test\";", test_io(), opts, &arena)
+        let result = compile_string("@error \"test\";", test_io(), &mut opts, &arena)
             .await
             .unwrap();
         assert!(result.css().contains("Error:"));
@@ -841,6 +838,91 @@ mod tests {
         }));
     }
 
+    // `Importer` owns its `ImporterKind` on the heap (`Rc`), never in the
+    // arena: a host-provided `UserImporter` is dropped with the options, so its
+    // strong count must reach zero when the compile ends. If the last handle
+    // lived in the arena, `bumpalo` would never drop it and the host importer
+    // would leak for the life of the process.
+    #[rust_sass_macros::maybe_test]
+    async fn user_importer_is_dropped_after_compile() {
+        use crate::eval::importer::{
+            CanonicalizeContext, ImporterKind, ImporterResult, UserImporter,
+        };
+        use crate::url::OwnedUrl;
+        #[cfg(feature = "async")]
+        use futures::future::LocalBoxFuture;
+        use std::sync::atomic::{AtomicBool, Ordering};
+        use std::sync::Arc;
+
+        // Drop flag shared with the test; `Arc` because the importer crosses
+        // the `#[maybe_async]` boundary.
+        #[derive(Debug)]
+        struct FlagImporter {
+            dropped: Arc<AtomicBool>,
+        }
+
+        impl Drop for FlagImporter {
+            fn drop(&mut self) {
+                self.dropped.store(true, Ordering::SeqCst);
+            }
+        }
+
+        #[rust_sass_macros::maybe_async]
+        impl UserImporter for FlagImporter {
+            fn canonicalize<'a>(
+                &'a self,
+                url: &'a OwnedUrl,
+                _ctx: &'a mut CanonicalizeContext,
+            ) -> LocalBoxFuture<'a, SassResult<Option<OwnedUrl>>> {
+                Box::pin(async move { Ok((url.scheme() == "t").then(|| url.clone())) })
+            }
+
+            fn load<'a>(
+                &'a self,
+                _url: &'a OwnedUrl,
+            ) -> LocalBoxFuture<'a, SassResult<Option<ImporterResult>>> {
+                Box::pin(async move {
+                    Ok(Some(
+                        ImporterResult::new(
+                            "b { c: d; }".into(),
+                            crate::parse::stylesheet::Syntax::Scss,
+                            None,
+                        )
+                        .unwrap(),
+                    ))
+                })
+            }
+        }
+
+        let arena = Bump::new();
+        let io: Rc<dyn Io> = Rc::new(VirtualIo::new());
+        let dropped = Arc::new(AtomicBool::new(false));
+
+        let mut opts = CompileOptions::new(&arena);
+        opts.importers = vec![Importer::new(ImporterKind::User(Rc::new(FlagImporter {
+            dropped: Arc::clone(&dropped),
+        })))];
+        let result = compile_string("@use 't:dep';", io, &mut opts, &arena)
+            .await
+            .unwrap();
+        assert_eq!(result.css(), "b {\n  c: d;\n}");
+
+        // `opts` still holds its handle, and `CompileResult` carries the
+        // import cache (and with it the `CanonicalizeResult` holding this
+        // importer's `Rc`) on the stack.
+        assert!(!dropped.load(Ordering::SeqCst));
+        drop(opts);
+        assert!(
+            !dropped.load(Ordering::SeqCst),
+            "the result dropped the importer too early"
+        );
+        drop(result);
+        assert!(
+            dropped.load(Ordering::SeqCst),
+            "UserImporter outlived its last handle: something kept it in the arena"
+        );
+    }
+
     // Dart threads `useSpaces`/`indentWidth`/`lineFeed` from `compile` into
     // `serialize` (compile.dart:48-50,122-124): `indentWidth: 4` widens the
     // indent, tabs replace spaces, CRLF replaces LF.
@@ -851,14 +933,14 @@ mod tests {
 
         let mut opts = CompileOptions::new(&arena);
         opts.indent_width = Some(4);
-        let result = compile_string("a { b: c; }", io.clone(), opts, &arena)
+        let result = compile_string("a { b: c; }", io.clone(), &mut opts, &arena)
             .await
             .unwrap();
         assert_eq!(result.css(), "a {\n    b: c;\n}");
 
         let mut opts = CompileOptions::new(&arena);
         opts.use_spaces = false;
-        let result = compile_string("a { b: c; }", io.clone(), opts, &arena)
+        let result = compile_string("a { b: c; }", io.clone(), &mut opts, &arena)
             .await
             .unwrap();
         // Dart `_writeTimes(_indentCharacter, _indentation * _indentWidth)`:
@@ -870,7 +952,7 @@ mod tests {
             name: "crlf",
             text: "\r\n",
         };
-        let result = compile_string("a { b: c; }", io.clone(), opts, &arena)
+        let result = compile_string("a { b: c; }", io.clone(), &mut opts, &arena)
             .await
             .unwrap();
         assert_eq!(result.css(), "a {\r\n  b: c;\r\n}");
@@ -885,7 +967,7 @@ mod tests {
 
         let mut opts = CompileOptions::new(&arena);
         opts.source_comments = true;
-        let result = compile_string("a { b: c; }", io.clone(), opts, &arena)
+        let result = compile_string("a { b: c; }", io.clone(), &mut opts, &arena)
             .await
             .unwrap();
         assert_eq!(result.css(), "/* line 1, stdin */\na {\n  b: c;\n}");
@@ -894,7 +976,7 @@ mod tests {
         let result = compile_string(
             "a { b: c; }",
             io.clone(),
-            CompileOptions::new(&arena),
+            &mut CompileOptions::new(&arena),
             &arena,
         )
         .await

@@ -18,8 +18,7 @@ pub mod resolve_import_path;
 pub mod result;
 pub mod utils;
 
-use bumpalo::Bump;
-
+use crate::io::Io;
 pub use canonicalize_context::CanonicalizeContext;
 pub use filesystem::FilesystemImporter;
 pub use no_op::NoOpImporter;
@@ -28,7 +27,7 @@ pub use package::{PackageConfig, PackageImporter};
 pub use result::ImporterResult;
 pub use utils::{is_valid_url_scheme, syntax_for_path};
 
-use crate::url::SassUrl;
+use crate::url::OwnedUrl;
 #[cfg(feature = "async")]
 use futures::future::LocalBoxFuture;
 use std::fmt;
@@ -60,9 +59,9 @@ pub trait UserImporter: fmt::Debug {
     /// importer means "can't find stylesheet".
     fn canonicalize<'a>(
         &'a self,
-        url: &'a SassUrl,
+        url: &'a OwnedUrl,
         context: &'a mut CanonicalizeContext,
-    ) -> LocalBoxFuture<'a, SassResult<Option<SassUrl>>>;
+    ) -> LocalBoxFuture<'a, SassResult<Option<OwnedUrl>>>;
 
     /// Loads the Sass text for `url` (which came from [`UserImporter::canonicalize`]).
     ///
@@ -71,7 +70,7 @@ pub trait UserImporter: fmt::Debug {
     /// is wrapped by Sass (a plain message string suffices).
     fn load<'a>(
         &'a self,
-        url: &'a SassUrl,
+        url: &'a OwnedUrl,
     ) -> LocalBoxFuture<'a, SassResult<Option<ImporterResult>>>;
 
     /// Without touching the filesystem, returns whether `canonicalize(url)`
@@ -79,7 +78,7 @@ pub trait UserImporter: fmt::Debug {
     ///
     /// Must be cheap; false positives are allowed, false negatives are not.
     /// Matches Dart: `AsyncImporter.couldCanonicalize`.
-    fn could_canonicalize(&self, _url: &SassUrl, _base_url: &SassUrl) -> bool {
+    fn could_canonicalize(&self, _url: &OwnedUrl, _base_url: &OwnedUrl) -> bool {
         true
     }
 
@@ -119,12 +118,12 @@ pub trait UserImporter: fmt::Debug {
 /// of Dart's interface (usable from both sync and async compiles) is what the
 /// dual build targets; genuinely async hosts implement [`UserImporter`].
 #[derive(Clone, Debug)]
-pub enum ImporterKind {
-    Filesystem(FilesystemImporter),
+pub enum ImporterKind<'parse> {
+    Filesystem(FilesystemImporter<'parse>),
     NoOp,
     User(Rc<dyn UserImporter>),
-    Package(PackageImporter),
-    NodePackage(NodePackageImporter),
+    Package(PackageImporter<'parse>),
+    NodePackage(NodePackageImporter<'parse>),
 }
 
 /// Copyable arena handle to an [`ImporterKind`].
@@ -133,51 +132,52 @@ pub enum ImporterKind {
 /// equality/hash are address identity (except `NoOp`, which compares as a
 /// singleton). Matches Dart: `Importer.noOp` for stylesheets without relative
 /// imports.
-#[derive(Clone, Copy, Debug)]
-pub struct Importer<'parse>(&'parse ImporterKind);
+#[derive(Clone, Debug)]
+pub struct Importer<'parse>(Rc<ImporterKind<'parse>>);
 
 impl<'parse> Importer<'parse> {
-    pub fn new<'compile: 'parse>(arena: &'compile Bump, kind: ImporterKind) -> Self {
-        Importer(arena.alloc(kind))
+    pub fn new(kind: ImporterKind<'parse>) -> Self {
+        Importer(Rc::new(kind))
     }
 
-    pub fn kind(&self) -> &ImporterKind {
-        self.0
+    pub fn kind(&self) -> &ImporterKind<'parse> {
+        &self.0
     }
 
     #[rust_sass_macros::maybe_async]
     pub async fn canonicalize(
         &self,
-        url: &SassUrl,
+        io: &dyn Io,
+        url: &OwnedUrl,
         ctx: &mut CanonicalizeContext,
-    ) -> SassResult<Option<SassUrl>> {
+    ) -> SassResult<Option<OwnedUrl>> {
         // Convenience entry point for non-eval callers (tests, REPL paths):
         // the eval pipeline always threads the caller's logger via
         // `ImportCache::canonicalize_with`. A fresh `NoOpWarnLogger` here
         // matches the pre-fix behavior; the F15a fix threads the logger at
         // the `canonicalize_with` call sites, not here.
-        match self.0 {
-            ImporterKind::Filesystem(f) => f.canonicalize(url, ctx, &NoOpWarnLogger).await,
+        match &*self.0 {
+            ImporterKind::Filesystem(f) => f.canonicalize(io, url, ctx, &NoOpWarnLogger).await,
             ImporterKind::NoOp => NoOpImporter.canonicalize(url, ctx),
             ImporterKind::User(u) => u.canonicalize(url, ctx).await,
-            ImporterKind::Package(p) => p.canonicalize(url, ctx, &NoOpWarnLogger).await,
-            ImporterKind::NodePackage(n) => n.canonicalize(url, ctx, &NoOpWarnLogger).await,
+            ImporterKind::Package(p) => p.canonicalize(io, url, ctx, &NoOpWarnLogger).await,
+            ImporterKind::NodePackage(n) => n.canonicalize(io, url, ctx, &NoOpWarnLogger).await,
         }
     }
 
     #[rust_sass_macros::maybe_async]
-    pub async fn load(&self, url: &SassUrl) -> SassResult<Option<ImporterResult>> {
-        match self.0 {
-            ImporterKind::Filesystem(f) => f.load(url).await,
+    pub async fn load(&self, io: &dyn Io, url: &OwnedUrl) -> SassResult<Option<ImporterResult>> {
+        match &*self.0 {
+            ImporterKind::Filesystem(f) => f.load(io, url).await,
             ImporterKind::NoOp => NoOpImporter.load(url),
             ImporterKind::User(u) => u.load(url).await,
-            ImporterKind::Package(p) => p.load(url).await,
-            ImporterKind::NodePackage(n) => n.load(url).await,
+            ImporterKind::Package(p) => p.load(io, url).await,
+            ImporterKind::NodePackage(n) => n.load(io, url).await,
         }
     }
 
-    pub fn could_canonicalize(&self, url: &SassUrl, canonical_url: &SassUrl) -> bool {
-        match self.0 {
+    pub fn could_canonicalize(&self, url: &OwnedUrl, canonical_url: &OwnedUrl) -> bool {
+        match &*self.0 {
             ImporterKind::Filesystem(f) => f.could_canonicalize(url, canonical_url),
             ImporterKind::NoOp => false,
             ImporterKind::User(u) => u.could_canonicalize(url, canonical_url),
@@ -187,7 +187,7 @@ impl<'parse> Importer<'parse> {
     }
 
     pub fn is_non_canonical_scheme(&self, scheme: &str) -> bool {
-        match self.0 {
+        match &*self.0 {
             ImporterKind::Filesystem(f) => f.is_non_canonical_scheme(scheme),
             ImporterKind::NoOp => false,
             ImporterKind::User(u) => u.is_non_canonical_scheme(scheme),
@@ -199,9 +199,9 @@ impl<'parse> Importer<'parse> {
 
 impl PartialEq for Importer<'_> {
     fn eq(&self, other: &Self) -> bool {
-        match (self.0, other.0) {
+        match (&*self.0, &*other.0) {
             (ImporterKind::NoOp, ImporterKind::NoOp) => true,
-            _ => std::ptr::eq(self.0, other.0),
+            _ => Rc::ptr_eq(&self.0, &other.0),
         }
     }
 }
@@ -210,7 +210,7 @@ impl Eq for Importer<'_> {}
 
 impl fmt::Display for Importer<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self.0 {
+        match &*self.0 {
             ImporterKind::Filesystem(_) => write!(f, "FilesystemImporter"),
             ImporterKind::NoOp => write!(f, "NoOpImporter"),
             ImporterKind::User(_) => write!(f, "UserImporter"),
@@ -222,10 +222,10 @@ impl fmt::Display for Importer<'_> {
 
 impl Hash for Importer<'_> {
     fn hash<H: Hasher>(&self, state: &mut H) {
-        if matches!(self.0, ImporterKind::NoOp) {
+        if matches!(&*self.0, ImporterKind::NoOp) {
             0u8.hash(state);
         } else {
-            (self.0 as *const ImporterKind).hash(state);
+            Rc::as_ptr(&self.0).hash(state);
         }
     }
 }
@@ -239,17 +239,15 @@ mod tests {
 
     #[test]
     fn noop_singleton_eq() {
-        let arena = bumpalo::Bump::new();
-        let a = Importer::new(&arena, ImporterKind::NoOp);
-        let b = Importer::new(&arena, ImporterKind::NoOp);
+        let a = Importer::new(ImporterKind::NoOp);
+        let b = Importer::new(ImporterKind::NoOp);
         assert_eq!(a, b);
     }
 
     #[test]
     fn noop_singleton_hash() {
-        let arena = bumpalo::Bump::new();
-        let a = Importer::new(&arena, ImporterKind::NoOp);
-        let b = Importer::new(&arena, ImporterKind::NoOp);
+        let a = Importer::new(ImporterKind::NoOp);
+        let b = Importer::new(ImporterKind::NoOp);
         let mut ha = DefaultHasher::new();
         let mut hb = DefaultHasher::new();
         a.hash(&mut ha);
@@ -259,22 +257,20 @@ mod tests {
 
     #[test]
     fn filesystem_not_eq_different_rc() {
-        let arena = bumpalo::Bump::new();
         let io: Rc<dyn Io> = Rc::new(DefaultIo::new());
         let fs1 = FilesystemImporter::new_no_load_path(Rc::clone(&io));
         let fs2 = FilesystemImporter::new_no_load_path(io);
-        let a = Importer::new(&arena, ImporterKind::Filesystem(fs1));
-        let b = Importer::new(&arena, ImporterKind::Filesystem(fs2));
+        let a = Importer::new(ImporterKind::Filesystem(fs1));
+        let b = Importer::new(ImporterKind::Filesystem(fs2));
         assert_ne!(a, b);
     }
 
     #[test]
     fn filesystem_eq_same_rc() {
-        let arena = bumpalo::Bump::new();
         let io: Rc<dyn Io> = Rc::new(DefaultIo::new());
         let fs = FilesystemImporter::new_no_load_path(io);
-        let a = Importer::new(&arena, ImporterKind::Filesystem(fs.clone()));
-        let b = Importer::new(&arena, ImporterKind::Filesystem(fs));
+        let a = Importer::new(ImporterKind::Filesystem(fs.clone()));
+        let b = Importer::new(ImporterKind::Filesystem(fs));
         // Different Rc allocation — not equal
         // Actually: same FilesystemImporter but different Rc<ImporterKind> → not equal
         assert_ne!(a, b);

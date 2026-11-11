@@ -7,13 +7,14 @@
 // dart-source: lib/src/ast/css/modifiable/node.dart
 // go-source: go/value/css_modifiable_node.go
 
+use std::cell::Cell;
 use std::cell::Ref;
 use std::cell::RefCell;
 use std::fmt;
-use std::rc::{Rc, Weak};
 
 use bumpalo::Bump;
 
+use crate::arena_map::ArenaVec;
 use crate::common::ast_node::AstNode;
 use crate::common::exception::{SassError, SassResult};
 use crate::common::file_span::FileSpan;
@@ -134,7 +135,7 @@ impl<'parse> ModifiableCssNodeKind<'parse> {
                 CssNode::AtRule(css_r)
             }
             Self::Comment(c) => {
-                let mut css = CssComment::new(c.text.clone(), c.span);
+                let mut css = CssComment::new(c.text, c.span);
                 css.is_group_end = is_group_end;
                 CssNode::Comment(css)
             }
@@ -170,7 +171,7 @@ impl<'parse> ModifiableCssNodeKind<'parse> {
                 // `CssMediaRule::new` only fails on empty queries — `m` was
                 // validated at construction and queries are never cleared, so
                 // re-freezing is infallible (see Declaration arm above).
-                let mut css = CssMediaRule::new(m.queries.clone(), m.span)
+                let mut css = CssMediaRule::new(m.queries, m.span)
                     .expect("re-freezing a validated media rule must succeed");
                 css.children = m.children.iter().map(|c| c.to_css_node()).collect();
                 css.is_group_end = is_group_end;
@@ -188,7 +189,7 @@ impl<'parse> ModifiableCssNodeKind<'parse> {
     }
 
     /// Returns the children Vec for parent variants, `None` for leaf types.
-    pub fn children_ref(&self) -> Option<&Vec<ModifiableCssNode<'parse>>> {
+    pub fn children_ref(&self) -> Option<&ArenaVec<'parse, ModifiableCssNode<'parse>>> {
         match self {
             Self::Stylesheet(s) => Some(&s.children),
             Self::StyleRule(sr) => Some(&sr.children),
@@ -201,7 +202,7 @@ impl<'parse> ModifiableCssNodeKind<'parse> {
     }
 
     /// Returns mutable children Vec for parent variants, `None` for leaf types.
-    pub fn children_mut(&mut self) -> Option<&mut Vec<ModifiableCssNode<'parse>>> {
+    pub fn children_mut(&mut self) -> Option<&mut ArenaVec<'parse, ModifiableCssNode<'parse>>> {
         match self {
             Self::Stylesheet(s) => Some(&mut s.children),
             Self::StyleRule(sr) => Some(&mut sr.children),
@@ -255,10 +256,9 @@ impl<'parse> fmt::Display for ModifiableCssNodeKind<'parse> {
 // ModifiableCssNodeInner — all mutable state in one RefCell
 // =============================================================================
 
-#[derive(Debug)]
 pub(super) struct ModifiableCssNodeInner<'parse> {
     pub kind: ModifiableCssNodeKind<'parse>,
-    parent: Weak<RefCell<ModifiableCssNodeInner<'parse>>>,
+    parent: Cell<Option<&'parse RefCell<ModifiableCssNodeInner<'parse>>>>,
     index_in_parent: usize,
     is_group_end: bool,
     /// Extra NESTED-output indent levels for libsass parity (libsass's
@@ -284,7 +284,19 @@ pub(super) struct ModifiableCssNodeInner<'parse> {
 /// same parent, children, and flags until the tree is restructured.
 #[derive(Clone, Debug)]
 pub struct ModifiableCssNode<'parse> {
-    inner: Rc<RefCell<ModifiableCssNodeInner<'parse>>>,
+    inner: &'parse RefCell<ModifiableCssNodeInner<'parse>>,
+}
+
+impl<'parse> fmt::Debug for ModifiableCssNodeInner<'parse> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        // Parent links are skipped: formatting them would recurse forever.
+        f.debug_struct("ModifiableCssNodeInner")
+            .field("kind", &self.kind)
+            .field("index_in_parent", &self.index_in_parent)
+            .field("is_group_end", &self.is_group_end)
+            .field("tabs", &self.tabs)
+            .finish()
+    }
 }
 
 impl<'parse> ModifiableCssNode<'parse> {
@@ -294,13 +306,13 @@ impl<'parse> ModifiableCssNode<'parse> {
 
     /// Creates a node with no parent and `is_group_end` unset.
     pub fn new<'compile: 'parse>(
-        _arena: &'compile Bump,
+        arena: &'compile Bump,
         kind: ModifiableCssNodeKind<'parse>,
     ) -> Self {
         ModifiableCssNode {
-            inner: Rc::new(RefCell::new(ModifiableCssNodeInner {
+            inner: arena.alloc(RefCell::new(ModifiableCssNodeInner {
                 kind,
-                parent: Weak::new(),
+                parent: Cell::new(None),
                 index_in_parent: 0,
                 is_group_end: false,
                 tabs: 0,
@@ -355,15 +367,14 @@ impl<'parse> ModifiableCssNode<'parse> {
         self.inner
             .borrow()
             .parent
-            .upgrade()
-            .map(|rc| ModifiableCssNode { inner: rc })
+            .get()
+            .map(|inner| ModifiableCssNode { inner })
     }
 
     /// Sets the back-pointer directly, without touching any child list.
     /// Prefer [`add_child`](Self::add_child) when attaching through a parent.
     pub fn set_parent(&self, parent: Option<&ModifiableCssNode<'parse>>) {
-        self.inner.borrow_mut().parent =
-            parent.map(|p| Rc::downgrade(&p.inner)).unwrap_or_default();
+        self.inner.borrow_mut().parent.set(parent.map(|p| p.inner));
     }
 
     pub fn set_index_in_parent(&self, i: usize) {
@@ -568,8 +579,8 @@ impl<'parse> ModifiableCssNode<'parse> {
         // Dart `ModifiableCssParentNode.clearChildren` nulls both the parent
         // and the index of each removed child.
         let mut inner = self.inner.borrow_mut();
-        let taken = match inner.kind.children_mut() {
-            Some(c) => std::mem::take(c),
+        let taken: Vec<ModifiableCssNode<'parse>> = match inner.kind.children_mut() {
+            Some(c) => c.drain(..).collect(),
             None => return Ok(()),
         };
         for child in &taken {
@@ -621,33 +632,40 @@ impl<'parse> ModifiableCssNode<'parse> {
         let inner = self.inner.borrow();
         let kind = match &inner.kind {
             ModifiableCssNodeKind::Stylesheet(s) => {
-                ModifiableCssNodeKind::Stylesheet(ModifiableCssStylesheet::new(s.span))
+                ModifiableCssNodeKind::Stylesheet(ModifiableCssStylesheet::new(arena, s.span))
             }
             ModifiableCssNodeKind::StyleRule(sr) => {
                 // Dart `ModifiableCssStyleRule.copyWithoutChildren` omits
                 // `fromPlainCss` (defaults to false) — copies merge as
                 // non-plain rules on re-evaluation.
                 ModifiableCssNodeKind::StyleRule(ModifiableCssStyleRule::new(
-                    Rc::clone(&sr.selector),
+                    arena,
+                    sr.selector,
                     sr.span,
                     Some(sr.original_selector),
                     false,
                 ))
             }
-            ModifiableCssNodeKind::AtRule(r) => ModifiableCssNodeKind::AtRule(
-                ModifiableCssAtRule::new(r.name.clone(), r.span, r.childless, r.value.clone()),
-            ),
+            ModifiableCssNodeKind::AtRule(r) => {
+                ModifiableCssNodeKind::AtRule(ModifiableCssAtRule::new(
+                    arena,
+                    r.name.clone(),
+                    r.span,
+                    r.childless,
+                    r.value.clone(),
+                ))
+            }
             ModifiableCssNodeKind::KeyframeBlock(k) => ModifiableCssNodeKind::KeyframeBlock(
-                ModifiableCssKeyframeBlock::new(k.selector.clone(), k.span),
+                ModifiableCssKeyframeBlock::new(arena, k.selector.clone(), k.span),
             ),
             ModifiableCssNodeKind::MediaRule(m) => ModifiableCssNodeKind::MediaRule(
                 // Infallible: `m` was validated at construction and queries
                 // are never cleared (see the `to_css_node` MediaRule arm).
-                ModifiableCssMediaRule::new(m.queries.clone(), m.span)
+                ModifiableCssMediaRule::new(arena, m.queries.to_vec(), m.span)
                     .expect("copying a validated media rule must succeed"),
             ),
             ModifiableCssNodeKind::SupportsRule(sr) => ModifiableCssNodeKind::SupportsRule(
-                ModifiableCssSupportsRule::new(sr.condition.clone(), sr.span),
+                ModifiableCssSupportsRule::new(arena, sr.condition.clone(), sr.span),
             ),
             ModifiableCssNodeKind::Comment(c) => ModifiableCssNodeKind::Comment(c.clone()),
             ModifiableCssNodeKind::Declaration(d) => ModifiableCssNodeKind::Declaration(d.clone()),
@@ -677,7 +695,7 @@ impl<'parse> fmt::Display for ModifiableCssNode<'parse> {
 
 impl<'parse> PartialEq for ModifiableCssNode<'parse> {
     fn eq(&self, other: &Self) -> bool {
-        Rc::ptr_eq(&self.inner, &other.inner)
+        std::ptr::eq(self.inner, other.inner)
     }
 }
 
@@ -713,12 +731,12 @@ mod tests {
         FileSpan::new(Some(fs), 0, text.len())
     }
 
-    fn make_val<'compile, 'parse>(arena: &'compile Bump, s: &str) -> CssValue<'parse, String>
+    fn make_val<'compile, 'parse>(arena: &'compile Bump, s: &str) -> CssValue<'parse, &'parse str>
     where
         'compile: 'parse,
         'parse: 'compile,
     {
-        CssValue::new(s.into(), make_span(arena, s))
+        CssValue::new(&*arena.alloc_str(s), make_span(arena, s))
     }
 
     fn make_stylesheet<'compile, 'parse>(arena: &'compile Bump) -> ModifiableCssNode<'parse>
@@ -728,7 +746,10 @@ mod tests {
     {
         ModifiableCssNode::new(
             arena,
-            ModifiableCssNodeKind::Stylesheet(ModifiableCssStylesheet::new(make_span(arena, ""))),
+            ModifiableCssNodeKind::Stylesheet(ModifiableCssStylesheet::new(
+                arena,
+                make_span(arena, ""),
+            )),
         )
     }
 
@@ -740,12 +761,14 @@ mod tests {
         'compile: 'parse,
         'parse: 'compile,
     {
-        let sel = SimpleSelector::Class(ClassSelector::new(".foo".into(), BOGUS_SPAN));
-        let compound = CompoundSelector::new(vec![sel], BOGUS_SPAN).unwrap();
+        let sel = SimpleSelector::Class(ClassSelector::new(".foo", BOGUS_SPAN));
+        let compound = CompoundSelector::new(arena, vec![sel], BOGUS_SPAN).unwrap();
         let complex = ComplexSelector::new(
+            arena,
             vec![],
             vec![ComplexSelectorComponent::new(
-                std::boxed::Box::new(compound),
+                arena,
+                compound,
                 vec![],
                 BOGUS_SPAN,
             )],
@@ -754,10 +777,11 @@ mod tests {
         )
         .unwrap();
         let list = SelectorList::new(arena, vec![complex], BOGUS_SPAN).unwrap();
-        let rc = Rc::new(RefCell::new(list));
+        let rc = arena.alloc(RefCell::new(list));
         ModifiableCssNode::new(
             arena,
             ModifiableCssNodeKind::StyleRule(ModifiableCssStyleRule::new(
+                arena,
                 rc,
                 make_span(arena, ""),
                 None,
@@ -789,7 +813,7 @@ mod tests {
     fn test_to_css_node_comment() {
         let arena = Bump::new();
         let span = make_span(&arena, "/* test */");
-        let mc = ModifiableCssComment::new("/* test */".into(), span);
+        let mc = ModifiableCssComment::new("/* test */", span);
         let node = ModifiableCssNodeKind::Comment(mc);
         let css = node.to_css_node(false, 0);
         match css {
@@ -805,7 +829,7 @@ mod tests {
     fn test_to_css_node_preserved_comment() {
         let arena = Bump::new();
         let span = make_span(&arena, "/*! test */");
-        let mc = ModifiableCssComment::new("/*! test */".into(), span);
+        let mc = ModifiableCssComment::new("/*! test */", span);
         let node = ModifiableCssNodeKind::Comment(mc);
         let css = node.to_css_node(false, 0);
         match css {
@@ -858,7 +882,7 @@ mod tests {
     fn test_to_css_node_stylesheet() {
         let arena = Bump::new();
         let span = make_span(&arena, "test");
-        let ss = ModifiableCssStylesheet::new(span);
+        let ss = ModifiableCssStylesheet::new(&arena, span);
         let node = ModifiableCssNodeKind::Stylesheet(ss);
         let css = node.to_css_node(false, 0);
         match css {
@@ -874,7 +898,7 @@ mod tests {
         let arena = Bump::new();
         let span = make_span(&arena, "test");
         let name = make_val(&arena, "media");
-        let r = ModifiableCssAtRule::new(name, span, false, None);
+        let r = ModifiableCssAtRule::new(&arena, name, span, false, None);
         let node = ModifiableCssNodeKind::AtRule(r);
         let css = node.to_css_node(false, 0);
         match css {
@@ -889,7 +913,7 @@ mod tests {
     fn test_modifiable_node_children() {
         let arena = Bump::new();
         let span = make_span(&arena, "test");
-        let ss = ModifiableCssStylesheet::new(span);
+        let ss = ModifiableCssStylesheet::new(&arena, span);
         let node = ModifiableCssNode::new(&arena, ModifiableCssNodeKind::Stylesheet(ss));
         assert_eq!(node.children().unwrap().len(), 0);
         assert!(!node.is_childless());
@@ -1059,7 +1083,7 @@ mod tests {
         let name = make_val(&arena, "import");
         let childless = ModifiableCssNode::new(
             &arena,
-            ModifiableCssNodeKind::AtRule(ModifiableCssAtRule::new(name, span, true, None)),
+            ModifiableCssNodeKind::AtRule(ModifiableCssAtRule::new(&arena, name, span, true, None)),
         );
         assert!(
             childless.add_child(&child).is_err(),
@@ -1069,6 +1093,7 @@ mod tests {
         let open = ModifiableCssNode::new(
             &arena,
             ModifiableCssNodeKind::AtRule(ModifiableCssAtRule::new(
+                &arena,
                 make_val(&arena, "media"),
                 span,
                 false,
@@ -1109,10 +1134,12 @@ mod tests {
         );
         let span = make_span(&arena, "10%");
         let sel_span = make_span(&arena, "10%");
-        let sel = CssValue::new(vec!["10%".into()], sel_span);
+        let sel = CssValue::new(&["10%"][..], sel_span);
         let block = ModifiableCssNode::new(
             &arena,
-            ModifiableCssNodeKind::KeyframeBlock(ModifiableCssKeyframeBlock::new(sel, span)),
+            ModifiableCssNodeKind::KeyframeBlock(ModifiableCssKeyframeBlock::new(
+                &arena, sel, span,
+            )),
         );
         assert!(
             block.is_invisible(),
@@ -1207,7 +1234,8 @@ mod tests {
             ModifiableCssNode::new(
                 arena,
                 ModifiableCssNodeKind::StyleRule(ModifiableCssStyleRule::new(
-                    Rc::new(RefCell::new(sel)),
+                    arena,
+                    arena.alloc(RefCell::new(sel)),
                     span,
                     None,
                     false,

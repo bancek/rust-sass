@@ -118,13 +118,15 @@ pub(crate) fn supports_condition_in_parens_impl<'b>(
         scanner.expect_char(')')?;
         let span = span_from_impl(scanner, &state.parser_state, start)?.file_span()?;
         return Ok(SupportsCondition::Negation(SupportsNegation::new(
-            condition, span,
+            state.arena,
+            condition,
+            span,
         )));
     } else if scanner.peek_char(0) == '(' as i32 {
         let condition = supports_condition_impl(scanner, state, true)?;
         scanner.expect_char(')')?;
         let span = span_from_impl(scanner, &state.parser_state, start)?.file_span()?;
-        return Ok(condition.with_span(span));
+        return Ok(condition.with_span(state.arena, span));
     }
 
     // Branch C: Expression → Declaration or Unified Fallback
@@ -163,7 +165,9 @@ pub(crate) fn supports_condition_in_parens_impl<'b>(
     if let Some(op) = try_supports_operation_impl(scanner, state, &identifier, name_start)? {
         scanner.expect_char(')')?;
         let op_span = span_from_impl(scanner, &state.parser_state, start)?.file_span()?;
-        return Ok(SupportsCondition::Operation(op.with_span(op_span)));
+        return Ok(SupportsCondition::Operation(
+            op.with_span(state.arena, op_span),
+        ));
     }
 
     let mut contents = InterpolationBuffer::new();
@@ -191,7 +195,7 @@ pub(crate) fn supports_condition_in_parens_impl<'b>(
     scanner.expect_char(')')?;
     let contents_span = span_from_impl(scanner, &state.parser_state, name_start)?.file_span()?;
     let contents_interp = contents
-        .interpolation(contents_span)
+        .interpolation(state.arena, contents_span)
         .map_err(|e| error_impl(&e.to_string(), &scanner.span_from(name_start)))?;
     let span = span_from_impl(scanner, &state.parser_state, start)?.file_span()?;
     Ok(SupportsCondition::Anything(SupportsAnything::new(
@@ -250,13 +254,14 @@ fn try_supports_operation_impl<'b>(
             SupportsCondition::Interpolation(SupportsInterpolation::new(expr.clone(), interp_span));
         operation = Some(if let Some(prev) = operation {
             SupportsOperation::new(
+                state.arena,
                 SupportsCondition::Operation(prev),
                 right,
                 operator.unwrap(),
                 op_span,
             )
         } else {
-            SupportsOperation::new(side, right, operator.unwrap(), op_span)
+            SupportsOperation::new(state.arena, side, right, operator.unwrap(), op_span)
         });
         whitespace_impl(scanner, &mut state.parser_state, true)?;
     }
@@ -285,7 +290,9 @@ pub(crate) fn supports_condition_impl<'b>(
         let condition = supports_condition_in_parens_impl(scanner, state)?;
         let span = span_from_impl(scanner, &state.parser_state, start)?.file_span()?;
         return Ok(SupportsCondition::Negation(SupportsNegation::new(
-            condition, span,
+            state.arena,
+            condition,
+            span,
         )));
     }
 
@@ -306,6 +313,7 @@ pub(crate) fn supports_condition_impl<'b>(
         let right = supports_condition_in_parens_impl(scanner, state)?;
         let span = span_from_impl(scanner, &state.parser_state, start)?.file_span()?;
         condition = SupportsCondition::Operation(SupportsOperation::new(
+            state.arena,
             condition,
             right,
             operator.unwrap(),
@@ -335,7 +343,9 @@ pub(crate) fn import_supports_query_impl<'b>(
         let condition = supports_condition_in_parens_impl(scanner, state)?;
         let span = span_from_impl(scanner, &state.parser_state, start)?.file_span()?;
         return Ok(SupportsCondition::Negation(SupportsNegation::new(
-            condition, span,
+            state.arena,
+            condition,
+            span,
         )));
     } else if scanner.peek_char(0) == '(' as i32 {
         return supports_condition_impl(scanner, state, true);
@@ -465,7 +475,9 @@ mod tests {
         let fs = FileSource::new_in(arena, text, None);
         let scanner = SpanScanner::new(fs);
         let state = StylesheetState {
+            arena,
             parser_state: ParserState {
+                arena,
                 syntax: Syntax::Scss,
                 interpolation_map: None,
                 in_expression: false,

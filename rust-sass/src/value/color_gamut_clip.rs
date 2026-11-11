@@ -17,7 +17,7 @@ use crate::value::color_conversions_base::space_channels;
 // `ClipGamutMap._clampChannel` is inlined in the loop below. Missing and
 // polar-angle channels pass through untouched, as do colors in unbounded
 // spaces.
-pub(crate) fn clip_gamut_map(c: &SassColor) -> SassColor {
+pub(crate) fn clip_gamut_map<'parse>(c: &SassColor<'parse>) -> SassColor<'parse> {
     let chs = space_channels(c.space);
     let mut new_ch = [c.channel0, c.channel1, c.channel2];
     let new_missing = c.missing;
@@ -39,7 +39,7 @@ pub(crate) fn clip_gamut_map(c: &SassColor) -> SassColor {
         channel2: new_ch[2],
         alpha: c.alpha,
         missing: new_missing,
-        format: c.format.clone(),
+        format: c.format,
     }
 }
 

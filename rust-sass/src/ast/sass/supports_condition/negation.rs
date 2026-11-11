@@ -1,3 +1,5 @@
+use bumpalo::Bump;
+
 // Copyright 2016 Google Inc. Use of this source code is governed by an
 // MIT-style license that can be found in the LICENSE file or at
 // https://opensource.org/licenses/MIT.
@@ -23,24 +25,28 @@ use crate::ast::sass::supports_condition::SupportsCondition;
 #[derive(Clone, Debug)]
 /// A negated condition: `not <condition>`.
 pub struct SupportsNegation<'parse> {
-    /// The condition that's been negated.
-    pub condition: Box<SupportsCondition<'parse>>,
+    /// The condition that's been negated, in the compile arena.
+    pub condition: &'parse SupportsCondition<'parse>,
     /// The span covering the whole `not ...` condition.
     pub span: FileSpan<'parse>,
 }
 
 impl<'parse> SupportsNegation<'parse> {
-    pub fn new(condition: SupportsCondition<'parse>, span: FileSpan<'parse>) -> Self {
+    pub fn new(
+        arena: &'parse Bump,
+        condition: SupportsCondition<'parse>,
+        span: FileSpan<'parse>,
+    ) -> Self {
         SupportsNegation {
-            condition: Box::new(condition),
+            condition: arena.alloc(condition),
             span,
         }
     }
 
     // Rebuilds an interpolation with the same text by splicing the negated
     // condition's interpolation back between the surrounding source slices.
-    pub fn to_interpolation(&self) -> SassResult<Interpolation<'parse>> {
-        let inner_interp = self.condition.to_interpolation()?;
+    pub fn to_interpolation(&self, arena: &'parse Bump) -> SassResult<Interpolation<'parse>> {
+        let inner_interp = self.condition.to_interpolation(arena)?;
         let cond_fs = self.condition.span()?;
         let inner_s = Span::File(cond_fs);
 
@@ -51,12 +57,12 @@ impl<'parse> SupportsNegation<'parse> {
         buf.write(before.text());
         buf.add_interpolation(&inner_interp);
         buf.write(after.text());
-        buf.interpolation(self.span)
+        buf.interpolation(arena, self.span)
     }
 
     // Returns a copy of this condition with `span` as its span.
-    pub fn with_span(&self, span: FileSpan<'parse>) -> Self {
-        Self::new((*self.condition).clone(), span)
+    pub fn with_span(&self, arena: &'parse Bump, span: FileSpan<'parse>) -> Self {
+        Self::new(arena, self.condition.clone(), span)
     }
 }
 
@@ -73,7 +79,7 @@ impl<'parse> SupportsNegation<'parse> {
     pub fn to_display_string(&self) -> SassResult<String> {
         let mut buf = String::new();
         let needs_parens = matches!(
-            self.condition.as_ref(),
+            self.condition,
             SupportsCondition::Negation(_) | SupportsCondition::Operation(_)
         );
         if needs_parens {
@@ -137,7 +143,7 @@ mod tests {
     fn test_plain_inner() {
         let arena = Bump::new();
         let inner = make_interpolation_cond(&arena, "#{x}");
-        let cond = SupportsNegation::new(inner, test_span(&arena, "not x", 0, 5));
+        let cond = SupportsNegation::new(&arena, inner, test_span(&arena, "not x", 0, 5));
         assert_eq!(format!("{cond}"), "not #{true}");
     }
 
@@ -146,10 +152,12 @@ mod tests {
         let arena = Bump::new();
         let inner_inner = make_interpolation_cond(&arena, "#{x}");
         let inner_neg = SupportsCondition::Negation(SupportsNegation::new(
+            &arena,
             inner_inner,
             test_span(&arena, "not x", 0, 5),
         ));
-        let cond = SupportsNegation::new(inner_neg, test_span(&arena, "not (not x)", 0, 11));
+        let cond =
+            SupportsNegation::new(&arena, inner_neg, test_span(&arena, "not (not x)", 0, 11));
         assert_eq!(format!("{cond}"), "not (not #{true})");
     }
 
@@ -159,12 +167,14 @@ mod tests {
         let left = make_interpolation_cond(&arena, "#{a}");
         let right = make_interpolation_cond(&arena, "#{b}");
         let inner_op = SupportsCondition::Operation(SupportsOperation::new(
+            &arena,
             left,
             right,
             BooleanOperator::And,
             test_span(&arena, "a and b", 0, 7),
         ));
-        let cond = SupportsNegation::new(inner_op, test_span(&arena, "not (a and b)", 0, 13));
+        let cond =
+            SupportsNegation::new(&arena, inner_op, test_span(&arena, "not (a and b)", 0, 13));
         assert_eq!(format!("{cond}"), "not (#{true} and #{true})");
     }
 }

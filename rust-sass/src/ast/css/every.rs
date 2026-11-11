@@ -119,12 +119,12 @@ mod tests {
         FileSpan::new(Some(fs), 0, text.len())
     }
 
-    fn make_val<'compile, 'parse>(arena: &'compile Bump, s: &str) -> CssValue<'parse, String>
+    fn make_val<'compile, 'parse>(arena: &'compile Bump, s: &str) -> CssValue<'parse, &'parse str>
     where
         'compile: 'parse,
         'parse: 'compile,
     {
-        CssValue::new(s.into(), make_span(arena, s))
+        CssValue::new(&*arena.alloc_str(s), make_span(arena, s))
     }
 
     #[test]
@@ -142,7 +142,7 @@ mod tests {
     fn test_every_comment_returns_false() {
         let arena = Bump::new();
         let span = make_span(&arena, "/* test */");
-        let c = CssNode::Comment(CssComment::new("/* test */".into(), span));
+        let c = CssNode::Comment(CssComment::new("/* test */", span));
         let mut v = EveryCssVisitor;
         let result = c.accept(&mut v).unwrap();
         assert!(!result);

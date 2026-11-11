@@ -3,7 +3,7 @@
 
 //! Filesystem path ↔ `file:` URL conversion.
 
-use super::{DartUriError, SassUrl};
+use super::{DartUriError, OwnedUrl};
 
 const HEX: &[u8; 16] = b"0123456789ABCDEF";
 
@@ -11,14 +11,14 @@ const WINDOWS: bool = cfg!(windows);
 
 /// Converts an absolute filesystem path to a `file:` URL, matching
 /// `package:path`'s `absolutePathToUri` / `Uri.file`.
-pub(super) fn absolute_path_to_uri(path: &str) -> Result<SassUrl, ()> {
+pub(super) fn absolute_path_to_uri(path: &str) -> Result<OwnedUrl, ()> {
     uri_file(path, WINDOWS)
 }
 
 /// `package:path`'s `toUri`: absolute paths become `file:` URLs; relative
 /// paths become relative URI references.
 #[cfg(test)]
-pub(super) fn path_to_uri(path: &str, windows: bool) -> Result<SassUrl, ()> {
+pub(super) fn path_to_uri(path: &str, windows: bool) -> Result<OwnedUrl, ()> {
     let path = prepare_path(path, windows);
     if !is_absolute_path(&path, windows) {
         let separator = if windows { '\\' } else { '/' };
@@ -33,7 +33,7 @@ pub(super) fn path_to_uri(path: &str, windows: bool) -> Result<SassUrl, ()> {
         if let Some(first) = segments.first_mut() {
             *first = escape_scheme(first);
         }
-        return Ok(SassUrl::make(
+        return Ok(OwnedUrl::make(
             String::new(),
             String::new(),
             None,
@@ -161,14 +161,14 @@ fn is_scheme_char(byte: u8) -> bool {
     byte.is_ascii_alphanumeric() || matches!(byte, b'+' | b'-' | b'.')
 }
 
-pub(super) fn uri_file(path: &str, windows: bool) -> Result<SassUrl, ()> {
+pub(super) fn uri_file(path: &str, windows: bool) -> Result<OwnedUrl, ()> {
     let path = prepare_path(path, windows);
     if windows {
         windows_file_url(&path)
     } else {
         let segments: Vec<&str> = path.split('/').collect();
         if path.starts_with('/') {
-            Ok(SassUrl::make(
+            Ok(OwnedUrl::make(
                 "file".to_string(),
                 String::new(),
                 Some(String::new()),
@@ -178,7 +178,7 @@ pub(super) fn uri_file(path: &str, windows: bool) -> Result<SassUrl, ()> {
                 None,
             ))
         } else {
-            Ok(SassUrl::make(
+            Ok(OwnedUrl::make(
                 String::new(),
                 String::new(),
                 None,
@@ -191,7 +191,7 @@ pub(super) fn uri_file(path: &str, windows: bool) -> Result<SassUrl, ()> {
     }
 }
 
-fn windows_file_url(path: &str) -> Result<SassUrl, ()> {
+fn windows_file_url(path: &str) -> Result<OwnedUrl, ()> {
     let mut path = path.to_string();
     if let Some(stripped) = path.strip_prefix(r"\\?\") {
         if let Some(unc) = stripped.strip_prefix("UNC\\") {
@@ -217,7 +217,7 @@ fn windows_file_url(path: &str) -> Result<SassUrl, ()> {
         if !encoded.starts_with('/') {
             encoded.insert(0, '/');
         }
-        return Ok(SassUrl::make(
+        return Ok(OwnedUrl::make(
             "file".to_string(),
             String::new(),
             Some(String::new()),
@@ -245,7 +245,7 @@ fn windows_file_url(path: &str) -> Result<SassUrl, ()> {
             if !encoded.is_empty() && !encoded.starts_with('/') {
                 encoded.insert(0, '/');
             }
-            return Ok(SassUrl::make(
+            return Ok(OwnedUrl::make(
                 "file".to_string(),
                 String::new(),
                 Some(host.to_string()),
@@ -258,7 +258,7 @@ fn windows_file_url(path: &str) -> Result<SassUrl, ()> {
         let segments: Vec<&str> = path.split('\\').collect();
         check_windows_segments(&segments)?;
         let encoded = encode_segments(&segments)?;
-        return Ok(SassUrl::make(
+        return Ok(OwnedUrl::make(
             "file".to_string(),
             String::new(),
             Some(String::new()),
@@ -271,7 +271,7 @@ fn windows_file_url(path: &str) -> Result<SassUrl, ()> {
 
     let segments: Vec<&str> = path.split('\\').collect();
     check_windows_segments(&segments)?;
-    Ok(SassUrl::make(
+    Ok(OwnedUrl::make(
         String::new(),
         String::new(),
         None,

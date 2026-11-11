@@ -8,8 +8,8 @@
 // dart-source: lib/src/embedded/protofier.dart
 // go-source: go/embedded/protofier.go  (via rust-sass-embedded/src/protofier.rs)
 
+use allocator_api2::vec::Vec as ArenaVec;
 use std::cell::RefCell;
-use std::rc::Rc;
 
 use indexmap::IndexMap;
 use js_sys::{Array, Object, Reflect};
@@ -36,20 +36,23 @@ pub(crate) fn script(message: impl Into<String>) -> Box<SassError> {
 
 /// Per-compilation opaque registries used while marshalling values across the
 /// JS boundary: argument lists (1-based ids) and function/mixin references
-/// (0-based ids). Shared (Rc<RefCell>) so function callbacks and importers can
-/// borrow it. Lives for exactly one compilation (dropped with the compile).
-/// `Clone` shares the registries (Rc clone) — used to move into callbacks.
-#[derive(Default, Clone)]
+/// (0-based ids). Allocated in the arena and borrowed by function callbacks
+/// and importers, so nothing here owns heap memory.
 pub struct MarshallingContext<'parse> {
-    argument_lists: Rc<RefCell<Vec<SassValue<'parse>>>>,
-    functions: Rc<RefCell<Vec<SassFunction<'parse>>>>,
-    mixins: Rc<RefCell<Vec<SassMixin<'parse>>>>,
-    modules: Rc<RefCell<Vec<SassModule<'parse>>>>,
+    argument_lists: RefCell<ArenaVec<SassValue<'parse>, &'parse Bump>>,
+    functions: RefCell<ArenaVec<SassFunction<'parse>, &'parse Bump>>,
+    mixins: RefCell<ArenaVec<SassMixin<'parse>, &'parse Bump>>,
+    modules: RefCell<ArenaVec<SassModule<'parse>, &'parse Bump>>,
 }
 
 impl<'parse> MarshallingContext<'parse> {
-    pub fn new() -> Self {
-        Self::default()
+    pub fn new_in(arena: &'parse Bump) -> Self {
+        MarshallingContext {
+            argument_lists: RefCell::new(ArenaVec::new_in(arena)),
+            functions: RefCell::new(ArenaVec::new_in(arena)),
+            mixins: RefCell::new(ArenaVec::new_in(arena)),
+            modules: RefCell::new(ArenaVec::new_in(arena)),
+        }
     }
 
     /// Marks the keywords of the argument lists with the given 1-based ids as
@@ -202,8 +205,16 @@ fn to_serializable<'parse>(
         },
         ValueKind::Number(n) => SerializableValue::Number {
             value: n.value,
-            numerator_units: n.numerator_units.clone(),
-            denominator_units: n.denominator_units.clone(),
+            numerator_units: n
+                .numerator_units
+                .iter()
+                .map(|u| (*u).to_string())
+                .collect::<Vec<String>>(),
+            denominator_units: n
+                .denominator_units
+                .iter()
+                .map(|u| (*u).to_string())
+                .collect::<Vec<String>>(),
         },
         ValueKind::Color(c) => SerializableValue::Color {
             space: c.space.name(),
@@ -221,7 +232,7 @@ fn to_serializable<'parse>(
         ValueKind::List(l) => SerializableValue::List {
             separator: separator_str(l.separator),
             has_brackets: l.has_brackets,
-            contents: to_serializable_values(ctx, &l.contents)?,
+            contents: to_serializable_values(ctx, l.contents)?,
         },
         ValueKind::ArgumentList(a) => {
             let id = {
@@ -232,19 +243,19 @@ fn to_serializable<'parse>(
             let keywords = a
                 .keywords_without_marking()
                 .iter()
-                .map(|(k, val)| Ok((k.clone(), to_serializable(ctx, val)?)))
+                .map(|(k, val)| Ok(((*k).to_string(), to_serializable(ctx, val)?)))
                 .collect::<SassResult<IndexMap<_, _>>>()?;
             SerializableValue::ArgumentList {
                 id,
                 separator: separator_str(a.list.separator),
                 has_brackets: a.list.has_brackets,
-                contents: to_serializable_values(ctx, &a.list.contents)?,
+                contents: to_serializable_values(ctx, a.list.contents)?,
                 keywords,
             }
         }
         ValueKind::Map(m) => {
-            let mut entries = Vec::with_capacity(m.entries.len());
-            for (k, val) in m.entries.iter() {
+            let mut entries = Vec::with_capacity(m.len());
+            for (k, val) in m.iter() {
                 entries.push(SerializableMapEntry {
                     key: to_serializable(ctx, k)?,
                     value: to_serializable(ctx, val)?,
@@ -253,7 +264,7 @@ fn to_serializable<'parse>(
             SerializableValue::Map { entries }
         }
         ValueKind::Calculation(c) => SerializableValue::Calculation {
-            name: c.name.clone(),
+            name: c.name.to_string(),
             arguments: c
                 .arguments
                 .iter()
@@ -309,15 +320,23 @@ fn to_serializable_values<'parse>(
     values.iter().map(|v| to_serializable(ctx, v)).collect()
 }
 
-fn calc_arg_to_serializable(arg: &CalcArgument) -> SassResult<SerializableCalcArg> {
+fn calc_arg_to_serializable(arg: &CalcArgument<'_>) -> SassResult<SerializableCalcArg> {
     Ok(match arg {
         CalcArgument::Number(n) => SerializableCalcArg::Number {
             value: n.value,
-            numerator_units: n.numerator_units.clone(),
-            denominator_units: n.denominator_units.clone(),
+            numerator_units: n
+                .numerator_units
+                .iter()
+                .map(|u| (*u).to_string())
+                .collect::<Vec<String>>(),
+            denominator_units: n
+                .denominator_units
+                .iter()
+                .map(|u| (*u).to_string())
+                .collect::<Vec<String>>(),
         },
         CalcArgument::Calculation(c) => SerializableCalcArg::Calculation {
-            name: c.name.clone(),
+            name: c.name.to_string(),
             arguments: c
                 .arguments
                 .iter()
@@ -325,10 +344,12 @@ fn calc_arg_to_serializable(arg: &CalcArgument) -> SassResult<SerializableCalcAr
                 .collect::<SassResult<_>>()?,
         },
         CalcArgument::String(s, quoted) => SerializableCalcArg::String {
-            value: s.clone(),
+            value: (*s).to_string(),
             quoted: *quoted,
         },
-        CalcArgument::Interpolation(s) => SerializableCalcArg::Interpolation { value: s.clone() },
+        CalcArgument::Interpolation(s) => SerializableCalcArg::Interpolation {
+            value: (*s).to_string(),
+        },
         CalcArgument::Operation(op) => SerializableCalcArg::Operation {
             operator: operator_str(op.operator),
             left: Box::new(calc_arg_to_serializable(&op.left)?),
@@ -388,7 +409,7 @@ pub fn js_to_value<'compile: 'parse, 'parse: 'compile>(
             )
         }
         "number" => {
-            let num = get_number(value)?;
+            let num = get_number(arena, value)?;
             SassValue::new_with_arena(arena, ValueKind::Number(num))
         }
         "color" => {
@@ -432,7 +453,7 @@ pub fn js_to_value<'compile: 'parse, 'parse: 'compile>(
                 }
                 SassValue::new_with_arena(
                     arena,
-                    ValueKind::List(SassList::new(contents, separator, has_brackets)),
+                    ValueKind::List(SassList::new(arena, contents, separator, has_brackets)),
                 )
             }
         }
@@ -461,7 +482,7 @@ pub fn js_to_value<'compile: 'parse, 'parse: 'compile>(
                 let val = js_to_value(ctx, arena, &get(&entry, "value")?, host_function)?;
                 entries.push((key, val));
             }
-            SassValue::new_with_arena(arena, ValueKind::Map(SassMap::from_entries(entries)))
+            SassValue::new_with_arena(arena, ValueKind::Map(SassMap::from_entries(arena, entries)))
         }
         "calculation" => {
             let name = get_str(value, "name")?;
@@ -543,8 +564,9 @@ fn de_operator(op: &str) -> SassResult<CalculationOperator> {
     })
 }
 
-fn get_number(value: &JsValue) -> SassResult<SassNumber> {
+fn get_number<'parse>(arena: &'parse Bump, value: &JsValue) -> SassResult<SassNumber<'parse>> {
     Ok(SassNumber::with_units(
+        arena,
         get_f64_required(value, "value")?,
         get_string_array(value, "numeratorUnits")?,
         get_string_array(value, "denominatorUnits")?,
@@ -598,7 +620,7 @@ fn get_calc_args<'compile: 'parse, 'parse: 'compile>(
     arena: &'compile Bump,
     obj: &JsValue,
     host_function: &HostFunctionBuilder<'compile, 'parse>,
-) -> SassResult<Vec<CalcArgument>> {
+) -> SassResult<Vec<CalcArgument<'parse>>> {
     let arr = Array::from(&get(obj, "arguments")?);
     let mut out = Vec::with_capacity(arr.length() as usize);
     for i in 0..arr.length() {
@@ -612,23 +634,29 @@ fn js_calc_arg_to_rust<'compile: 'parse, 'parse: 'compile>(
     arena: &'compile Bump,
     cv: &JsValue,
     host_function: &HostFunctionBuilder<'compile, 'parse>,
-) -> SassResult<CalcArgument> {
+) -> SassResult<CalcArgument<'parse>> {
     let ty = get_str(cv, "type")?;
     Ok(match ty.as_str() {
-        "number" => CalcArgument::Number(get_number(cv)?),
-        "string" => CalcArgument::String(get_str(cv, "value")?, get_bool(cv, "quoted")?),
-        "interpolation" => CalcArgument::String(format!("({})", get_str(cv, "value")?), false),
+        "number" => CalcArgument::Number(get_number(arena, cv)?),
+        "string" => {
+            let value = get_str(cv, "value")?;
+            CalcArgument::String(&*arena.alloc_str(&value), get_bool(cv, "quoted")?)
+        }
+        "interpolation" => {
+            let value = get_str(cv, "value")?;
+            CalcArgument::String(&*arena.alloc_str(&format!("({value})")), false)
+        }
         "operation" => {
             let operator = de_operator(&get_str(cv, "operator")?)?;
             let left = js_calc_arg_to_rust(ctx, arena, &get(cv, "left")?, host_function)?;
             let right = js_calc_arg_to_rust(ctx, arena, &get(cv, "right")?, host_function)?;
-            rust_sass::value::calculation::operate(operator, left, right)?
+            rust_sass::value::calculation::operate(arena, operator, left, right)?
         }
         "calculation" => {
             let name = get_str(cv, "name")?;
             let args = get_calc_args(ctx, arena, cv, host_function)?;
             match de_calculation(arena, &name, args)?.kind() {
-                ValueKind::Calculation(b) => CalcArgument::Calculation(b.clone()),
+                ValueKind::Calculation(b) => CalcArgument::Calculation(b),
                 ValueKind::Number(n) => CalcArgument::Number(n.clone()),
                 _ => return Err(script("Internal error: expected a calculation")),
             }
@@ -640,7 +668,7 @@ fn js_calc_arg_to_rust<'compile: 'parse, 'parse: 'compile>(
 fn de_calculation<'compile: 'parse, 'parse: 'compile>(
     arena: &'compile Bump,
     name: &str,
-    args: Vec<CalcArgument>,
+    args: Vec<CalcArgument<'parse>>,
 ) -> SassResult<SassValue<'parse>> {
     match name {
         "calc" => {
@@ -765,8 +793,8 @@ fn get_missing(obj: &JsValue, c1: bool, c2: bool, c3: bool, alpha: bool) -> Sass
 mod tests {
     use super::*;
 
-    fn test_ctx<'p>() -> MarshallingContext<'p> {
-        MarshallingContext::new()
+    fn test_ctx<'p>(arena: &'p Bump) -> &'p MarshallingContext<'p> {
+        arena.alloc(MarshallingContext::new_in(arena))
     }
 
     fn roundtrip<'compile: 'parse, 'parse: 'compile>(
@@ -794,7 +822,7 @@ mod tests {
         .unwrap()
     }
 
-    fn rgb(r: f64, g: f64, b: f64, a: f64) -> SassColor {
+    fn rgb(r: f64, g: f64, b: f64, a: f64) -> SassColor<'static> {
         SassColor::for_space(
             ColorSpace::from_name("rgb", None).unwrap(),
             [r, g, b],
@@ -806,14 +834,14 @@ mod tests {
     #[wasm_bindgen_test::wasm_bindgen_test]
     fn roundtrip_boolean() {
         let arena = Bump::new();
-        let ctx = test_ctx();
+        let ctx = test_ctx(&arena);
         roundtrip(
-            &ctx,
+            ctx,
             &arena,
             SassValue::new_with_arena(&arena, ValueKind::Boolean(SASS_TRUE)),
         );
         roundtrip(
-            &ctx,
+            ctx,
             &arena,
             SassValue::new_with_arena(&arena, ValueKind::Boolean(SASS_FALSE)),
         );
@@ -822,9 +850,9 @@ mod tests {
     #[wasm_bindgen_test::wasm_bindgen_test]
     fn roundtrip_null() {
         let arena = Bump::new();
-        let ctx = test_ctx();
+        let ctx = test_ctx(&arena);
         roundtrip(
-            &ctx,
+            ctx,
             &arena,
             SassValue::new_with_arena(&arena, ValueKind::Null),
         );
@@ -833,9 +861,9 @@ mod tests {
     #[wasm_bindgen_test::wasm_bindgen_test]
     fn roundtrip_string() {
         let arena = Bump::new();
-        let ctx = test_ctx();
+        let ctx = test_ctx(&arena);
         roundtrip(
-            &ctx,
+            ctx,
             &arena,
             SassValue::new_with_arena(
                 &arena,
@@ -843,7 +871,7 @@ mod tests {
             ),
         );
         roundtrip(
-            &ctx,
+            ctx,
             &arena,
             SassValue::new_with_arena(
                 &arena,
@@ -855,13 +883,14 @@ mod tests {
     #[wasm_bindgen_test::wasm_bindgen_test]
     fn roundtrip_number() {
         let arena = Bump::new();
-        let ctx = test_ctx();
+        let ctx = test_ctx(&arena);
         roundtrip(
-            &ctx,
+            ctx,
             &arena,
             SassValue::new_with_arena(
                 &arena,
                 ValueKind::Number(SassNumber::with_units(
+                    &arena,
                     3.0,
                     vec!["px".into()],
                     vec!["s".into()],
@@ -869,23 +898,26 @@ mod tests {
             ),
         );
         roundtrip(
-            &ctx,
+            ctx,
             &arena,
-            SassValue::new_with_arena(&arena, ValueKind::Number(SassNumber::new(42.0, None))),
+            SassValue::new_with_arena(
+                &arena,
+                ValueKind::Number(SassNumber::new(&arena, 42.0, None)),
+            ),
         );
     }
 
     #[wasm_bindgen_test::wasm_bindgen_test]
     fn roundtrip_color() {
         let arena = Bump::new();
-        let ctx = test_ctx();
+        let ctx = test_ctx(&arena);
         roundtrip(
-            &ctx,
+            ctx,
             &arena,
             SassValue::new_with_arena(&arena, ValueKind::Color(rgb(1.0, 2.0, 3.0, 0.5))),
         );
         roundtrip(
-            &ctx,
+            ctx,
             &arena,
             SassValue::new_with_arena(
                 &arena,
@@ -902,17 +934,18 @@ mod tests {
     #[wasm_bindgen_test::wasm_bindgen_test]
     fn roundtrip_list() {
         let arena = Bump::new();
-        let ctx = test_ctx();
+        let ctx = test_ctx(&arena);
         roundtrip(
-            &ctx,
+            ctx,
             &arena,
             SassValue::new_with_arena(
                 &arena,
                 ValueKind::List(SassList::new(
+                    &arena,
                     vec![
                         SassValue::new_with_arena(
                             &arena,
-                            ValueKind::Number(SassNumber::new(1.0, None)),
+                            ValueKind::Number(SassNumber::new(&arena, 1.0, None)),
                         ),
                         SassValue::new_with_arena(
                             &arena,
@@ -925,7 +958,7 @@ mod tests {
             ),
         );
         roundtrip(
-            &ctx,
+            ctx,
             &arena,
             SassValue::new_with_arena(
                 &arena,
@@ -937,31 +970,34 @@ mod tests {
     #[wasm_bindgen_test::wasm_bindgen_test]
     fn roundtrip_map() {
         let arena = Bump::new();
-        let ctx = test_ctx();
+        let ctx = test_ctx(&arena);
         roundtrip(
-            &ctx,
+            ctx,
             &arena,
             SassValue::new_with_arena(
                 &arena,
-                ValueKind::Map(SassMap::from_entries(vec![
-                    (
-                        SassValue::new_with_arena(
-                            &arena,
-                            ValueKind::String(SassString::new(arena.alloc_str("key"), true)),
+                ValueKind::Map(SassMap::from_entries(
+                    &arena,
+                    vec![
+                        (
+                            SassValue::new_with_arena(
+                                &arena,
+                                ValueKind::String(SassString::new(arena.alloc_str("key"), true)),
+                            ),
+                            SassValue::new_with_arena(
+                                &arena,
+                                ValueKind::Number(SassNumber::new(&arena, 1.0, None)),
+                            ),
                         ),
-                        SassValue::new_with_arena(
-                            &arena,
-                            ValueKind::Number(SassNumber::new(1.0, None)),
+                        (
+                            SassValue::new_with_arena(
+                                &arena,
+                                ValueKind::Number(SassNumber::new(&arena, 2.0, None)),
+                            ),
+                            SassValue::new_with_arena(&arena, ValueKind::Boolean(SASS_TRUE)),
                         ),
-                    ),
-                    (
-                        SassValue::new_with_arena(
-                            &arena,
-                            ValueKind::Number(SassNumber::new(2.0, None)),
-                        ),
-                        SassValue::new_with_arena(&arena, ValueKind::Boolean(SASS_TRUE)),
-                    ),
-                ])),
+                    ],
+                )),
             ),
         );
     }
@@ -969,7 +1005,7 @@ mod tests {
     #[wasm_bindgen_test::wasm_bindgen_test]
     fn roundtrip_argument_list() {
         let arena = Bump::new();
-        let ctx = test_ctx();
+        let ctx = test_ctx(&arena);
         let mut keywords = IndexMap::new();
         keywords.insert(
             "kw".to_string(),
@@ -979,7 +1015,7 @@ mod tests {
             ),
         );
         roundtrip(
-            &ctx,
+            ctx,
             &arena,
             SassValue::new_with_arena(
                 &arena,
@@ -987,7 +1023,7 @@ mod tests {
                     &arena,
                     vec![SassValue::new_with_arena(
                         &arena,
-                        ValueKind::Number(SassNumber::new(1.0, None)),
+                        ValueKind::Number(SassNumber::new(&arena, 1.0, None)),
                     )],
                     keywords,
                     ListSeparator::Comma,
@@ -999,28 +1035,30 @@ mod tests {
     #[wasm_bindgen_test::wasm_bindgen_test]
     fn roundtrip_calculation() {
         let arena = Bump::new();
-        let ctx = test_ctx();
+        let ctx = test_ctx(&arena);
         roundtrip(
-            &ctx,
+            ctx,
             &arena,
             SassValue::new_with_arena(
                 &arena,
-                ValueKind::Calculation(Box::new(SassCalculation::new_unsimplified(
+                ValueKind::Calculation(&*arena.alloc(SassCalculation::new_unsimplified(
+                    &arena,
                     "calc",
-                    vec![CalcArgument::String("var(--x)".into(), false)],
+                    vec![CalcArgument::String("var(--x)", false)],
                 ))),
             ),
         );
         roundtrip(
-            &ctx,
+            ctx,
             &arena,
             SassValue::new_with_arena(
                 &arena,
-                ValueKind::Calculation(Box::new(SassCalculation::new_unsimplified(
+                ValueKind::Calculation(&*arena.alloc(SassCalculation::new_unsimplified(
+                    &arena,
                     "min",
                     vec![
-                        CalcArgument::Number(SassNumber::new(1.0, Some("px"))),
-                        CalcArgument::String("var(--x)".into(), false),
+                        CalcArgument::Number(SassNumber::new(&arena, 1.0, Some("px"))),
+                        CalcArgument::String("var(--x)", false),
                     ],
                 ))),
             ),
@@ -1030,27 +1068,27 @@ mod tests {
     #[wasm_bindgen_test::wasm_bindgen_test]
     fn argument_list_referenced_by_id_returns_same_value() {
         let arena = Bump::new();
-        let ctx = test_ctx();
+        let ctx = test_ctx(&arena);
         let arg_list = SassValue::new_with_arena(
             &arena,
             ValueKind::ArgumentList(SassArgumentList::new(
                 &arena,
                 vec![SassValue::new_with_arena(
                     &arena,
-                    ValueKind::Number(SassNumber::new(7.0, None)),
+                    ValueKind::Number(SassNumber::new(&arena, 7.0, None)),
                 )],
                 IndexMap::new(),
                 ListSeparator::Undecided,
             )),
         );
-        let js = value_to_js(&ctx, &arg_list).unwrap();
+        let js = value_to_js(ctx, &arg_list).unwrap();
         // id 1 means the host builds a fresh list; id != 0 refers back.
         let id = Reflect::get(&js, &JsValue::from_str("id"))
             .unwrap()
             .as_f64()
             .unwrap();
         assert_eq!(id, 1.0);
-        let back = js_to_value(&ctx, &arena, &js, &|_s, _c, _a| Err(script("unexpected"))).unwrap();
+        let back = js_to_value(ctx, &arena, &js, &|_s, _c, _a| Err(script("unexpected"))).unwrap();
         assert!(arg_list.equals(&back));
         assert_eq!(
             Reflect::get(&js, &JsValue::from_str("type"))

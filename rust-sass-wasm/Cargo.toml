@@ -20,6 +20,7 @@ async = ["rust-sass/async"]
 glibc-math = ["rust-sass/glibc-math"]
 
 [dependencies]
+allocator-api2.workspace = true
 futures.workspace = true
 getrandom = { workspace = true, features = ["wasm_js"] }
 indexmap = { workspace = true, features = ["serde"] }

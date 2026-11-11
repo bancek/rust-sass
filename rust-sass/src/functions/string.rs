@@ -12,7 +12,6 @@
 // go-source: go/functions/string.go + go/functions/functions_string_init.go
 
 use std::cell::Cell;
-use std::rc::Rc;
 
 use bumpalo::Bump;
 
@@ -47,39 +46,55 @@ where
     vec![
         c!(
             arena,
-            unquote_function(arena).with_deprecation_warning("string", None)
+            unquote_function(arena).with_deprecation_warning(arena, "string", None)
         ),
         c!(
             arena,
-            quote_function(arena).with_deprecation_warning("string", None)
+            quote_function(arena).with_deprecation_warning(arena, "string", None)
         ),
         c!(
             arena,
-            to_upper_case_function(arena).with_deprecation_warning("string", None)
+            to_upper_case_function(arena).with_deprecation_warning(arena, "string", None)
         ),
         c!(
             arena,
-            to_lower_case_function(arena).with_deprecation_warning("string", None)
+            to_lower_case_function(arena).with_deprecation_warning(arena, "string", None)
         ),
         c!(
             arena,
-            unique_id_function(arena).with_deprecation_warning("string", None)
+            unique_id_function(arena).with_deprecation_warning(arena, "string", None)
         ),
         c!(
             arena,
-            str_length_function_global(arena).with_deprecation_warning("string", Some("length"))
+            str_length_function_global(arena).with_deprecation_warning(
+                arena,
+                "string",
+                Some("length")
+            )
         ),
         c!(
             arena,
-            str_insert_function_global(arena).with_deprecation_warning("string", Some("insert"))
+            str_insert_function_global(arena).with_deprecation_warning(
+                arena,
+                "string",
+                Some("insert")
+            )
         ),
         c!(
             arena,
-            str_index_function_global(arena).with_deprecation_warning("string", Some("index"))
+            str_index_function_global(arena).with_deprecation_warning(
+                arena,
+                "string",
+                Some("index")
+            )
         ),
         c!(
             arena,
-            str_slice_function_global(arena).with_deprecation_warning("string", Some("slice"))
+            str_slice_function_global(arena).with_deprecation_warning(
+                arena,
+                "string",
+                Some("slice")
+            )
         ),
     ]
 }
@@ -190,7 +205,7 @@ where
         "$string",
         "sass:string",
         arena,
-        Rc::new(unquote_impl),
+        crate::callable::built_in_callback(arena, unquote_impl),
     )
 }
 
@@ -224,7 +239,7 @@ where
         "$string",
         "sass:string",
         arena,
-        Rc::new(quote_impl),
+        crate::callable::built_in_callback(arena, quote_impl),
     )
 }
 
@@ -260,7 +275,7 @@ where
         "$string",
         "sass:string",
         arena,
-        Rc::new(to_upper_case_impl),
+        crate::callable::built_in_callback(arena, to_upper_case_impl),
     )
 }
 
@@ -296,7 +311,7 @@ where
         "$string",
         "sass:string",
         arena,
-        Rc::new(to_lower_case_impl),
+        crate::callable::built_in_callback(arena, to_lower_case_impl),
     )
 }
 
@@ -325,7 +340,8 @@ where
         "",
         "sass:string",
         arena,
-        Rc::new(
+        crate::callable::built_in_callback(
+            arena,
             move |_config: &EvalConfig<'compile, 'parse>,
                   _state: &mut EvalState<'compile, 'parse>,
                   _args: Vec<Value<'parse>>,
@@ -399,7 +415,7 @@ where
         "$string",
         "sass:string",
         arena,
-        Rc::new(str_length_impl),
+        crate::callable::built_in_callback(arena, str_length_impl),
     )
 }
 
@@ -412,7 +428,7 @@ where
         "$string",
         "sass:string",
         arena,
-        Rc::new(str_length_impl),
+        crate::callable::built_in_callback(arena, str_length_impl),
     )
 }
 
@@ -430,7 +446,7 @@ where
     let s = assert_string(&args[0], Some("string"))?;
     Ok(Value::new_with_arena(
         arena,
-        ValueKind::Number(SassNumber::new(s.sass_length() as f64, None)),
+        ValueKind::Number(SassNumber::new(arena, s.sass_length() as f64, None)),
     ))
 }
 
@@ -447,7 +463,7 @@ where
         "$string, $insert, $index",
         "sass:string",
         arena,
-        Rc::new(str_insert_impl),
+        crate::callable::built_in_callback(arena, str_insert_impl),
     )
 }
 
@@ -460,7 +476,7 @@ where
         "$string, $insert, $index",
         "sass:string",
         arena,
-        Rc::new(str_insert_impl),
+        crate::callable::built_in_callback(arena, str_insert_impl),
     )
 }
 
@@ -523,7 +539,7 @@ where
         "$string, $substring",
         "sass:string",
         arena,
-        Rc::new(str_index_impl),
+        crate::callable::built_in_callback(arena, str_index_impl),
     )
 }
 
@@ -536,7 +552,7 @@ where
         "$string, $substring",
         "sass:string",
         arena,
-        Rc::new(str_index_impl),
+        crate::callable::built_in_callback(arena, str_index_impl),
     )
 }
 
@@ -562,7 +578,7 @@ where
     let codepoint_idx = code_unit_index_to_codepoint_index(s.text, code_unit_index);
     Ok(Value::new_with_arena(
         arena,
-        ValueKind::Number(SassNumber::new((codepoint_idx + 1) as f64, None)),
+        ValueKind::Number(SassNumber::new(arena, (codepoint_idx + 1) as f64, None)),
     ))
 }
 
@@ -579,7 +595,7 @@ where
         "$string, $start-at, $end-at: -1",
         "sass:string",
         arena,
-        Rc::new(str_slice_impl),
+        crate::callable::built_in_callback(arena, str_slice_impl),
     )
 }
 
@@ -592,7 +608,7 @@ where
         "$string, $start-at, $end-at: -1",
         "sass:string",
         arena,
-        Rc::new(str_slice_impl),
+        crate::callable::built_in_callback(arena, str_slice_impl),
     )
 }
 
@@ -689,7 +705,7 @@ where
     if s.text.is_empty() {
         return Ok(Value::new_with_arena(
             arena,
-            ValueKind::List(SassList::new(vec![], ListSeparator::Comma, true)),
+            ValueKind::List(SassList::new(arena, vec![], ListSeparator::Comma, true)),
         ));
     }
 
@@ -709,7 +725,7 @@ where
             .collect();
         return Ok(Value::new_with_arena(
             arena,
-            ValueKind::List(SassList::new(chunks, ListSeparator::Comma, true)),
+            ValueKind::List(SassList::new(arena, chunks, ListSeparator::Comma, true)),
         ));
     }
 
@@ -741,7 +757,7 @@ where
         .collect();
     Ok(Value::new_with_arena(
         arena,
-        ValueKind::List(SassList::new(result, ListSeparator::Comma, true)),
+        ValueKind::List(SassList::new(arena, result, ListSeparator::Comma, true)),
     ))
 }
 
@@ -754,7 +770,7 @@ where
         "$string, $separator, $limit: null",
         "sass:string",
         arena,
-        Rc::new(split_impl),
+        crate::callable::built_in_callback(arena, split_impl),
     )
 }
 
@@ -863,7 +879,7 @@ mod tests {
     }
 
     fn num_val<'compile: 'parse, 'parse>(arena: &'compile Bump, v: f64) -> Value<'parse> {
-        Value::new_with_arena(arena, ValueKind::Number(SassNumber::new(v, None)))
+        Value::new_with_arena(arena, ValueKind::Number(SassNumber::new(arena, v, None)))
     }
 
     fn unit_val<'compile: 'parse, 'parse>(
@@ -871,7 +887,10 @@ mod tests {
         v: f64,
         unit: &str,
     ) -> Value<'parse> {
-        Value::new_with_arena(arena, ValueKind::Number(SassNumber::new(v, Some(unit))))
+        Value::new_with_arena(
+            arena,
+            ValueKind::Number(SassNumber::new(arena, v, Some(unit))),
+        )
     }
 
     /// The evaluated default for `$end-at: -1`. The test harness pads missing
@@ -948,7 +967,7 @@ mod tests {
     {
         let fns = global_string_functions(arena);
         match fns[index].kind() {
-            CallableKind::BuiltIn(b) => b.clone(),
+            CallableKind::BuiltIn(b) => *b,
             _ => panic!("expected BuiltIn callable"),
         }
     }
@@ -1148,7 +1167,7 @@ mod tests {
         ];
         assert_eq!(m.functions.len(), want.len());
         for (i, name) in m.functions.keys().enumerate() {
-            assert_eq!(name, want[i], "functions[{i}]");
+            assert_eq!(*name, want[i], "functions[{i}]");
         }
     }
 

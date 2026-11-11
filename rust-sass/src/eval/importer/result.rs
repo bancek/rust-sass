@@ -8,7 +8,7 @@
 // go-source: go/eval/importer_result.go
 
 use crate::url::data_url_from_string;
-use crate::url::SassUrl;
+use crate::url::OwnedUrl;
 
 use crate::common::exception::SassResult;
 use crate::parse::stylesheet::Syntax;
@@ -22,7 +22,7 @@ pub struct ImporterResult {
     pub contents: String,
     /// The syntax used to parse the stylesheet.
     pub syntax: Syntax,
-    source_map_url: Option<SassUrl>,
+    source_map_url: Option<OwnedUrl>,
 }
 
 impl ImporterResult {
@@ -34,7 +34,7 @@ impl ImporterResult {
     pub fn new(
         contents: String,
         syntax: Syntax,
-        source_map_url: Option<SassUrl>,
+        source_map_url: Option<OwnedUrl>,
     ) -> SassResult<Self> {
         Ok(ImporterResult {
             contents,
@@ -48,11 +48,11 @@ impl ImporterResult {
     /// A `file:` URL when available (`http:` is also acceptable); when no URL
     /// was supplied, a `data:` URL is generated automatically from
     /// [`ImporterResult::contents`]. Matches Dart: `ImporterResult.sourceMapUrl`.
-    pub fn source_map_url(&self) -> SassUrl {
+    pub fn source_map_url(&self) -> OwnedUrl {
         if let Some(ref url) = self.source_map_url {
             return url.clone();
         }
-        SassUrl::parse(&data_url_from_string(&self.contents)).expect("valid data: URL")
+        OwnedUrl::parse(&data_url_from_string(&self.contents)).expect("valid data: URL")
     }
 }
 
@@ -70,14 +70,14 @@ mod tests {
 
     #[test]
     fn new_with_source_map_url() {
-        let url = SassUrl::parse("file:///test.scss").unwrap();
+        let url = OwnedUrl::parse("file:///test.scss").unwrap();
         let ir = ImporterResult::new("a {}".to_string(), Syntax::Scss, Some(url.clone())).unwrap();
         assert_eq!(ir.source_map_url, Some(url));
     }
 
     #[test]
     fn source_map_url_returns_provided_url() {
-        let url = SassUrl::parse("file:///test.scss").unwrap();
+        let url = OwnedUrl::parse("file:///test.scss").unwrap();
         let ir = ImporterResult::new("a {}".to_string(), Syntax::Scss, Some(url.clone())).unwrap();
         assert_eq!(ir.source_map_url(), url);
     }

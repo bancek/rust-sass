@@ -8,6 +8,8 @@
 // go-source: go/value/list.go
 
 use crate::value::hash::list_hash;
+use bumpalo::Bump;
+
 use crate::value::Value;
 use std::fmt;
 
@@ -60,8 +62,8 @@ impl ListSeparator {
 /// A SassScript list.
 #[derive(Clone, Debug)]
 pub struct SassList<'parse> {
-    /// The contents of the list.
-    pub contents: Vec<Value<'parse>>,
+    /// The contents of the list, allocated in the compile arena.
+    pub contents: &'parse [Value<'parse>],
     /// The separator between elements.
     pub separator: ListSeparator,
     /// Whether the list was written with brackets (`[1 2]`).
@@ -75,12 +77,13 @@ impl<'parse> SassList<'parse> {
     /// [`Undecided`](ListSeparator::Undecided)) for more than one element;
     /// this constructor doesn't validate, so callers must uphold it.
     pub fn new(
+        arena: &'parse Bump,
         contents: Vec<Value<'parse>>,
         separator: ListSeparator,
         has_brackets: bool,
     ) -> SassList<'parse> {
         SassList {
-            contents,
+            contents: arena.alloc_slice_fill_iter(contents),
             separator,
             has_brackets,
         }
@@ -89,7 +92,7 @@ impl<'parse> SassList<'parse> {
     /// Returns an empty list with the given `separator` and `has_brackets`.
     pub fn empty(separator: ListSeparator, has_brackets: bool) -> Self {
         SassList {
-            contents: vec![],
+            contents: &[],
             separator,
             has_brackets,
         }
@@ -109,7 +112,7 @@ impl<'parse> SassList<'parse> {
     /// All SassScript values can be used as lists; lists just return their
     /// contents directly.
     pub fn as_list(&self) -> &[Value<'parse>] {
-        &self.contents
+        self.contents
     }
 
     /// Returns a valid CSS representation of `self`.
@@ -180,7 +183,7 @@ impl<'parse> SassList<'parse> {
         }
         self.contents
             .iter()
-            .zip(&other.contents)
+            .zip(other.contents)
             .all(|(a, b)| a == b)
     }
 }
@@ -204,8 +207,8 @@ mod tests {
         let arena = Bump::new();
         let v1 = ValueKind::unitless_number(&arena, 1.0);
         let v2 = ValueKind::unitless_number(&arena, 2.0);
-        let l1 = SassList::new(vec![v1, v2], ListSeparator::Space, false);
-        let l2 = SassList::new(vec![v1, v2], ListSeparator::Space, false);
+        let l1 = SassList::new(&arena, vec![v1, v2], ListSeparator::Space, false);
+        let l2 = SassList::new(&arena, vec![v1, v2], ListSeparator::Space, false);
         assert!(l1.equals(&l2));
     }
 
@@ -214,8 +217,8 @@ mod tests {
         let arena = Bump::new();
         let v1 = ValueKind::unitless_number(&arena, 1.0);
         let v2 = ValueKind::unitless_number(&arena, 2.0);
-        let l1 = SassList::new(vec![v1, v2], ListSeparator::Space, false);
-        let l2 = SassList::new(vec![v1, v2], ListSeparator::Comma, false);
+        let l1 = SassList::new(&arena, vec![v1, v2], ListSeparator::Space, false);
+        let l2 = SassList::new(&arena, vec![v1, v2], ListSeparator::Comma, false);
         assert!(!l1.equals(&l2));
     }
 
@@ -223,8 +226,8 @@ mod tests {
     fn test_list_equals_different_brackets() {
         let arena = Bump::new();
         let v1 = ValueKind::unitless_number(&arena, 1.0);
-        let l1 = SassList::new(vec![v1], ListSeparator::Space, false);
-        let l2 = SassList::new(vec![v1], ListSeparator::Space, true);
+        let l1 = SassList::new(&arena, vec![v1], ListSeparator::Space, false);
+        let l2 = SassList::new(&arena, vec![v1], ListSeparator::Space, true);
         assert!(!l1.equals(&l2));
     }
 
@@ -233,8 +236,9 @@ mod tests {
         let arena = Bump::new();
         let v1 = ValueKind::unitless_number(&arena, 1.0);
         let v2 = ValueKind::unitless_number(&arena, 2.0);
-        let l1 = SassList::new(vec![v1, v2], ListSeparator::Space, false);
+        let l1 = SassList::new(&arena, vec![v1, v2], ListSeparator::Space, false);
         let l2 = SassList::new(
+            &arena,
             vec![
                 ValueKind::unitless_number(&arena, 1.0),
                 ValueKind::unitless_number(&arena, 2.0),
@@ -261,7 +265,7 @@ mod tests {
     fn test_list_as_list() {
         let arena = Bump::new();
         let v1 = ValueKind::unitless_number(&arena, 1.0);
-        let l = SassList::new(vec![v1], ListSeparator::Space, false);
+        let l = SassList::new(&arena, vec![v1], ListSeparator::Space, false);
         assert_eq!(l.as_list().len(), 1);
     }
 
@@ -277,6 +281,7 @@ mod tests {
     fn test_list_to_css_string() {
         let arena = Bump::new();
         let list = SassList::new(
+            &arena,
             vec![
                 ValueKind::unitless_number(&arena, 1.0),
                 ValueKind::unitless_number(&arena, 2.0),
@@ -291,7 +296,7 @@ mod tests {
     #[test]
     fn test_list_to_css_string_empty_error() {
         let arena = Bump::new();
-        let list = SassList::new(vec![], ListSeparator::Space, false);
+        let list = SassList::new(&arena, vec![], ListSeparator::Space, false);
         let v = Value::new_with_arena(&arena, ValueKind::List(list));
         assert!(v.to_css_string(true).is_err());
     }
@@ -301,6 +306,7 @@ mod tests {
         let arena = Bump::new();
         // Mirrors Go: TestListString — String() adds Dart toString parens.
         let list = SassList::new(
+            &arena,
             vec![
                 ValueKind::unitless_number(&arena, 1.0),
                 ValueKind::unitless_number(&arena, 2.0),
@@ -313,6 +319,7 @@ mod tests {
         assert_eq!(v.to_display_string().unwrap(), "(1, 2, 3)");
 
         let space_list = SassList::new(
+            &arena,
             vec![
                 ValueKind::unitless_number(&arena, 1.0),
                 ValueKind::unitless_number(&arena, 2.0),
@@ -324,7 +331,7 @@ mod tests {
         let v = Value::new_with_arena(&arena, ValueKind::List(space_list));
         assert_eq!(v.to_display_string().unwrap(), "(1 2 3)");
 
-        let empty = SassList::new(vec![], ListSeparator::Space, false);
+        let empty = SassList::new(&arena, vec![], ListSeparator::Space, false);
         let v = Value::new_with_arena(&arena, ValueKind::List(empty));
         assert_eq!(v.to_display_string().unwrap(), "()");
     }
@@ -334,6 +341,7 @@ mod tests {
         let arena = Bump::new();
         // Mirrors Go: TestListString_SingleCommaInspect — no extra parens added.
         let single = SassList::new(
+            &arena,
             vec![ValueKind::unitless_number(&arena, 42.0)],
             ListSeparator::Comma,
             false,
@@ -347,6 +355,7 @@ mod tests {
         let arena = Bump::new();
         // Bracketed lists don't get extra parens (Go listString HasBrackets branch).
         let list = SassList::new(
+            &arena,
             vec![
                 ValueKind::unitless_number(&arena, 1.0),
                 ValueKind::unitless_number(&arena, 2.0),

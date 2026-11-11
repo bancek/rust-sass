@@ -220,7 +220,7 @@ pub(crate) fn evaluate_value_expression<'compile, 'parse>(
 where
     'compile: 'parse,
 {
-    Ok(*expr.value)
+    Ok(expr.value)
 }
 
 // ===========================================================================
@@ -243,9 +243,7 @@ where
     'compile: 'parse,
 {
     let result = add_exception_span(config, state, expr.span, None, async |_config, state| {
-        state
-            .env
-            .get_variable(&expr.name, expr.namespace.as_deref())
+        state.env.get_variable(expr.name, expr.namespace)
     })
     .await?;
     match result {
@@ -290,7 +288,7 @@ where
         ))
     } else {
         let mut buf = String::new();
-        for part in &text.contents {
+        for part in text.contents {
             match part {
                 InterpolationPart::Text(t) => {
                     buf.push_str(t);
@@ -332,10 +330,10 @@ pub(crate) fn evaluate_number_expression<'compile, 'parse>(
 where
     'compile: 'parse,
 {
-    let unit: Option<&str> = expr.unit.as_deref();
+    let unit: Option<&str> = expr.unit;
     Ok(Value::new_with_arena(
         arena,
-        ValueKind::Number(SassNumber::new(expr.value, unit)),
+        ValueKind::Number(SassNumber::new(arena, expr.value, unit)),
     ))
 }
 
@@ -400,10 +398,7 @@ pub(crate) fn evaluate_color_expression<'compile, 'parse>(
 where
     'compile: 'parse,
 {
-    Ok(Value::new_with_arena(
-        arena,
-        ValueKind::Color((*expr.value).clone()),
-    ))
+    Ok(Value::new_with_arena(arena, ValueKind::Color(*expr.value)))
 }
 
 // ===========================================================================
@@ -426,11 +421,11 @@ where
     'compile: 'parse,
 {
     let mut contents = Vec::with_capacity(expr.contents.len());
-    for element in &expr.contents {
+    for element in expr.contents {
         let val = evaluate_expression(config, state, arena, element).await?;
         contents.push(val);
     }
-    let list = SassList::new(contents, expr.separator, expr.has_brackets);
+    let list = SassList::new(arena, contents, expr.separator, expr.has_brackets);
     Ok(Value::new_with_arena(arena, ValueKind::List(list)))
 }
 
@@ -456,7 +451,7 @@ where
 {
     let mut map = SassMap::empty();
     let mut key_spans: Vec<(Value<'parse>, FileSpan<'parse>)> = Vec::new();
-    for (key_expr, val_expr) in &expr.pairs {
+    for (key_expr, val_expr) in expr.pairs {
         let key = evaluate_expression(config, state, arena, key_expr).await?;
         let val = evaluate_expression(config, state, arena, val_expr).await?;
         if map.contains(&key) {
@@ -477,7 +472,7 @@ where
             }));
         }
         key_spans.push((key, key_expr.span()?));
-        map.set(key, val);
+        map.set(arena, key, val);
     }
     Ok(Value::new_with_arena(arena, ValueKind::Map(map)))
 }
@@ -523,31 +518,31 @@ where
     }
 
     add_exception_span(config, state, span, None, async |cfg, st| {
-        let left = evaluate_expression(cfg, st, arena, &expr.left).await?;
+        let left = evaluate_expression(cfg, st, arena, expr.left).await?;
 
         match expr.operator {
             BinaryOperator::SingleEquals => {
-                let right = evaluate_expression(cfg, st, arena, &expr.right).await?;
+                let right = evaluate_expression(cfg, st, arena, expr.right).await?;
                 left.single_equals(arena, &right)
             }
             BinaryOperator::Or => {
                 if left.is_truthy() {
                     return Ok(left);
                 }
-                evaluate_expression(cfg, st, arena, &expr.right).await
+                evaluate_expression(cfg, st, arena, expr.right).await
             }
             BinaryOperator::And => {
                 if !left.is_truthy() {
                     return Ok(left);
                 }
-                evaluate_expression(cfg, st, arena, &expr.right).await
+                evaluate_expression(cfg, st, arena, expr.right).await
             }
             BinaryOperator::DividedBy => {
-                let right = evaluate_expression(cfg, st, arena, &expr.right).await?;
+                let right = evaluate_expression(cfg, st, arena, expr.right).await?;
                 slash_divide(cfg, st, arena, expr, left, right)
             }
             _ => {
-                let right = evaluate_expression(cfg, st, arena, &expr.right).await?;
+                let right = evaluate_expression(cfg, st, arena, expr.right).await?;
                 evaluate_binary_op(arena, expr, left, right)
             }
         }
@@ -623,15 +618,17 @@ where
 
     if let (ValueKind::Number(left_num), ValueKind::Number(right_num)) = (&*left, &*right) {
         if expr.allows_slash() {
-            let left_allows_slash = operand_allows_slash(&expr.left, state)?;
-            let right_allows_slash = operand_allows_slash(&expr.right, state)?;
+            let left_allows_slash = operand_allows_slash(expr.left, state)?;
+            let right_allows_slash = operand_allows_slash(expr.right, state)?;
             if left_allows_slash && right_allows_slash {
                 if let ValueKind::Number(result_num) = &*result {
                     return Ok(Value::new_with_arena(
                         arena,
-                        ValueKind::Number(
-                            result_num.with_slash(left_num.clone(), right_num.clone()),
-                        ),
+                        ValueKind::Number(result_num.with_slash(
+                            arena,
+                            left_num.clone(),
+                            right_num.clone(),
+                        )),
                     ));
                 }
             }
@@ -640,7 +637,7 @@ where
         let span = expr.span()?;
         let rec_str =
             slash_division_recommendation_expr(&Expression::BinaryOperation(expr.clone()))?;
-        let calc_expr = expression_to_calc(&Expression::BinaryOperation(expr.clone()))?;
+        let calc_expr = expression_to_calc(arena, &Expression::BinaryOperation(expr.clone()))?;
         let calc_str = calc_expr.to_display_string()?;
         let message = format!(
             "Using / for division outside of calc() is deprecated \
@@ -679,11 +676,11 @@ where
             }
             if !CALC_FUNCTION_NAMES
                 .iter()
-                .any(|n| n.eq_ignore_ascii_case(&fe.name))
+                .any(|n| n.eq_ignore_ascii_case(fe.name))
             {
                 return Ok(false);
             }
-            let declared = state.env.get_function(&fe.name, None)?;
+            let declared = state.env.get_function(fe.name, None)?;
             Ok(declared.is_none())
         }
         _ => Ok(true),
@@ -702,8 +699,8 @@ where
 fn slash_division_recommendation_expr(expr: &Expression<'_>) -> SassResult<String> {
     match expr {
         Expression::BinaryOperation(be) if be.operator == BinaryOperator::DividedBy => {
-            let left = slash_division_recommendation_expr(&be.left)?;
-            let right = slash_division_recommendation_expr(&be.right)?;
+            let left = slash_division_recommendation_expr(be.left)?;
+            let right = slash_division_recommendation_expr(be.right)?;
             Ok(format!("math.div({}, {})", left, right))
         }
         Expression::Parenthesized(pe) => pe.expression.to_display_string(),
@@ -730,7 +727,7 @@ pub(crate) async fn evaluate_unary_operation<'compile, 'parse>(
 where
     'compile: 'parse,
 {
-    let operand = evaluate_expression(config, state, arena, &expr.operand).await?;
+    let operand = evaluate_expression(config, state, arena, expr.operand).await?;
     let result = match expr.operator {
         UnaryOperator::Not => Ok(Value::new_with_arena(
             arena,
@@ -783,7 +780,7 @@ where
     let fn_from_env = if !is_plain_css {
         let span = expr.span()?;
         add_exception_span(config, state, span, None, async |_cfg, st| {
-            st.env.get_function(&expr.name, expr.namespace.as_deref())
+            st.env.get_function(expr.name, expr.namespace)
         })
         .await?
     } else {
@@ -808,7 +805,7 @@ where
             // Sass built-in (which would reject incompatible units).
             if CSS_MATH_FUNCTION_NAMES
                 .iter()
-                .any(|n| n.eq_ignore_ascii_case(&expr.name))
+                .any(|n| n.eq_ignore_ascii_case(expr.name))
             {
                 let lower = expr.name.to_lowercase();
                 if lower == "min" || lower == "max" || lower == "round" || lower == "abs" {
@@ -841,12 +838,12 @@ where
                 Callable::new(
                     arena,
                     CallableKind::PlainCss(PlainCssCallable {
-                        name: expr.original_name.clone(),
+                        name: arena.alloc_str(expr.original_name),
                     }),
                 )
             } else {
                 let bf = config.built_in_functions.borrow();
-                if let Some(c) = bf.get(&expr.name) {
+                if let Some(c) = bf.get(expr.name) {
                     *c
                 } else {
                     // Check global functions
@@ -858,7 +855,7 @@ where
                             Callable::new(
                                 arena,
                                 CallableKind::PlainCss(PlainCssCallable {
-                                    name: expr.original_name.clone(),
+                                    name: arena.alloc_str(expr.original_name),
                                 }),
                             )
                         })
@@ -889,7 +886,7 @@ where
         && matches!(fn_callable.kind(), CallableKind::PlainCss(_))
         && CSS_MATH_FUNCTION_NAMES
             .iter()
-            .any(|n| n.eq_ignore_ascii_case(&expr.name))
+            .any(|n| n.eq_ignore_ascii_case(expr.name))
     {
         let lower = expr.name.to_lowercase();
         if lower == "min" || lower == "max" || lower == "round" || lower == "abs" {
@@ -952,7 +949,7 @@ where
             Some(span),
         )));
     }
-    evaluate_expression(config, state, arena, &expr.expression).await
+    evaluate_expression(config, state, arena, expr.expression).await
 }
 
 // ===========================================================================
@@ -1001,7 +998,7 @@ pub(crate) async fn evaluate_supports_expression<'compile, 'parse>(
 where
     'compile: 'parse,
 {
-    let text = visit_supports_condition(config, state, arena, &expr.condition).await?;
+    let text = visit_supports_condition(config, state, arena, expr.condition).await?;
     Ok(Value::new_with_arena(
         arena,
         ValueKind::String(SassString::new(arena.alloc_str(&text), false)),
@@ -1073,7 +1070,7 @@ where
         }
         SupportsCondition::Negation(neg) => {
             let inner = box_rec_in!(
-                parenthesize_supports_condition(config, state, arena, &neg.condition, None),
+                parenthesize_supports_condition(config, state, arena, neg.condition, None),
                 arena,
             )
             .await?;
@@ -1081,12 +1078,12 @@ where
         }
         SupportsCondition::Operation(op) => {
             let left = box_rec_in!(
-                parenthesize_supports_condition(config, state, arena, &op.left, Some(op.operator)),
+                parenthesize_supports_condition(config, state, arena, op.left, Some(op.operator)),
                 arena,
             )
             .await?;
             let right = box_rec_in!(
-                parenthesize_supports_condition(config, state, arena, &op.right, Some(op.operator)),
+                parenthesize_supports_condition(config, state, arena, op.right, Some(op.operator)),
                 arena,
             )
             .await?;
@@ -1144,7 +1141,7 @@ where
 {
     let mut results: Vec<IfBranchResult<'_>> = Vec::new();
 
-    for branch in &expr.branches {
+    for branch in expr.branches {
         let cond_result = match &branch.condition {
             Some(condition) => evaluate_if_condition(config, state, arena, condition).await?,
             None => IfCondResult::Bool(true),
@@ -1216,12 +1213,12 @@ where
 {
     match condition {
         IfConditionExpression::Sass(sass) => {
-            let val = evaluate_expression(config, state, arena, &sass.expression).await?;
+            let val = evaluate_expression(config, state, arena, sass.expression).await?;
             Ok(IfCondResult::Bool(val.is_truthy()))
         }
         IfConditionExpression::Negation(neg) => {
             let inner = box_rec_in!(
-                evaluate_if_condition(config, state, arena, &neg.expression),
+                evaluate_if_condition(config, state, arena, neg.expression),
                 arena,
             )
             .await?;
@@ -1232,7 +1229,7 @@ where
         }
         IfConditionExpression::Parenthesized(p) => {
             let inner = box_rec_in!(
-                evaluate_if_condition(config, state, arena, &p.expression),
+                evaluate_if_condition(config, state, arena, p.expression),
                 arena,
             )
             .await?;
@@ -1411,7 +1408,12 @@ where
     'compile: 'parse,
 {
     let name = perform_interpolation(config, state, arena, &expr.name, false).await?;
-    let fn_callable = Callable::new(arena, CallableKind::PlainCss(PlainCssCallable { name }));
+    let fn_callable = Callable::new(
+        arena,
+        CallableKind::PlainCss(PlainCssCallable {
+            name: arena.alloc_str(&name),
+        }),
+    );
 
     let old_in_function = state.in_function;
     state.in_function = true;
@@ -1500,7 +1502,7 @@ where
             // Go: evaluate_statement.go:1554-1577 — fill in named/default params
             for i in positional.len()..overload.params.parameters.len() {
                 let param = &overload.params.parameters[i];
-                if let Some(val) = named.swap_remove(param.name.as_str()) {
+                if let Some(val) = named.swap_remove(param.name) {
                     positional.push(val);
                 } else if let Some(ref default_expr) = param.default_value {
                     let val = evaluate_expression(config, state, arena, default_expr).await?;
@@ -1600,7 +1602,7 @@ where
                     Some(span),
                 )));
             }
-            let result = serialize_plain_css_call(config, state, arena, &p.name, arguments).await;
+            let result = serialize_plain_css_call(config, state, arena, p.name, arguments).await;
 
             match result {
                 Ok(result) => Ok(Value::new_with_arena(
@@ -1661,7 +1663,7 @@ where
     result.push_str(name);
     result.push('(');
     let mut first = true;
-    for expr in &arguments.positional {
+    for expr in arguments.positional {
         if !first {
             result.push_str(", ");
         }
@@ -1670,7 +1672,7 @@ where
         let css = serialize_value(config, state, &val, expr.span()?, true).await?;
         result.push_str(&css);
     }
-    if let Some(ref rest) = arguments.rest {
+    if let Some(rest) = arguments.rest {
         let rest_val = evaluate_expression(config, state, arena, rest).await?;
         if !first {
             result.push_str(", ");
@@ -1770,7 +1772,7 @@ mod tests {
         let (config, mut state) = test_visitor(&arena);
         let expr = NumberExpression {
             value: 42.0,
-            unit: Some("px".into()),
+            unit: Some("px"),
             span,
         };
         let result = evaluate_number_expression(&config, &mut state, &arena, &expr).unwrap();
@@ -1786,7 +1788,7 @@ mod tests {
         let span = make_span(&arena, "null");
         let (config, mut state) = test_visitor(&arena);
         let expr = ValueExpression {
-            value: Box::new(Value::new_with_arena(&arena, ValueKind::Null)),
+            value: Value::new_with_arena(&arena, ValueKind::Null),
             span,
         };
         let result = evaluate_value_expression(&config, &mut state, &expr).unwrap();
@@ -1799,7 +1801,7 @@ mod tests {
         let span = make_span(&arena, "$x");
         let (config, mut state) = test_visitor(&arena);
         let expr = VariableExpression {
-            name: "x".into(),
+            name: "x",
             span,
             namespace: None,
         };
@@ -1818,7 +1820,7 @@ mod tests {
             .env
             .set_local_variable("y", Value::new_with_arena(&arena, ValueKind::Null), span);
         let expr = VariableExpression {
-            name: "y".into(),
+            name: "y",
             span,
             namespace: None,
         };
@@ -1833,7 +1835,7 @@ mod tests {
         let arena = Bump::new();
         let span = make_span(&arena, "hello");
         let (config, mut state) = test_visitor(&arena);
-        let interp = Interpolation::plain("hello".into(), Span::File(span));
+        let interp = Interpolation::plain(&arena, "hello".into(), Span::File(span));
         let expr = StringExpression {
             text: interp,
             has_quotes: false,
@@ -1853,7 +1855,7 @@ mod tests {
         let span = make_span(&arena, "()");
         let (config, mut state) = test_visitor(&arena);
         let expr = ListExpression {
-            contents: vec![],
+            contents: &[],
             separator: ListSeparator::Comma,
             has_brackets: true,
             span,
@@ -1872,10 +1874,7 @@ mod tests {
         let arena = Bump::new();
         let span = make_span(&arena, "()");
         let (config, mut state) = test_visitor(&arena);
-        let expr = MapExpression {
-            pairs: vec![],
-            span,
-        };
+        let expr = MapExpression { pairs: &[], span };
         let result = evaluate_map_expression(&config, &mut state, &arena, &expr)
             .await
             .unwrap();
@@ -1892,7 +1891,7 @@ mod tests {
         let (config, mut state) = test_visitor(&arena);
         let expr = UnaryOperationExpression {
             operator: UnaryOperator::Not,
-            operand: Box::new(Expression::Boolean(BooleanExpression { value: true, span })),
+            operand: arena.alloc(Expression::Boolean(BooleanExpression { value: true, span })),
             span,
         };
         let result = evaluate_unary_operation(&config, &mut state, &arena, &expr)
@@ -1908,8 +1907,8 @@ mod tests {
         let (config, mut state) = test_visitor(&arena);
         let expr = BinaryOperationExpression {
             operator: BinaryOperator::Or,
-            left: Box::new(Expression::Boolean(BooleanExpression { value: true, span })),
-            right: Box::new(Expression::Null(NullExpression { span })),
+            left: arena.alloc(Expression::Boolean(BooleanExpression { value: true, span })),
+            right: arena.alloc(Expression::Null(NullExpression { span })),
             allows_slash: false,
         };
         let result = evaluate_binary_operation(&config, &mut state, &arena, &expr)
@@ -1925,11 +1924,11 @@ mod tests {
         let (config, mut state) = test_visitor(&arena);
         let expr = BinaryOperationExpression {
             operator: BinaryOperator::And,
-            left: Box::new(Expression::Boolean(BooleanExpression {
+            left: arena.alloc(Expression::Boolean(BooleanExpression {
                 value: false,
                 span,
             })),
-            right: Box::new(Expression::Null(NullExpression { span })),
+            right: arena.alloc(Expression::Null(NullExpression { span })),
             allows_slash: false,
         };
         let result = evaluate_binary_operation(&config, &mut state, &arena, &expr)
@@ -1945,12 +1944,12 @@ mod tests {
         let (config, mut state) = test_visitor(&arena);
         let expr = BinaryOperationExpression {
             operator: BinaryOperator::Plus,
-            left: Box::new(Expression::Number(NumberExpression {
+            left: arena.alloc(Expression::Number(NumberExpression {
                 value: 1.0,
                 unit: None,
                 span,
             })),
-            right: Box::new(Expression::Number(NumberExpression {
+            right: arena.alloc(Expression::Number(NumberExpression {
                 value: 2.0,
                 unit: None,
                 span,
@@ -1974,14 +1973,14 @@ mod tests {
         let arena = Bump::new();
         let io: Rc<dyn Io> = Rc::new(VirtualIo::new());
         let logger = Rc::new(RecordLogger::new());
-        let opts = CompileOptions {
+        let mut opts = CompileOptions {
             logger: Some(logger.clone()),
             ..CompileOptions::new(&arena)
         };
         let result = compile_string(
             "$s: 1/2;\na { b: if(sass(true): $s; else: 0); }",
             io,
-            opts,
+            &mut opts,
             &arena,
         )
         .await
@@ -1997,11 +1996,11 @@ mod tests {
         // inspect parens, while quoted strings keep their quotes.
         let arena = Bump::new();
         let io: Rc<dyn Io> = Rc::new(VirtualIo::new());
-        let opts = CompileOptions::new(&arena);
+        let mut opts = CompileOptions::new(&arena);
         let result = compile_string(
             "a { b: if(css(): (x, y)); c: if(css(): \"s\"); }",
             io,
-            opts,
+            &mut opts,
             &arena,
         )
         .await

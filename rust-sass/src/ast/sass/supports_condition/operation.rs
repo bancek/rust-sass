@@ -1,3 +1,5 @@
+use bumpalo::Bump;
+
 // Copyright 2016 Google Inc. Use of this source code is governed by an
 // MIT-style license that can be found in the LICENSE file or at
 // https://opensource.org/licenses/MIT.
@@ -26,9 +28,9 @@ use crate::ast::sass::supports_condition::SupportsCondition;
 /// `<left> and|or <right>`.
 pub struct SupportsOperation<'parse> {
     /// The left-hand operand.
-    pub left: Box<SupportsCondition<'parse>>,
+    pub left: &'parse SupportsCondition<'parse>,
     /// The right-hand operand.
-    pub right: Box<SupportsCondition<'parse>>,
+    pub right: &'parse SupportsCondition<'parse>,
     /// The operator.
     pub operator: BooleanOperator,
     /// The span covering the whole `left <op> right` condition.
@@ -37,14 +39,15 @@ pub struct SupportsOperation<'parse> {
 
 impl<'parse> SupportsOperation<'parse> {
     pub fn new(
+        arena: &'parse Bump,
         left: SupportsCondition<'parse>,
         right: SupportsCondition<'parse>,
         operator: BooleanOperator,
         span: FileSpan<'parse>,
     ) -> Self {
         SupportsOperation {
-            left: Box::new(left),
-            right: Box::new(right),
+            left: arena.alloc(left),
+            right: arena.alloc(right),
             operator,
             span,
         }
@@ -53,9 +56,9 @@ impl<'parse> SupportsOperation<'parse> {
     // Rebuilds an interpolation with the same text by splicing both
     // operands' interpolations back between the `before`/`between`/`after`
     // source slices.
-    pub fn to_interpolation(&self) -> SassResult<Interpolation<'parse>> {
-        let left_interp = self.left.to_interpolation()?;
-        let right_interp = self.right.to_interpolation()?;
+    pub fn to_interpolation(&self, arena: &'parse Bump) -> SassResult<Interpolation<'parse>> {
+        let left_interp = self.left.to_interpolation(arena)?;
+        let right_interp = self.right.to_interpolation(arena)?;
         let left_fs = self.left.span()?;
         let right_fs = self.right.span()?;
         let left_s = Span::File(left_fs);
@@ -71,12 +74,13 @@ impl<'parse> SupportsOperation<'parse> {
         buf.write(between.text());
         buf.add_interpolation(&right_interp);
         buf.write(after.text());
-        buf.interpolation(self.span)
+        buf.interpolation(arena, self.span)
     }
 
     // Returns a copy of this condition with `span` as its span.
-    pub fn with_span(&self, span: FileSpan<'parse>) -> Self {
+    pub fn with_span(&self, arena: &'parse Bump, span: FileSpan<'parse>) -> Self {
         Self::new(
+            arena,
             (*self.left).clone(),
             (*self.right).clone(),
             self.operator,
@@ -111,9 +115,9 @@ impl<'parse> SupportsOperation<'parse> {
         write!(
             buf,
             "{} {} {}",
-            self.parenthesize(&self.left),
+            self.parenthesize(self.left),
             self.operator,
-            self.parenthesize(&self.right),
+            self.parenthesize(self.right),
         )
         .unwrap();
         Ok(buf)
@@ -172,6 +176,7 @@ mod tests {
         let left = make_interpolation_cond(&arena, "#{a}");
         let right = make_interpolation_cond(&arena, "#{b}");
         let cond = SupportsOperation::new(
+            &arena,
             left,
             right,
             BooleanOperator::And,
@@ -186,6 +191,7 @@ mod tests {
         let inner_left = make_interpolation_cond(&arena, "#{a}");
         let inner_right = make_interpolation_cond(&arena, "#{b}");
         let inner = SupportsCondition::Operation(SupportsOperation::new(
+            &arena,
             inner_left,
             inner_right,
             BooleanOperator::And,
@@ -193,6 +199,7 @@ mod tests {
         ));
         let right = make_interpolation_cond(&arena, "#{c}");
         let cond = SupportsOperation::new(
+            &arena,
             inner,
             right,
             BooleanOperator::And,

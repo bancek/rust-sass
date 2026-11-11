@@ -8,7 +8,6 @@
 // go-source: go/functions/list.go
 
 use crate::value::SassNumber;
-use std::rc::Rc;
 
 use crate::callable::{BuiltInCallable, Callable, CallableKind};
 use crate::common::exception::{SassError, SassResult};
@@ -37,41 +36,41 @@ where
     vec![
         c!(
             arena,
-            length_function(arena).with_deprecation_warning("list", None)
+            length_function(arena).with_deprecation_warning(arena, "list", None)
         ),
         c!(
             arena,
-            nth_function(arena).with_deprecation_warning("list", None)
+            nth_function(arena).with_deprecation_warning(arena, "list", None)
         ),
         c!(
             arena,
-            set_nth_function(arena).with_deprecation_warning("list", None)
+            set_nth_function(arena).with_deprecation_warning(arena, "list", None)
         ),
         c!(
             arena,
-            join_function(arena).with_deprecation_warning("list", None)
+            join_function(arena).with_deprecation_warning(arena, "list", None)
         ),
         c!(
             arena,
-            append_function(arena).with_deprecation_warning("list", None)
+            append_function(arena).with_deprecation_warning(arena, "list", None)
         ),
         c!(
             arena,
-            zip_function(arena).with_deprecation_warning("list", None)
+            zip_function(arena).with_deprecation_warning(arena, "list", None)
         ),
         c!(
             arena,
-            index_function(arena).with_deprecation_warning("list", None)
+            index_function(arena).with_deprecation_warning(arena, "list", None)
         ),
         c!(
             arena,
-            is_bracketed_function(arena).with_deprecation_warning("list", None)
+            is_bracketed_function(arena).with_deprecation_warning(arena, "list", None)
         ),
         c!(
             arena,
             separator_function(arena)
-                .with_deprecation_warning("list", None)
-                .with_name("list-separator".into())
+                .with_deprecation_warning(arena, "list", None)
+                .with_name(arena, "list-separator")
         ),
     ]
 }
@@ -113,12 +112,19 @@ where
         "$list",
         "sass:list",
         arena,
-        Rc::new(move |_config, _state, args, arena: &'compile Bump| {
-            Ok(Value::new_with_arena(
-                arena,
-                ValueKind::Number(SassNumber::new(args[0].length_as_list() as f64, None)),
-            ))
-        }),
+        crate::callable::built_in_callback(
+            arena,
+            move |_config, _state, args, arena: &'compile Bump| {
+                Ok(Value::new_with_arena(
+                    arena,
+                    ValueKind::Number(SassNumber::new(
+                        arena,
+                        args[0].length_as_list() as f64,
+                        None,
+                    )),
+                ))
+            },
+        ),
     )
 }
 
@@ -131,14 +137,17 @@ where
         "$list, $n",
         "sass:list",
         arena,
-        Rc::new(move |config, state, args, arena: &'compile Bump| {
-            let a = args[0];
-            let warn_buf = BufferedWarnLogger::new(arena);
-            let index = sass_index_to_list_index(&a, &args[1], "n", &warn_buf)?;
-            flush_buffered_warnings(&warn_buf, config, state)?;
-            let list = a.as_list(arena)?;
-            Ok(list[index])
-        }),
+        crate::callable::built_in_callback(
+            arena,
+            move |config, state, args, arena: &'compile Bump| {
+                let a = args[0];
+                let warn_buf = BufferedWarnLogger::new();
+                let index = sass_index_to_list_index(&a, &args[1], "n", &warn_buf)?;
+                flush_buffered_warnings(&warn_buf, config, state)?;
+                let list = a.as_list(arena)?;
+                Ok(list[index])
+            },
+        ),
     )
 }
 
@@ -151,10 +160,11 @@ where
         "$list, $n, $value",
         "sass:list",
         arena,
-        Rc::new(
+        crate::callable::built_in_callback(
+            arena,
             move |config, state, args: Vec<Value<'parse>>, arena: &'compile Bump| {
                 let a = args[0];
-                let warn_buf = BufferedWarnLogger::new(arena);
+                let warn_buf = BufferedWarnLogger::new();
                 let index = sass_index_to_list_index(&a, &args[1], "n", &warn_buf)?;
                 flush_buffered_warnings(&warn_buf, config, state)?;
                 let list = a.as_list(arena)?;
@@ -164,7 +174,7 @@ where
                 let bracketed = a.has_brackets();
                 Ok(Value::new_with_arena(
                     arena,
-                    ValueKind::List(SassList::new(v, sep, bracketed)),
+                    ValueKind::List(SassList::new(arena, v, sep, bracketed)),
                 ))
             },
         ),
@@ -180,7 +190,8 @@ where
         "$list1, $list2, $separator: auto, $bracketed: auto",
         "sass:list",
         arena,
-        Rc::new(
+        crate::callable::built_in_callback(
+            arena,
             move |_config,
                   _state,
                   args: Vec<Value<'parse>>,
@@ -197,7 +208,7 @@ where
                 v.extend(l2.iter().cloned());
                 Ok(Value::new_with_arena(
                     arena,
-                    ValueKind::List(SassList::new(v, sep, bracketed)),
+                    ValueKind::List(SassList::new(arena, v, sep, bracketed)),
                 ))
             },
         ),
@@ -274,7 +285,8 @@ where
         "$list, $val, $separator: auto",
         "sass:list",
         arena,
-        Rc::new(
+        crate::callable::built_in_callback(
+            arena,
             move |_config, _state, args: Vec<Value<'parse>>, arena: &'compile Bump| {
                 let a = args[0];
                 let mut v: Vec<Value<'_>> = a.as_list(arena)?;
@@ -282,7 +294,7 @@ where
                 v.push(args[1]);
                 Ok(Value::new_with_arena(
                     arena,
-                    ValueKind::List(SassList::new(v, sep, a.has_brackets())),
+                    ValueKind::List(SassList::new(arena, v, sep, a.has_brackets())),
                 ))
             },
         ),
@@ -330,7 +342,8 @@ where
         "$lists...",
         "sass:list",
         arena,
-        Rc::new(
+        crate::callable::built_in_callback(
+            arena,
             move |_config, _state, args, arena: &'compile Bump| -> SassResult<Value<'parse>> {
                 let a = args[0];
                 let lists = a.as_list(arena)?;
@@ -353,13 +366,13 @@ where
                     let entry: Vec<Value<'_>> = sub_lists.iter().map(|l| l[i]).collect();
                     results.push(Value::new_with_arena(
                         arena,
-                        ValueKind::List(SassList::new(entry, ListSeparator::Space, false)),
+                        ValueKind::List(SassList::new(arena, entry, ListSeparator::Space, false)),
                     ));
                     i += 1;
                 }
                 Ok(Value::new_with_arena(
                     arena,
-                    ValueKind::List(SassList::new(results, ListSeparator::Comma, false)),
+                    ValueKind::List(SassList::new(arena, results, ListSeparator::Comma, false)),
                 ))
             },
         ),
@@ -375,7 +388,8 @@ where
         "$list, $value",
         "sass:list",
         arena,
-        Rc::new(
+        crate::callable::built_in_callback(
+            arena,
             move |_config, _state, args: Vec<Value<'parse>>, arena: &'compile Bump| {
                 let a = args[0];
                 let list = a.as_list(arena)?;
@@ -383,7 +397,7 @@ where
                     if item == &args[1] {
                         return Ok(Value::new_with_arena(
                             arena,
-                            ValueKind::Number(SassNumber::new((i + 1) as f64, None)),
+                            ValueKind::Number(SassNumber::new(arena, (i + 1) as f64, None)),
                         ));
                     }
                 }
@@ -404,7 +418,8 @@ where
         "$list",
         "sass:list",
         arena,
-        Rc::new(
+        crate::callable::built_in_callback(
+            arena,
             move |_config, _state, args: Vec<Value<'parse>>, arena: &'compile Bump| {
                 Ok(Value::new_with_arena(
                     arena,
@@ -428,7 +443,8 @@ where
         "$list",
         "sass:list",
         arena,
-        Rc::new(
+        crate::callable::built_in_callback(
+            arena,
             move |_config, _state, args: Vec<Value<'parse>>, arena: &'compile Bump| {
                 Ok(Value::new_with_arena(
                     arena,
@@ -455,7 +471,8 @@ where
         "$elements...",
         "sass:list",
         arena,
-        Rc::new(
+        crate::callable::built_in_callback(
+            arena,
             move |_config, _state, args: Vec<Value<'parse>>, arena: &'compile Bump| {
                 let a = args[0];
                 let list = a.as_list(arena)?;
@@ -468,7 +485,7 @@ where
                 let v: Vec<Value<'_>> = list.to_vec();
                 Ok(Value::new_with_arena(
                     arena,
-                    ValueKind::List(SassList::new(v, ListSeparator::Slash, false)),
+                    ValueKind::List(SassList::new(arena, v, ListSeparator::Slash, false)),
                 ))
             },
         ),
@@ -483,7 +500,7 @@ mod tests {
     use crate::functions::test_utils::*;
 
     fn num<'compile: 'parse, 'parse>(arena: &'compile Bump, v: f64) -> Value<'parse> {
-        Value::new_with_arena(arena, ValueKind::Number(SassNumber::new(v, None)))
+        Value::new_with_arena(arena, ValueKind::Number(SassNumber::new(arena, v, None)))
     }
 
     fn s<'compile: 'parse, 'parse>(arena: &'compile Bump, s: &str) -> Value<'parse> {
@@ -499,7 +516,12 @@ mod tests {
     ) -> Value<'parse> {
         Value::new_with_arena(
             arena,
-            ValueKind::List(SassList::new(items.to_vec(), ListSeparator::Comma, false)),
+            ValueKind::List(SassList::new(
+                arena,
+                items.to_vec(),
+                ListSeparator::Comma,
+                false,
+            )),
         )
     }
 
@@ -509,7 +531,12 @@ mod tests {
     ) -> Value<'parse> {
         Value::new_with_arena(
             arena,
-            ValueKind::List(SassList::new(items.to_vec(), ListSeparator::Space, false)),
+            ValueKind::List(SassList::new(
+                arena,
+                items.to_vec(),
+                ListSeparator::Space,
+                false,
+            )),
         )
     }
 
@@ -519,7 +546,12 @@ mod tests {
     ) -> Value<'parse> {
         Value::new_with_arena(
             arena,
-            ValueKind::List(SassList::new(items.to_vec(), ListSeparator::Space, true)),
+            ValueKind::List(SassList::new(
+                arena,
+                items.to_vec(),
+                ListSeparator::Space,
+                true,
+            )),
         )
     }
 
@@ -529,7 +561,12 @@ mod tests {
     ) -> Value<'parse> {
         Value::new_with_arena(
             arena,
-            ValueKind::List(SassList::new(items.to_vec(), ListSeparator::Slash, false)),
+            ValueKind::List(SassList::new(
+                arena,
+                items.to_vec(),
+                ListSeparator::Slash,
+                false,
+            )),
         )
     }
 

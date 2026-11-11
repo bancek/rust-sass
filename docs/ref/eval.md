@@ -11,9 +11,10 @@ logic in free functions (see `architecture.md` §7 for the rationale):
 ```rust
 pub struct EvalConfig<'compile, 'parse> {
     pub built_in_modules: IndexMap<String, Module<'compile, 'parse>>,
-    // Shared mutable via arena &'parse RefCell (Copy) — meta callbacks capture it:
-    pub built_in_functions: &'parse RefCell<IndexMap<String, Callable<'compile, 'parse>>>,
-    pub global_functions: &'parse RefCell<Vec<Callable<'compile, 'parse>>>,
+    // Shared mutable via arena &'parse RefCell (Copy) — meta callbacks capture it.
+    // Keys are hyphen-normalized names, allocated in the arena:
+    pub built_in_functions: &'parse RefCell<ArenaMap<'parse, &'parse str, Callable<'compile, 'parse>>>,
+    pub global_functions: &'parse RefCell<ArenaVec<'parse, Callable<'compile, 'parse>>>,
     pub logger: Rc<dyn Logger>,
     pub compile_context: CompileContext,
     pub io: Rc<dyn Io>,

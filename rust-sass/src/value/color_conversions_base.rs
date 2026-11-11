@@ -44,7 +44,7 @@ pub(crate) fn space_channel_names(space: ColorSpace) -> [&'static str; 3] {
     ]
 }
 
-impl SassColor {
+impl<'parse> SassColor<'parse> {
     /// Whether this color is in-gamut for its color space.
     ///
     /// Unbounded spaces are always in gamut; polar-angle channels never count
@@ -63,9 +63,9 @@ impl SassColor {
     ///
     /// In-gamut colors return unchanged; out-of-gamut colors are mapped with
     /// the given method.
-    pub fn to_gamut(&self, method: GamutMapMethod) -> SassResult<SassColor> {
+    pub fn to_gamut(&self, method: GamutMapMethod) -> SassResult<SassColor<'parse>> {
         if self.is_in_gamut() {
-            return Ok(self.clone());
+            return Ok(*self);
         }
         match method {
             GamutMapMethod::Clip => Ok(clip_gamut_map(self)),
@@ -74,7 +74,7 @@ impl SassColor {
     }
 
     /// Returns a copy of this color with the alpha channel set to `alpha`.
-    pub fn change_alpha(&self, alpha: f64) -> SassResult<SassColor> {
+    pub fn change_alpha(&self, alpha: f64) -> SassResult<SassColor<'parse>> {
         SassColor::new_color_for_space_internal(
             self.space,
             Some(self.channel0),
@@ -94,7 +94,7 @@ impl SassColor {
         green: Option<i32>,
         blue: Option<i32>,
         alpha: Option<f64>,
-    ) -> SassResult<SassColor> {
+    ) -> SassResult<SassColor<'parse>> {
         if !self.is_legacy() {
             return Err(Box::new(SassError::Script {
                 message: "color.changeRgb() is only supported for legacy colors. Please use color.changeChannels() instead with an explicit $space argument.".into(),
@@ -127,7 +127,7 @@ impl SassColor {
         saturation: Option<f64>,
         lightness: Option<f64>,
         alpha: Option<f64>,
-    ) -> SassResult<SassColor> {
+    ) -> SassResult<SassColor<'parse>> {
         if !self.is_legacy() {
             return Err(Box::new(SassError::Script {
                 message: "color.changeHsl() is only supported for legacy colors. Please use color.changeChannels() instead with an explicit $space argument.".into(),
@@ -168,7 +168,7 @@ impl SassColor {
         whiteness: Option<f64>,
         blackness: Option<f64>,
         alpha: Option<f64>,
-    ) -> SassResult<SassColor> {
+    ) -> SassResult<SassColor<'parse>> {
         if !self.is_legacy() {
             return Err(Box::new(SassError::Script {
                 // Matches Dart verbatim, typo included: changeHwb throws
@@ -209,7 +209,7 @@ impl SassColor {
         &self,
         new_values: &HashMap<String, f64>,
         space: Option<&ColorSpace>,
-    ) -> SassResult<SassColor> {
+    ) -> SassResult<SassColor<'parse>> {
         change_channels_impl(self, new_values, None, space)
     }
 
@@ -286,14 +286,14 @@ fn is_channel_in_gamut(value: f64, ch: &LinearChannel) -> bool {
 // Explicitly set channels win; the rest carry over (missing stays missing).
 // Dart's `colorName` duplicate-channel attribution is not threaded here; the
 // errors carry no argument name.
-fn change_channels_impl(
-    c: &SassColor,
+fn change_channels_impl<'parse>(
+    c: &SassColor<'parse>,
     new_values: &HashMap<String, f64>,
     _color_name: Option<&str>,
     space: Option<&ColorSpace>,
-) -> SassResult<SassColor> {
+) -> SassResult<SassColor<'parse>> {
     if new_values.is_empty() {
-        return Ok(c.clone());
+        return Ok(*c);
     }
 
     if let Some(sp) = space {

@@ -24,8 +24,10 @@ use crate::common::exception::SassResult;
 use crate::common::file_span::FileSpan;
 use crate::common::source_span_file_source::FileSource;
 use crate::deprecation::Deprecation;
-use crate::url::SassUrl;
+use crate::url::OwnedUrl;
 
+use crate::arena_map::ArenaMap;
+use crate::ast::sass::arena_slice;
 use crate::ast::sass::statement::forward_rule::ForwardRule;
 use crate::ast::sass::statement::use_rule::UseRule;
 use crate::ast::sass::statement::Statement;
@@ -35,12 +37,12 @@ use crate::ast::sass::statement::Statement;
 /// can emit it through a logger.
 pub struct ParseTimeWarning<'parse> {
     pub deprecation: Option<&'static Deprecation>,
-    pub message: String,
+    pub message: &'parse str,
     pub span: FileSpan<'parse>,
     /// Extra primary label carried beyond Dart's record, if any.
-    pub primary_label: Option<String>,
+    pub primary_label: Option<&'parse str>,
     /// Extra secondary labels carried beyond Dart's record, if any.
-    pub secondary: Vec<(FileSpan<'parse>, String)>,
+    pub secondary: &'parse [(FileSpan<'parse>, &'parse str)],
 }
 
 #[derive(Clone, Debug)]
@@ -48,32 +50,37 @@ pub struct ParseTimeWarning<'parse> {
 ///
 /// This is the root Sass node. It contains top-level statements.
 pub struct Stylesheet<'parse> {
-    pub children: Vec<Statement<'parse>>,
+    pub children: &'parse [Statement<'parse>],
     pub span: FileSpan<'parse>,
     // Whether this was parsed from a plain CSS stylesheet.
     pub plain_css: bool,
     /// All the `@use` rules that appear at the top of this stylesheet.
-    pub uses: Vec<UseRule<'parse>>,
+    pub uses: &'parse [UseRule<'parse>],
     /// All the `@forward` rules that appear at the top of this stylesheet.
-    pub forwards: Vec<ForwardRule<'parse>>,
+    pub forwards: &'parse [ForwardRule<'parse>],
     // Warnings discovered while parsing, emitted during evaluation once a
     // logger is available.
-    pub parse_time_warnings: Vec<ParseTimeWarning<'parse>>,
+    pub parse_time_warnings: &'parse [ParseTimeWarning<'parse>],
     // Normalized global variable names defined by this stylesheet, mapped to
     // the spans where they're defined.
-    pub global_variables: IndexMap<String, FileSpan<'parse>>,
+    pub global_variables: ArenaMap<'parse, &'parse str, FileSpan<'parse>>,
 }
 
 impl<'parse> Stylesheet<'parse> {
     /// Creates a stylesheet holding `children`.
-    pub fn new(children: Vec<Statement<'parse>>, span: FileSpan<'parse>) -> Self {
-        Stylesheet::detailed(children, span, vec![], false, IndexMap::new())
+    pub fn new(
+        arena: &'parse Bump,
+        children: &'parse [Statement<'parse>],
+        span: FileSpan<'parse>,
+    ) -> Self {
+        Stylesheet::detailed(arena, children, span, vec![], false, IndexMap::new())
     }
 
     // Internal constructor that also sets warnings, the plain-CSS flag, and
     // the global-variable table.
     pub fn detailed(
-        children: Vec<Statement<'parse>>,
+        arena: &'parse Bump,
+        children: &'parse [Statement<'parse>],
         span: FileSpan<'parse>,
         warnings: Vec<ParseTimeWarning<'parse>>,
         plain_css: bool,
@@ -81,7 +88,7 @@ impl<'parse> Stylesheet<'parse> {
     ) -> Self {
         let mut uses = Vec::new();
         let mut forwards = Vec::new();
-        for child in &children {
+        for child in children {
             match child {
                 Statement::UseRule(u) => uses.push(u.clone()),
                 Statement::ForwardRule(f) => forwards.push(f.clone()),
@@ -91,25 +98,29 @@ impl<'parse> Stylesheet<'parse> {
                 _ => break,
             }
         }
+        let mut gv = ArenaMap::with_capacity_in(global_variables.len(), arena);
+        for (name, span) in global_variables {
+            gv.insert(&*arena.alloc_str(&name), span);
+        }
         Stylesheet {
             children,
             span,
             plain_css,
-            uses,
-            forwards,
-            parse_time_warnings: warnings,
-            global_variables,
+            uses: arena_slice(arena, uses),
+            forwards: arena_slice(arena, forwards),
+            parse_time_warnings: arena_slice(arena, warnings),
+            global_variables: gv,
         }
     }
 
     /// Returns the `@use` rules at the top of this stylesheet.
     pub fn uses(&self) -> &[UseRule<'parse>] {
-        &self.uses
+        self.uses
     }
 
     /// Returns the `@forward` rules at the top of this stylesheet.
     pub fn forwards(&self) -> &[ForwardRule<'parse>] {
-        &self.forwards
+        self.forwards
     }
 
     /// Parses an SCSS stylesheet from `contents`.
@@ -119,12 +130,13 @@ impl<'parse> Stylesheet<'parse> {
     /// than raw interpolations. Returns an error if parsing fails.
     pub fn parse_scss<'compile: 'parse>(
         contents: &str,
-        url: Option<&SassUrl>,
+        url: Option<&OwnedUrl>,
         parse_selectors: bool,
         arena: &'compile Bump,
     ) -> SassResult<Self> {
-        let source = FileSource::new_in(arena, contents, url.cloned());
-        let mut parser = StylesheetParser::new(source, Syntax::Scss, None);
+        let url = url.map(|url| &*arena.alloc(crate::url::ArenaUrl::from_owned(arena, url)));
+        let source = FileSource::new_in(arena, contents, url);
+        let mut parser = StylesheetParser::new(source, Syntax::Scss, None, arena);
         parser.state.parse_selectors = parse_selectors;
         parse_impl(&mut parser.scanner, &mut parser.state).map_err(Into::into)
     }
@@ -136,11 +148,12 @@ impl<'parse> Stylesheet<'parse> {
     /// than raw interpolations. Returns an error if parsing fails.
     pub fn parse_sass<'compile: 'parse>(
         contents: &str,
-        url: Option<&SassUrl>,
+        url: Option<&OwnedUrl>,
         parse_selectors: bool,
         arena: &'compile Bump,
     ) -> SassResult<Self> {
-        let source = FileSource::new_in(arena, contents, url.cloned());
+        let url = url.map(|url| &*arena.alloc(crate::url::ArenaUrl::from_owned(arena, url)));
+        let source = FileSource::new_in(arena, contents, url);
         let mut parser = StylesheetParser::new(
             source,
             Syntax::Sass(SassIndentState {
@@ -150,6 +163,7 @@ impl<'parse> Stylesheet<'parse> {
                 indent_spaces: None,
             }),
             None,
+            arena,
         );
         parser.state.parse_selectors = parse_selectors;
         parse_impl(&mut parser.scanner, &mut parser.state).map_err(Into::into)
@@ -162,18 +176,20 @@ impl<'parse> Stylesheet<'parse> {
     /// than raw interpolations. Returns an error if parsing fails.
     pub fn parse_css<'compile: 'parse>(
         contents: &str,
-        url: Option<&SassUrl>,
+        url: Option<&OwnedUrl>,
         parse_selectors: bool,
         disallowed_function_names: &HashSet<String>,
         arena: &'compile Bump,
     ) -> SassResult<Self> {
-        let source = FileSource::new_in(arena, contents, url.cloned());
+        let url = url.map(|url| &*arena.alloc(crate::url::ArenaUrl::from_owned(arena, url)));
+        let source = FileSource::new_in(arena, contents, url);
         let mut parser = StylesheetParser::new(
             source,
             Syntax::Css(CssState {
                 disallowed_function_names: disallowed_function_names.clone(),
             }),
             None,
+            arena,
         );
         parser.state.parse_selectors = parse_selectors;
         parse_impl(&mut parser.scanner, &mut parser.state).map_err(Into::into)
@@ -227,7 +243,7 @@ mod tests {
     fn test_new() {
         let arena = Bump::new();
         let span = make_span(&arena, "a { }");
-        let ss = Stylesheet::new(vec![], span);
+        let ss = Stylesheet::new(&arena, &[], span);
         assert!(!ss.plain_css);
     }
 
@@ -236,7 +252,7 @@ mod tests {
         let arena = Bump::new();
         let span = make_span(&arena, "a { }");
         let gv: IndexMap<String, FileSpan> = IndexMap::new();
-        let ss = Stylesheet::detailed(vec![], span, vec![], true, gv);
+        let ss = Stylesheet::detailed(&arena, &[], span, vec![], true, gv);
         assert!(ss.plain_css);
     }
 
@@ -246,13 +262,13 @@ mod tests {
         let span = make_span(&arena, "test");
         let warnings = vec![ParseTimeWarning {
             deprecation: None,
-            message: "test warning".into(),
+            message: "test warning",
             span,
             primary_label: None,
-            secondary: vec![],
+            secondary: &[],
         }];
         let gv: IndexMap<String, FileSpan> = IndexMap::new();
-        let ss = Stylesheet::detailed(vec![], span, warnings, false, gv);
+        let ss = Stylesheet::detailed(&arena, &[], span, warnings, false, gv);
         assert_eq!(ss.parse_time_warnings.len(), 1);
         assert_eq!(ss.parse_time_warnings[0].message, "test warning");
     }
@@ -261,7 +277,7 @@ mod tests {
     fn test_span() {
         let arena = Bump::new();
         let span = make_span(&arena, "a { }");
-        let ss = Stylesheet::new(vec![], span);
+        let ss = Stylesheet::new(&arena, &[], span);
         assert_eq!(ss.span().unwrap(), span);
     }
 
@@ -269,7 +285,7 @@ mod tests {
     fn test_display_empty() {
         let arena = Bump::new();
         let span = make_span(&arena, "");
-        let ss = Stylesheet::new(vec![], span);
+        let ss = Stylesheet::new(&arena, &[], span);
         assert_eq!(format!("{ss}"), "");
     }
 

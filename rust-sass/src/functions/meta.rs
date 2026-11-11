@@ -9,7 +9,6 @@
 
 use crate::eval::warn::warn_deprecation;
 use crate::serialize::serialize_value_inspect;
-use std::rc::Rc;
 
 use bumpalo::Bump;
 
@@ -65,19 +64,19 @@ where
     vec![
         c!(
             arena,
-            feature_exists_function(arena).with_deprecation_warning("meta", None)
+            feature_exists_function(arena).with_deprecation_warning(arena, "meta", None)
         ),
         c!(
             arena,
-            inspect_function(arena).with_deprecation_warning("meta", None)
+            inspect_function(arena).with_deprecation_warning(arena, "meta", None)
         ),
         c!(
             arena,
-            type_of_function(arena).with_deprecation_warning("meta", None)
+            type_of_function(arena).with_deprecation_warning(arena, "meta", None)
         ),
         c!(
             arena,
-            keywords_function(arena).with_deprecation_warning("meta", None)
+            keywords_function(arena).with_deprecation_warning(arena, "meta", None)
         ),
     ]
 }
@@ -162,7 +161,7 @@ where
         "feature-exists",
         "$feature",
         arena,
-        Rc::new(feature_exists_impl),
+        crate::callable::built_in_callback(arena, feature_exists_impl),
     )
 }
 
@@ -189,7 +188,12 @@ fn inspect_function<'compile, 'parse>(arena: &'compile Bump) -> BuiltInCallable<
 where
     'compile: 'parse,
 {
-    meta_function("inspect", "$value", arena, Rc::new(inspect_impl))
+    meta_function(
+        "inspect",
+        "$value",
+        arena,
+        crate::callable::built_in_callback(arena, inspect_impl),
+    )
 }
 
 fn type_of_impl<'compile, 'parse>(
@@ -229,7 +233,12 @@ fn type_of_function<'compile, 'parse>(arena: &'compile Bump) -> BuiltInCallable<
 where
     'compile: 'parse,
 {
-    meta_function("type-of", "$value", arena, Rc::new(type_of_impl))
+    meta_function(
+        "type-of",
+        "$value",
+        arena,
+        crate::callable::built_in_callback(arena, type_of_impl),
+    )
 }
 
 fn keywords_impl<'compile, 'parse>(
@@ -244,8 +253,9 @@ where
     match &*args[0] {
         ValueKind::ArgumentList(arg_list) => {
             let mut m = SassMap::empty();
-            for (key, val) in arg_list.keywords() {
+            for (key, val) in arg_list.keywords().iter() {
                 m.set(
+                    arena,
                     Value::new_with_arena(
                         arena,
                         ValueKind::String(SassString::new(arena.alloc_str(key), false)),
@@ -273,7 +283,12 @@ fn keywords_function<'compile, 'parse>(arena: &'compile Bump) -> BuiltInCallable
 where
     'compile: 'parse,
 {
-    meta_function("keywords", "$args", arena, Rc::new(keywords_impl))
+    meta_function(
+        "keywords",
+        "$args",
+        arena,
+        crate::callable::built_in_callback(arena, keywords_impl),
+    )
 }
 
 // ---- Module-only functions ----
@@ -290,7 +305,7 @@ where
     let calc = assert_calculation(&args[0], Some("calc"))?;
     Ok(Value::new_with_arena(
         arena,
-        ValueKind::String(SassString::new(arena.alloc_str(&calc.name), true)),
+        ValueKind::String(SassString::new(calc.name, true)),
     ))
 }
 
@@ -301,7 +316,12 @@ fn calc_name_function<'compile, 'parse>(arena: &'compile Bump) -> BuiltInCallabl
 where
     'compile: 'parse,
 {
-    meta_function("calc-name", "$calc", arena, Rc::new(calc_name_impl))
+    meta_function(
+        "calc-name",
+        "$calc",
+        arena,
+        crate::callable::built_in_callback(arena, calc_name_impl),
+    )
 }
 
 fn calc_args_impl<'compile, 'parse>(
@@ -315,14 +335,12 @@ where
 {
     let calc = assert_calculation(&args[0], Some("calc"))?;
     let mut result: Vec<Value<'parse>> = Vec::with_capacity(calc.arguments.len());
-    for arg in &calc.arguments {
+    for arg in calc.arguments {
         // Value-typed arguments pass through unchanged; other arguments are
         // stringified (Go: fmt "%v" via String(), Dart: argument.toString()).
         result.push(match arg {
             CalcArgument::Number(n) => Value::new_with_arena(arena, ValueKind::Number(n.clone())),
-            CalcArgument::Calculation(c) => {
-                Value::new_with_arena(arena, ValueKind::Calculation(c.clone()))
-            }
+            CalcArgument::Calculation(c) => Value::new_with_arena(arena, ValueKind::Calculation(c)),
             CalcArgument::String(s, has_quotes) => Value::new_with_arena(
                 arena,
                 ValueKind::String(SassString::new(arena.alloc_str(s), *has_quotes)),
@@ -342,7 +360,7 @@ where
     }
     Ok(Value::new_with_arena(
         arena,
-        ValueKind::List(SassList::new(result, ListSeparator::Comma, false)),
+        ValueKind::List(SassList::new(arena, result, ListSeparator::Comma, false)),
     ))
 }
 
@@ -355,7 +373,12 @@ fn calc_args_function<'compile, 'parse>(arena: &'compile Bump) -> BuiltInCallabl
 where
     'compile: 'parse,
 {
-    meta_function("calc-args", "$calc", arena, Rc::new(calc_args_impl))
+    meta_function(
+        "calc-args",
+        "$calc",
+        arena,
+        crate::callable::built_in_callback(arena, calc_args_impl),
+    )
 }
 
 fn accepts_content_impl<'compile, 'parse>(
@@ -405,7 +428,7 @@ where
         "accepts-content",
         "$mixin",
         arena,
-        Rc::new(accepts_content_impl),
+        crate::callable::built_in_callback(arena, accepts_content_impl),
     )
 }
 
@@ -452,7 +475,7 @@ mod tests {
     }
 
     fn num_val<'compile: 'parse, 'parse>(arena: &'compile Bump, v: f64) -> Value<'parse> {
-        Value::new_with_arena(arena, ValueKind::Number(SassNumber::new(v, None)))
+        Value::new_with_arena(arena, ValueKind::Number(SassNumber::new(arena, v, None)))
     }
 
     fn comma_list<'compile: 'parse, 'parse>(
@@ -461,7 +484,12 @@ mod tests {
     ) -> Value<'parse> {
         Value::new_with_arena(
             arena,
-            ValueKind::List(SassList::new(items.to_vec(), ListSeparator::Comma, false)),
+            ValueKind::List(SassList::new(
+                arena,
+                items.to_vec(),
+                ListSeparator::Comma,
+                false,
+            )),
         )
     }
 
@@ -472,11 +500,12 @@ mod tests {
         let mut m = SassMap::empty();
         for (k, v) in pairs {
             m.set(
+                arena,
                 Value::new_with_arena(
                     arena,
                     ValueKind::String(SassString::new(arena.alloc_str(k), false)),
                 ),
-                Value::new_with_arena(arena, ValueKind::Number(SassNumber::new(*v, None))),
+                Value::new_with_arena(arena, ValueKind::Number(SassNumber::new(arena, *v, None))),
             );
         }
         Value::new_with_arena(arena, ValueKind::Map(m))
@@ -485,11 +514,13 @@ mod tests {
     fn mk_calc<'compile: 'parse, 'parse>(
         arena: &'compile Bump,
         name: &str,
-        args: Vec<CalcArgument>,
+        args: Vec<CalcArgument<'parse>>,
     ) -> Value<'parse> {
         Value::new_with_arena(
             arena,
-            ValueKind::Calculation(Box::new(SassCalculation::new_unsimplified(name, args))),
+            ValueKind::Calculation(
+                &*arena.alloc(SassCalculation::new_unsimplified(arena, name, args)),
+            ),
         )
     }
 
@@ -501,7 +532,7 @@ mod tests {
         for (k, v) in pairs {
             keywords.insert(
                 k.to_string(),
-                Value::new_with_arena(arena, ValueKind::Number(SassNumber::new(*v, None))),
+                Value::new_with_arena(arena, ValueKind::Number(SassNumber::new(arena, *v, None))),
             );
         }
         Value::new_with_arena(
@@ -585,7 +616,7 @@ mod tests {
     {
         let fns = shared_meta_functions(arena);
         match fns[index].kind() {
-            CallableKind::BuiltIn(b) => b.clone(),
+            CallableKind::BuiltIn(b) => *b,
             _ => panic!("expected BuiltIn callable"),
         }
     }
@@ -725,7 +756,7 @@ mod tests {
         ];
         assert_eq!(m.functions.len(), want.len());
         for (i, name) in m.functions.keys().enumerate() {
-            assert_eq!(name, want[i], "functions[{i}]");
+            assert_eq!(*name, want[i], "functions[{i}]");
         }
     }
 
@@ -959,7 +990,7 @@ mod tests {
                 mk_calc(
                     &arena,
                     "calc",
-                    vec![CalcArgument::Number(SassNumber::new(1.0, None))],
+                    vec![CalcArgument::Number(SassNumber::new(&arena, 1.0, None))],
                 ),
                 "calculation",
             ),
@@ -991,7 +1022,7 @@ mod tests {
             panic!("expected Map, got {got:?}");
         };
         assert_eq!(m.len(), 1);
-        for (k, _) in &m.entries {
+        for (k, _) in m.iter() {
             assert_unquoted_string(k, "key");
         }
     }
@@ -1070,7 +1101,7 @@ mod tests {
         let calc = mk_calc(
             &arena,
             "calc",
-            vec![CalcArgument::Number(SassNumber::new(1.0, None))],
+            vec![CalcArgument::Number(SassNumber::new(&arena, 1.0, None))],
         );
         let got = eval_ok(&arena, &calc_name_function(&arena), &[calc]).await;
         assert_quoted_string(&got, "calc");
@@ -1083,8 +1114,8 @@ mod tests {
             &arena,
             "max",
             vec![
-                CalcArgument::Number(SassNumber::new(1.0, None)),
-                CalcArgument::Number(SassNumber::new(2.0, None)),
+                CalcArgument::Number(SassNumber::new(&arena, 1.0, None)),
+                CalcArgument::Number(SassNumber::new(&arena, 2.0, None)),
             ],
         );
         let got = eval_ok(&arena, &calc_name_function(&arena), &[calc]).await;
@@ -1122,8 +1153,8 @@ mod tests {
             &arena,
             "max",
             vec![
-                CalcArgument::Number(SassNumber::new(1.0, None)),
-                CalcArgument::Number(SassNumber::new(2.0, Some("px"))),
+                CalcArgument::Number(SassNumber::new(&arena, 1.0, None)),
+                CalcArgument::Number(SassNumber::new(&arena, 2.0, Some("px"))),
             ],
         );
         let got = eval_ok(&arena, &calc_args_function(&arena), &[calc]).await;
@@ -1137,7 +1168,11 @@ mod tests {
         let calc = mk_calc(
             &arena,
             "calc",
-            vec![CalcArgument::Number(SassNumber::new(1.0, Some("px")))],
+            vec![CalcArgument::Number(SassNumber::new(
+                &arena,
+                1.0,
+                Some("px"),
+            ))],
         );
         let got = eval_ok(&arena, &calc_args_function(&arena), &[calc]).await;
         assert_inspect(&got, "(1px,)");
@@ -1151,10 +1186,14 @@ mod tests {
         // (Dart: argument.toString()).
         let op = CalculationOperation::new(
             CalculationOperator::Plus,
-            CalcArgument::Number(SassNumber::new(1.0, Some("px"))),
-            CalcArgument::Number(SassNumber::new(2.0, Some("px"))),
+            CalcArgument::Number(SassNumber::new(&arena, 1.0, Some("px"))),
+            CalcArgument::Number(SassNumber::new(&arena, 2.0, Some("px"))),
         );
-        let calc = mk_calc(&arena, "calc", vec![CalcArgument::Operation(Box::new(op))]);
+        let calc = mk_calc(
+            &arena,
+            "calc",
+            vec![CalcArgument::Operation(&*arena.alloc(op))],
+        );
         let got = eval_ok(&arena, &calc_args_function(&arena), &[calc]).await;
         assert_eq!(got.length_as_list(), 1);
         let items = got.as_list(&arena).unwrap();
@@ -1168,7 +1207,7 @@ mod tests {
         let calc = mk_calc(
             &arena,
             "calc",
-            vec![CalcArgument::Interpolation("var(--x)".to_string())],
+            vec![CalcArgument::Interpolation("var(--x)")],
         );
         let got = eval_ok(&arena, &calc_args_function(&arena), &[calc]).await;
         let items = got.as_list(&arena).unwrap();
@@ -1182,7 +1221,7 @@ mod tests {
         let calc = mk_calc(
             &arena,
             "calc",
-            vec![CalcArgument::String("100% - 10px".to_string(), false)],
+            vec![CalcArgument::String("100% - 10px", false)],
         );
         let got = eval_ok(&arena, &calc_args_function(&arena), &[calc]).await;
         let items = got.as_list(&arena).unwrap();
@@ -1193,15 +1232,20 @@ mod tests {
     async fn test_calc_args_nested_calculation() {
         let arena = Bump::new();
         let inner = SassCalculation::new_unsimplified(
+            &arena,
             "calc",
-            vec![CalcArgument::Number(SassNumber::new(1.0, Some("px")))],
+            vec![CalcArgument::Number(SassNumber::new(
+                &arena,
+                1.0,
+                Some("px"),
+            ))],
         );
         let calc = mk_calc(
             &arena,
             "max",
             vec![
-                CalcArgument::Calculation(Box::new(inner)),
-                CalcArgument::Number(SassNumber::new(2.0, Some("px"))),
+                CalcArgument::Calculation(&*arena.alloc(inner)),
+                CalcArgument::Number(SassNumber::new(&arena, 2.0, Some("px"))),
             ],
         );
         let got = eval_ok(&arena, &calc_args_function(&arena), &[calc]).await;

@@ -15,7 +15,6 @@ use crate::util::number::fuzzy_equals;
 use crate::value::color_conversions_base::space_channels;
 use crate::value::color_conversions_base::GamutMapMethod;
 use crate::value::SassString;
-use std::rc::Rc;
 
 use bumpalo::Bump;
 
@@ -80,28 +79,28 @@ where
         c!(
             arena,
             channel_function_global("red", ColorSpace::Rgb, SassColor::red, arena,)
-                .with_deprecation_warning("color", None)
+                .with_deprecation_warning(arena, "color", None)
         ),
         c!(
             arena,
             channel_function_global("green", ColorSpace::Rgb, SassColor::green, arena,)
-                .with_deprecation_warning("color", None)
+                .with_deprecation_warning(arena, "color", None)
         ),
         c!(
             arena,
             channel_function_global("blue", ColorSpace::Rgb, SassColor::blue, arena,)
-                .with_deprecation_warning("color", None)
+                .with_deprecation_warning(arena, "color", None)
         ),
         c!(
             arena,
-            mix_callable(arena).with_deprecation_warning("color", None)
+            mix_callable(arena).with_deprecation_warning(arena, "color", None)
         ),
         c!(arena, rgb_callable(arena)),
         c!(arena, rgba_callable(arena)),
         c!(arena, invert_callable(arena)),
         c!(arena,
             channel_function_global_with_unit("hue", ColorSpace::Hsl, SassColor::hue, "deg", arena,)
-                .with_deprecation_warning("color", None)
+                .with_deprecation_warning(arena, "color", None)
         ),
         c!(
             arena,
@@ -112,7 +111,7 @@ where
                 "%",
                 arena,
             )
-            .with_deprecation_warning("color", None)
+            .with_deprecation_warning(arena, "color", None)
         ),
         c!(
             arena,
@@ -123,45 +122,59 @@ where
                 "%",
                 arena,
             )
-            .with_deprecation_warning("color", None)
+            .with_deprecation_warning(arena, "color", None)
         ),
         c!(arena, hsl_callable(arena)),
         c!(arena, hsla_callable(arena)),
         c!(arena, grayscale_callable(arena)),
         c!(
             arena,
-            adjust_hue_callable(arena).with_deprecation_warning("color", Some("adjust"))
+            adjust_hue_callable(arena).with_deprecation_warning(arena, "color", Some("adjust"))
         ),
         c!(
             arena,
-            lighten_callable(arena).with_deprecation_warning("color", Some("adjust"))
+            lighten_callable(arena).with_deprecation_warning(arena, "color", Some("adjust"))
         ),
         c!(
             arena,
-            darken_callable(arena).with_deprecation_warning("color", Some("adjust"))
+            darken_callable(arena).with_deprecation_warning(arena, "color", Some("adjust"))
         ),
         c!(arena, saturate_callable(arena)),
         c!(
             arena,
-            desaturate_callable(arena).with_deprecation_warning("color", Some("adjust"))
+            desaturate_callable(arena).with_deprecation_warning(arena, "color", Some("adjust"))
         ),
         c!(
             arena,
-            opacify_callable("opacify", arena).with_deprecation_warning("color", Some("adjust"))
+            opacify_callable("opacify", arena).with_deprecation_warning(
+                arena,
+                "color",
+                Some("adjust")
+            )
         ),
         c!(
             arena,
-            opacify_callable("fade-in", arena).with_deprecation_warning("color", Some("adjust"))
+            opacify_callable("fade-in", arena).with_deprecation_warning(
+                arena,
+                "color",
+                Some("adjust")
+            )
         ),
         c!(
             arena,
-            transparentize_callable("transparentize", arena)
-                .with_deprecation_warning("color", Some("adjust"))
+            transparentize_callable("transparentize", arena).with_deprecation_warning(
+                arena,
+                "color",
+                Some("adjust")
+            )
         ),
         c!(
             arena,
-            transparentize_callable("fade-out", arena)
-                .with_deprecation_warning("color", Some("adjust"))
+            transparentize_callable("fade-out", arena).with_deprecation_warning(
+                arena,
+                "color",
+                Some("adjust")
+            )
         ),
         c!(arena, alpha_callable(arena)),
         c!(arena, opacity_callable(arena)),
@@ -173,26 +186,26 @@ where
         c!(arena, oklch_callable(arena)),
         c!(
             arena,
-            complement_callable(arena).with_deprecation_warning("color", None)
+            complement_callable(arena).with_deprecation_warning(arena, "color", None)
         ),
         c!(arena, ie_hex_str_callable(arena)),
         c!(
             arena,
             adjust_callable(arena)
-                .with_deprecation_warning("color", None)
-                .with_name("adjust-color".into())
+                .with_deprecation_warning(arena, "color", None)
+                .with_name(arena, "adjust-color")
         ),
         c!(
             arena,
             scale_callable(arena)
-                .with_deprecation_warning("color", None)
-                .with_name("scale-color".into())
+                .with_deprecation_warning(arena, "color", None)
+                .with_name(arena, "scale-color")
         ),
         c!(
             arena,
             change_callable(arena)
-                .with_deprecation_warning("color", None)
-                .with_name("change-color".into())
+                .with_deprecation_warning(arena, "color", None)
+                .with_name(arena, "change-color")
         ),
     ]
 }
@@ -352,7 +365,8 @@ where
         "$description",
         "sass:color",
         arena,
-        Rc::new(
+        crate::callable::built_in_callback(
+            arena,
             move |config: &EvalConfig<'compile, 'parse>,
                   state: &mut EvalState<'compile, 'parse>,
                   args: Vec<Value<'parse>>,
@@ -379,7 +393,8 @@ where
         "$color",
         "sass:color",
         arena,
-        Rc::new(
+        crate::callable::built_in_callback(
+            arena,
             move |_config: &EvalConfig<'compile, 'parse>,
                   _state: &mut EvalState<'compile, 'parse>,
                   args: Vec<Value<'parse>>,
@@ -413,7 +428,8 @@ where
         "$color, $space",
         "sass:color",
         arena,
-        Rc::new(
+        crate::callable::built_in_callback(
+            arena,
             move |_config: &EvalConfig<'compile, 'parse>,
                   _state: &mut EvalState<'compile, 'parse>,
                   args: Vec<Value<'parse>>,
@@ -423,7 +439,7 @@ where
                 // Matches Dart: to-space routes through _colorInSpace, which
                 // returns the color unchanged for $space: null.
                 if matches!(&*args[1], ValueKind::Null) {
-                    return Ok(Value::new_with_arena(arena, ValueKind::Color(col.clone())));
+                    return Ok(Value::new_with_arena(arena, ValueKind::Color(*col)));
                 }
                 let s = value::assert_string(&args[1], Some("space"))?;
                 s.assert_unquoted()
@@ -449,7 +465,8 @@ where
         "$color",
         "sass:color",
         arena,
-        Rc::new(
+        crate::callable::built_in_callback(
+            arena,
             move |_config: &EvalConfig<'compile, 'parse>,
                   _state: &mut EvalState<'compile, 'parse>,
                   args: Vec<Value<'parse>>,
@@ -482,7 +499,8 @@ where
         "$color, $channel",
         "sass:color",
         arena,
-        Rc::new(
+        crate::callable::built_in_callback(
+            arena,
             move |_config: &EvalConfig<'compile, 'parse>,
                   _state: &mut EvalState<'compile, 'parse>,
                   args: Vec<Value<'parse>>,
@@ -519,7 +537,8 @@ where
         "$color, $space: null",
         "sass:color",
         arena,
-        Rc::new(
+        crate::callable::built_in_callback(
+            arena,
             move |_config: &EvalConfig<'compile, 'parse>,
                   _state: &mut EvalState<'compile, 'parse>,
                   args: Vec<Value<'parse>>,
@@ -556,7 +575,8 @@ where
         "$color, $space: null, $method: null",
         "sass:color",
         arena,
-        Rc::new(
+        crate::callable::built_in_callback(
+            arena,
             move |_config: &EvalConfig<'compile, 'parse>,
                   _state: &mut EvalState<'compile, 'parse>,
                   args: Vec<Value<'parse>>,
@@ -587,7 +607,7 @@ where
                     .map_err(|e| wrap_unquoted_err(e, "method"))?;
                 let method = GamutMapMethod::from_name_with_arg(method_s.text, None)?;
                 if !space.is_bounded() {
-                    return Ok(Value::new_with_arena(arena, ValueKind::Color(col.clone())));
+                    return Ok(Value::new_with_arena(arena, ValueKind::Color(*col)));
                 }
                 let space_converted = col.to_space(space, None)?;
                 let gamut_color = space_converted.to_gamut(method)?;
@@ -618,7 +638,8 @@ where
         "$color, $channel, $space: null",
         "sass:color",
         arena,
-        Rc::new(
+        crate::callable::built_in_callback(
+            arena,
             move |_config: &EvalConfig<'compile, 'parse>,
                   _state: &mut EvalState<'compile, 'parse>,
                   args: Vec<Value<'parse>>,
@@ -630,7 +651,7 @@ where
                 if channel_name == "alpha" {
                     return Ok(Value::new_with_arena(
                         arena,
-                        ValueKind::Number(SassNumber::new(working_color.alpha, None)),
+                        ValueKind::Number(SassNumber::new(arena, working_color.alpha, None)),
                     ));
                 }
                 let chs = space_channels(working_color.space);
@@ -661,9 +682,9 @@ where
                     }));
                 }
                 let num = if unit.is_empty() {
-                    SassNumber::new(channel_value, None)
+                    SassNumber::new(arena, channel_value, None)
                 } else {
-                    SassNumber::new(channel_value, Some(unit))
+                    SassNumber::new(arena, channel_value, Some(unit))
                 };
                 Ok(Value::new_with_arena(arena, ValueKind::Number(num)))
             },
@@ -689,7 +710,8 @@ where
         "$color1, $color2",
         "sass:color",
         arena,
-        Rc::new(
+        crate::callable::built_in_callback(
+            arena,
             move |_config: &EvalConfig<'compile, 'parse>,
                   _state: &mut EvalState<'compile, 'parse>,
                   args: Vec<Value<'parse>>,
@@ -735,7 +757,8 @@ where
         "$color, $channel, $space: null",
         "sass:color",
         arena,
-        Rc::new(
+        crate::callable::built_in_callback(
+            arena,
             move |_config: &EvalConfig<'compile, 'parse>,
                   _state: &mut EvalState<'compile, 'parse>,
                   args: Vec<Value<'parse>>,
@@ -1724,6 +1747,7 @@ mod tests {
     async fn test_global_color_red() {
         let arena = Bump::new();
         let list = SassList::new(
+            &arena,
             vec![
                 Value::new_with_arena(
                     &arena,
@@ -1753,6 +1777,7 @@ mod tests {
     async fn test_global_color_error_invalid() {
         let arena = Bump::new();
         let list = SassList::new(
+            &arena,
             vec![Value::new_with_arena(
                 &arena,
                 ValueKind::String(SassString::new(arena.alloc_str("not-a-space"), false)),

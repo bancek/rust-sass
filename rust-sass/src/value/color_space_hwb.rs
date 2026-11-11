@@ -31,7 +31,7 @@ pub(crate) fn hwb_convert(
     c1: Option<f64>,
     c2: Option<f64>,
     alpha: Option<f64>,
-) -> SassResult<SassColor> {
+) -> SassResult<SassColor<'static>> {
     // Analogous missingness (#2810): whiteness/blackness are not analogous
     // to any channels, so handle a whiteness+blackness-missing source
     // manually rather than piping those flags everywhere.

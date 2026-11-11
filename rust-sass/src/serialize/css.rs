@@ -170,11 +170,11 @@ fn visit_css_comment_impl<'parse>(
             return Ok(());
         }
         if matches!(state.style, OutputStyle::Compact) && node.text.contains('\n') {
-            write!(buf, "{}", comment_to_compact_string(&node.text)).unwrap();
-        } else if let Some(min_indent) = minimum_indentation(&node.text) {
+            write!(buf, "{}", comment_to_compact_string(node.text)).unwrap();
+        } else if let Some(min_indent) = minimum_indentation(node.text) {
             let min_indent = std::cmp::min(min_indent, node.span.start_location().column as i32);
             state.write_indentation(buf);
-            write_with_indent(buf, state, &node.text, min_indent);
+            write_with_indent(buf, state, node.text, min_indent);
         } else {
             state.write_indentation(buf);
             write!(buf, "{}", node.text).unwrap();
@@ -248,7 +248,7 @@ fn visit_css_at_rule_impl<'parse>(
         // except `@font-face` (declarations stay space-joined like style
         // rules); in COMPACT that is the special linefeed, elsewhere both
         // helpers emit the same LF.
-        if node.name.value.as_str() == "font-face" {
+        if node.name.value == "font-face" {
             visit_children(buf, state, &node.children, node.span)?;
         } else {
             visit_children_special(buf, state, &node.children, node.span)?;
@@ -283,7 +283,7 @@ fn visit_css_media_rule_impl<'parse>(
             buf.write_char(' ').unwrap();
         }
         let sep = state.comma_sep();
-        write_between(buf, &node.queries, sep, |buf, q| {
+        write_between(buf, node.queries, sep, |buf, q| {
             visit_media_query(buf, state, q)
         })?;
         Ok(())
@@ -305,7 +305,7 @@ fn visit_css_import_impl<'parse>(
         buf.write_str("@import").unwrap();
         state.write_optional_space(buf);
         for_node(buf, state, &node.url, |buf, state| {
-            write_import_url(buf, state, &node.url.value);
+            write_import_url(buf, state, node.url.value);
             Ok(())
         })?;
         if let Some(ref modifiers) = node.modifiers {
@@ -327,7 +327,7 @@ fn visit_css_keyframe_block_impl<'parse>(
     state.write_indentation(buf);
     for_node(buf, state, &node.selector, |buf, state| {
         let sep = state.comma_sep();
-        write_between(buf, node.selector.value.as_slice(), sep, |buf, s| {
+        write_between(buf, node.selector.value, sep, |buf, s| {
             write!(buf, "{}", s).unwrap();
             Ok(())
         })
@@ -480,7 +480,7 @@ fn visit_media_query(
         write!(buf, "{}", modifier).unwrap();
         buf.write_char(' ').unwrap();
     }
-    if let Some(ref media_type) = query.media_type {
+    if let Some(media_type) = query.media_type {
         write!(buf, "{}", to_css_identifier(media_type)?).unwrap();
         if !query.conditions.is_empty() {
             buf.write_str(" and ").unwrap();
@@ -832,11 +832,11 @@ mod tests {
     #[rust_sass_macros::maybe_async]
     async fn compile_nested(source: &str) -> String {
         let arena = bumpalo::Bump::new();
-        let opts = CompileOptions {
+        let mut opts = CompileOptions {
             style: OutputStyle::Nested,
             ..CompileOptions::new(&arena)
         };
-        compile_string(source, test_io(), opts, &arena)
+        compile_string(source, test_io(), &mut opts, &arena)
             .await
             .unwrap()
             .css()
@@ -846,11 +846,11 @@ mod tests {
     #[rust_sass_macros::maybe_async]
     async fn compile_compact(source: &str) -> String {
         let arena = bumpalo::Bump::new();
-        let opts = CompileOptions {
+        let mut opts = CompileOptions {
             style: OutputStyle::Compact,
             ..CompileOptions::new(&arena)
         };
-        compile_string(source, test_io(), opts, &arena)
+        compile_string(source, test_io(), &mut opts, &arena)
             .await
             .unwrap()
             .css()
@@ -1230,8 +1230,8 @@ mod tests {
         let arena = bumpalo::Bump::new();
         let source = "a{\n  --x: foo\n    bar;\n  b: c;\n}";
         let expanded = {
-            let opts = CompileOptions::new(&arena);
-            compile_string(source, test_io(), opts, &arena)
+            let mut opts = CompileOptions::new(&arena);
+            compile_string(source, test_io(), &mut opts, &arena)
                 .await
                 .unwrap()
                 .css()

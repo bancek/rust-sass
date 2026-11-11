@@ -85,7 +85,7 @@ pub(crate) async fn expression_to_calc_argument<'compile, 'parse>(
     expr: &Expression<'parse>,
     in_legacy_sass_function: Option<&str>,
     warn: &dyn WarnLogger<'parse>,
-) -> SassResult<CalcArgument>
+) -> SassResult<CalcArgument<'parse>>
 where
     'compile: 'parse,
 {
@@ -96,7 +96,7 @@ where
                     config,
                     state,
                     arena,
-                    &p.expression,
+                    p.expression,
                     in_legacy_sass_function,
                     warn,
                 ),
@@ -104,9 +104,10 @@ where
             )
             .await?;
             match inner {
-                CalcArgument::String(text, _) => {
-                    Ok(CalcArgument::String(format!("({text})"), false))
-                }
+                CalcArgument::String(text, _) => Ok(CalcArgument::String(
+                    arena.alloc_str(&format!("({text})")),
+                    false,
+                )),
                 other => Ok(other),
             }
         }
@@ -149,7 +150,7 @@ where
                     config,
                     state,
                     arena,
-                    &b.left,
+                    b.left,
                     in_legacy_sass_function,
                     warn,
                 ),
@@ -161,7 +162,7 @@ where
                     config,
                     state,
                     arena,
-                    &b.right,
+                    b.right,
                     in_legacy_sass_function,
                     warn,
                 ),
@@ -186,6 +187,7 @@ where
             let span = b.span()?;
             let result = add_exception_span(config, state, span, None, async |_config, state| {
                 operate_internal(
+                    arena,
                     calc_op,
                     left,
                     right,
@@ -230,23 +232,28 @@ where
             }
             let lower = s.text.initial_plain().to_lowercase();
             match lower.as_str() {
-                "pi" => Ok(CalcArgument::Number(SassNumber::new(PI, None))),
-                "e" => Ok(CalcArgument::Number(SassNumber::new(E, None))),
-                "infinity" => Ok(CalcArgument::Number(SassNumber::new(f64::INFINITY, None))),
+                "pi" => Ok(CalcArgument::Number(SassNumber::new(arena, PI, None))),
+                "e" => Ok(CalcArgument::Number(SassNumber::new(arena, E, None))),
+                "infinity" => Ok(CalcArgument::Number(SassNumber::new(
+                    arena,
+                    f64::INFINITY,
+                    None,
+                ))),
                 "-infinity" => Ok(CalcArgument::Number(SassNumber::new(
+                    arena,
                     f64::NEG_INFINITY,
                     None,
                 ))),
-                "nan" => Ok(CalcArgument::Number(SassNumber::new(f64::NAN, None))),
+                "nan" => Ok(CalcArgument::Number(SassNumber::new(arena, f64::NAN, None))),
                 _ => {
                     let val = evaluate_expression(config, state, arena, expr).await?;
                     match &*val {
                         ValueKind::String(s) if !s.has_quotes => {
-                            Ok(CalcArgument::String(s.text.to_string(), false))
+                            Ok(CalcArgument::String(s.text, false))
                         }
                         _ => {
                             let display = val.to_display_string()?;
-                            Ok(CalcArgument::String(display, false))
+                            Ok(CalcArgument::String(arena.alloc_str(&display), false))
                         }
                     }
                 }
@@ -256,10 +263,8 @@ where
             let val = evaluate_expression(config, state, arena, expr).await?;
             match &*val {
                 ValueKind::Number(n) => Ok(CalcArgument::Number(n.clone())),
-                ValueKind::Calculation(c) => Ok(CalcArgument::Calculation(c.clone())),
-                ValueKind::String(s) if !s.has_quotes => {
-                    Ok(CalcArgument::String(s.text.to_string(), false))
-                }
+                ValueKind::Calculation(c) => Ok(CalcArgument::Calculation(c)),
+                ValueKind::String(s) if !s.has_quotes => Ok(CalcArgument::String(s.text, false)),
                 _ => {
                     let span = expr.span()?;
                     let display = val.to_display_string()?;
@@ -275,10 +280,8 @@ where
             let val = evaluate_expression(config, state, arena, expr).await?;
             match &*val {
                 ValueKind::Number(n) => Ok(CalcArgument::Number(n.clone())),
-                ValueKind::Calculation(c) => Ok(CalcArgument::Calculation(c.clone())),
-                ValueKind::String(s) if !s.has_quotes => {
-                    Ok(CalcArgument::String(s.text.to_string(), false))
-                }
+                ValueKind::Calculation(c) => Ok(CalcArgument::Calculation(c)),
+                ValueKind::String(s) if !s.has_quotes => Ok(CalcArgument::String(s.text, false)),
                 _ => {
                     let span = expr.span()?;
                     let display = val.to_display_string()?;
@@ -300,7 +303,7 @@ where
                 )));
             }
             let mut elements: Vec<CalcArgument> = Vec::new();
-            for elem in &l.contents {
+            for elem in l.contents {
                 let val = box_rec_in!(
                     expression_to_calc_argument(
                         config,
@@ -364,14 +367,17 @@ where
                     && matches!(content, Expression::Parenthesized(_))
                 {
                     let inner = calc_arg_to_string(element)?;
-                    *element = CalcArgument::String(format!("({inner})"), false);
+                    *element = CalcArgument::String(arena.alloc_str(&format!("({inner})")), false);
                 }
             }
             let mut parts = Vec::new();
             for e in &elements {
                 parts.push(calc_arg_to_string(e)?);
             }
-            Ok(CalcArgument::String(parts.join(" "), false))
+            Ok(CalcArgument::String(
+                arena.alloc_str(&parts.join(" ")),
+                false,
+            ))
         }
         _ => {
             let span = expr.span()?;
@@ -457,9 +463,9 @@ where
 
     // Evaluate each argument as a calc expression.
     // Catch Script errors here so we can wrap with the function span.
-    let warn_buf = BufferedWarnLogger::new(arena);
+    let warn_buf = BufferedWarnLogger::new();
     let mut evaluated = Vec::new();
-    for arg in &args.positional {
+    for arg in args.positional {
         match expression_to_calc_argument(
             config,
             state,
@@ -483,9 +489,9 @@ where
     if state.in_supports_declaration {
         return Ok(Value::new_with_arena(
             arena,
-            ValueKind::Calculation(Box::new(SassCalculation::new_unsimplified(
-                &name, evaluated,
-            ))),
+            ValueKind::Calculation(
+                &*arena.alloc(SassCalculation::new_unsimplified(arena, &name, evaluated)),
+            ),
         ));
     }
 
@@ -505,7 +511,7 @@ where
             evaluated
                 .first()
                 .cloned()
-                .unwrap_or(CalcArgument::String(String::new(), false)),
+                .unwrap_or(CalcArgument::String("", false)),
             evaluated.get(1).cloned(),
             evaluated.get(2).cloned(),
         ),
@@ -540,7 +546,7 @@ where
             )
         }
         "sign" => new_sign(arena, first()),
-        "calc-size" => new_calc_size(first(), evaluated.get(1).cloned())
+        "calc-size" => new_calc_size(arena, first(), evaluated.get(1).cloned())
             .map(|calc| Value::new_with_arena(arena, ValueKind::Calculation(calc))),
         _ => {
             let span = expr.span()?;
@@ -564,7 +570,7 @@ where
             // reports incompatible units, re-verify against the original
             // argument spans so the error points at the offending operand(s).
             if e.message().contains("compatible") {
-                verify_compatible_numbers_with_spans(state, &evaluated_verify, &args.positional)?
+                verify_compatible_numbers_with_spans(state, &evaluated_verify, args.positional)?
             }
             let span = expr.span()?;
             Err(Box::new(exception(state, e.full_message(), Some(span))))
@@ -674,7 +680,7 @@ mod tests {
             let arena = Bump::new();
             let io: Rc<dyn Io> = Rc::new(VirtualIo::new());
             let src = format!("$x: 1px;\na {{ b: calc({op}$x); }}");
-            let err = compile_string(&src, io, CompileOptions::new(&arena), &arena)
+            let err = compile_string(&src, io, &mut CompileOptions::new(&arena), &arena)
                 .await
                 .unwrap_err();
             match *err {
@@ -692,7 +698,7 @@ mod tests {
         let result = compile_string(
             "$x: 1px;\na { b: calc(-1px + 2px); }",
             io,
-            CompileOptions::new(&arena),
+            &mut CompileOptions::new(&arena),
             &arena,
         )
         .await
@@ -710,7 +716,7 @@ mod tests {
         let err = compile_string(
             "a { b: calc(!important); }",
             io,
-            CompileOptions::new(&arena),
+            &mut CompileOptions::new(&arena),
             &arena,
         )
         .await
@@ -729,7 +735,7 @@ mod tests {
         ] {
             let arena = Bump::new();
             let io: Rc<dyn Io> = Rc::new(VirtualIo::new());
-            let result = compile_string(src, io, CompileOptions::new(&arena), &arena)
+            let result = compile_string(src, io, &mut CompileOptions::new(&arena), &arena)
                 .await
                 .unwrap();
             assert!(
@@ -751,7 +757,7 @@ mod tests {
         ] {
             let arena = Bump::new();
             let io: Rc<dyn Io> = Rc::new(VirtualIo::new());
-            let result = compile_string(src, io, CompileOptions::new(&arena), &arena)
+            let result = compile_string(src, io, &mut CompileOptions::new(&arena), &arena)
                 .await
                 .unwrap();
             assert!(
@@ -776,7 +782,7 @@ mod tests {
         ] {
             let arena = Bump::new();
             let io: Rc<dyn Io> = Rc::new(VirtualIo::new());
-            let err = compile_string(src, io, CompileOptions::new(&arena), &arena)
+            let err = compile_string(src, io, &mut CompileOptions::new(&arena), &arena)
                 .await
                 .unwrap_err();
             match *err {
@@ -798,7 +804,7 @@ mod tests {
             let err = compile_string(
                 "a{width:min(1px, 1s)}",
                 io,
-                CompileOptions::new(&arena),
+                &mut CompileOptions::new(&arena),
                 &arena,
             )
             .await

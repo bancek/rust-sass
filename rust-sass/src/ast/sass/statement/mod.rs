@@ -29,9 +29,31 @@ pub mod while_rule;
 
 use std::fmt;
 
+use bumpalo::Bump;
+
 use crate::common::ast_node::AstNode;
 use crate::common::exception::SassResult;
 use crate::common::file_span::FileSpan;
+
+/// Arena-allocates a parsed statement list.
+///
+/// AST nodes store `&'parse [Statement]`; the parser builds a temporary
+/// `Vec` and hands it over here (its buffer is freed after the copy).
+pub(crate) fn arena_statements<'parse>(
+    arena: &'parse Bump,
+    statements: Vec<Statement<'parse>>,
+) -> &'parse [Statement<'parse>] {
+    arena.alloc_slice_fill_iter(statements)
+}
+
+/// Like [`arena_statements`], for block children (`None` = no block,
+/// `Some(empty)` = an empty `{}` block).
+pub(crate) fn arena_statements_opt<'parse>(
+    arena: &'parse Bump,
+    statements: Option<Vec<Statement<'parse>>>,
+) -> Option<&'parse [Statement<'parse>]> {
+    statements.map(|statements| arena_statements(arena, statements))
+}
 
 pub use crate::ast::sass::statement::at_root_rule::AtRootRule;
 pub use crate::ast::sass::statement::at_rule::AtRule;
@@ -385,7 +407,7 @@ mod tests {
     fn test_accept_dispatch_at_root_rule() {
         let arena = Bump::new();
         let span = test_span(&arena, "@at-root");
-        let rule = AtRootRule::new(vec![], span, None);
+        let rule = AtRootRule::new(&[], span, None);
         let stmt = Statement::AtRootRule(rule);
         let mut visitor = MockVisitor {
             visited: String::new(),
@@ -399,7 +421,7 @@ mod tests {
     fn test_accept_dispatch_extend_rule() {
         let arena = Bump::new();
         let span = test_span(&arena, "@extend .foo;");
-        let interp = Interpolation::plain(".foo".into(), span);
+        let interp = Interpolation::plain(&arena, ".foo".into(), span);
         let rule = ExtendRule::new(interp, span, false);
         let stmt = Statement::ExtendRule(rule);
         let mut visitor = MockVisitor {
@@ -414,7 +436,7 @@ mod tests {
     fn test_accept_dispatch_declaration() {
         let arena = Bump::new();
         let span = test_span(&arena, "color: red;");
-        let name = Interpolation::plain("color".into(), span);
+        let name = Interpolation::plain(&arena, "color".into(), span);
         let val = Expression::Boolean(BooleanExpression::new(true, span));
         let rule = Declaration::new(name, val, span);
         let stmt = Statement::Declaration(rule);

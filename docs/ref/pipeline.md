@@ -12,8 +12,8 @@ The caller owns everything expensive:
 ```rust
 let arena = Bump::new();                                        // 1. the arena
 let io: Rc<dyn Io> = Rc::new(DefaultIo::new());                 // 2. the host
-let options = CompileOptions::new(&arena);                      // 3. the settings
-let result = compile_string("a { b: 1; }", io, options, &arena)?;
+let mut options = CompileOptions::new(&arena);                  // 3. the settings
+let result = compile_string("a { b: 1; }", io, &mut options, &arena)?;
 ```
 
 - Source text, AST nodes, spans, Sass values, and every temporary string live
@@ -21,6 +21,10 @@ let result = compile_string("a { b: 1; }", io, options, &arena)?;
   caller drops the arena — so a `&'parse str` may point at a transient eval
   buffer without outliving it.
 - `Io` (`Rc<dyn Io>`) is the host seam (filesystem, CWD, case behavior).
+- The options are borrowed (`&mut CompileOptions`), not consumed: importers and
+  the logger must outlive the call, and importers own their kind on the heap so
+  a host `UserImporter` is released with the caller's options and the returned
+  result (`architecture.md` §12).
 - `CompileResult` borrows from the arena (`CompileResult<'compile, 'parse>`);
   at the concrete call site both lifetimes unify to the arena borrow, which
   is why every public entry point carries `where 'compile: 'parse,

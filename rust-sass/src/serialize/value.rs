@@ -122,19 +122,29 @@ pub(crate) fn visit_number_impl(
     value: &SassNumber,
 ) -> SassResult<()> {
     if let Some(slash) = &value.as_slash {
-        visit_number_impl(buf, state, &slash.0)?;
+        visit_number_impl(buf, state, slash.0)?;
         buf.write_char('/').unwrap();
-        visit_number_impl(buf, state, &slash.1)?;
+        visit_number_impl(buf, state, slash.1)?;
         return Ok(());
     }
     if value.value.is_infinite() || value.value.is_nan() {
-        let calc =
-            SassCalculation::new_unsimplified("calc", vec![CalcArgument::Number(value.clone())]);
+        // Serialization has no arena; the synthetic number gets a throwaway
+        // one with the same scope as the temporary calculation.
+        let arena = bumpalo::Bump::new();
+        let calc = SassCalculation::new_unsimplified(
+            &arena,
+            "calc",
+            vec![CalcArgument::Number(value.clone())],
+        );
         return visit_calculation_impl(buf, state, &calc);
     }
     if value.has_complex_units() {
-        let calc =
-            SassCalculation::new_unsimplified("calc", vec![CalcArgument::Number(value.clone())]);
+        let arena = bumpalo::Bump::new();
+        let calc = SassCalculation::new_unsimplified(
+            &arena,
+            "calc",
+            vec![CalcArgument::Number(value.clone())],
+        );
         return visit_calculation_impl(buf, state, &calc);
     }
     state.write_number(buf, value.value);
@@ -180,7 +190,7 @@ pub(crate) fn visit_calculation_impl(
     let sep = state.comma_sep();
     write!(buf, "{}", value.name).unwrap();
     buf.write_char('(').unwrap();
-    write_between(buf, &value.arguments, sep, |buf, arg| {
+    write_between(buf, value.arguments, sep, |buf, arg| {
         write_calculation_value(buf, state, arg)
     })?;
     buf.write_char(')').unwrap();
@@ -223,7 +233,7 @@ pub(crate) fn visit_map_impl(
     }
     buf.write_char('(').unwrap();
     let mut first = true;
-    for (k, v) in &value.entries {
+    for (k, v) in value.iter() {
         if first {
             first = false;
         } else {
@@ -421,9 +431,10 @@ mod tests {
     }
 
     fn number_css(value: f64, unit: Option<&str>) -> String {
+        let arena = bumpalo::Bump::new();
         let state = crate::serialize::SerializeState::new(true, false);
         let mut buf = SourceMapBuffer::new_plain();
-        visit_number_impl(&mut buf, &state, &SassNumber::new(value, unit)).unwrap();
+        visit_number_impl(&mut buf, &state, &SassNumber::new(&arena, value, unit)).unwrap();
         buf.into_string()
     }
 

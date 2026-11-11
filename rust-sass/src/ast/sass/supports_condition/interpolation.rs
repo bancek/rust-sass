@@ -1,3 +1,5 @@
+use bumpalo::Bump;
+
 // Copyright 2016 Google Inc. Use of this source code is governed by an
 // MIT-style license that can be found in the LICENSE file or at
 // https://opensource.org/licenses/MIT.
@@ -34,11 +36,13 @@ impl<'parse> SupportsInterpolation<'parse> {
 
     // Wraps the embedded expression in a single-expression interpolation
     // covering this condition's span.
-    pub fn to_interpolation(&self) -> SassResult<Interpolation<'parse>> {
+    pub fn to_interpolation(&self, arena: &'parse Bump) -> SassResult<Interpolation<'parse>> {
         Interpolation::new(
-            vec![InterpolationPart::Expression(Box::new(
+            arena,
+            vec![InterpolationPart::expression(
+                arena,
                 self.expression.clone(),
-            ))],
+            )],
             vec![Some(self.span)],
             self.span,
         )

@@ -1171,7 +1171,7 @@ mod tests {
     use crate::common::file_span::SourceLocation;
     use crate::common::source_span_file_source::FileSource;
     use crate::io::VirtualIo;
-    use crate::url::SassUrl;
+    use crate::url::OwnedUrl;
     use bumpalo::Bump;
 
     fn hl_io() -> VirtualIo {
@@ -1237,9 +1237,9 @@ mod tests {
         url: &str,
     ) -> SourceSpanWithContext {
         let u = if url.starts_with("file://") || url.starts_with("http") {
-            SassUrl::parse(url).unwrap()
+            OwnedUrl::parse(url).unwrap()
         } else {
-            SassUrl::parse(&format!("file:///{url}")).unwrap()
+            OwnedUrl::parse(&format!("file:///{url}")).unwrap()
         };
         SourceSpanWithContext::new(start, end, text.into(), context.into(), Some(u)).unwrap()
     }

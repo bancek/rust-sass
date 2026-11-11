@@ -21,8 +21,6 @@
 
 use std::cell::RefCell;
 
-use bumpalo::Bump;
-
 use crate::common::file_span::FileSpan;
 use crate::deprecation::Deprecation;
 
@@ -48,19 +46,21 @@ pub trait WarnLogger<'parse> {
 ///
 /// [`BufferedWarnLogger::drain`] returns all recorded warnings so the
 /// caller can route them through the evaluator's deprecation warn pipeline.
-/// The buffer is arena-allocated (`&'parse RefCell<..>`, `Copy`-shareable)
-/// so importers behind `&self` can record without owning storage.
-#[derive(Clone)]
+///
+/// Stack-owned: the buffer is a plain `RefCell<Vec<..>>`, so its allocation is
+/// released when the logger goes out of scope. It is never stored in a value
+/// that outlives the call that created it (callers pass it by reference), and
+/// an arena-owned buffer would leak, because the compile arena never runs
+/// destructors.
 pub struct BufferedWarnLogger<'parse> {
-    pending: &'parse RefCell<Vec<(String, &'static Deprecation, Option<FileSpan<'parse>>)>>,
+    pending: RefCell<Vec<(String, &'static Deprecation, Option<FileSpan<'parse>>)>>,
 }
 
 impl<'parse> BufferedWarnLogger<'parse> {
-    /// Creates an empty buffer in `arena`. The `'compile: 'parse` bound ties
-    /// the buffer to the compile arena's lifetime.
-    pub fn new<'compile: 'parse>(arena: &'compile Bump) -> Self {
+    /// Creates an empty stack-owned buffer.
+    pub fn new() -> Self {
         Self {
-            pending: arena.alloc(RefCell::new(Vec::new())),
+            pending: RefCell::new(Vec::new()),
         }
     }
 
@@ -68,6 +68,12 @@ impl<'parse> BufferedWarnLogger<'parse> {
     /// empty. The caller routes each entry through `eval::warn`.
     pub fn drain(&self) -> Vec<(String, &'static Deprecation, Option<FileSpan<'parse>>)> {
         self.pending.borrow_mut().drain(..).collect()
+    }
+}
+
+impl Default for BufferedWarnLogger<'_> {
+    fn default() -> Self {
+        Self::new()
     }
 }
 

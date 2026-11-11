@@ -15,6 +15,7 @@ use crate::common::file_span::FileSpan;
 use crate::selector::combinator::Combinator;
 use crate::selector::compound::CompoundSelector;
 use crate::value::hash::hash_combine;
+use bumpalo::Bump;
 
 /// A component of a [`ComplexSelector`](super::complex::ComplexSelector).
 ///
@@ -23,33 +24,34 @@ use crate::value::hash::hash_combine;
 #[derive(Clone, Debug)]
 pub struct ComplexSelectorComponent<'parse> {
     /// This component's compound selector.
-    pub selector: Box<CompoundSelector<'parse>>,
+    pub selector: &'parse CompoundSelector<'parse>,
     /// This component's combinators.
     ///
     /// An empty list indicates an implicit descendant combinator. More than
     /// one element is invalid CSS, still supported for backwards-compatibility
     /// purposes.
-    pub combinators: Vec<CssValue<'parse, Combinator>>,
+    pub combinators: &'parse [CssValue<'parse, Combinator>],
     pub span: FileSpan<'parse>,
 }
 
 impl<'parse> ComplexSelectorComponent<'parse> {
     /// Creates a component from a compound selector and trailing combinators.
     pub fn new(
-        selector: Box<CompoundSelector<'parse>>,
+        arena: &'parse Bump,
+        selector: CompoundSelector<'parse>,
         combinators: Vec<CssValue<'parse, Combinator>>,
         span: FileSpan<'parse>,
     ) -> Self {
         ComplexSelectorComponent {
-            selector,
-            combinators: combinators.to_vec(),
+            selector: arena.alloc(selector),
+            combinators: &*arena.alloc_slice_fill_iter(combinators),
             span,
         }
     }
 
     pub fn hash_code(&self) -> i32 {
         let mut h = self.selector.hash_code();
-        for comb in &self.combinators {
+        for comb in self.combinators {
             h = hash_combine(h, (comb.value as i32).wrapping_mul(31));
         }
         h
@@ -59,16 +61,17 @@ impl<'parse> ComplexSelectorComponent<'parse> {
     // [`ComplexSelectorComponent::combinators`].
     pub fn with_additional_combinators(
         &self,
+        arena: &'parse Bump,
         combinators: &[CssValue<'parse, Combinator>],
     ) -> Self {
         if combinators.is_empty() {
             return self.clone();
         }
-        let mut new_combinators = self.combinators.clone();
+        let mut new_combinators = self.combinators.to_vec();
         new_combinators.extend_from_slice(combinators);
         ComplexSelectorComponent {
-            selector: self.selector.clone(),
-            combinators: new_combinators,
+            selector: self.selector,
+            combinators: &*arena.alloc_slice_fill_iter(new_combinators),
             span: self.span,
         }
     }
@@ -102,49 +105,62 @@ mod tests {
     use crate::common::file_span::BOGUS_SPAN;
     use crate::selector::class::ClassSelector;
     use crate::selector::SimpleSelector;
+    use bumpalo::Bump;
 
-    fn make_compound(name: &str) -> Box<CompoundSelector<'static>> {
-        let simple = SimpleSelector::Class(ClassSelector::new(name.into(), BOGUS_SPAN));
-        Box::new(CompoundSelector::new(vec![simple], BOGUS_SPAN).unwrap())
+    fn make_compound<'p>(arena: &'p Bump, name: &'static str) -> CompoundSelector<'p> {
+        let simple = SimpleSelector::Class(ClassSelector::new(name, BOGUS_SPAN));
+        CompoundSelector::new(arena, vec![simple], BOGUS_SPAN).unwrap()
     }
 
     #[test]
     fn test_new() {
-        let compound = make_compound("foo");
-        let c = ComplexSelectorComponent::new(compound.clone(), vec![], BOGUS_SPAN);
-        assert_eq!(c.selector, compound);
+        let arena = Bump::new();
+        let compound = make_compound(&arena, "foo");
+        let c = ComplexSelectorComponent::new(&arena, compound.clone(), vec![], BOGUS_SPAN);
+        assert_eq!(*c.selector, compound);
     }
 
     #[test]
     fn test_hash_code() {
-        let c1 = ComplexSelectorComponent::new(make_compound("foo"), vec![], BOGUS_SPAN);
-        let c2 = ComplexSelectorComponent::new(make_compound("foo"), vec![], BOGUS_SPAN);
+        let arena = Bump::new();
+        let c1 =
+            ComplexSelectorComponent::new(&arena, make_compound(&arena, "foo"), vec![], BOGUS_SPAN);
+        let c2 =
+            ComplexSelectorComponent::new(&arena, make_compound(&arena, "foo"), vec![], BOGUS_SPAN);
         assert_eq!(c1.hash_code(), c2.hash_code());
     }
 
     #[test]
     fn test_with_additional_combinators() {
-        let c = ComplexSelectorComponent::new(make_compound("foo"), vec![], BOGUS_SPAN);
+        let arena = Bump::new();
+        let c =
+            ComplexSelectorComponent::new(&arena, make_compound(&arena, "foo"), vec![], BOGUS_SPAN);
         let comb = CssValue::new(Combinator::Child, BOGUS_SPAN);
-        let result = c.with_additional_combinators(std::slice::from_ref(&comb));
+        let result = c.with_additional_combinators(&arena, std::slice::from_ref(&comb));
         assert_eq!(result.combinators.len(), 1);
         assert_eq!(result.combinators[0], comb);
     }
 
     #[test]
     fn test_with_additional_combinators_empty() {
-        let c = ComplexSelectorComponent::new(make_compound("foo"), vec![], BOGUS_SPAN);
-        let result = c.with_additional_combinators(&[]);
+        let arena = Bump::new();
+        let c =
+            ComplexSelectorComponent::new(&arena, make_compound(&arena, "foo"), vec![], BOGUS_SPAN);
+        let result = c.with_additional_combinators(&arena, &[]);
         assert_eq!(result.combinators.len(), 0);
     }
 
     #[test]
     fn test_eq() {
-        let c1 = ComplexSelectorComponent::new(make_compound("foo"), vec![], BOGUS_SPAN);
-        let c2 = ComplexSelectorComponent::new(make_compound("foo"), vec![], BOGUS_SPAN);
+        let arena = Bump::new();
+        let c1 =
+            ComplexSelectorComponent::new(&arena, make_compound(&arena, "foo"), vec![], BOGUS_SPAN);
+        let c2 =
+            ComplexSelectorComponent::new(&arena, make_compound(&arena, "foo"), vec![], BOGUS_SPAN);
         assert_eq!(c1, c2);
 
-        let c3 = ComplexSelectorComponent::new(make_compound("bar"), vec![], BOGUS_SPAN);
+        let c3 =
+            ComplexSelectorComponent::new(&arena, make_compound(&arena, "bar"), vec![], BOGUS_SPAN);
         assert_ne!(c1, c3);
     }
 }

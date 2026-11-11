@@ -9,7 +9,7 @@
 
 use std::path::Path;
 
-use crate::url::SassUrl;
+use crate::url::OwnedUrl;
 
 use crate::io::Io;
 
@@ -50,7 +50,7 @@ fn rel_path_to(path: &Path, base: &Path) -> Option<String> {
 /// the current directory, falling back to the absolute path when the
 /// relative form would be longer; every other scheme renders as-is. The
 /// result is for human consumption and may be URI- or path-formatted.
-pub fn pretty_uri(uri: &SassUrl, io: &dyn Io) -> String {
+pub fn pretty_uri(uri: &OwnedUrl, io: &dyn Io) -> String {
     if uri.is_file_like() {
         let abs = uri.path();
         let cwd = io.current_dir();
@@ -69,7 +69,7 @@ pub fn pretty_uri(uri: &SassUrl, io: &dyn Io) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::url::SassUrl;
+    use crate::url::OwnedUrl;
     use std::path::Path;
 
     use crate::io::VirtualIo;
@@ -117,42 +117,42 @@ mod tests {
     #[test]
     fn test_file_scheme_relative_shorter() {
         let io = VirtualIo::with_cwd("/home/user");
-        let uri = SassUrl::parse("file:///home/user/project/style.scss").unwrap();
+        let uri = OwnedUrl::parse("file:///home/user/project/style.scss").unwrap();
         assert_eq!(pretty_uri(&uri, &io), "project/style.scss");
     }
 
     #[test]
     fn test_file_scheme_relative_same_dir_is_dot() {
         let io = VirtualIo::with_cwd("/home/user");
-        let uri = SassUrl::parse("file:///home/user").unwrap();
+        let uri = OwnedUrl::parse("file:///home/user").unwrap();
         assert_eq!(pretty_uri(&uri, &io), ".");
     }
 
     #[test]
     fn test_file_scheme_relative_longer_falls_back_to_absolute() {
         let io = VirtualIo::with_cwd("/home/user");
-        let uri = SassUrl::parse("file:///other/style.scss").unwrap();
+        let uri = OwnedUrl::parse("file:///other/style.scss").unwrap();
         assert_eq!(pretty_uri(&uri, &io), "/other/style.scss");
     }
 
     #[test]
     fn test_file_scheme_default_cwd_root() {
         let io = VirtualIo::new();
-        let uri = SassUrl::parse("file:///a/b/c.scss").unwrap();
+        let uri = OwnedUrl::parse("file:///a/b/c.scss").unwrap();
         assert_eq!(pretty_uri(&uri, &io), "a/b/c.scss");
     }
 
     #[test]
     fn test_non_file_scheme_passes_through() {
         let io = VirtualIo::new();
-        let uri = SassUrl::parse("https://example.com/path").unwrap();
+        let uri = OwnedUrl::parse("https://example.com/path").unwrap();
         assert_eq!(pretty_uri(&uri, &io), "https://example.com/path");
     }
 
     #[test]
     fn test_sass_scheme_passes_through() {
         let io = VirtualIo::new();
-        let uri = SassUrl::parse("sass:color").unwrap();
+        let uri = OwnedUrl::parse("sass:color").unwrap();
         assert_eq!(pretty_uri(&uri, &io), "sass:color");
     }
 }

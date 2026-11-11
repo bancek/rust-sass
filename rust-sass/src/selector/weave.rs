@@ -8,9 +8,9 @@
 // go-source: go/value/selector_extend.go
 
 use crate::common::file_span::BOGUS_SPAN;
-use crate::selector::placeholder::PlaceholderSelector;
 use crate::selector::universal::UniversalSelector;
 use crate::selector::Selector;
+use bumpalo::Bump;
 use std::collections::{HashSet, VecDeque};
 
 use crate::common::ast_css_value::CssValue;
@@ -37,7 +37,8 @@ static ROOTISH_PSEUDO_CLASSES: &[&str] = &["root", "scope", "host", "host-contex
 /// `span` is used for the unified selectors. Returns `None` when no such
 /// list exists. Matches Dart: `unifyComplex` (extend/functions.dart), except
 /// Dart returns an empty list where this port returns `None`.
-pub fn unify_complex<'parse>(
+pub fn unify_complex<'compile: 'parse, 'parse>(
+    arena: &'compile Bump,
     complexes: &[ComplexSelector<'parse>],
     span: FileSpan<'parse>,
 ) -> SassResult<Option<Vec<ComplexSelector<'parse>>>> {
@@ -70,9 +71,9 @@ pub fn unify_complex<'parse>(
             trailing_combinator = Some(tc.clone());
         }
         if unified_base.is_none() {
-            unified_base = Some(base.selector.as_ref().clone());
+            unified_base = Some((*base.selector).clone());
         } else {
-            let result = unify_compound(unified_base.as_ref().unwrap(), base.selector.as_ref())?;
+            let result = unify_compound(arena, unified_base.as_ref().unwrap(), base.selector)?;
             if result.is_none() {
                 return Ok(None);
             }
@@ -85,7 +86,8 @@ pub fn unify_complex<'parse>(
         if complex.components.len() > 1 {
             let complex_span = complex.span()?;
             let cs = ComplexSelector::new(
-                complex.leading_combinators.clone(),
+                arena,
+                complex.leading_combinators.to_vec(),
                 complex.components[..complex.components.len() - 1].to_vec(),
                 complex_span,
                 complex.line_break,
@@ -105,8 +107,8 @@ pub fn unify_complex<'parse>(
         vec![]
     };
     let base_component =
-        ComplexSelectorComponent::new(Box::new(unified_base.unwrap()), base_tcs, span);
-    let mut base = ComplexSelector::new(base_lcs, vec![base_component], span, false)?;
+        ComplexSelectorComponent::new(arena, unified_base.unwrap(), base_tcs, span);
+    let mut base = ComplexSelector::new(arena, base_lcs, vec![base_component], span, false)?;
     for c in complexes {
         if c.line_break {
             base.line_break = true;
@@ -115,12 +117,12 @@ pub fn unify_complex<'parse>(
     }
 
     let result = if without_bases.is_empty() {
-        weave(&[base], span, None)?
+        weave(arena, &[base], span, None)?
     } else {
-        let last = without_bases[without_bases.len() - 1].concatenate(&base, span, false);
+        let last = without_bases[without_bases.len() - 1].concatenate(arena, &base, span, false);
         let mut combined = without_bases[..without_bases.len() - 1].to_vec();
         combined.push(last);
-        weave(&combined, span, None)?
+        weave(arena, &combined, span, None)?
     };
 
     Ok(result)
@@ -136,15 +138,16 @@ pub fn unify_complex<'parse>(
 /// pseudo-element is preserved; otherwise pseudo-classes sort before
 /// pseudo-elements without disturbing an originally interleaved order.
 /// Matches Dart: `unifyCompound` (extend/functions.dart).
-fn unify_compound<'parse>(
+fn unify_compound<'compile: 'parse, 'parse>(
+    arena: &'compile Bump,
     compound1: &CompoundSelector<'parse>,
     compound2: &CompoundSelector<'parse>,
 ) -> SassResult<Option<CompoundSelector<'parse>>> {
-    let mut result = compound1.components.clone();
+    let mut result = compound1.components.to_vec();
     let mut pseudo_result: Vec<SimpleSelector<'parse>> = Vec::new();
     let mut pseudo_element_found = false;
 
-    for simple in &compound2.components {
+    for simple in compound2.components {
         if pseudo_element_found {
             if let SimpleSelector::Pseudo(ref ps) = simple {
                 let unified = ps.unify(&pseudo_result)?;
@@ -171,7 +174,7 @@ fn unify_compound<'parse>(
     all.extend(result);
     all.extend(pseudo_result);
     let span = compound1.span()?;
-    Ok(Some(CompoundSelector::new(all, span)?))
+    Ok(Some(CompoundSelector::new(arena, all, span)?))
 }
 
 // --- Weave ---
@@ -185,7 +188,8 @@ fn unify_compound<'parse>(
 /// as having a line break. Returns `None` when the intersection is empty
 /// (Dart returns an empty list instead). Matches Dart: `weave`
 /// (extend/functions.dart).
-pub fn weave<'parse>(
+pub fn weave<'compile: 'parse, 'parse>(
+    arena: &'compile Bump,
     complexes: &[ComplexSelector<'parse>],
     span: FileSpan<'parse>,
     force_line_break: Option<bool>,
@@ -197,8 +201,9 @@ pub fn weave<'parse>(
             return Ok(Some(complexes.to_vec()));
         }
         let cs = ComplexSelector::new(
-            c.leading_combinators.clone(),
-            c.components.clone(),
+            arena,
+            c.leading_combinators.to_vec(),
+            c.components.to_vec(),
             c.span()?,
             true,
         )?;
@@ -209,15 +214,16 @@ pub fn weave<'parse>(
     for c in &complexes[1..] {
         if c.components.len() == 1 {
             for p in &mut prefixes {
-                *p = p.concatenate(c, span, fb);
+                *p = p.concatenate(arena, c, span, fb);
             }
             continue;
         }
         let mut np: Vec<ComplexSelector<'parse>> = Vec::new();
         for p in &prefixes {
-            if let Some(pp) = weave_parents(p, c, span)? {
+            if let Some(pp) = weave_parents(arena, p, c, span)? {
                 for ppc in pp {
                     np.push(ppc.with_additional_component(
+                        arena,
                         &c.components[c.components.len() - 1],
                         span,
                         fb,
@@ -245,23 +251,24 @@ pub fn weave<'parse>(
 /// of `P`, with some results elided to bound output size. Returns `None`
 /// when the intersection is empty. Matches Dart: `_weaveParents`
 /// (extend/functions.dart).
-fn weave_parents<'parse>(
+fn weave_parents<'compile: 'parse, 'parse>(
+    arena: &'compile Bump,
     prefix: &ComplexSelector<'parse>,
     base: &ComplexSelector<'parse>,
     span: FileSpan<'parse>,
 ) -> SassResult<Option<Vec<ComplexSelector<'parse>>>> {
-    let leading = merge_leading_combinators(&prefix.leading_combinators, &base.leading_combinators);
+    let leading = merge_leading_combinators(prefix.leading_combinators, base.leading_combinators);
     if leading.is_none() {
         return Ok(None);
     }
     let leading = leading.unwrap();
 
     let mut q1: VecDeque<ComplexSelectorComponent<'parse>> =
-        VecDeque::from(prefix.components.clone());
+        VecDeque::from(prefix.components.to_vec());
     let mut q2: VecDeque<ComplexSelectorComponent<'parse>> =
         VecDeque::from(base.components[..base.components.len() - 1].to_vec());
 
-    let trailing_result = merge_trailing_combinators(&mut q1, &mut q2, span)?;
+    let trailing_result = merge_trailing_combinators(arena, &mut q1, &mut q2, span)?;
     if trailing_result.is_none() {
         return Ok(None);
     }
@@ -269,19 +276,21 @@ fn weave_parents<'parse>(
 
     match (first_if_rootish(&mut q1), first_if_rootish(&mut q2)) {
         (Some(r1), Some(r2)) => {
-            let rootish = unify_compound(r1.selector.as_ref(), r2.selector.as_ref())?;
+            let rootish = unify_compound(arena, r1.selector, r2.selector)?;
             if rootish.is_none() {
                 return Ok(None);
             }
             let rootish = rootish.unwrap();
             q1.push_front(ComplexSelectorComponent::new(
-                Box::new(rootish.clone()),
-                r1.combinators.clone(),
+                arena,
+                rootish.clone(),
+                r1.combinators.to_vec(),
                 r1.span,
             ));
             q2.push_front(ComplexSelectorComponent::new(
-                Box::new(rootish),
-                r2.combinators.clone(),
+                arena,
+                rootish,
+                r2.combinators.to_vec(),
                 r1.span,
             ));
         }
@@ -317,15 +326,16 @@ fn weave_parents<'parse>(
                 return Ok(None);
             }
             let unified = unify_complex(
+                arena,
                 &[
-                    ComplexSelector::new(vec![], a.clone(), span, false)?,
-                    ComplexSelector::new(vec![], b.clone(), span, false)?,
+                    ComplexSelector::new(arena, vec![], a.clone(), span, false)?,
+                    ComplexSelector::new(arena, vec![], b.clone(), span, false)?,
                 ],
                 span,
             )?;
             if let Some(unified) = unified {
                 if unified.len() == 1 && !unified[0].components.is_empty() {
-                    return Ok(Some(unified[0].components.clone()));
+                    return Ok(Some(unified[0].components.to_vec()));
                 }
             }
             Ok(None)
@@ -392,6 +402,7 @@ fn weave_parents<'parse>(
             comps.push(g.clone());
         }
         let cs = ComplexSelector::new(
+            arena,
             leading.clone(),
             comps,
             span,
@@ -416,9 +427,9 @@ fn first_if_rootish<'parse>(
     q: &mut VecDeque<ComplexSelectorComponent<'parse>>,
 ) -> Option<ComplexSelectorComponent<'parse>> {
     if let Some(first) = q.front() {
-        for s in &first.selector.components {
+        for s in first.selector.components {
             if let SimpleSelector::Pseudo(ref ps) = s {
-                if ps.is_class && ROOTISH_PSEUDO_CLASSES.contains(&ps.normalized_name.as_str()) {
+                if ps.is_class && ROOTISH_PSEUDO_CLASSES.contains(&ps.normalized_name) {
                     return q.pop_front();
                 }
             }
@@ -465,7 +476,8 @@ fn merge_leading_combinators<'parse>(
 /// sequences are incompatible. The sibling/child special cases (cases 1–6 in
 /// the body) encode how each combinator pair constrains the merge. Matches
 /// Dart: `_mergeTrailingCombinators` (extend/functions.dart).
-fn merge_trailing_combinators<'parse>(
+fn merge_trailing_combinators<'compile: 'parse, 'parse>(
+    arena: &'compile Bump,
     c1: &mut VecDeque<ComplexSelectorComponent<'parse>>,
     c2: &mut VecDeque<ComplexSelectorComponent<'parse>>,
     span: FileSpan<'parse>,
@@ -473,13 +485,13 @@ fn merge_trailing_combinators<'parse>(
     let mut stack: Vec<Vec<Vec<ComplexSelectorComponent<'parse>>>> = Vec::new();
 
     loop {
-        let comb1 = if let Some(last) = c1.back() {
-            last.combinators.clone()
+        let comb1: Vec<CssValue<'parse, Combinator>> = if let Some(last) = c1.back() {
+            last.combinators.to_vec()
         } else {
             vec![]
         };
-        let comb2 = if let Some(last) = c2.back() {
-            last.combinators.clone()
+        let comb2: Vec<CssValue<'parse, Combinator>> = if let Some(last) = c2.back() {
+            last.combinators.to_vec()
         } else {
             vec![]
         };
@@ -505,11 +517,11 @@ fn merge_trailing_combinators<'parse>(
             ) => {
                 let comp1 = c1.pop_back().unwrap();
                 let comp2 = c2.pop_back().unwrap();
-                let ok = comp1.selector.is_superselector(comp2.selector.as_ref())?;
+                let ok = comp1.selector.is_superselector(comp2.selector)?;
                 if ok {
                     stack.push(vec![vec![comp2]]);
                 } else {
-                    let ok = comp2.selector.is_superselector(comp1.selector.as_ref())?;
+                    let ok = comp2.selector.is_superselector(comp1.selector)?;
                     if ok {
                         stack.push(vec![vec![comp1]]);
                     } else {
@@ -517,11 +529,11 @@ fn merge_trailing_combinators<'parse>(
                             vec![comp1.clone(), comp2.clone()],
                             vec![comp2.clone(), comp1.clone()],
                         ];
-                        let unified =
-                            unify_compound(comp1.selector.as_ref(), comp2.selector.as_ref())?;
+                        let unified = unify_compound(arena, comp1.selector, comp2.selector)?;
                         if let Some(u) = unified {
                             choices.push(vec![ComplexSelectorComponent::new(
-                                Box::new(u),
+                                arena,
+                                u,
                                 comb1.clone(),
                                 span,
                             )]);
@@ -541,19 +553,17 @@ fn merge_trailing_combinators<'parse>(
                 };
                 let next = nc.pop_back().unwrap();
                 let following = fc.pop_back().unwrap();
-                let ok = following
-                    .selector
-                    .is_superselector(next.selector.as_ref())?;
+                let ok = following.selector.is_superselector(next.selector)?;
                 if ok {
                     stack.push(vec![vec![next]]);
                 } else {
                     let mut choices = vec![vec![following.clone(), next.clone()]];
-                    let unified =
-                        unify_compound(following.selector.as_ref(), next.selector.as_ref())?;
+                    let unified = unify_compound(arena, following.selector, next.selector)?;
                     if let Some(u) = unified {
                         choices.push(vec![ComplexSelectorComponent::new(
-                            Box::new(u),
-                            next.combinators.clone(),
+                            arena,
+                            u,
+                            next.combinators.to_vec(),
                             span,
                         )]);
                     }
@@ -576,14 +586,16 @@ fn merge_trailing_combinators<'parse>(
             // Case 4: same combinator
             (true, Some(a), true, Some(b)) if a == b => {
                 let unified = unify_compound(
-                    c1.pop_back().unwrap().selector.as_ref(),
-                    c2.pop_back().unwrap().selector.as_ref(),
+                    arena,
+                    c1.pop_back().unwrap().selector,
+                    c2.pop_back().unwrap().selector,
                 )?;
                 if unified.is_none() {
                     return Ok(None);
                 }
                 stack.push(vec![vec![ComplexSelectorComponent::new(
-                    Box::new(unified.unwrap()),
+                    arena,
+                    unified.unwrap(),
                     comb1,
                     span,
                 )]]);
@@ -597,7 +609,7 @@ fn merge_trailing_combinators<'parse>(
                         .back()
                         .unwrap()
                         .selector
-                        .is_superselector(c1.back().unwrap().selector.as_ref())?;
+                        .is_superselector(c1.back().unwrap().selector)?;
                     if ok {
                         c2.pop_back();
                     }
@@ -613,7 +625,7 @@ fn merge_trailing_combinators<'parse>(
                         .back()
                         .unwrap()
                         .selector
-                        .is_superselector(c2.back().unwrap().selector.as_ref())?;
+                        .is_superselector(c2.back().unwrap().selector)?;
                     if ok {
                         c1.pop_back();
                     }
@@ -731,17 +743,20 @@ fn complex_is_parent_superselector<'parse>(
     if a.len() > b.len() {
         return Ok(false);
     }
+    // Stand-in base for this comparison only.
+    let local = Bump::new();
     let temp_compound = CompoundSelector::new(
-        vec![SimpleSelector::Placeholder(PlaceholderSelector::new(
-            "<temp>".into(),
+        &local,
+        vec![SimpleSelector::Universal(UniversalSelector::new(
             BOGUS_SPAN,
+            crate::selector::qualified_name::SelectorNamespace::Any,
         ))],
         BOGUS_SPAN,
     )?;
-    let base = ComplexSelectorComponent::new(Box::new(temp_compound), vec![], BOGUS_SPAN);
-    let mut x: Vec<ComplexSelectorComponent<'parse>> = a.to_vec();
+    let base = ComplexSelectorComponent::new(&local, temp_compound, vec![], BOGUS_SPAN);
+    let mut x: Vec<ComplexSelectorComponent<'_>> = a.to_vec();
     x.push(base.clone());
-    let mut y: Vec<ComplexSelectorComponent<'parse>> = b.to_vec();
+    let mut y: Vec<ComplexSelectorComponent<'_>> = b.to_vec();
     y.push(base);
     complex_is_superselector(&x, &y)
 }
@@ -760,7 +775,7 @@ fn must_unify<'parse>(
 ) -> bool {
     let mut uniq: HashSet<&'parse SimpleSelector<'parse>> = HashSet::new();
     for c in a {
-        for s in &c.selector.components {
+        for s in c.selector.components {
             if is_unique(s) {
                 uniq.insert(s);
             }
@@ -770,7 +785,7 @@ fn must_unify<'parse>(
         return false;
     }
     for c in b {
-        for s in &c.selector.components {
+        for s in c.selector.components {
             if is_unique(s) && uniq.contains(s) {
                 return true;
             }
@@ -921,8 +936,9 @@ pub fn complex_is_superselector<'parse>(
                 None
             };
             return compound_is_superselector(
-                ca.selector.as_ref(),
-                b.last().unwrap().selector.as_ref(),
+                ca.selector.components,
+                b.last().unwrap().selector.components,
+                b.last().unwrap().selector.span,
                 parents,
             );
         }
@@ -938,8 +954,12 @@ pub fn complex_is_superselector<'parse>(
             } else {
                 None
             };
-            let ok =
-                compound_is_superselector(ca.selector.as_ref(), cb.selector.as_ref(), parents)?;
+            let ok = compound_is_superselector(
+                ca.selector.components,
+                cb.selector.components,
+                cb.selector.span,
+                parents,
+            )?;
             if ok {
                 break;
             }
@@ -1043,18 +1063,24 @@ fn is_supercombinator<'parse>(
 /// pseudo-element with matching sides. Matches Dart:
 /// `compoundIsSuperselector` (extend/functions.dart).
 pub fn compound_is_superselector<'parse>(
-    a: &CompoundSelector<'parse>,
-    b: &CompoundSelector<'parse>,
+    a: &[SimpleSelector<'parse>],
+    b: &[SimpleSelector<'parse>],
+    b_span: FileSpan<'parse>,
     parents: Option<&[ComplexSelectorComponent<'parse>]>,
 ) -> SassResult<bool> {
-    if !a.has_complicated_superselector_semantics() && !b.has_complicated_superselector_semantics()
+    if !a
+        .iter()
+        .any(SimpleSelector::has_complicated_superselector_semantics)
+        && !b
+            .iter()
+            .any(SimpleSelector::has_complicated_superselector_semantics)
     {
-        if a.components.len() > b.components.len() {
+        if a.len() > b.len() {
             return Ok(false);
         }
-        for sa in &a.components {
+        for sa in a {
             let mut found = false;
-            for sb in &b.components {
+            for sb in b {
                 if sa.is_superselector(sb)? {
                     found = true;
                     break;
@@ -1070,11 +1096,7 @@ pub fn compound_is_superselector<'parse>(
     let pa = find_pseudo_element(a);
     let pb = find_pseudo_element(b);
     if let (Some((ref pseudo_a, idx_a)), Some((ref pseudo_b, idx_b))) = (&pa, &pb) {
-        if !comp_comps_is_superselector(
-            a.components[..*idx_a].to_vec(),
-            &b.components[..*idx_b],
-            parents,
-        )? {
+        if !comp_comps_is_superselector(&a[..*idx_a], &b[..*idx_b], parents)? {
             return Ok(false);
         }
         if !SimpleSelector::Pseudo((*pseudo_a).clone())
@@ -1082,26 +1104,22 @@ pub fn compound_is_superselector<'parse>(
         {
             return Ok(false);
         }
-        return comp_comps_is_superselector(
-            a.components[*idx_a + 1..].to_vec(),
-            &b.components[*idx_b + 1..],
-            parents,
-        );
+        return comp_comps_is_superselector(&a[*idx_a + 1..], &b[*idx_b + 1..], parents);
     }
     if pa.is_some() || pb.is_some() {
         return Ok(false);
     }
 
-    for sa in &a.components {
+    for sa in a {
         if let SimpleSelector::Pseudo(ref ps) = sa {
             if ps.selector.is_some() {
-                if !selector_pseudo_is_superselector(ps, b, parents)? {
+                if !selector_pseudo_is_superselector(ps, b, b_span, parents)? {
                     return Ok(false);
                 }
                 continue;
             }
         }
-        if !comp_contains(&b.components, sa)? {
+        if !comp_contains(b, sa)? {
             return Ok(false);
         }
     }
@@ -1112,9 +1130,9 @@ pub fn compound_is_superselector<'parse>(
 /// `c.components`. Matches Dart: `_findPseudoElementIndexed`
 /// (extend/functions.dart).
 fn find_pseudo_element<'parse>(
-    c: &CompoundSelector<'parse>,
+    c: &[SimpleSelector<'parse>],
 ) -> Option<(PseudoSelector<'parse>, usize)> {
-    for (i, s) in c.components.iter().enumerate() {
+    for (i, s) in c.iter().enumerate() {
         if let SimpleSelector::Pseudo(ref ps) = s {
             if ps.is_element() {
                 return Some((ps.clone(), i));
@@ -1129,24 +1147,23 @@ fn find_pseudo_element<'parse>(
 /// Matches Dart: `_compoundComponentsIsSuperselector`
 /// (extend/functions.dart).
 fn comp_comps_is_superselector<'parse>(
-    a: Vec<SimpleSelector<'parse>>,
+    a: &[SimpleSelector<'parse>],
     b: &[SimpleSelector<'parse>],
     parents: Option<&[ComplexSelectorComponent<'parse>]>,
 ) -> SassResult<bool> {
     if a.is_empty() {
         return Ok(true);
     }
-    let b_sel = if b.is_empty() {
-        vec![SimpleSelector::Universal(UniversalSelector::new(
-            BOGUS_SPAN,
-            crate::selector::qualified_name::SelectorNamespace::Any,
-        ))]
+    let universal = SimpleSelector::Universal(UniversalSelector::new(
+        BOGUS_SPAN,
+        crate::selector::qualified_name::SelectorNamespace::Any,
+    ));
+    let b = if b.is_empty() {
+        std::slice::from_ref(&universal)
     } else {
-        b.to_vec()
+        b
     };
-    let ca = CompoundSelector::new(a, BOGUS_SPAN)?;
-    let cb = CompoundSelector::new(b_sel, BOGUS_SPAN)?;
-    compound_is_superselector(&ca, &cb, parents)
+    compound_is_superselector(a, b, BOGUS_SPAN, parents)
 }
 
 /// Whether any selector in `comps` is a superselector of `target`.
@@ -1170,41 +1187,48 @@ fn comp_contains<'parse>(
 ///
 /// `parents`, when passed, are the parents of `c2`. Each pseudo name gets
 /// its own strategy (`:is`/`:where` union checks, `:not` exclusion checks,
-/// `:nth-child` argument-equality checks, and so on). Matches Dart:
+/// `:nth-child` argument-equality checks, and so on). The `:is`/`:where` arm
+/// compares against a copy of `c2` (Dart's `copyWithoutChildren()`, which for a
+/// compound selector is just the component list). Matches Dart:
 /// `_selectorPseudoIsSuperselector` (extend/functions.dart).
 pub fn selector_pseudo_is_superselector<'parse>(
     p: &PseudoSelector<'parse>,
-    c2: &CompoundSelector<'parse>,
+    c2: &[SimpleSelector<'parse>],
+    c2_span: FileSpan<'parse>,
     parents: Option<&[ComplexSelectorComponent<'parse>]>,
 ) -> SassResult<bool> {
-    let sel = p.selector.as_ref().ok_or_else(|| SassError::Script {
+    let sel = p.selector.ok_or_else(|| SassError::Script {
         message: format!("Selector {p:?} must have a selector argument"),
         argument_name: None,
     })?;
-    let l1 = match sel.as_ref() {
+    let l1 = match sel {
         Selector::List(ref list) => list,
         _ => return Ok(false),
     };
 
-    match p.normalized_name.as_str() {
+    match p.normalized_name {
         "is" | "matches" | "any" | "where" => {
-            for arg in selector_pseudo_args(c2, &p.name, true) {
+            for arg in selector_pseudo_args(c2, p.name, true) {
                 if l1.is_superselector(arg)? {
                     return Ok(true);
                 }
             }
-            for c in &l1.0.components {
+            for c in l1.0.components {
                 if c.leading_combinators.is_empty() {
-                    let mut comps: Vec<ComplexSelectorComponent<'parse>> = vec![];
+                    // Copy of `compound2` for this comparison only.
+                    let local = Bump::new();
+                    let copied = CompoundSelector::new(&local, c2.to_vec(), c2_span)?;
+                    let mut comps: Vec<ComplexSelectorComponent<'_>> = Vec::new();
                     if let Some(parents) = parents {
                         comps.extend_from_slice(parents);
                     }
                     comps.push(ComplexSelectorComponent::new(
-                        Box::new(c2.clone()),
+                        &local,
+                        copied,
                         vec![],
-                        c2.span,
+                        c2_span,
                     ));
-                    if complex_is_superselector(&c.components, &comps)? {
+                    if complex_is_superselector(c.components, &comps)? {
                         return Ok(true);
                     }
                 }
@@ -1213,7 +1237,7 @@ pub fn selector_pseudo_is_superselector<'parse>(
         }
 
         "has" | "host" | "host-context" => {
-            for arg in selector_pseudo_args(c2, &p.name, true) {
+            for arg in selector_pseudo_args(c2, p.name, true) {
                 if l1.is_superselector(arg)? {
                     return Ok(true);
                 }
@@ -1222,7 +1246,7 @@ pub fn selector_pseudo_is_superselector<'parse>(
         }
 
         "slotted" => {
-            for arg in selector_pseudo_args(c2, &p.name, false) {
+            for arg in selector_pseudo_args(c2, p.name, false) {
                 if l1.is_superselector(arg)? {
                     return Ok(true);
                 }
@@ -1231,15 +1255,19 @@ pub fn selector_pseudo_is_superselector<'parse>(
         }
 
         "not" => {
-            for c in &l1.0.components {
+            for c in l1.0.components {
                 if c.is_bogus() {
                     return Ok(false);
                 }
                 let mut found = false;
-                for sb in &c2.components {
+                for sb in c2 {
                     match sb {
                         SimpleSelector::Type(ref ta) => {
-                            for sa in &c.components[c.components.len() - 1].selector.components {
+                            for sa in c.components[c.components.len() - 1]
+                                .selector
+                                .components
+                                .iter()
+                            {
                                 if let SimpleSelector::Type(ref sa) = sa {
                                     if sa.name.name != ta.name.name
                                         || sa.name.namespace != ta.name.namespace
@@ -1250,7 +1278,11 @@ pub fn selector_pseudo_is_superselector<'parse>(
                             }
                         }
                         SimpleSelector::Id(ref id_b) => {
-                            for sa in &c.components[c.components.len() - 1].selector.components {
+                            for sa in c.components[c.components.len() - 1]
+                                .selector
+                                .components
+                                .iter()
+                            {
                                 if let SimpleSelector::Id(ref id_a) = sa {
                                     if id_a.name != id_b.name {
                                         found = true;
@@ -1261,9 +1293,9 @@ pub fn selector_pseudo_is_superselector<'parse>(
                         SimpleSelector::Pseudo(ref ps_b) => {
                             if let Some(ref sel_b) = ps_b.selector {
                                 if ps_b.name == p.name {
-                                    if let Selector::List(ref l2) = sel_b.as_ref() {
+                                    if let Selector::List(ref l2) = sel_b {
                                         if list_is_superselector(
-                                            &l2.0.components,
+                                            l2.0.components,
                                             std::slice::from_ref(c),
                                         )? {
                                             found = true;
@@ -1283,7 +1315,7 @@ pub fn selector_pseudo_is_superselector<'parse>(
         }
 
         "current" => {
-            for arg in selector_pseudo_args(c2, &p.name, true) {
+            for arg in selector_pseudo_args(c2, p.name, true) {
                 if arg == l1 {
                     return Ok(true);
                 }
@@ -1292,13 +1324,11 @@ pub fn selector_pseudo_is_superselector<'parse>(
         }
 
         "nth-child" | "nth-last-child" => {
-            for sb in &c2.components {
+            for sb in c2 {
                 if let SimpleSelector::Pseudo(ref ps) = sb {
                     if ps.name == p.name && ps.argument == p.argument {
-                        if let Some(ref sel2) = ps.selector {
-                            if let super::Selector::List(ref l2) = sel2.as_ref() {
-                                return l1.is_superselector(l2);
-                            }
+                        if let Some(super::Selector::List(ref l2)) = ps.selector {
+                            return l1.is_superselector(l2);
                         }
                     }
                 }
@@ -1314,18 +1344,16 @@ pub fn selector_pseudo_is_superselector<'parse>(
 /// passes `is_class: false`). Matches Dart: `_selectorPseudoArgs`
 /// (extend/functions.dart).
 fn selector_pseudo_args<'parse>(
-    c: &'parse CompoundSelector<'parse>,
+    c: &'parse [SimpleSelector<'parse>],
     name: &str,
     is_class: bool,
 ) -> Vec<&'parse SelectorList<'parse>> {
     let mut r = Vec::new();
-    for s in &c.components {
+    for s in c {
         if let SimpleSelector::Pseudo(ref ps) = s {
             if ps.is_class == is_class && ps.name == name {
-                if let Some(ref sel) = ps.selector {
-                    if let Selector::List(ref list) = sel.as_ref() {
-                        r.push(list);
-                    }
+                if let Some(Selector::List(ref list)) = ps.selector {
+                    r.push(list);
                 }
             }
         }

@@ -65,25 +65,26 @@ before the arena).
 ## No `unsafe`
 
 `rust-sass`, `rust-sass-cli`, `rust-sass-embedded`, and `rust-sass-wasm` contain
-no `unsafe` code. The sole pre-existing `unsafe` (a `Box::leak` in
-`parse_parameter_list`) was removed by threading the arena through instead.
-Identity is address-based (`std::ptr::eq`) and is correct only
-because values are constructed once per identity.
+no `unsafe` code, enforced by `#![forbid(unsafe_code)]` in each crate root.
+Identity is address-based (`std::ptr::eq`) and is correct only because values
+are constructed once per identity.
+
+The one exception in the workspace is the counting `#[global_allocator]` in
+`rust-sass-spec` (`src/leak_gate.rs`, behind the `leak-gate` feature). It must
+implement `GlobalAlloc`, which is an `unsafe impl`; the spec crate is test
+harness, not a published surface. `rust-sass-libsass` is the C-ABI crate and
+carries its own `unsafe` for the FFI boundary.
 
 ## Rc, not Arc
 
 The compiler is single-threaded (`!Send`), so shared ownership uses `Rc`,
-never `Arc`. Environment frames are arena refs (`Vec<&'parse
-RefCell<IndexMap>>`, `Copy`); `Rc` remains only where shared ownership is
-genuine: the CSS parent chain (`Rc<RefCell<…>>` + `Weak` back-pointers),
-callable/overload sharing (`Rc<Vec<BuiltInOverload>>`,
-`SyncBuiltInCallback = Rc<dyn Fn…>`), extend-store boxes
-(`Rc<RefCell>` `MutableBox`/`StoreBox`), and the host-service seams (`Logger`,
-`Io`, `PackageConfig`, `UserImporter`, plus `HostContext`/`CompileContext =
-Rc<()>` for the `'static` embedded boundary that cannot be arena-ref'd).
-Never reach for `RefCell`/`Rc` as a borrow workaround in visitor
-implementations — split into free functions taking separate references
-instead (see "Free functions for borrow ergonomics" below).
+never `Arc`. Environment frames are arena handles
+(`ArenaVec<&'parse RefCell<ArenaMap>>`, `Copy`); `Rc` remains only where shared
+ownership is genuine: extend-store boxes (`Rc<RefCell>` `MutableBox`/`StoreBox`),
+the `Importer` handle (`Rc<ImporterKind>` — heap-owned so host importers drop),
+and the host-service seams (`Logger`, `Io`, `PackageConfig`, `UserImporter`,
+`HostContext`). The CSS parent chain needs neither: nodes are arena-allocated,
+so the parent link is `Cell<Option<&'parse RefCell<…>>>`.
 
 **No-reentry contract.** The whole codebase is `!Send`/`!Sync`, and an `Io`
 implementation must never call back into Rust while processing an I/O request.
@@ -91,6 +92,25 @@ Given that, a `RefCell` guard held across an `.await` can never conflict — whi
 the future is suspended, nothing else can touch the same `RefCell`. Do not add
 defensive guard-dropping to "protect" against re-entry; it is unsound by
 contract, not by guard discipline.
+
+## An arena value must not own heap memory
+
+`bumpalo::Bump` never runs `Drop`. A value allocated in the arena that owns a
+`Vec`/`String`/`Box`/map/`Rc` therefore leaks it for the life of the process.
+`architecture.md` §15 covers the mechanism and the containers that replace the
+owning ones. Fields of arena-resident types must be arena storage
+(`ArenaVec`, `ArenaMap`, `ArenaHashSet`/`ArenaHashMap`, `&'parse [T]`,
+`&'parse str`), arena handles to drop-free data (`&'parse dyn Trait`,
+`fn` pointers, `arena.alloc(closure)` with drop-free captures), or removed.
+
+Corollary, and the case that is easiest to miss: an `Rc` **clone** stored in the
+arena keeps an object allocated anywhere alive forever, because its strong count
+never reaches zero. That is why host seams are either passed by reference,
+owned on the stack, or keep their own storage on the heap (`Importer`).
+
+Separately: never reach for `RefCell`/`Rc` as a borrow workaround in visitor
+implementations — split into free functions taking separate references instead
+(see "Free functions for borrow ergonomics" below).
 
 ## The accept pattern
 
@@ -100,9 +120,8 @@ type. No Go-style `AcceptValue`/`AcceptBool`/`AcceptVoid` explosion.
 ## Module is an enum (+ arena handle)
 
 `ModuleKind` is `enum ModuleKind { BuiltIn, Forwarded, Shadowed,
-Environment(Box<EnvironmentModule>) }`, not a trait object — zero vtable;
-`Module` is a `Copy` arena handle (`&'parse ModuleKind`) with identity via
-`std::ptr::eq`.
+Environment(EnvironmentModule) }`, not a trait object — zero vtable; `Module` is
+a `Copy` arena handle (`&'parse ModuleKind`) with identity via `std::ptr::eq`.
 
 ## `Value` invariance
 
@@ -135,12 +154,12 @@ functions). Do **not** use `RefCell`/`Cell` as a borrow workaround in visitor
 implementations.
 
 The distinction is deliberate: `RefCell` is correct for _ownership_ semantics
-(arena `&'parse RefCell<IndexMap>` environment frames,
-`Rc<RefCell<ModifiableCssNodeInner>>`
-for the CSS parent chain — these model GC-shared mutable references); free
-functions are correct for _borrow ergonomics_ (temporary conflicts in
-single-owner visitors). This rule covers the serializer (`SerializeState` +
-`for_node`) and the evaluator (`EvalConfig` + `EvalState`).
+(arena `&'parse RefCell<ArenaMap>` environment frames,
+`&'parse RefCell<ModifiableCssNodeInner>` for the CSS tree — these model
+GC-shared mutable references); free functions are correct for _borrow
+ergonomics_ (temporary conflicts in single-owner visitors). This rule covers the
+serializer (`SerializeState` + `for_node`) and the evaluator (`EvalConfig` +
+`EvalState`).
 
 ## Byte-identity, spec-green, protocol alignment
 

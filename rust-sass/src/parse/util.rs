@@ -12,7 +12,7 @@ use crate::ast::sass::interpolation_buffer::InterpolationBuffer;
 use crate::common::ast_node::AstNode;
 use crate::common::file_span::FileSpan;
 use crate::common::span_scanner::SpanScanner;
-use crate::url::SassUrl;
+use crate::url::OwnedUrl;
 use crate::util::character;
 
 use crate::parse::parser::{
@@ -131,10 +131,10 @@ pub(crate) fn looking_at_expression_impl(scanner: &SpanScanner<'_>) -> bool {
 pub(crate) fn url_string_impl<'parse>(
     scanner: &mut SpanScanner<'parse>,
     parser_state: &ParserState<'parse>,
-) -> ParseResult<'parse, SassUrl> {
+) -> ParseResult<'parse, OwnedUrl> {
     let start = scanner.state();
     let url_str = string_impl(scanner)?;
-    let parsed = SassUrl::parse(&url_str);
+    let parsed = OwnedUrl::parse(&url_str);
     match parsed {
         Ok(url) => Ok(url),
         Err(e) => {
@@ -235,7 +235,7 @@ impl<'parse> StylesheetParser<'parse> {
         looking_at_expression_impl(&self.scanner)
     }
 
-    pub fn url_string(&mut self) -> ParseResult<'parse, SassUrl> {
+    pub fn url_string(&mut self) -> ParseResult<'parse, OwnedUrl> {
         url_string_impl(&mut self.scanner, &self.state.parser_state)
     }
 
@@ -280,7 +280,7 @@ mod tests {
         'parse: 'compile,
     {
         let fs = FileSource::new_in(arena, text, None);
-        StylesheetParser::new(fs, syntax, None)
+        StylesheetParser::new(fs, syntax, None, arena)
     }
 
     fn make_scss<'compile, 'parse>(arena: &'compile Bump, text: &str) -> StylesheetParser<'parse>
@@ -708,12 +708,12 @@ mod tests {
             let fs = FileSource::new_in(&arena, "hello", None);
             FileSpan::new(Some(fs), 0, 5)
         };
-        let interp = Interpolation::plain("hello".into(), span);
+        let interp = Interpolation::plain(&arena, "hello".into(), span);
         let expr = Expression::String(StringExpression::new(interp, false));
 
         let mut buffer = InterpolationBuffer::new();
         StylesheetParser::add_or_inject(&mut buffer, &expr).unwrap();
-        let result = buffer.interpolation(span).unwrap();
+        let result = buffer.interpolation(&arena, span).unwrap();
         assert!(result.is_plain());
         assert_eq!(result.as_plain(), Some("hello"));
     }
@@ -725,12 +725,12 @@ mod tests {
             let fs = FileSource::new_in(&arena, "hello", None);
             FileSpan::new(Some(fs), 0, 5)
         };
-        let interp = Interpolation::plain("hello".into(), span);
+        let interp = Interpolation::plain(&arena, "hello".into(), span);
         let expr = Expression::String(StringExpression::new(interp, true));
 
         let mut buffer = InterpolationBuffer::new();
         StylesheetParser::add_or_inject(&mut buffer, &expr).unwrap();
-        let result = buffer.interpolation(span).unwrap();
+        let result = buffer.interpolation(&arena, span).unwrap();
         assert!(!result.is_plain());
     }
 
@@ -741,7 +741,7 @@ mod tests {
             let fs = FileSource::new_in(&arena, "hello", None);
             FileSpan::new(Some(fs), 0, 5)
         };
-        let interp = Interpolation::plain("hello".into(), span);
+        let interp = Interpolation::plain(&arena, "hello".into(), span);
         let expr = Expression::String(StringExpression::new(interp, false));
 
         let mut buffer = InterpolationBuffer::new();

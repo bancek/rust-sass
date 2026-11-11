@@ -12,6 +12,7 @@
 // go-source: go/embedded/importer_host.go + go/embedded/function.go (via rust-sass-embedded)
 
 use crate::error::span_to_js;
+use std::cell::RefCell;
 use std::collections::HashSet;
 use std::fmt;
 use std::rc::Rc;
@@ -26,7 +27,7 @@ use rust_sass::eval::importer::result::ImporterResult;
 use rust_sass::eval::importer::{CanonicalizeContext, UserImporter};
 use rust_sass::logger::{Logger, NoOpWarnLogger};
 use rust_sass::parse::stylesheet::{CssState, SassIndentState, Syntax};
-use rust_sass::url::SassUrl;
+use rust_sass::url::OwnedUrl;
 use rust_sass::value::Value;
 use rust_sass::Bump;
 
@@ -207,7 +208,7 @@ impl JsImporter {
     }
 }
 
-fn canonicalize_args(url: &SassUrl, context: &mut CanonicalizeContext) -> Array {
+fn canonicalize_args(url: &OwnedUrl, context: &mut CanonicalizeContext) -> Array {
     let args = Array::new();
     // Use the Display form (strips the internal `sass-relative:` wrapper for
     // relative URLs) so the JS importer sees the URL as written, matching Dart.
@@ -240,13 +241,13 @@ fn canonicalize_args(url: &SassUrl, context: &mut CanonicalizeContext) -> Array 
 /// (`lib/src/importer/js_to_dart/sync.dart:39-56`): null → fallback; a JS
 /// `URL` → its string form; anything else (after the Promise check in the
 /// caller) → error.
-fn parse_canonicalize_result(result: &JsValue) -> SassResult<Option<SassUrl>> {
+fn parse_canonicalize_result(result: &JsValue) -> SassResult<Option<OwnedUrl>> {
     if result.is_null() || result.is_undefined() {
         return Ok(None);
     }
     if is_js_url(result) {
         let s = js_url_to_string(result).unwrap_or_default();
-        return SassUrl::parse(&s)
+        return OwnedUrl::parse(&s)
             .map(Some)
             .map_err(|_| script(format!("The importer returned an invalid URL \"{s}\".")));
     }
@@ -288,7 +289,7 @@ fn parse_load_result(result: &JsValue) -> SassResult<Option<ImporterResult>> {
     let source_map_url = match Reflect::get(result, &JsValue::from_str("sourceMapUrl")) {
         Ok(v) if !(v.is_undefined() || v.is_null()) => {
             let s = js_str_repr(&v);
-            match SassUrl::parse(&s) {
+            match OwnedUrl::parse(&s) {
                 Ok(u) if !u.scheme().is_empty() => Some(u),
                 _ => {
                     return Err(script(format!(
@@ -306,9 +307,9 @@ impl UserImporter for JsImporter {
     #[cfg(feature = "async")]
     fn canonicalize<'a>(
         &'a self,
-        url: &'a SassUrl,
+        url: &'a OwnedUrl,
         context: &'a mut CanonicalizeContext,
-    ) -> LocalBoxFuture<'a, SassResult<Option<SassUrl>>> {
+    ) -> LocalBoxFuture<'a, SassResult<Option<OwnedUrl>>> {
         let f = self.canonicalize.clone();
         let args = canonicalize_args(url, context);
         Box::pin(async move {
@@ -328,9 +329,9 @@ impl UserImporter for JsImporter {
     #[cfg(not(feature = "async"))]
     fn canonicalize<'a>(
         &'a self,
-        url: &'a SassUrl,
+        url: &'a OwnedUrl,
         context: &'a mut CanonicalizeContext,
-    ) -> LocalBoxFuture<'a, SassResult<Option<SassUrl>>> {
+    ) -> LocalBoxFuture<'a, SassResult<Option<OwnedUrl>>> {
         let f = self.canonicalize.clone();
         let args = canonicalize_args(url, context);
         Box::pin(async move {
@@ -345,7 +346,7 @@ impl UserImporter for JsImporter {
     #[cfg(feature = "async")]
     fn load<'a>(
         &'a self,
-        url: &'a SassUrl,
+        url: &'a OwnedUrl,
     ) -> LocalBoxFuture<'a, SassResult<Option<ImporterResult>>> {
         let f = self.load.clone();
         let arg = JsValue::from_str(&url.to_string());
@@ -366,7 +367,7 @@ impl UserImporter for JsImporter {
     #[cfg(not(feature = "async"))]
     fn load<'a>(
         &'a self,
-        url: &'a SassUrl,
+        url: &'a OwnedUrl,
     ) -> LocalBoxFuture<'a, SassResult<Option<ImporterResult>>> {
         let f = self.load.clone();
         let arg = JsValue::from_str(&url.to_string());
@@ -393,7 +394,8 @@ impl UserImporter for JsImporter {
 /// back as `file:` URLs.
 pub struct JsFileImporter {
     find_file_url: js_sys::Function,
-    fs: FilesystemImporter,
+    fs: FilesystemImporter<'static>,
+    io: Rc<dyn rust_sass::io::Io>,
 }
 
 impl fmt::Debug for JsFileImporter {
@@ -409,7 +411,8 @@ impl JsFileImporter {
         // the embedded crate's FileImporter.
         JsFileImporter {
             find_file_url,
-            fs: FilesystemImporter::new_no_load_path(io),
+            fs: FilesystemImporter::new_no_load_path(Rc::clone(&io)),
+            io,
         }
     }
 }
@@ -419,15 +422,19 @@ impl UserImporter for JsFileImporter {
     #[cfg(feature = "async")]
     fn canonicalize<'a>(
         &'a self,
-        url: &'a SassUrl,
+        url: &'a OwnedUrl,
         context: &'a mut CanonicalizeContext,
-    ) -> LocalBoxFuture<'a, SassResult<Option<SassUrl>>> {
+    ) -> LocalBoxFuture<'a, SassResult<Option<OwnedUrl>>> {
         if url.is_file() {
             let fs = &self.fs;
-            return Box::pin(async move { fs.canonicalize(url, context, &NoOpWarnLogger).await });
+            let io = &*self.io;
+            return Box::pin(
+                async move { fs.canonicalize(io, url, context, &NoOpWarnLogger).await },
+            );
         }
         let f = self.find_file_url.clone();
         let fs = self.fs.clone();
+        let io = Rc::clone(&self.io);
         let args = canonicalize_args(url, context);
         Box::pin(async move {
             let result = call_js_spread(&f, &args)?;
@@ -439,39 +446,44 @@ impl UserImporter for JsFileImporter {
             } else {
                 result
             };
-            parse_file_url_result(&result, url, &fs, context).await
+            parse_file_url_result(&result, url, &fs, &*io, context).await
         })
     }
 
     #[cfg(not(feature = "async"))]
     fn canonicalize<'a>(
         &'a self,
-        url: &'a SassUrl,
+        url: &'a OwnedUrl,
         context: &'a mut CanonicalizeContext,
-    ) -> LocalBoxFuture<'a, SassResult<Option<SassUrl>>> {
+    ) -> LocalBoxFuture<'a, SassResult<Option<OwnedUrl>>> {
         if url.is_file() {
             let fs = &self.fs;
-            return Box::pin(async move { fs.canonicalize(url, context, &NoOpWarnLogger).await });
+            let io = &*self.io;
+            return Box::pin(
+                async move { fs.canonicalize(io, url, context, &NoOpWarnLogger).await },
+            );
         }
         let f = self.find_file_url.clone();
         let fs = self.fs.clone();
+        let io = Rc::clone(&self.io);
         let args = canonicalize_args(url, context);
         Box::pin(async move {
             let result = call_js_spread(&f, &args)?;
             if is_promise(&result) {
                 return Err(script("The findFileUrl() function can't return a Promise for synchron compile functions."));
             }
-            parse_file_url_result(&result, url, &fs, context).await
+            parse_file_url_result(&result, url, &fs, &*io, context).await
         })
     }
 
     #[rust_sass_macros::maybe_async]
     fn load<'a>(
         &'a self,
-        url: &'a SassUrl,
+        url: &'a OwnedUrl,
     ) -> LocalBoxFuture<'a, SassResult<Option<ImporterResult>>> {
         let fs = &self.fs;
-        Box::pin(async move { fs.load(url).await })
+        let io = Rc::clone(&self.io);
+        Box::pin(async move { fs.load(&*io, url).await })
     }
 
     fn is_non_canonical_scheme(&self, scheme: &str) -> bool {
@@ -485,10 +497,11 @@ impl UserImporter for JsFileImporter {
 #[rust_sass_macros::maybe_async]
 async fn parse_file_url_result(
     result: &JsValue,
-    original_url: &SassUrl,
-    fs: &FilesystemImporter,
+    original_url: &OwnedUrl,
+    fs: &FilesystemImporter<'_>,
+    io: &dyn rust_sass::io::Io,
     context: &mut CanonicalizeContext,
-) -> SassResult<Option<SassUrl>> {
+) -> SassResult<Option<OwnedUrl>> {
     if result.is_null() || result.is_undefined() {
         return Ok(None);
     }
@@ -497,13 +510,14 @@ async fn parse_file_url_result(
     }
     let s = js_url_to_string(result).unwrap_or_default();
     let file_url =
-        SassUrl::parse(&s).map_err(|_| script("The findFileUrl() method must return a URL."))?;
+        OwnedUrl::parse(&s).map_err(|_| script("The findFileUrl() method must return a URL."))?;
     if file_url.scheme() != "file" {
         return Err(script(format!(
             "The findFileUrl() must return a URL with scheme file://, was \"{original_url}\"."
         )));
     }
-    fs.canonicalize(&file_url, context, &NoOpWarnLogger).await
+    fs.canonicalize(io, &file_url, context, &NoOpWarnLogger)
+        .await
 }
 
 // ==== Logger =================================================================
@@ -791,17 +805,45 @@ fn read_accessed_argument_lists(envelope: &JsValue) -> SassResult<Vec<u32>> {
     Ok(out)
 }
 
+/// Host-owned handles for JS functions captured by arena-allocated callbacks.
+///
+/// The arena never runs destructors, so a callback must not hold a `JsValue`
+/// (its `Drop` releases a JS table entry). Callbacks hold an index instead;
+/// the registry owns the handles and drops them after the compile.
+#[derive(Default)]
+pub struct JsRegistry {
+    functions: RefCell<Vec<js_sys::Function>>,
+}
+
+impl JsRegistry {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    fn register(&self, function: js_sys::Function) -> u32 {
+        let mut functions = self.functions.borrow_mut();
+        let id = functions.len() as u32;
+        functions.push(function);
+        id
+    }
+
+    fn function(&self, id: u32) -> Option<js_sys::Function> {
+        self.functions.borrow().get(id as usize).cloned()
+    }
+}
+
 /// Reads the `{value, accessedArgumentLists}` envelope returned by the shim's
 /// wrapped JS function and converts it to a Sass value.
 fn parse_function_result<'compile: 'parse, 'parse: 'compile>(
-    ctx: &MarshallingContext<'parse>,
+    ctx: &'parse MarshallingContext<'parse>,
+    js_fns: &'parse JsRegistry,
     arena: &'compile Bump,
     envelope: &JsValue,
 ) -> SassResult<Value<'parse>> {
     let accessed = read_accessed_argument_lists(envelope)?;
     let value = Reflect::get(envelope, &JsValue::from_str("value"))
         .map_err(|e| script(format!("function result is missing a value: {e:?}")))?;
-    let host_builder = host_function_builder(ctx.clone());
+    let host_builder = host_function_builder(ctx, js_fns);
     value_from_js_with_accessed(ctx, arena, &value, &accessed, &*host_builder)
 }
 
@@ -812,20 +854,26 @@ fn parse_function_result<'compile: 'parse, 'parse: 'compile>(
 pub fn make_host_callable<'compile: 'parse, 'parse>(
     signature: &str,
     js_fn: js_sys::Function,
-    ctx: MarshallingContext<'parse>,
+    ctx: &'parse MarshallingContext<'parse>,
+    js_fns: &'parse JsRegistry,
     arena: &'compile Bump,
 ) -> SassResult<BuiltInCallable<'compile, 'parse>> {
     let (name, params) = split_signature(signature)?;
-    let cb: SyncBuiltInCallback<'compile, 'parse> = Rc::new(move |_config, _state, args, arena| {
-        let js_args = args_to_js(&ctx, &args)?;
-        let result = call_js(&js_fn, &js_args)?;
-        if is_promise(&result) {
-            return Err(script(
-                "can't return a Promise for synchronous compile functions",
-            ));
-        }
-        parse_function_result(&ctx, arena, &result)
-    });
+    let js_fn_id = js_fns.register(js_fn);
+    let cb: SyncBuiltInCallback<'compile, 'parse> =
+        rust_sass::callable::built_in_callback(arena, move |_config, _state, args, arena| {
+            let js_fn = js_fns
+                .function(js_fn_id)
+                .ok_or_else(|| script("JS function handle is missing"))?;
+            let js_args = args_to_js(ctx, &args)?;
+            let result = call_js(&js_fn, &js_args)?;
+            if is_promise(&result) {
+                return Err(script(
+                    "can't return a Promise for synchronous compile functions",
+                ));
+            }
+            parse_function_result(ctx, js_fns, arena, &result)
+        });
     Ok(BuiltInCallable::function(&name, &params, "", arena, cb))
 }
 
@@ -836,24 +884,28 @@ pub fn make_host_callable<'compile: 'parse, 'parse>(
 pub fn make_host_callable<'compile: 'parse, 'parse>(
     signature: &str,
     js_fn: js_sys::Function,
-    ctx: MarshallingContext<'parse>,
+    ctx: &'parse MarshallingContext<'parse>,
+    js_fns: &'parse JsRegistry,
     arena: &'compile Bump,
 ) -> SassResult<BuiltInCallable<'compile, 'parse>> {
     let (name, params) = split_signature(signature)?;
     let arena = arena; // captured &'compile Bump; the per-call &'a Bump is the wrong lifetime
-    let cb: AsyncBuiltInCallback<'compile, 'parse> = Rc::new(
+    let js_fn_id = js_fns.register(js_fn);
+    let cb: AsyncBuiltInCallback<'compile, 'parse> = rust_sass::callable::built_in_callback_async(
+        arena,
         move |_config,
               _state,
               args,
               _call_arena|
               -> LocalBoxFuture<'_, SassResult<Value<'parse>>> {
-            let ctx = ctx.clone();
-            let js_fn = js_fn.clone();
-            let js_args = match args_to_js(&ctx, &args) {
+            let js_args = match args_to_js(ctx, &args) {
                 Ok(a) => a,
                 Err(e) => return Box::pin(async move { Err(e) }),
             };
             Box::pin(async move {
+                let js_fn = js_fns
+                    .function(js_fn_id)
+                    .ok_or_else(|| script("JS function handle is missing"))?;
                 let result = call_js(&js_fn, &js_args)?;
                 let result = if is_promise(&result) {
                     let p = result
@@ -863,7 +915,7 @@ pub fn make_host_callable<'compile: 'parse, 'parse>(
                 } else {
                     result
                 };
-                parse_function_result(&ctx, arena, &result)
+                parse_function_result(ctx, js_fns, arena, &result)
             })
         },
     );
@@ -875,7 +927,8 @@ pub fn make_host_callable<'compile: 'parse, 'parse>(
 /// Builds a host-defined `Callable` for a JS-created `SassFunction(signature,
 /// callback)` value (the wire format's `hostFunction`).
 pub fn host_function_builder<'compile: 'parse, 'parse>(
-    ctx: MarshallingContext<'parse>,
+    ctx: &'parse MarshallingContext<'parse>,
+    js_fns: &'parse JsRegistry,
 ) -> Box<HostFunctionBuilder<'compile, 'parse>> {
     Box::new(
         move |signature: &str, callback: &JsValue, arena: &'compile Bump| {
@@ -883,7 +936,7 @@ pub fn host_function_builder<'compile: 'parse, 'parse>(
                 .clone()
                 .dyn_into::<js_sys::Function>()
                 .map_err(|_| script("host function callback is not a function"))?;
-            let callable = make_host_callable(signature, js_fn, ctx.clone(), arena)?;
+            let callable = make_host_callable(signature, js_fn, ctx, js_fns, arena)?;
             Ok(Callable::new(arena, CallableKind::BuiltIn(callable)))
         },
     )

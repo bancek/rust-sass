@@ -7,13 +7,14 @@
 // dart-source: lib/src/ast/selector/pseudo.dart + lib/src/extend/functions.dart
 // go-source: go/value/selector_pseudo.go + go/value/selector_extend_functions.go
 
+use bumpalo::Bump;
+
 use crate::common::exception::{SassError, SassResult};
 use crate::common::file_span::FileSpan;
 use crate::selector::list::SelectorList;
 use crate::selector::selector_assert_not_bogus_impl;
 use crate::selector::visitor::SelectorVisitor;
 use crate::selector::weave::compound_is_superselector;
-use crate::selector::CompoundSelector;
 use crate::selector::Selector;
 use crate::selector::WarnLogger;
 use crate::serialize::SerializeVisitor;
@@ -35,10 +36,10 @@ pub struct PseudoSelector<'parse> {
     /// The source span covering this selector.
     pub span: FileSpan<'parse>,
     /// The name of this selector.
-    pub name: String,
+    pub name: &'parse str,
     // Like `name`, but with any vendor prefix stripped. Internal-only in
     // Dart (`@internal`); kept public here.
-    pub normalized_name: String,
+    pub normalized_name: &'parse str,
     /// Whether this is a pseudo-class selector.
     ///
     /// This is `true` exactly when [`is_element`](Self::is_element) is
@@ -57,13 +58,13 @@ pub struct PseudoSelector<'parse> {
     /// This is `None` when there is no argument. When both `argument` and
     /// [`selector`](Self::selector) are present, the selector follows the
     /// argument.
-    pub argument: Option<String>,
+    pub argument: Option<&'parse str>,
     /// The selector argument passed to this selector, if any.
     ///
     /// This is `None` when there is no selector. When both
     /// [`argument`](Self::argument) and `selector` are present, the selector
     /// follows the argument.
-    pub selector: Option<Box<Selector<'parse>>>,
+    pub selector: Option<&'parse Selector<'parse>>,
 }
 
 impl<'parse> PseudoSelector<'parse> {
@@ -74,22 +75,21 @@ impl<'parse> PseudoSelector<'parse> {
     /// `after`, `first-line`, `first-letter`), in which case it is still an
     /// element — only syntactically a class.
     pub fn new(
-        name: String,
+        arena: &'parse Bump,
+        name: &str,
         span: FileSpan<'parse>,
         element: bool,
-        argument: Option<String>,
-        selector: Option<Selector<'parse>>,
+        argument: Option<&str>,
+        selector: Option<&'parse Selector<'parse>>,
     ) -> Self {
-        let is_class = !element && !is_fake_pseudo_element(&name);
-        let normalized_name = unvendor(&name);
-        let selector = selector.map(Box::new);
+        let is_class = !element && !is_fake_pseudo_element(name);
         PseudoSelector {
             span,
-            name,
-            normalized_name,
+            name: arena.alloc_str(name),
+            normalized_name: arena.alloc_str(&unvendor(name)),
             is_class,
             is_syntactic_class: !element,
-            argument,
+            argument: argument.map(|argument| &*arena.alloc_str(argument)),
             selector,
         }
     }
@@ -207,33 +207,31 @@ impl<'parse> PseudoSelector<'parse> {
         }
         match &self.selector {
             None => 1000,
-            Some(sel) => match sel.as_ref() {
-                Selector::List(ref list) => match self.normalized_name.as_str() {
-                    "where" => 0,
-                    "is" | "not" | "has" | "matches" => {
-                        let mut max_sp = 0;
-                        for comp in &list.0.components {
-                            let sp = comp.specificity();
-                            if sp > max_sp {
-                                max_sp = sp;
-                            }
+            Some(Selector::List(list)) => match self.normalized_name {
+                "where" => 0,
+                "is" | "not" | "has" | "matches" => {
+                    let mut max_sp = 0;
+                    for comp in list.0.components {
+                        let sp = comp.specificity();
+                        if sp > max_sp {
+                            max_sp = sp;
                         }
-                        max_sp
                     }
-                    "nth-child" | "nth-last-child" => {
-                        let mut max_sp = 0;
-                        for comp in &list.0.components {
-                            let sp = comp.specificity();
-                            if sp > max_sp {
-                                max_sp = sp;
-                            }
+                    max_sp
+                }
+                "nth-child" | "nth-last-child" => {
+                    let mut max_sp = 0;
+                    for comp in list.0.components {
+                        let sp = comp.specificity();
+                        if sp > max_sp {
+                            max_sp = sp;
                         }
-                        1000 + max_sp
                     }
-                    _ => 1000,
-                },
+                    1000 + max_sp
+                }
                 _ => 1000,
             },
+            _ => 1000,
         }
     }
 
@@ -249,13 +247,13 @@ impl<'parse> PseudoSelector<'parse> {
     // when one is present.
     pub fn hash_code(&self) -> i32 {
         let mut h = hash_combine(
-            string_hash_code(&self.name),
+            string_hash_code(self.name),
             bool_hash_code(self.is_element()),
         );
-        if let Some(ref arg) = self.argument {
+        if let Some(arg) = self.argument {
             h = hash_combine(h, string_hash_code(arg));
         }
-        if let Some(ref sel) = self.selector {
+        if let Some(sel) = self.selector {
             h = hash_combine(h, sel.hash_code());
         }
         h
@@ -286,7 +284,11 @@ impl<'parse> PseudoSelector<'parse> {
     // argument-bearing pseudos reject suffixes, as does the base
     // implementation; otherwise appends `suffix` to the name. Internal-only
     // in Dart (`@internal`); kept public here.
-    pub fn add_suffix(&self, suffix: &str) -> SassResult<SimpleSelector<'parse>> {
+    pub fn add_suffix(
+        &self,
+        arena: &'parse Bump,
+        suffix: &str,
+    ) -> SassResult<SimpleSelector<'parse>> {
         if self.argument.is_some() || self.selector.is_some() {
             return Err(Box::new(SassError::Script {
                 message: format!(
@@ -297,7 +299,8 @@ impl<'parse> PseudoSelector<'parse> {
             }));
         }
         Ok(SimpleSelector::Pseudo(PseudoSelector::new(
-            format!("{}{}", self.name, suffix),
+            arena,
+            &format!("{}{}", self.name, suffix),
             self.span,
             self.is_element(),
             None,
@@ -307,13 +310,18 @@ impl<'parse> PseudoSelector<'parse> {
 
     /// Returns a copy of this selector with its selector argument replaced
     /// by `sel`.
-    pub fn with_selector(&self, sel: &SelectorList<'parse>) -> SassResult<PseudoSelector<'parse>> {
+    pub fn with_selector(
+        &self,
+        arena: &'parse Bump,
+        sel: &SelectorList<'parse>,
+    ) -> SassResult<PseudoSelector<'parse>> {
         Ok(PseudoSelector::new(
-            self.name.clone(),
+            arena,
+            self.name,
             self.span,
             self.is_element(),
-            self.argument.clone(),
-            Some(Selector::List(*sel)),
+            self.argument,
+            Some(arena.alloc(Selector::List(*sel))),
         ))
     }
 
@@ -335,8 +343,8 @@ impl<'parse> PseudoSelector<'parse> {
                 && p.name == self.name
             {
                 if p.selector.is_some() {
-                    if let Some(Selector::List(ref my_list)) = self.selector.as_deref() {
-                        if let Some(super::Selector::List(ref other_list)) = p.selector.as_deref() {
+                    if let Some(Selector::List(ref my_list)) = self.selector {
+                        if let Some(super::Selector::List(ref other_list)) = p.selector {
                             return my_list.is_superselector(other_list);
                         }
                     }
@@ -344,10 +352,11 @@ impl<'parse> PseudoSelector<'parse> {
                 return Ok(false);
             }
         }
-        let compound_a =
-            CompoundSelector::new(vec![SimpleSelector::Pseudo(self.clone())], self.span)?;
-        let compound_b = CompoundSelector::new(vec![other.clone()], self.span)?;
-        compound_is_superselector(&compound_a, &compound_b, None)
+        // Synthetic compounds built from stack slices: they are only compared
+        // here, so they never need the compile arena (Dart: plain garbage).
+        let simples_a = [SimpleSelector::Pseudo(self.clone())];
+        let simples_b = [other.clone()];
+        compound_is_superselector(&simples_a, &simples_b, self.span, None)
     }
 
     // Matches Dart `PseudoSelector.unify` (pseudo.dart): `:host` compounds
@@ -449,10 +458,12 @@ impl<'parse> Hash for PseudoSelector<'parse> {
 mod tests {
     use super::*;
     use crate::common::file_span::BOGUS_SPAN;
+    use bumpalo::Bump;
 
     #[test]
     fn test_new_pseudo_selector_class() {
-        let s = PseudoSelector::new("hover".into(), BOGUS_SPAN, false, None, None);
+        let arena = Bump::new();
+        let s = PseudoSelector::new(&arena, "hover", BOGUS_SPAN, false, None, None);
         assert_eq!(s.name, "hover");
         assert!(s.is_class);
         assert!(!s.is_element());
@@ -461,7 +472,8 @@ mod tests {
 
     #[test]
     fn test_new_pseudo_selector_element() {
-        let s = PseudoSelector::new("before".into(), BOGUS_SPAN, true, None, None);
+        let arena = Bump::new();
+        let s = PseudoSelector::new(&arena, "before", BOGUS_SPAN, true, None, None);
         assert!(!s.is_class);
         assert!(s.is_element());
     }
@@ -479,44 +491,51 @@ mod tests {
 
     #[test]
     fn test_pseudo_selector_specificity_element() {
-        let s = PseudoSelector::new("before".into(), BOGUS_SPAN, true, None, None);
+        let arena = Bump::new();
+        let s = PseudoSelector::new(&arena, "before", BOGUS_SPAN, true, None, None);
         assert_eq!(s.specificity(), 1);
     }
 
     #[test]
     fn test_pseudo_selector_specificity_class() {
-        let s = PseudoSelector::new("hover".into(), BOGUS_SPAN, false, None, None);
+        let arena = Bump::new();
+        let s = PseudoSelector::new(&arena, "hover", BOGUS_SPAN, false, None, None);
         assert_eq!(s.specificity(), 1000);
     }
 
     #[test]
     fn test_pseudo_selector_is_invisible() {
-        let s = PseudoSelector::new("hover".into(), BOGUS_SPAN, false, None, None);
+        let arena = Bump::new();
+        let s = PseudoSelector::new(&arena, "hover", BOGUS_SPAN, false, None, None);
         assert!(!s.is_invisible());
     }
 
     #[test]
     fn test_pseudo_selector_is_bogus() {
-        let s = PseudoSelector::new("hover".into(), BOGUS_SPAN, false, None, None);
+        let arena = Bump::new();
+        let s = PseudoSelector::new(&arena, "hover", BOGUS_SPAN, false, None, None);
         assert!(!s.is_bogus());
     }
 
     #[test]
     fn test_pseudo_selector_is_useless() {
-        let s = PseudoSelector::new("hover".into(), BOGUS_SPAN, false, None, None);
+        let arena = Bump::new();
+        let s = PseudoSelector::new(&arena, "hover", BOGUS_SPAN, false, None, None);
         assert!(!s.is_useless());
     }
 
     #[test]
     fn test_pseudo_selector_is_host() {
-        let s = PseudoSelector::new("host".into(), BOGUS_SPAN, false, None, None);
+        let arena = Bump::new();
+        let s = PseudoSelector::new(&arena, "host", BOGUS_SPAN, false, None, None);
         assert!(s.is_host());
     }
 
     #[test]
     fn test_pseudo_selector_add_suffix_simple() {
-        let s = PseudoSelector::new("hover".into(), BOGUS_SPAN, false, None, None);
-        let result = s.add_suffix("-x").unwrap();
+        let arena = Bump::new();
+        let s = PseudoSelector::new(&arena, "hover", BOGUS_SPAN, false, None, None);
+        let result = s.add_suffix(&arena, "-x").unwrap();
         if let SimpleSelector::Pseudo(ref ps) = result {
             assert_eq!(ps.name, "hover-x");
         } else {
@@ -526,57 +545,58 @@ mod tests {
 
     #[test]
     fn test_pseudo_selector_hash_code() {
-        let s1 = PseudoSelector::new("hover".into(), BOGUS_SPAN, false, None, None);
-        let s2 = PseudoSelector::new("hover".into(), BOGUS_SPAN, false, None, None);
+        let arena = Bump::new();
+        let s1 = PseudoSelector::new(&arena, "hover", BOGUS_SPAN, false, None, None);
+        let s2 = PseudoSelector::new(&arena, "hover", BOGUS_SPAN, false, None, None);
         assert_eq!(s1.hash_code(), s2.hash_code());
     }
 
     #[test]
     fn test_pseudo_selector_partial_eq() {
-        let s1 = PseudoSelector::new("hover".into(), BOGUS_SPAN, false, None, None);
-        let s2 = PseudoSelector::new("hover".into(), BOGUS_SPAN, false, None, None);
+        let arena = Bump::new();
+        let s1 = PseudoSelector::new(&arena, "hover", BOGUS_SPAN, false, None, None);
+        let s2 = PseudoSelector::new(&arena, "hover", BOGUS_SPAN, false, None, None);
         assert_eq!(s1, s2);
 
-        let s3 = PseudoSelector::new("before".into(), BOGUS_SPAN, true, None, None);
+        let s3 = PseudoSelector::new(&arena, "before", BOGUS_SPAN, true, None, None);
         assert_ne!(s1, s3);
     }
 
     #[test]
     fn test_pseudo_selector_has_complicated_semantics() {
-        let s = PseudoSelector::new("hover".into(), BOGUS_SPAN, false, None, None);
+        let arena = Bump::new();
+        let s = PseudoSelector::new(&arena, "hover", BOGUS_SPAN, false, None, None);
         assert!(!s.has_complicated_superselector_semantics());
 
-        let s2 = PseudoSelector::new("before".into(), BOGUS_SPAN, true, None, None);
+        let s2 = PseudoSelector::new(&arena, "before", BOGUS_SPAN, true, None, None);
         assert!(s2.has_complicated_superselector_semantics());
     }
 
     #[test]
     fn test_pseudo_selector_to_css_string_class() {
-        let s = PseudoSelector::new("hover".into(), BOGUS_SPAN, false, None, None);
+        let arena = Bump::new();
+        let s = PseudoSelector::new(&arena, "hover", BOGUS_SPAN, false, None, None);
         assert_eq!(s.to_css_string(true).unwrap(), ":hover");
     }
 
     #[test]
     fn test_pseudo_selector_to_css_string_element() {
-        let s = PseudoSelector::new("before".into(), BOGUS_SPAN, true, None, None);
+        let arena = Bump::new();
+        let s = PseudoSelector::new(&arena, "before", BOGUS_SPAN, true, None, None);
         assert_eq!(s.to_css_string(true).unwrap(), "::before");
     }
 
     #[test]
     fn test_pseudo_selector_to_css_string_with_arg() {
-        let s = PseudoSelector::new(
-            "nth-child".into(),
-            BOGUS_SPAN,
-            false,
-            Some("2n+1".into()),
-            None,
-        );
+        let arena = Bump::new();
+        let s = PseudoSelector::new(&arena, "nth-child", BOGUS_SPAN, false, Some("2n+1"), None);
         assert_eq!(s.to_css_string(true).unwrap(), ":nth-child(2n+1)");
     }
 
     #[test]
     fn test_pseudo_selector_assert_not_bogus() {
-        let s = PseudoSelector::new("hover".into(), BOGUS_SPAN, false, None, None);
+        let arena = Bump::new();
+        let s = PseudoSelector::new(&arena, "hover", BOGUS_SPAN, false, None, None);
         assert!(s.assert_not_bogus(None, None).is_ok());
     }
 }

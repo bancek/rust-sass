@@ -22,12 +22,12 @@ use crate::selector::SimpleSelector;
 /// (extend/functions.dart) — private there, hence a plain `//`-style note
 /// would suffice, but this is `pub` here so it keeps rustdoc; the `name`
 /// parameter Dart uses for error reporting is dropped.
-pub fn namespace_and_name(
-    s: &SimpleSelector<'_>,
-) -> SassResult<(SelectorNamespace, Option<String>)> {
+pub fn namespace_and_name<'parse>(
+    s: &SimpleSelector<'parse>,
+) -> SassResult<(SelectorNamespace<'parse>, Option<&'parse str>)> {
     match s {
-        SimpleSelector::Universal(ref u) => Ok((u.namespace.clone(), None)),
-        SimpleSelector::Type(ref t) => Ok((t.name.namespace.clone(), Some(t.name.name.clone()))),
+        SimpleSelector::Universal(ref u) => Ok((u.namespace, None)),
+        SimpleSelector::Type(ref t) => Ok((t.name.namespace, Some(t.name.name))),
         _ => Err(Box::new(SassError::Script {
             message: "must be UniversalSelector or TypeSelector".into(),
             argument_name: None,
@@ -82,19 +82,16 @@ mod tests {
     use super::*;
     use crate::common::file_span::BOGUS_SPAN;
 
-    fn ty(name: &str) -> SimpleSelector<'static> {
-        SimpleSelector::Type(TypeSelector::new(
-            QualifiedName::new(name.into()),
-            BOGUS_SPAN,
-        ))
+    fn ty(name: &'static str) -> SimpleSelector<'static> {
+        SimpleSelector::Type(TypeSelector::new(QualifiedName::new(name), BOGUS_SPAN))
     }
 
-    fn univ(ns: Option<&str>) -> SimpleSelector<'static> {
+    fn univ(ns: Option<&'static str>) -> SimpleSelector<'static> {
         let ns = match ns {
             None => SelectorNamespace::Default,
             Some("*") => SelectorNamespace::Any,
             Some("") => SelectorNamespace::None,
-            Some(name) => SelectorNamespace::named(name.into()),
+            Some(name) => SelectorNamespace::named(name),
         };
         SimpleSelector::Universal(UniversalSelector::new(BOGUS_SPAN, ns))
     }
@@ -166,7 +163,7 @@ mod tests {
         let r = unify_universal_and_element(&a, &b, BOGUS_SPAN).unwrap();
         assert!(r.is_some());
         if let SimpleSelector::Universal(ref us) = r.unwrap() {
-            assert_eq!(us.namespace, SelectorNamespace::named("svg".into()));
+            assert_eq!(us.namespace, SelectorNamespace::named("svg"));
         } else {
             panic!("expected UniversalSelector");
         }

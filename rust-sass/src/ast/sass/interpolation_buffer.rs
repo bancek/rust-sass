@@ -1,3 +1,5 @@
+use bumpalo::Bump;
+
 // Copyright 2016 Google Inc. Use of this source code is governed by an
 // MIT-style license that can be found in the LICENSE file or at
 // https://opensource.org/licenses/MIT.
@@ -7,6 +9,7 @@
 // dart-source: lib/src/interpolation_buffer.dart
 // go-source: go/value/sass_interpolation_buffer.go
 
+use std::borrow::Cow;
 use std::fmt;
 use std::fmt::Write;
 
@@ -22,14 +25,19 @@ use crate::ast::sass::interpolation::{Interpolation, InterpolationPart};
 /// Add text using [`write`](Self::write) and related methods, and
 /// [`Expression`]s using [`add`](Self::add). Once that's done, call
 /// [`interpolation`](Self::interpolation) to build the result.
+enum Part<'parse> {
+    /// Pending/serialized text (owned) or text borrowed from an existing
+    /// interpolation (no copy; converted when the buffer is finalized).
+    Text(Cow<'parse, str>),
+    Expression(Expression<'parse>),
+}
+
 pub struct InterpolationBuffer<'parse> {
     /// The buffer that accumulates plain text.
     text: String,
-    /// The contents of the [`Interpolation`] so far.
-    ///
-    /// This contains [`InterpolationPart::Text`]s and
-    /// [`InterpolationPart::Expression`]s.
-    contents: Vec<InterpolationPart<'parse>>,
+    /// The contents of the [`Interpolation`] so far (owned text; converted to
+    /// arena parts by [`interpolation`](Self::interpolation)).
+    contents: Vec<Part<'parse>>,
     /// The spans of the expressions in [`contents`](Self::contents).
     ///
     /// These spans cover from the beginning of `#{` through `}`, rather than
@@ -102,8 +110,7 @@ impl<'parse> InterpolationBuffer<'parse> {
     /// The `span` should cover from the beginning of `#{` through `}`.
     pub fn add(&mut self, expression: Expression<'parse>, span: FileSpan<'parse>) {
         self.flush_text();
-        self.contents
-            .push(InterpolationPart::Expression(Box::new(expression)));
+        self.contents.push(Part::Expression(expression));
         self.spans.push(Some(span));
     }
 
@@ -130,11 +137,10 @@ impl<'parse> InterpolationBuffer<'parse> {
         for i in skip..interpolation.contents.len() {
             match &interpolation.contents[i] {
                 InterpolationPart::Text(s) => {
-                    self.contents.push(InterpolationPart::Text(s.clone()));
+                    self.contents.push(Part::Text(Cow::Borrowed(*s)));
                 }
                 InterpolationPart::Expression(expr) => {
-                    self.contents
-                        .push(InterpolationPart::Expression(expr.clone()));
+                    self.contents.push(Part::Expression((*expr).clone()));
                 }
             }
         }
@@ -143,8 +149,8 @@ impl<'parse> InterpolationBuffer<'parse> {
         }
 
         // If last element is a string, move it to text buffer
-        if let Some(InterpolationPart::Text(_)) = self.contents.last() {
-            if let Some(InterpolationPart::Text(s)) = self.contents.pop() {
+        if let Some(Part::Text(_)) = self.contents.last() {
+            if let Some(Part::Text(s)) = self.contents.pop() {
                 self.spans.pop();
                 self.text.push_str(&s);
             }
@@ -157,7 +163,7 @@ impl<'parse> InterpolationBuffer<'parse> {
             return;
         }
         let s = std::mem::take(&mut self.text);
-        self.contents.push(InterpolationPart::Text(s));
+        self.contents.push(Part::Text(Cow::Owned(s)));
         self.spans.push(None);
     }
 
@@ -168,23 +174,37 @@ impl<'parse> InterpolationBuffer<'parse> {
     /// collapses to [`Interpolation::plain`].
     pub fn interpolation(
         &self,
+        arena: &'parse Bump,
         span: impl Into<Span<'parse>>,
     ) -> SassResult<Interpolation<'parse>> {
         let span = span.into();
-        let mut contents = self.contents.clone();
+        let mut contents: Vec<InterpolationPart<'parse>> = self
+            .contents
+            .iter()
+            .map(|part| match part {
+                Part::Text(Cow::Borrowed(s)) => InterpolationPart::Text(s),
+                Part::Text(Cow::Owned(s)) => InterpolationPart::text(arena, s),
+                Part::Expression(expr) => InterpolationPart::expression(arena, expr.clone()),
+            })
+            .collect();
         let mut spans = self.spans.clone();
         if !self.text.is_empty() {
-            contents.push(InterpolationPart::Text(self.text.clone()));
+            contents.push(InterpolationPart::text(arena, &self.text));
             spans.push(None);
         }
 
         if contents.len() == 1 {
             if let InterpolationPart::Text(s) = &contents[0] {
-                return Ok(Interpolation::plain(s.clone(), span));
+                return Ok(Interpolation {
+                    contents: arena.alloc_slice_fill_iter([InterpolationPart::Text(s)]),
+                    spans: arena.alloc_slice_fill_iter([None]),
+                    span,
+                    arena,
+                });
             }
         }
 
-        Ok(Interpolation::new(contents, spans, span)?)
+        Ok(Interpolation::new(arena, contents, spans, span)?)
     }
 }
 
@@ -200,8 +220,8 @@ impl<'parse> InterpolationBuffer<'parse> {
         let mut buf = String::new();
         for part in &self.contents {
             match part {
-                InterpolationPart::Text(s) => write!(buf, "{s}").unwrap(),
-                InterpolationPart::Expression(expr) => {
+                Part::Text(s) => write!(buf, "{s}").unwrap(),
+                Part::Expression(expr) => {
                     write!(buf, "#{{{}}}", Expression::to_display_string(expr)?).unwrap()
                 }
             }
@@ -298,7 +318,7 @@ mod tests {
         let arena = Bump::new();
         let expr_span = test_span(&arena, "#{$expr}", 0, 7);
         let var_span = test_span(&arena, "$expr", 1, 6);
-        let expr = Expression::Variable(VariableExpression::new("expr".into(), var_span, None));
+        let expr = Expression::Variable(VariableExpression::new(&arena, "expr", var_span, None));
 
         let mut buf = InterpolationBuffer::new();
         buf.add(expr, expr_span);
@@ -312,9 +332,10 @@ mod tests {
         let interp_span = test_span(&arena, source, 0, 12);
         let var_span = test_span(&arena, source, 4, 9);
         let expr_span = test_span(&arena, source, 2, 10);
-        let expr = Expression::Variable(VariableExpression::new("expr".into(), var_span, None));
+        let expr = Expression::Variable(VariableExpression::new(&arena, "expr", var_span, None));
         let interp = Interpolation::new(
-            vec![InterpolationPart::Expression(Box::new(expr))],
+            &arena,
+            vec![InterpolationPart::expression(&arena, expr)],
             vec![Some(expr_span)],
             interp_span,
         )
@@ -330,7 +351,7 @@ mod tests {
     fn test_add_interpolation_empty() {
         let arena = Bump::new();
         let span = test_span(&arena, "", 0, 0);
-        let interp = Interpolation::new(vec![], vec![], span).unwrap();
+        let interp = Interpolation::new(&arena, vec![], vec![], span).unwrap();
 
         let mut buf = InterpolationBuffer::new();
         buf.add_interpolation(&interp);
@@ -344,7 +365,7 @@ mod tests {
 
         let mut buf = InterpolationBuffer::new();
         buf.write("hello");
-        let interp = buf.interpolation(span).unwrap();
+        let interp = buf.interpolation(&arena, span).unwrap();
 
         assert!(interp.is_plain());
         assert_eq!(interp.as_plain(), Some("hello"));
@@ -357,14 +378,14 @@ mod tests {
         let file_span = test_span(&arena, source, 0, 12);
         let var_span = test_span(&arena, source, 4, 9);
         let expr_span = test_span(&arena, source, 2, 10);
-        let expr = Expression::Variable(VariableExpression::new("expr".into(), var_span, None));
+        let expr = Expression::Variable(VariableExpression::new(&arena, "expr", var_span, None));
 
         let mut buf = InterpolationBuffer::new();
         buf.write("a.");
         buf.add(expr, expr_span);
         buf.write(".b");
 
-        let interp = buf.interpolation(file_span).unwrap();
+        let interp = buf.interpolation(&arena, file_span).unwrap();
         assert!(!interp.is_plain());
         assert_eq!(interp.contents.len(), 3);
     }
@@ -375,7 +396,7 @@ mod tests {
         let source = "a.#{$expr}.b";
         let var_span = test_span(&arena, source, 4, 9);
         let expr_span = test_span(&arena, source, 2, 10);
-        let expr = Expression::Variable(VariableExpression::new("expr".into(), var_span, None));
+        let expr = Expression::Variable(VariableExpression::new(&arena, "expr", var_span, None));
 
         let mut buf = InterpolationBuffer::new();
         buf.write("a.");
@@ -393,23 +414,23 @@ mod tests {
         let file_span = test_span(&arena, source, 0, 17);
         let var_span = test_span(&arena, source, 7, 12);
         let expr_span = test_span(&arena, source, 6, 13);
-        let expr = Expression::Variable(VariableExpression::new("expr".into(), var_span, None));
+        let expr = Expression::Variable(VariableExpression::new(&arena, "expr", var_span, None));
 
         let mut buf = InterpolationBuffer::new();
         buf.write("before");
         buf.add(expr, expr_span);
         buf.write("after");
 
-        let interp = buf.interpolation(file_span).unwrap();
+        let interp = buf.interpolation(&arena, file_span).unwrap();
         assert_eq!(interp.contents.len(), 3);
         // First should be "before"
         match &interp.contents[0] {
-            InterpolationPart::Text(s) => assert_eq!(s, "before"),
+            InterpolationPart::Text(s) => assert_eq!(*s, "before"),
             _ => panic!("expected Text"),
         }
         // Last should be "after"
         match &interp.contents[2] {
-            InterpolationPart::Text(s) => assert_eq!(s, "after"),
+            InterpolationPart::Text(s) => assert_eq!(*s, "after"),
             _ => panic!("expected Text"),
         }
     }

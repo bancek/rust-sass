@@ -23,11 +23,11 @@ use crate::ast::sass::parameter::Parameter;
 /// A parameter declaration, as for a function or mixin definition.
 #[derive(Clone, Debug)]
 pub struct ParameterList<'parse> {
-    /// The parameters that are taken.
-    pub parameters: Vec<Parameter<'parse>>,
+    /// The parameters that are taken. Allocated in the compile arena.
+    pub parameters: &'parse [Parameter<'parse>],
     /// The name of the rest parameter (as in `$args...`), or `None` if none
     /// was declared.
-    pub rest_parameter: Option<String>,
+    pub rest_parameter: Option<&'parse str>,
     pub span: FileSpan<'parse>,
 }
 
@@ -35,9 +35,9 @@ impl<'parse> ParameterList<'parse> {
     /// Creates a declaration with the given parameters and optional rest
     /// parameter.
     pub fn new(
-        parameters: Vec<Parameter<'parse>>,
+        parameters: &'parse [Parameter<'parse>],
         span: FileSpan<'parse>,
-        rest_parameter: Option<String>,
+        rest_parameter: Option<&'parse str>,
     ) -> Self {
         ParameterList {
             parameters,
@@ -49,7 +49,7 @@ impl<'parse> ParameterList<'parse> {
     /// Creates a declaration that declares no parameters.
     pub fn empty(span: FileSpan<'parse>) -> Self {
         ParameterList {
-            parameters: Vec::new(),
+            parameters: &[],
             rest_parameter: None,
             span,
         }
@@ -124,7 +124,7 @@ impl<'parse> ParameterList<'parse> {
         let mut named_used = 0;
         for (i, param) in self.parameters.iter().enumerate() {
             if i < positional {
-                if names.contains(param.name.as_str()) {
+                if names.contains(param.name) {
                     return Err(Box::new(SassError::Script {
                         message: format!(
                             "Argument ${} was passed both by position and by name.",
@@ -133,7 +133,7 @@ impl<'parse> ParameterList<'parse> {
                         argument_name: None,
                     }));
                 }
-            } else if names.contains(param.name.as_str()) {
+            } else if names.contains(param.name) {
                 named_used += 1;
             } else if param.default_value.is_none() {
                 // Script-level: the caller (`add_exception_span`) attaches the
@@ -180,7 +180,8 @@ impl<'parse> ParameterList<'parse> {
         if named_used < names.len() {
             let unknown_names: Vec<String> = names
                 .iter()
-                .filter(|n| !self.parameters.iter().any(|p| &p.name == *n))
+                .copied()
+                .filter(|n| !self.parameters.iter().any(|p| p.name == *n))
                 .map(|n| format!("${n}"))
                 .collect();
             return Err(Box::new(SassError::MultiSpanScript {
@@ -210,10 +211,10 @@ impl<'parse> ParameterList<'parse> {
         let mut named_used = 0;
         for (i, param) in self.parameters.iter().enumerate() {
             if i < positional {
-                if names.contains(param.name.as_str()) {
+                if names.contains(param.name) {
                     return false;
                 }
-            } else if names.contains(param.name.as_str()) {
+            } else if names.contains(param.name) {
                 named_used += 1;
             } else if param.default_value.is_none() {
                 return false;
@@ -241,7 +242,7 @@ impl<'parse> ParameterList<'parse> {
     pub fn to_display_string(&self) -> SassResult<String> {
         let mut buf = String::new();
         let mut first = true;
-        for arg in &self.parameters {
+        for arg in self.parameters {
             if first {
                 first = false;
             } else {
@@ -293,7 +294,20 @@ mod tests {
         'parse: 'compile,
     {
         let span = make_span(arena, span_text);
-        Parameter::new(name.into(), span, None)
+        Parameter::new(arena.alloc_str(name), span, None)
+    }
+
+    fn params_list<'compile: 'parse, 'parse>(
+        arena: &'compile Bump,
+        parameters: Vec<Parameter<'parse>>,
+        span: FileSpan<'parse>,
+        rest_parameter: Option<&'parse str>,
+    ) -> ParameterList<'parse> {
+        ParameterList::new(
+            arena.alloc_slice_fill_iter(parameters),
+            span,
+            rest_parameter,
+        )
     }
 
     #[test]
@@ -310,8 +324,8 @@ mod tests {
         let arena = Bump::new();
         let fs = FileSource::new_in(&arena, "($name)", None);
         let span = FileSpan::new(Some(fs), 0, 6);
-        let p = Parameter::new("name".into(), FileSpan::new(Some(fs), 1, 6), None);
-        let pl = ParameterList::new(vec![p], span, None);
+        let p = Parameter::new(arena.alloc_str("name"), FileSpan::new(Some(fs), 1, 6), None);
+        let pl = params_list(&arena, vec![p], span, None);
         assert!(!pl.is_empty());
         assert_eq!(pl.parameters.len(), 1);
     }
@@ -320,8 +334,8 @@ mod tests {
     fn test_rest_param() {
         let arena = Bump::new();
         let span = make_span(&arena, "($args...)");
-        let pl = ParameterList::new(vec![], span, Some("args".into()));
-        assert_eq!(pl.rest_parameter.as_deref(), Some("args"));
+        let pl = params_list(&arena, vec![], span, Some(arena.alloc_str("args")));
+        assert_eq!(pl.rest_parameter, Some("args"));
     }
 
     #[test]
@@ -329,13 +343,18 @@ mod tests {
         let arena = Bump::new();
         let fs = FileSource::new_in(&arena, "($name, $other, $rest...)", None);
         let span = FileSpan::new(Some(fs), 0, 27);
-        let pl = ParameterList::new(
+        let pl = params_list(
+            &arena,
             vec![
-                Parameter::new("name".into(), FileSpan::new(Some(fs), 1, 6), None),
-                Parameter::new("other".into(), FileSpan::new(Some(fs), 8, 14), None),
+                Parameter::new(arena.alloc_str("name"), FileSpan::new(Some(fs), 1, 6), None),
+                Parameter::new(
+                    arena.alloc_str("other"),
+                    FileSpan::new(Some(fs), 8, 14),
+                    None,
+                ),
             ],
             span,
-            Some("rest".into()),
+            Some(arena.alloc_str("rest")),
         );
         assert_eq!(format!("{pl}"), "$name, $other, $rest...");
     }
@@ -345,7 +364,7 @@ mod tests {
         let arena = Bump::new();
         let span = make_span(&arena, "($name)");
         let p = make_param(&arena, "name", "$name");
-        let pl = ParameterList::new(vec![p], span, None);
+        let pl = params_list(&arena, vec![p], span, None);
         assert!(pl.verify(1, &HashSet::new(), &span).is_ok());
     }
 
@@ -354,8 +373,8 @@ mod tests {
         let arena = Bump::new();
         let fs = FileSource::new_in(&arena, "($name)", None);
         let span = FileSpan::new(Some(fs), 0, 7);
-        let p = Parameter::new("name".into(), FileSpan::new(Some(fs), 1, 6), None);
-        let pl = ParameterList::new(vec![p], span, None);
+        let p = Parameter::new(arena.alloc_str("name"), FileSpan::new(Some(fs), 1, 6), None);
+        let pl = params_list(&arena, vec![p], span, None);
         assert!(pl.verify(2, &HashSet::new(), &span).is_err());
     }
 
@@ -364,8 +383,8 @@ mod tests {
         let arena = Bump::new();
         let fs = FileSource::new_in(&arena, "($name)", None);
         let span = FileSpan::new(Some(fs), 0, 7);
-        let p = Parameter::new("name".into(), FileSpan::new(Some(fs), 1, 6), None);
-        let pl = ParameterList::new(vec![p], span, None);
+        let p = Parameter::new(arena.alloc_str("name"), FileSpan::new(Some(fs), 1, 6), None);
+        let pl = params_list(&arena, vec![p], span, None);
         assert!(pl.verify(0, &HashSet::new(), &span).is_err());
     }
 
@@ -374,8 +393,8 @@ mod tests {
         let arena = Bump::new();
         let fs = FileSource::new_in(&arena, "($name)", None);
         let span = FileSpan::new(Some(fs), 0, 7);
-        let p = Parameter::new("name".into(), FileSpan::new(Some(fs), 1, 6), None);
-        let pl = ParameterList::new(vec![p], span, None);
+        let p = Parameter::new(arena.alloc_str("name"), FileSpan::new(Some(fs), 1, 6), None);
+        let pl = params_list(&arena, vec![p], span, None);
         let mut names = HashSet::new();
         names.insert("name");
         assert!(pl.verify(0, &names, &span).is_ok());
@@ -386,7 +405,7 @@ mod tests {
         let arena = Bump::new();
         let span = make_span(&arena, "($name)");
         let p = make_param(&arena, "name", "$name");
-        let pl = ParameterList::new(vec![p], span, None);
+        let pl = params_list(&arena, vec![p], span, None);
         assert!(pl.matches(1, &HashSet::new()));
         let mut names = HashSet::new();
         names.insert("name");
@@ -398,7 +417,7 @@ mod tests {
         let arena = Bump::new();
         let span = make_span(&arena, "($name)");
         let p = make_param(&arena, "name", "$name");
-        let pl = ParameterList::new(vec![p], span, None);
+        let pl = params_list(&arena, vec![p], span, None);
         assert!(!pl.matches(2, &HashSet::new()));
         let mut names = HashSet::new();
         names.insert("unknown");
@@ -411,12 +430,8 @@ mod tests {
         let source = "@mixin foo($name)";
         let fs = FileSource::new_in(&arena, source, None);
         let pl_span = FileSpan::new(Some(fs), 10, source.len());
-        let p = Parameter::new(
-            "name".into(),
-            FileSpan::new(Some(fs), 11, source.len() - 1),
-            None,
-        );
-        let pl = ParameterList::new(vec![p], pl_span, None);
+        let p = Parameter::new("name", FileSpan::new(Some(fs), 11, source.len() - 1), None);
+        let pl = params_list(&arena, vec![p], pl_span, None);
         let got = pl.span_with_name();
         assert!(!got.is_empty(), "span_with_name should not be empty");
         let got_text = got.text();

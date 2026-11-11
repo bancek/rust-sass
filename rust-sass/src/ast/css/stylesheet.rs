@@ -11,7 +11,8 @@ use std::fmt;
 
 use bumpalo::Bump;
 
-use crate::url::SassUrl;
+use crate::arena_map::ArenaVec;
+use crate::url::OwnedUrl;
 
 use crate::common::ast_node::AstNode;
 use crate::common::exception::SassResult;
@@ -47,7 +48,9 @@ impl<'parse> CssStylesheet<'parse> {
     }
 
     /// Creates an empty stylesheet with the given source URL.
-    pub fn empty<'compile: 'parse>(source_url: Option<SassUrl>, arena: &'compile Bump) -> Self {
+    pub fn empty<'compile: 'parse>(source_url: Option<OwnedUrl>, arena: &'compile Bump) -> Self {
+        let source_url =
+            source_url.map(|url| &*arena.alloc(crate::url::ArenaUrl::from_owned(arena, &url)));
         let fs = FileSource::new_in(arena, "", source_url);
         let span = FileSpan::new(Some(fs), 0, 0);
         CssStylesheet {
@@ -85,15 +88,15 @@ pub struct ModifiableCssStylesheet<'parse> {
     /// The source span for this stylesheet.
     pub span: FileSpan<'parse>,
     /// The top-level statements of this stylesheet.
-    pub children: Vec<ModifiableCssNode<'parse>>,
+    pub children: ArenaVec<'parse, ModifiableCssNode<'parse>>,
 }
 
 impl<'parse> ModifiableCssStylesheet<'parse> {
     /// Creates a modifiable stylesheet with no children yet.
-    pub fn new(span: FileSpan<'parse>) -> Self {
+    pub fn new(arena: &'parse Bump, span: FileSpan<'parse>) -> Self {
         ModifiableCssStylesheet {
             span,
-            children: Vec::new(),
+            children: ArenaVec::new_in(arena),
         }
     }
 }
@@ -131,14 +134,14 @@ mod tests {
     fn test_stylesheet_construction() {
         let arena = Bump::new();
         let span = make_span(&arena, "test");
-        let ss = ModifiableCssStylesheet::new(span);
+        let ss = ModifiableCssStylesheet::new(&arena, span);
         assert_eq!(ss.children.len(), 0);
     }
 
     #[test]
     fn test_stylesheet_empty() {
         let arena = Bump::new();
-        let ss = CssStylesheet::empty(None::<SassUrl>, &arena);
+        let ss = CssStylesheet::empty(None::<OwnedUrl>, &arena);
         assert_eq!(ss.children.len(), 0);
         assert_eq!(ss.span().unwrap().text(), "");
     }

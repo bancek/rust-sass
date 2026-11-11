@@ -18,12 +18,13 @@
 //! implicit one is silently ignored.
 
 use std::cell::{Ref, RefCell};
-use std::collections::HashSet;
 
 use indexmap::IndexMap;
 
+use crate::arena_map::ArenaMap;
 use bumpalo::Bump;
 
+use crate::arena_map::{ArenaHashSet, ArenaVec};
 use crate::ast::sass::statement::forward_rule::ForwardRule;
 use crate::common::exception::SassResult;
 use crate::common::file_span::FileSpan;
@@ -85,11 +86,11 @@ impl<'parse> ConfiguredValue<'parse> {
 /// Dart stacks `UnprefixedMapView`/`LimitedMapView` wrappers around the values
 /// map; Rust records the layers as data on the [`Configuration`] variant so
 /// the backing map stays shared and unmodified.
-#[derive(Clone, Debug)]
-pub enum Filter {
-    Prefix(String),
-    Safelist(HashSet<String>),
-    Blocklist(HashSet<String>),
+#[derive(Clone, Copy, Debug)]
+pub enum Filter<'parse> {
+    Prefix(&'parse str),
+    Safelist(&'parse ArenaHashSet<'parse, &'parse str>),
+    Blocklist(&'parse ArenaHashSet<'parse, &'parse str>),
 }
 
 // === ConfigurationInner ===
@@ -99,7 +100,9 @@ pub enum Filter {
 /// `remove` mutates it, which is how a used configuration variable is marked
 /// even when viewed through filters.
 pub struct ConfigurationInner<'parse> {
-    values: IndexMap<String, ConfiguredValue<'parse>>,
+    /// Variable names are borrowed from the compile arena, so configuring a
+    /// module does not leak a `String` per key.
+    values: ArenaMap<'parse, &'parse str, ConfiguredValue<'parse>>,
 }
 
 // === Configuration enum ===
@@ -117,11 +120,11 @@ pub struct ConfigurationInner<'parse> {
 pub enum Configuration<'parse> {
     Implicit {
         inner: &'parse RefCell<ConfigurationInner<'parse>>,
-        filters: Vec<Filter>,
+        filters: ArenaVec<'parse, Filter<'parse>>,
     },
     Explicit {
         inner: &'parse RefCell<ConfigurationInner<'parse>>,
-        filters: Vec<Filter>,
+        filters: ArenaVec<'parse, Filter<'parse>>,
         node_span: FileSpan<'parse>,
     },
 }
@@ -138,7 +141,7 @@ impl<'parse> Configuration<'parse> {
     }
 
     // The `@forward` visibility layers accumulated by `through_forward`.
-    fn filters_slice(&self) -> &[Filter] {
+    fn filters_slice(&self) -> &[Filter<'parse>] {
         match self {
             Implicit { filters, .. } => filters,
             Explicit { filters, .. } => filters,
@@ -146,18 +149,18 @@ impl<'parse> Configuration<'parse> {
     }
 
     /// Apply filters in forward order (0..n). Returns transformed key or None if blocked.
-    fn apply_forward(name: &str, filters: &[Filter]) -> Option<String> {
+    fn apply_forward(name: &str, filters: &[Filter<'_>]) -> Option<String> {
         let mut key = name.to_string();
         for f in filters {
             match f {
                 Filter::Prefix(prefix) => key = format!("{prefix}{key}"),
                 Filter::Safelist(allowed) => {
-                    if !allowed.contains(&key) {
+                    if !allowed.contains(key.as_str()) {
                         return None;
                     }
                 }
                 Filter::Blocklist(blocked) => {
-                    if blocked.contains(&key) {
+                    if blocked.contains(key.as_str()) {
                         return None;
                     }
                 }
@@ -167,22 +170,22 @@ impl<'parse> Configuration<'parse> {
     }
 
     /// Apply filters in backward order (n..0). Returns visible key or None if blocked.
-    fn apply_backward(inner_key: &str, filters: &[Filter]) -> Option<String> {
+    fn apply_backward(inner_key: &str, filters: &[Filter<'_>]) -> Option<String> {
         let mut key = inner_key.to_string();
         for f in filters.iter().rev() {
             match f {
                 Filter::Safelist(allowed) => {
-                    if !allowed.contains(&key) {
+                    if !allowed.contains(key.as_str()) {
                         return None;
                     }
                 }
                 Filter::Blocklist(blocked) => {
-                    if blocked.contains(&key) {
+                    if blocked.contains(key.as_str()) {
                         return None;
                     }
                 }
                 Filter::Prefix(prefix) => {
-                    let stripped = key.strip_prefix(prefix.as_str())?;
+                    let stripped = key.strip_prefix(*prefix)?;
                     key = stripped.to_string();
                 }
             }
@@ -198,9 +201,9 @@ impl<'parse> Configuration<'parse> {
     pub fn empty<'compile: 'parse>(arena: &'compile Bump) -> Self {
         Implicit {
             inner: arena.alloc(RefCell::new(ConfigurationInner {
-                values: IndexMap::new(),
+                values: ArenaMap::new_in(arena),
             })),
-            filters: Vec::new(),
+            filters: ArenaVec::new_in(arena),
         }
     }
 
@@ -209,9 +212,17 @@ impl<'parse> Configuration<'parse> {
         arena: &'compile Bump,
         values: IndexMap<String, ConfiguredValue<'parse>>,
     ) -> Self {
+        let values = values
+            .into_iter()
+            .map(|(name, value)| (&*arena.alloc_str(&name), value))
+            .collect::<Vec<_>>();
+        let mut values_map = ArenaMap::new_in(arena);
+        for (name, value) in values {
+            values_map.insert(name, value);
+        }
         Implicit {
-            inner: arena.alloc(RefCell::new(ConfigurationInner { values })),
-            filters: Vec::new(),
+            inner: arena.alloc(RefCell::new(ConfigurationInner { values: values_map })),
+            filters: ArenaVec::new_in(arena),
         }
     }
 
@@ -222,9 +233,17 @@ impl<'parse> Configuration<'parse> {
         values: IndexMap<String, ConfiguredValue<'parse>>,
         node_span: FileSpan<'parse>,
     ) -> Self {
+        let values = values
+            .into_iter()
+            .map(|(name, value)| (&*arena.alloc_str(&name), value))
+            .collect::<Vec<_>>();
+        let mut values_map = ArenaMap::new_in(arena);
+        for (name, value) in values {
+            values_map.insert(name, value);
+        }
         Explicit {
-            inner: arena.alloc(RefCell::new(ConfigurationInner { values })),
-            filters: Vec::new(),
+            inner: arena.alloc(RefCell::new(ConfigurationInner { values: values_map })),
+            filters: ArenaVec::new_in(arena),
             node_span,
         }
     }
@@ -272,8 +291,8 @@ impl<'parse> Configuration<'parse> {
         // Safe: we return a Ref that borrows the RefCell guard
         // But we can't return Ref with a borrowed key... need a different approach.
         // Let's use index lookup.
-        if inner.values.contains_key(&transformed) {
-            Some(Ref::map(inner, |i| &i.values[&transformed]))
+        if inner.values.contains_key(transformed.as_str()) {
+            Some(Ref::map(inner, |i| &i.values[transformed.as_str()]))
         } else {
             None
         }
@@ -287,7 +306,10 @@ impl<'parse> Configuration<'parse> {
             return None;
         }
         let transformed = Self::apply_forward(name, self.filters_slice())?;
-        self.inner().borrow_mut().values.swap_remove(&transformed)
+        self.inner()
+            .borrow_mut()
+            .values
+            .swap_remove(transformed.as_str())
     }
 
     /// A map from variable names (without `$`) to values, filtered to what
@@ -297,10 +319,23 @@ impl<'parse> Configuration<'parse> {
         let inner = self.inner().borrow();
         let filters = self.filters_slice();
         if filters.is_empty() {
-            return inner.values.clone();
+            return inner
+                .values
+                .iter()
+                .map(|(key, val)| {
+                    (
+                        key.to_string(),
+                        ConfiguredValue {
+                            value: val.value,
+                            configuration_span: val.configuration_span,
+                            assignment_span: val.assignment_span,
+                        },
+                    )
+                })
+                .collect();
         }
         let mut result = IndexMap::new();
-        for (key, val) in &inner.values {
+        for (key, val) in inner.values.iter() {
             if let Some(visible_key) = Self::apply_backward(key, filters) {
                 result.insert(
                     visible_key,
@@ -320,7 +355,7 @@ impl<'parse> Configuration<'parse> {
         let inner = self.inner().borrow();
         let filters = self.filters_slice();
         if filters.is_empty() {
-            return inner.values.keys().cloned().collect();
+            return inner.values.keys().map(|k| k.to_string()).collect();
         }
         let mut result = Vec::new();
         for key in inner.values.keys() {
@@ -342,34 +377,43 @@ impl<'parse> Configuration<'parse> {
     /// Creates a new configuration from this one based on a `@forward` rule.
     /// Only variables visible through the rule's prefix/`show`/`hide` remain
     /// configurable; the copy shares the same original configuration.
-    pub fn through_forward(&self, rule: &ForwardRule) -> Self {
+    pub fn through_forward<'compile: 'parse>(
+        &self,
+        arena: &'compile Bump,
+        rule: &ForwardRule<'parse>,
+    ) -> Self {
         if self.is_empty() {
+            // An empty configuration is passed through unchanged (it carries
+            // no filters to record).
             return self.clone();
         }
 
-        let mut new_filters = self.filters_slice().to_vec();
+        // The new chain, built from the current one (inner-first).
+        let mut new_filters: Vec<Filter<'parse>> = self.filters_slice().to_vec();
 
-        if let Some(ref prefix) = rule.prefix {
-            new_filters.insert(0, Filter::Prefix(prefix.clone()));
+        if let Some(prefix) = rule.prefix {
+            new_filters.insert(0, Filter::Prefix(prefix));
         }
 
-        if let Some(ref shown) = rule.shown_variables {
-            new_filters.insert(0, Filter::Safelist(shown.clone()));
-        } else if let Some(ref hidden) = rule.hidden_variables {
+        if let Some(shown) = rule.shown_variables {
+            new_filters.insert(0, Filter::Safelist(shown));
+        } else if let Some(hidden) = rule.hidden_variables {
             if !hidden.is_empty() {
-                new_filters.insert(0, Filter::Blocklist(hidden.clone()));
+                new_filters.insert(0, Filter::Blocklist(hidden));
             }
         }
 
+        let mut filters: ArenaVec<'parse, Filter<'parse>> = ArenaVec::new_in(arena);
+        filters.extend(new_filters);
         let shared_inner = self.inner();
         match self {
             Implicit { .. } => Implicit {
                 inner: shared_inner,
-                filters: new_filters,
+                filters,
             },
             Explicit { node_span, .. } => Explicit {
                 inner: shared_inner,
-                filters: new_filters,
+                filters,
                 node_span: *node_span,
             },
         }
@@ -381,9 +425,9 @@ impl<'parse> Configuration<'parse> {
         let inner = self.inner().borrow();
         let filters = self.filters_slice();
         let mut parts: Vec<String> = Vec::new();
-        for (key, val) in &inner.values {
+        for (key, val) in inner.values.iter() {
             let display_key = if filters.is_empty() {
-                key.clone()
+                key.to_string()
             } else if let Some(k) = Self::apply_backward(key, filters) {
                 k
             } else {
@@ -400,9 +444,18 @@ use Configuration::{Explicit, Implicit};
 
 #[cfg(test)]
 mod tests {
+    fn arena_set<'a, 'p: 'a>(arena: &'a Bump, names: &[&'p str]) -> ArenaHashSet<'a, &'p str> {
+        let mut set =
+            hashbrown::HashSet::with_hasher_in(hashbrown::DefaultHashBuilder::default(), arena);
+        for name in names {
+            set.insert(*name);
+        }
+        set
+    }
+
     use super::*;
     use crate::common::source_span_file_source::FileSource;
-    use crate::url::SassUrl;
+    use crate::url::ArenaUrl;
     use crate::value::SassNumber;
     use crate::value::SASS_FALSE;
     use crate::value::SASS_TRUE;
@@ -438,7 +491,7 @@ mod tests {
         'compile: 'parse,
         'parse: 'compile,
     {
-        Value::new_with_arena(arena, ValueKind::Number(SassNumber::new(n, None)))
+        Value::new_with_arena(arena, ValueKind::Number(SassNumber::new(arena, n, None)))
     }
 
     fn make_cv<'compile, 'parse>(
@@ -452,30 +505,31 @@ mod tests {
         ConfiguredValue::implicit(value, bogus_span())
     }
 
-    fn empty_forward_rule() -> ForwardRule<'static> {
+    fn empty_forward_rule<'p>(arena: &'p Bump) -> ForwardRule<'p> {
         ForwardRule::new(
-            SassUrl::parse("file:///test").unwrap(),
+            arena,
+            ArenaUrl::parse(arena, "file:///test").unwrap(),
             bogus_span(),
             None,
-            vec![],
+            &[],
         )
     }
 
-    fn forward_with_prefix(prefix: &str) -> ForwardRule<'static> {
-        let mut rule = empty_forward_rule();
-        rule.prefix = Some(prefix.to_string());
+    fn forward_with_prefix<'p>(arena: &'p Bump, prefix: &'p str) -> ForwardRule<'p> {
+        let mut rule = empty_forward_rule(arena);
+        rule.prefix = Some(prefix);
         rule
     }
 
-    fn forward_with_shown(names: &[&str]) -> ForwardRule<'static> {
-        let mut rule = empty_forward_rule();
-        rule.shown_variables = Some(names.iter().map(|s| s.to_string()).collect());
+    fn forward_with_shown<'p>(arena: &'p Bump, names: &[&'p str]) -> ForwardRule<'p> {
+        let mut rule = empty_forward_rule(arena);
+        rule.shown_variables = Some(arena.alloc(arena_set(arena, names)));
         rule
     }
 
-    fn forward_with_hidden(names: &[&str]) -> ForwardRule<'static> {
-        let mut rule = empty_forward_rule();
-        rule.hidden_variables = Some(names.iter().map(|s| s.to_string()).collect());
+    fn forward_with_hidden<'p>(arena: &'p Bump, names: &[&'p str]) -> ForwardRule<'p> {
+        let mut rule = empty_forward_rule(arena);
+        rule.hidden_variables = Some(arena.alloc(arena_set(arena, names)));
         rule
     }
 
@@ -677,7 +731,7 @@ mod tests {
         let mut values = IndexMap::new();
         values.insert("a".into(), make_cv(&arena, make_bool(&arena, true)));
         let cfg = Configuration::new_implicit(&arena, values);
-        let derived = cfg.through_forward(&empty_forward_rule());
+        let derived = cfg.through_forward(&arena, &empty_forward_rule(&arena));
 
         assert!(cfg.same_original(&derived));
     }
@@ -702,7 +756,7 @@ mod tests {
     fn test_configuration_through_forward_empty() {
         let arena = bumpalo::Bump::new();
         let cfg = Configuration::empty(&arena);
-        let derived = cfg.through_forward(&empty_forward_rule());
+        let derived = cfg.through_forward(&arena, &empty_forward_rule(&arena));
         let same = std::ptr::eq(cfg.inner(), derived.inner());
         assert!(same);
     }
@@ -714,7 +768,7 @@ mod tests {
         values.insert("ns-a".into(), make_cv(&arena, make_num(&arena, 1.0)));
         let cfg = Configuration::new_implicit(&arena, values);
 
-        let derived = cfg.through_forward(&forward_with_prefix("ns-"));
+        let derived = cfg.through_forward(&arena, &forward_with_prefix(&arena, "ns-"));
 
         assert!(derived.get("a").is_some());
         assert!(derived.get("ns-a").is_none());
@@ -728,7 +782,7 @@ mod tests {
         values.insert("b".into(), make_cv(&arena, make_num(&arena, 2.0)));
         let cfg = Configuration::new_implicit(&arena, values);
 
-        let derived = cfg.through_forward(&forward_with_shown(&["a"]));
+        let derived = cfg.through_forward(&arena, &forward_with_shown(&arena, &["a"]));
 
         assert!(derived.get("a").is_some());
         assert!(derived.get("b").is_none());
@@ -742,7 +796,7 @@ mod tests {
         values.insert("b".into(), make_cv(&arena, make_num(&arena, 2.0)));
         let cfg = Configuration::new_implicit(&arena, values);
 
-        let derived = cfg.through_forward(&forward_with_hidden(&["b"]));
+        let derived = cfg.through_forward(&arena, &forward_with_hidden(&arena, &["b"]));
 
         assert!(derived.get("a").is_some());
         assert!(derived.get("b").is_none());
@@ -756,10 +810,10 @@ mod tests {
         values.insert("ns-b".into(), make_cv(&arena, make_num(&arena, 2.0)));
         let cfg = Configuration::new_implicit(&arena, values);
 
-        let mut rule = empty_forward_rule();
-        rule.prefix = Some("ns-".into());
-        rule.shown_variables = Some(HashSet::from_iter(["a".into()]));
-        let derived = cfg.through_forward(&rule);
+        let mut rule = empty_forward_rule(&arena);
+        rule.prefix = Some("ns-");
+        rule.shown_variables = Some(arena.alloc(arena_set(&arena, &["a"])));
+        let derived = cfg.through_forward(&arena, &rule);
 
         assert!(derived.get("a").is_some());
         assert!(derived.get("b").is_none());
@@ -773,7 +827,7 @@ mod tests {
         values.insert("a".into(), make_cv(&arena, make_num(&arena, 1.0)));
         let cfg = Configuration::new_explicit(&arena, values, span);
 
-        let derived = cfg.through_forward(&forward_with_prefix("ns-"));
+        let derived = cfg.through_forward(&arena, &forward_with_prefix(&arena, "ns-"));
 
         assert!(derived.is_explicit());
         assert_eq!(derived.node_span(), Some(span));
@@ -786,7 +840,7 @@ mod tests {
         values.insert("a".into(), make_cv(&arena, make_num(&arena, 1.0)));
         let cfg = Configuration::new_implicit(&arena, values);
 
-        let derived = cfg.through_forward(&forward_with_prefix("ns-"));
+        let derived = cfg.through_forward(&arena, &forward_with_prefix(&arena, "ns-"));
 
         assert!(!derived.is_explicit());
     }
@@ -818,7 +872,7 @@ mod tests {
         values.insert("ns-a".into(), make_cv(&arena, make_num(&arena, 1.0)));
         let cfg = Configuration::new_implicit(&arena, values);
 
-        let derived = cfg.through_forward(&forward_with_prefix("ns-"));
+        let derived = cfg.through_forward(&arena, &forward_with_prefix(&arena, "ns-"));
         let removed = derived.remove("a");
         assert!(removed.is_some());
         assert!(derived.is_empty());

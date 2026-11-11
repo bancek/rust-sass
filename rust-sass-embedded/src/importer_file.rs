@@ -19,7 +19,7 @@ use rust_sass::eval::importer::filesystem::FilesystemImporter;
 use rust_sass::eval::importer::result::ImporterResult;
 use rust_sass::eval::importer::{CanonicalizeContext, UserImporter};
 use rust_sass::logger::NoOpWarnLogger;
-use rust_sass::url::SassUrl;
+use rust_sass::url::OwnedUrl;
 
 use crate::compilation::HostContext;
 use crate::embedded_sass::inbound_message::file_import_response;
@@ -34,7 +34,7 @@ use crate::importer_host::parse_absolute_url;
 pub struct FileImporter {
     ctx: Rc<HostContext>,
     importer_id: u32,
-    fs: FilesystemImporter,
+    fs: FilesystemImporter<'static>,
 }
 
 impl FileImporter {
@@ -62,12 +62,15 @@ impl fmt::Debug for FileImporter {
 impl UserImporter for FileImporter {
     fn canonicalize<'a>(
         &'a self,
-        url: &'a SassUrl,
+        url: &'a OwnedUrl,
         context: &'a mut CanonicalizeContext,
-    ) -> LocalBoxFuture<'a, SassResult<Option<SassUrl>>> {
+    ) -> LocalBoxFuture<'a, SassResult<Option<OwnedUrl>>> {
         if url.scheme() == "file" {
             let fs = &self.fs;
-            return Box::pin(async move { fs.canonicalize(url, context, &NoOpWarnLogger).await });
+            let io = &*self.ctx.io;
+            return Box::pin(
+                async move { fs.canonicalize(io, url, context, &NoOpWarnLogger).await },
+            );
         }
 
         let request = OutboundMessage {
@@ -85,6 +88,7 @@ impl UserImporter for FileImporter {
         };
         let ctx = self.ctx.clone();
         let fs = self.fs.clone();
+        let io = self.ctx.io.clone();
         Box::pin(async move {
             let response = ctx.send_and_wait(&request).await?;
             let response = match response {
@@ -102,7 +106,8 @@ impl UserImporter for FileImporter {
                             "The file importer must return a file: URL, was \"{file_url}\""
                         )));
                     }
-                    fs.canonicalize(&file_url, context, &NoOpWarnLogger).await
+                    fs.canonicalize(&*io, &file_url, context, &NoOpWarnLogger)
+                        .await
                 }
                 Some(file_import_response::Result::Error(e)) => Err(script(&e)),
                 None => Ok(None),
@@ -112,13 +117,14 @@ impl UserImporter for FileImporter {
 
     fn load<'a>(
         &'a self,
-        url: &'a SassUrl,
+        url: &'a OwnedUrl,
     ) -> LocalBoxFuture<'a, SassResult<Option<ImporterResult>>> {
         let fs = &self.fs;
-        Box::pin(async move { fs.load(url).await })
+        let io = self.ctx.io.clone();
+        Box::pin(async move { fs.load(&*io, url).await })
     }
 
-    fn could_canonicalize(&self, _url: &SassUrl, _base_url: &SassUrl) -> bool {
+    fn could_canonicalize(&self, _url: &OwnedUrl, _base_url: &OwnedUrl) -> bool {
         false
     }
 

@@ -28,23 +28,32 @@ deduplication.
 ### `BuiltInCallable`
 
 ```rust
-struct BuiltInCallable<'compile, 'parse> { name: String, overloads: Rc<Vec<BuiltInOverload<'compile, 'parse>>>, accepts_content: bool, deprecation_warning: Option<(String, String)> }
+struct BuiltInCallable<'compile, 'parse> { name: &'parse str, overloads: &'parse [BuiltInOverload<'compile, 'parse>], accepts_content: bool, deprecation_warning: Option<(&'parse str, &'parse str)> }
 struct BuiltInOverload<'compile, 'parse> { params: ParameterList<'parse>, callback: BuiltInCallback<'compile, 'parse> }
 ```
+
+`BuiltInCallable` is `Copy` and owns no heap memory, so it can live inside
+`CallableKind::BuiltIn` in the arena.
 
 The callback is a `Sync | Async` enum:
 
 ```rust
-pub type SyncBuiltInCallback<'c, 'p> = Rc<dyn Fn(
+pub type SyncBuiltInCallback<'c, 'p> = &'p dyn Fn(
     &EvalConfig<'c, 'p>, &mut EvalState<'c, 'p>, Vec<Value<'p>>, &'c Bump,
-) -> SassResult<Value<'p>> + 'p>;
+) -> SassResult<Value<'p>>;
 
-pub type AsyncBuiltInCallback<'c, 'p> = Rc<dyn for<'a> Fn(
+pub type AsyncBuiltInCallback<'c, 'p> = &'p dyn for<'a> Fn(
     &'a EvalConfig<'c, 'p>, &'a mut EvalState<'c, 'p>, Vec<Value<'p>>, &'a Bump,
-) -> LocalBoxFuture<'a, SassResult<Value<'p>>> + 'p>;
+) -> LocalBoxFuture<'a, SassResult<Value<'p>>>;
 
 pub enum BuiltInCallback<'c, 'p> { Sync(SyncBuiltInCallback<'c, 'p>), Async(AsyncBuiltInCallback<'c, 'p>) }
 ```
+
+Callbacks are arena-allocated with `built_in_callback(arena, closure)` and must
+capture only drop-free data (an owned `String`/`Rc` capture would never be
+dropped). The async form's arena argument is the per-call `&'a Bump`, which
+cannot produce `Value<'p>`; a callback that allocates results uses the
+`'compile` arena it captured.
 
 The callback carries the full evaluator (`&EvalConfig` + `&mut EvalState`), not
 just `EvalContext`, so the `meta.call`/`meta.apply`/`meta.load-css` built-ins can
@@ -77,9 +86,10 @@ flattened `name`/`arguments`/`isMixin` copies were not ported). There is no
 
 ### `PlainCssCallable`
 
-A bare `{ name: String }` constructed on the fly when no user-defined or
+A bare `{ name: &'parse str }` constructed on the fly when no user-defined or
 built-in function matches, and serialized as plain CSS `name(args...)`. It is
-never stored persistently.
+never stored persistently, but the callable wrapper still lives in the arena,
+so the name is an arena string.
 
 ## Overload resolution and argument flow
 

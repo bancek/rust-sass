@@ -16,6 +16,7 @@ use crate::selector::SimpleSelector;
 use crate::selector::WarnLogger;
 use crate::serialize::SerializeVisitor;
 use crate::value::hash::hash_combine;
+use bumpalo::Bump;
 use std::hash::Hash;
 use std::hash::Hasher;
 
@@ -29,7 +30,7 @@ pub struct CompoundSelector<'parse> {
     /// The components of this selector.
     ///
     /// This is never empty.
-    pub components: Vec<SimpleSelector<'parse>>,
+    pub components: &'parse [SimpleSelector<'parse>],
 }
 
 impl<'parse> PartialEq for CompoundSelector<'parse> {
@@ -45,6 +46,7 @@ impl<'parse> CompoundSelector<'parse> {
     ///
     /// Returns an error if `components` is empty.
     pub fn new(
+        arena: &'parse Bump,
         components: Vec<SimpleSelector<'parse>>,
         span: FileSpan<'parse>,
     ) -> SassResult<Self> {
@@ -56,7 +58,7 @@ impl<'parse> CompoundSelector<'parse> {
         }
         Ok(CompoundSelector {
             span,
-            components: components.to_vec(),
+            components: &*arena.alloc_slice_fill_iter(components),
         })
     }
 
@@ -67,7 +69,7 @@ impl<'parse> CompoundSelector<'parse> {
     // Whether this selector, and complex selectors containing it, should not
     // be emitted. Matches Dart: `Selector.isInvisible` (@internal).
     pub fn is_invisible(&self) -> bool {
-        for comp in &self.components {
+        for comp in self.components {
             if comp.is_invisible() {
                 return true;
             }
@@ -79,7 +81,7 @@ impl<'parse> CompoundSelector<'parse> {
     ///
     /// Matches Dart: `Selector.isBogus`.
     pub fn is_bogus(&self) -> bool {
-        for comp in &self.components {
+        for comp in self.components {
             if comp.is_bogus() {
                 return true;
             }
@@ -91,7 +93,7 @@ impl<'parse> CompoundSelector<'parse> {
     // CSS via `@extend` or nesting. Matches Dart: `Selector.isUseless`
     // (@internal).
     pub fn is_useless(&self) -> bool {
-        for comp in &self.components {
+        for comp in self.components {
             if comp.is_useless() {
                 return true;
             }
@@ -102,7 +104,7 @@ impl<'parse> CompoundSelector<'parse> {
     // Whether this contains a parent (`&`) selector.
     // Matches Dart: `Selector.containsParentSelector` (@internal).
     pub fn contains_parent_selector(&self) -> SassResult<bool> {
-        for s in &self.components {
+        for s in self.components {
             if s.contains_parent_selector()? {
                 return Ok(true);
             }
@@ -114,7 +116,7 @@ impl<'parse> CompoundSelector<'parse> {
     // Matches Dart: `Selector.isInvisibleOtherThanBogusCombinators`
     // (@internal).
     pub fn is_invisible_other_than_bogus_combinators(&self) -> bool {
-        for comp in &self.components {
+        for comp in self.components {
             if comp.is_invisible_other_than_bogus_combinators() {
                 return true;
             }
@@ -134,7 +136,7 @@ impl<'parse> CompoundSelector<'parse> {
     /// realistically holds 1000 simple selectors.
     pub fn specificity(&self) -> usize {
         let mut sum = 0;
-        for component in &self.components {
+        for component in self.components {
             sum += component.specificity();
         }
         sum
@@ -157,7 +159,7 @@ impl<'parse> CompoundSelector<'parse> {
     // Matches Dart: `CompoundSelector.hasComplicatedSuperselectorSemantics`
     // (@internal).
     pub fn has_complicated_superselector_semantics(&self) -> bool {
-        for component in &self.components {
+        for component in self.components {
             if component.has_complicated_superselector_semantics() {
                 return true;
             }
@@ -167,7 +169,7 @@ impl<'parse> CompoundSelector<'parse> {
 
     pub fn hash_code(&self) -> i32 {
         let mut h = 0;
-        for comp in &self.components {
+        for comp in self.components {
             h = hash_combine(h, comp.hash_code());
         }
         h
@@ -203,7 +205,7 @@ impl<'parse> CompoundSelector<'parse> {
     /// Extend-algorithm docs live on the owner in
     /// [`crate::selector::weave`] (see Dart `extend/functions.dart`).
     pub fn is_superselector(&self, other: &CompoundSelector<'parse>) -> SassResult<bool> {
-        compound_is_superselector(self, other, None)
+        compound_is_superselector(self.components, other.components, self.span, None)
     }
 }
 
@@ -225,109 +227,117 @@ mod tests {
     use crate::selector::SimpleSelector;
     use bumpalo::Bump;
 
-    fn cls(name: &str) -> SimpleSelector<'static> {
-        SimpleSelector::Class(ClassSelector::new(name.into(), BOGUS_SPAN))
+    fn cls(name: &'static str) -> SimpleSelector<'static> {
+        SimpleSelector::Class(ClassSelector::new(name, BOGUS_SPAN))
     }
 
-    fn id(name: &str) -> SimpleSelector<'static> {
-        SimpleSelector::Id(IdSelector::new(name.into(), BOGUS_SPAN))
+    fn id(name: &'static str) -> SimpleSelector<'static> {
+        SimpleSelector::Id(IdSelector::new(name, BOGUS_SPAN))
     }
 
     #[test]
     fn test_new_compound_selector() {
-        let c = CompoundSelector::new(vec![cls("foo")], BOGUS_SPAN).unwrap();
+        let arena = Bump::new();
+        let c = CompoundSelector::new(&arena, vec![cls("foo")], BOGUS_SPAN).unwrap();
         assert_eq!(c.components.len(), 1);
     }
 
     #[test]
     fn test_new_compound_selector_empty() {
-        let result = CompoundSelector::new(vec![], BOGUS_SPAN);
+        let arena = Bump::new();
+        let result = CompoundSelector::new(&arena, vec![], BOGUS_SPAN);
         assert!(result.is_err());
     }
 
     #[test]
     fn test_is_invisible() {
-        let c = CompoundSelector::new(vec![cls("foo")], BOGUS_SPAN).unwrap();
+        let arena = Bump::new();
+        let c = CompoundSelector::new(&arena, vec![cls("foo")], BOGUS_SPAN).unwrap();
         assert!(!c.is_invisible());
 
-        let ph = SimpleSelector::Placeholder(PlaceholderSelector::new("foo".into(), BOGUS_SPAN));
-        let c2 = CompoundSelector::new(vec![ph], BOGUS_SPAN).unwrap();
+        let ph = SimpleSelector::Placeholder(PlaceholderSelector::new("foo", BOGUS_SPAN));
+        let c2 = CompoundSelector::new(&arena, vec![ph], BOGUS_SPAN).unwrap();
         assert!(c2.is_invisible());
     }
 
     #[test]
     fn test_is_bogus() {
-        let c = CompoundSelector::new(vec![cls("foo")], BOGUS_SPAN).unwrap();
+        let arena = Bump::new();
+        let c = CompoundSelector::new(&arena, vec![cls("foo")], BOGUS_SPAN).unwrap();
         assert!(!c.is_bogus());
     }
 
     #[test]
     fn test_is_useless() {
-        let c = CompoundSelector::new(vec![cls("foo")], BOGUS_SPAN).unwrap();
+        let arena = Bump::new();
+        let c = CompoundSelector::new(&arena, vec![cls("foo")], BOGUS_SPAN).unwrap();
         assert!(!c.is_useless());
     }
 
     #[test]
     fn test_contains_parent_selector() {
         let arena = Bump::new();
-        let c = CompoundSelector::new(vec![cls("foo")], BOGUS_SPAN).unwrap();
+        let c = CompoundSelector::new(&arena, vec![cls("foo")], BOGUS_SPAN).unwrap();
         assert!(!c.contains_parent_selector().unwrap());
 
         let parent = SimpleSelector::Parent(ParentSelector::new(&arena, BOGUS_SPAN, None));
-        let c2 = CompoundSelector::new(vec![parent], BOGUS_SPAN).unwrap();
+        let c2 = CompoundSelector::new(&arena, vec![parent], BOGUS_SPAN).unwrap();
         assert!(c2.contains_parent_selector().unwrap());
     }
 
     #[test]
     fn test_single_simple() {
-        let c = CompoundSelector::new(vec![cls("foo")], BOGUS_SPAN).unwrap();
+        let arena = Bump::new();
+        let c = CompoundSelector::new(&arena, vec![cls("foo")], BOGUS_SPAN).unwrap();
         assert!(c.single_simple().is_some());
 
-        let c2 = CompoundSelector::new(vec![cls("foo"), id("bar")], BOGUS_SPAN).unwrap();
+        let c2 = CompoundSelector::new(&arena, vec![cls("foo"), id("bar")], BOGUS_SPAN).unwrap();
         assert!(c2.single_simple().is_none());
     }
 
     #[test]
     fn test_specificity() {
-        let c = CompoundSelector::new(vec![cls("foo"), id("bar")], BOGUS_SPAN).unwrap();
+        let arena = Bump::new();
+        let c = CompoundSelector::new(&arena, vec![cls("foo"), id("bar")], BOGUS_SPAN).unwrap();
         assert_eq!(c.specificity(), 1001000);
     }
 
     #[test]
     fn test_has_complicated_superselector_semantics() {
-        let c = CompoundSelector::new(vec![cls("foo")], BOGUS_SPAN).unwrap();
+        let arena = Bump::new();
+        let c = CompoundSelector::new(&arena, vec![cls("foo")], BOGUS_SPAN).unwrap();
         assert!(!c.has_complicated_superselector_semantics());
 
         let pe = SimpleSelector::Pseudo(PseudoSelector::new(
-            "before".into(),
-            BOGUS_SPAN,
-            true,
-            None,
-            None,
+            &arena, "before", BOGUS_SPAN, true, None, None,
         ));
-        let c2 = CompoundSelector::new(vec![pe], BOGUS_SPAN).unwrap();
+        let c2 = CompoundSelector::new(&arena, vec![pe], BOGUS_SPAN).unwrap();
         assert!(c2.has_complicated_superselector_semantics());
     }
 
     #[test]
     fn test_hash_code() {
-        let c1 = CompoundSelector::new(vec![cls("foo")], BOGUS_SPAN).unwrap();
-        let c2 = CompoundSelector::new(vec![cls("foo")], BOGUS_SPAN).unwrap();
+        let arena = Bump::new();
+        let c1 = CompoundSelector::new(&arena, vec![cls("foo")], BOGUS_SPAN).unwrap();
+        let c2 = CompoundSelector::new(&arena, vec![cls("foo")], BOGUS_SPAN).unwrap();
         assert_eq!(c1.hash_code(), c2.hash_code());
     }
 
     #[test]
     fn test_compound_selector_to_css_string() {
-        let c = CompoundSelector::new(vec![cls("foo")], BOGUS_SPAN).unwrap();
+        let arena = Bump::new();
+        let c = CompoundSelector::new(&arena, vec![cls("foo")], BOGUS_SPAN).unwrap();
         assert_eq!(c.to_css_string(true).unwrap(), ".foo");
     }
 
     #[test]
     fn test_compound_selector_to_css_string_multi() {
+        let arena = Bump::new();
         let c = CompoundSelector::new(
+            &arena,
             vec![
                 cls("foo"),
-                SimpleSelector::Id(IdSelector::new("bar".into(), BOGUS_SPAN)),
+                SimpleSelector::Id(IdSelector::new("bar", BOGUS_SPAN)),
             ],
             BOGUS_SPAN,
         )
@@ -337,7 +347,8 @@ mod tests {
 
     #[test]
     fn test_compound_selector_assert_not_bogus() {
-        let c = CompoundSelector::new(vec![cls("foo")], BOGUS_SPAN).unwrap();
+        let arena = Bump::new();
+        let c = CompoundSelector::new(&arena, vec![cls("foo")], BOGUS_SPAN).unwrap();
         assert!(c.assert_not_bogus(None, None).is_ok());
     }
 }

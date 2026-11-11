@@ -10,7 +10,7 @@
 use crate::common::ast_node::AstNode;
 use crate::common::exception::SassResult;
 use crate::common::file_span::FileSpan;
-use crate::url::SassUrl;
+use crate::url::OwnedUrl;
 
 use crate::ast::sass::dynamic_import::DynamicImport;
 use crate::ast::sass::statement::forward_rule::ForwardRule;
@@ -33,11 +33,11 @@ pub enum SassDependency<'parse> {
 
 impl<'parse> SassDependency<'parse> {
     /// The URL of the dependency this rule loads.
-    pub fn url(&self) -> SassUrl {
+    pub fn url(&self) -> OwnedUrl {
         match self {
-            SassDependency::DynamicImport(di) => di.url(),
-            SassDependency::UseRule(ur) => ur.url.clone(),
-            SassDependency::ForwardRule(fr) => fr.url.clone(),
+            SassDependency::DynamicImport(di) => di.url().to_owned_url(),
+            SassDependency::UseRule(ur) => ur.url.to_owned_url(),
+            SassDependency::ForwardRule(fr) => fr.url.to_owned_url(),
         }
     }
 

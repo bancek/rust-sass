@@ -26,7 +26,7 @@ pub(crate) fn srgb_convert(
     c1: Option<f64>,
     c2: Option<f64>,
     alpha: Option<f64>,
-) -> SassResult<SassColor> {
+) -> SassResult<SassColor<'static>> {
     srgb_convert_internal(dest, c0, c1, c2, alpha, None)
 }
 
@@ -43,7 +43,7 @@ pub(crate) fn srgb_convert_internal(
     blue: Option<f64>,
     alpha: Option<f64>,
     opts: Option<&SrgbConvertOpts>,
-) -> SassResult<SassColor> {
+) -> SassResult<SassColor<'static>> {
     // Analogous missingness (#2810): an all-missing source converts to an
     // all-missing destination, as does a source missing a whole analogous
     // lightness+chroma+hue set.

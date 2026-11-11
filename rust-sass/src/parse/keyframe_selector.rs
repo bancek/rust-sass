@@ -11,6 +11,8 @@
 //! (`50%`, including `+`/decimal/exponent forms). `consume_newlines` is
 //! always true, so newline handling needs no per-call discipline.
 
+use bumpalo::Bump;
+
 use crate::ast::sass::interpolation_map::InterpolationMap;
 use crate::common::source_span_file_source::FileSource;
 use crate::common::span_scanner::SpanScanner;
@@ -28,9 +30,9 @@ pub struct KeyframeSelectorParser<'parse> {
 }
 
 impl<'parse> KeyframeSelectorParser<'parse> {
-    pub fn new(source: &'parse FileSource<'parse>) -> Self {
+    pub fn new(arena: &'parse Bump, source: &'parse FileSource<'parse>) -> Self {
         KeyframeSelectorParser {
-            parser: Parser::new(source, Syntax::Scss, None),
+            parser: Parser::new(arena, source, Syntax::Scss, None),
         }
     }
 
@@ -38,11 +40,12 @@ impl<'parse> KeyframeSelectorParser<'parse> {
     ///
     /// Matches Dart: `KeyframeSelectorParser(..., interpolationMap:)`.
     pub fn new_with_map(
+        arena: &'parse Bump,
         source: &'parse FileSource<'parse>,
         interpolation_map: Option<&'parse InterpolationMap<'parse>>,
     ) -> Self {
         KeyframeSelectorParser {
-            parser: Parser::new(source, Syntax::Scss, interpolation_map),
+            parser: Parser::new(arena, source, Syntax::Scss, interpolation_map),
         }
     }
 
@@ -150,7 +153,7 @@ mod tests {
         'parse: 'compile,
     {
         let fs = FileSource::new_in(arena, text, None);
-        KeyframeSelectorParser::new(fs)
+        KeyframeSelectorParser::new(arena, fs)
     }
 
     #[test]

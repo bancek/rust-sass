@@ -189,6 +189,120 @@ SASS_SPEC=directives/use cargo test -p rust-sass-spec --test runner_test --relea
 default `sass-spec/spec` root (if both are set, `SASS_SPEC` is appended
 under the resolved root — see `rust-sass-spec/tests/runner_test.rs`).
 
+### Leak gate
+
+The spec runner ships a counting-allocator gate (`--features leak-gate`) that
+runs the suite twice in one process — an untracked warm-up pass, then a
+measured pass — and fails if the measured pass retains bytes. It catches
+**per compilation** heap retention: the compile arena (`bumpalo::Bump`) never
+runs `Drop`, so any arena-resident value that owns heap memory leaks for the
+life of the process. The rationale and the rules are in
+`critical-invariants.md`.
+
+```sh
+# Build first, so the timing below excludes compilation.
+cargo test -p rust-sass-spec --features leak-gate --test runner_test --release --no-run
+BIN=$(ls -t target/release/deps/runner_test-* | grep -v '\.d$' | head -1)
+
+# ~28s: two full passes. `--nocapture` prints the retained-byte report.
+time env SASS_SPEC_PATH=$PWD/sass-spec/spec "$BIN" --ignored --nocapture
+```
+
+The untracked pass is the whole warm-up: it builds the process-lifetime tables
+and regex engines the tests reach, so the measured pass pays only for
+per-compilation work.
+
+The gate allows 8 KiB (`HARNESS_NOISE`). The full suite currently retains
+3,976 B spread thinly over 40 tests — 1 B on css selector tests, 4–10 B on
+libsass tests — which is allocator bookkeeping rather than Sass data.
+`LEAK_GATE_ALLOW=<bytes>` overrides the threshold for a local run.
+
+The threshold is a measurement floor, not a licence to leak. It exists because
+the residual is spread thin (a few bytes per test) and cannot be attributed;
+a real regression — an arena value owning a `Vec`/`String`/`Rc` — shows up as
+kilobytes concentrated on a handful of tests. Read the per-test list, not just
+the total, and fix the site rather than raising the number.
+
+Harness work inside the measured pass (normalizing expected output, the regex
+engines' caches) is left out by wrapping it in
+`rust_sass_spec::leak_gate::without_tracking`, which stops the allocator hooks
+from counting for the duration of the closure. The exclusion still holds when a
+block is freed outside the region that allocated it, because `alloc` writes a
+tag word before the user pointer saying whether the block was counted, and
+`dealloc`/`realloc` follow that tag instead of the current region. Without the
+tag, a counted block freed while bypassed subtracts bytes that were never
+added, and the total can go negative.
+
+#### Debugging a leak-gate failure
+
+The allocator cannot attribute an allocation to its caller, so the gate tells
+you **which tests** retained bytes, never **where**. The total also includes a
+constant harness baseline — compare deltas between commits, not absolute
+values.
+
+1. Narrow to the failing subset (a path under `sass-spec/spec/`):
+
+   ```sh
+   SASS_SPEC=<subset> env SASS_SPEC_PATH=$PWD/sass-spec/spec "$BIN" --ignored --nocapture
+   ```
+
+2. Attribute the bytes with heaptrack. Use the **debug** build: release
+   inlining removes the frames the verdict depends on.
+
+   ```sh
+   tools/heaptrack-leaks.sh core_functions/math      # or no argument: full suite
+   ```
+
+   Artifacts land in `/tmp/rust-sass/<run>/` (one directory per run, named after
+   `--out` or the timestamp) and are never pruned, so earlier runs stay
+   available for `--diff`. `summary.txt` is what you read first:
+
+   ```
+   total memory leaked: 23.98K
+
+   2.09K      OURS     rust-sass/src/value/number_util.rs
+   208B       OURS     rust-sass/src/value/number_util.rs
+   ...
+   2.77K      harness
+   1.45K      harness
+   ```
+
+3. Read the verdicts. A block is **OURS** when the allocation stack reaches a
+   `rust-sass/src/...` frame before any `rust-sass-spec/src/...` frame — ours
+   is the closest allocating frame, and the summary prints that frame.
+   **harness** means the spec runner came first (its regex caches,
+   normalisation) or only runtime/dependency frames exist. **UNKNOWN** means
+   no frame named either crate: heaptrack truncates deep stacks, so open
+   `leaks-demangled.txt` (already `c++filt`ed) and read the block in full.
+
+   Trust heaptrack's **sizes**, verify its **frames**. The block sizes are
+   exact — that is what the totals in this document come from — but the
+   `at file:line` chain is reconstructed from return addresses, and merged or
+   inlined frames can name a caller that cannot have produced the allocation.
+   One measured stack named `regex_automata` under `eval/init.rs` in a crate
+   with no `regex` dependency: a frame-merging artefact. When a frame
+   looks impossible, check `cargo tree -p <crate>` before believing it, and
+   prefer the gate's own per-test delta for attribution of small residuals.
+
+   `--diff /tmp/rust-sass/<earlier>/heap.zst` records what changed against a
+   previous run; `--strict` exits non-zero when any block is OURS, which is
+   how a run can gate.
+
+4. Fix the site, not the total. The usual shapes:
+
+   - an arena value owning a `Vec`/`String`/`Box`/map/`Rc`: convert the field
+     to arena storage (`&'parse [T]`, `&'parse str`, `ArenaMap`) or move the
+     owner out of the bump;
+   - a `LazyLock`/`OnceLock` first built during a compile: force it before
+     the measured pass (the untracked pass should already have built it, so a
+     rebuild here means the static is keyed or constructed in a way the pass
+     did not cover);
+   - genuinely process-wide state (a `static` cache): leave it and note it.
+
+5. Add a regression test in the touched file's `mod tests`
+   (`#[maybe_test]`, both builds) and re-run the gate.
+
+
 ### rust-sass-cli
 
 ```sh

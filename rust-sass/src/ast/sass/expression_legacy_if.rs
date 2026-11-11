@@ -125,10 +125,11 @@ mod tests {
         let arena = Bump::new();
         let fs = FileSource::new_in(&arena, "modern", None);
         let span = FileSpan::new(Some(fs), 0, 6);
-        let cond = Expression::String(StringExpression::plain("$cond", span, false));
+        let cond = Expression::String(StringExpression::plain(&arena, "$cond", span, false));
         let if_true = Expression::Number(NumberExpression::new(1.0, span, None));
         let if_false = Expression::Number(NumberExpression::new(2.0, span, None));
         let args = ArgumentList::new(
+            &arena,
             vec![cond, if_true, if_false],
             IndexMap::new(),
             IndexMap::new(),
@@ -146,10 +147,11 @@ mod tests {
         let arena = Bump::new();
         let fs = FileSource::new_in(&arena, "modern", None);
         let span = FileSpan::new(Some(fs), 0, 6);
-        let cond = Expression::String(StringExpression::plain("$cond", span, false));
+        let cond = Expression::String(StringExpression::plain(&arena, "$cond", span, false));
         let if_true = Expression::Number(NumberExpression::new(1.0, span, None));
         let if_false = Expression::Null(NullExpression::new(span));
         let args = ArgumentList::new(
+            &arena,
             vec![cond, if_true, if_false],
             IndexMap::new(),
             IndexMap::new(),
@@ -167,10 +169,11 @@ mod tests {
         let arena = Bump::new();
         let fs = FileSource::new_in(&arena, "modern", None);
         let span = FileSpan::new(Some(fs), 0, 6);
-        let cond = Expression::String(StringExpression::plain("$cond", span, false));
+        let cond = Expression::String(StringExpression::plain(&arena, "$cond", span, false));
         let if_true = Expression::Null(NullExpression::new(span));
         let if_false = Expression::Number(NumberExpression::new(2.0, span, None));
         let args = ArgumentList::new(
+            &arena,
             vec![cond, if_true, if_false],
             IndexMap::new(),
             IndexMap::new(),
@@ -188,8 +191,9 @@ mod tests {
         let arena = Bump::new();
         let fs = FileSource::new_in(&arena, "modern", None);
         let span = FileSpan::new(Some(fs), 0, 6);
-        let cond = Expression::String(StringExpression::plain("$cond", span, false));
+        let cond = Expression::String(StringExpression::plain(&arena, "$cond", span, false));
         let args = ArgumentList::new(
+            &arena,
             vec![cond],
             IndexMap::new(),
             IndexMap::new(),
@@ -206,7 +210,7 @@ mod tests {
         let arena = Bump::new();
         let fs = FileSource::new_in(&arena, "modern", None);
         let span = FileSpan::new(Some(fs), 0, 6);
-        let cond = Expression::String(StringExpression::plain("$cond", span, false));
+        let cond = Expression::String(StringExpression::plain(&arena, "$cond", span, false));
         let if_true = Expression::Number(NumberExpression::new(1.0, span, None));
         let if_false = Expression::Number(NumberExpression::new(2.0, span, None));
         let mut named = IndexMap::new();
@@ -215,6 +219,7 @@ mod tests {
             Expression::Number(NumberExpression::new(3.0, span, None)),
         );
         let args = ArgumentList::new(
+            &arena,
             vec![cond, if_true, if_false],
             named,
             IndexMap::new(),

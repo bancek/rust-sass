@@ -1,3 +1,5 @@
+use bumpalo::Bump;
+
 // Copyright 2016 Google Inc. Use of this source code is governed by an
 // MIT-style license that can be found in the LICENSE file or at
 // https://opensource.org/licenses/MIT.
@@ -35,9 +37,14 @@ impl<'parse> StringExpression<'parse> {
     }
 
     /// Returns a string expression with no interpolation.
-    pub fn plain(text: &str, span: FileSpan<'parse>, has_quotes: bool) -> Self {
+    pub fn plain(
+        arena: &'parse Bump,
+        text: &str,
+        span: FileSpan<'parse>,
+        has_quotes: bool,
+    ) -> Self {
         StringExpression {
-            text: Interpolation::plain(text.into(), span),
+            text: Interpolation::plain(arena, text.to_string(), span),
             has_quotes,
         }
     }
@@ -59,6 +66,7 @@ impl<'parse> StringExpression<'parse> {
         static_: bool,
         quote: Option<char>,
     ) -> SassResult<Interpolation<'parse>> {
+        let arena = self.text.arena;
         if !self.has_quotes {
             return Ok(self.text.clone());
         }
@@ -68,7 +76,7 @@ impl<'parse> StringExpression<'parse> {
             .contents
             .iter()
             .filter_map(|p| match p {
-                InterpolationPart::Text(s) => Some(s.as_str()),
+                InterpolationPart::Text(s) => Some(*s),
                 _ => None,
             })
             .collect();
@@ -81,7 +89,7 @@ impl<'parse> StringExpression<'parse> {
             match part {
                 InterpolationPart::Expression(expr) => {
                     let sp = self.text.span_for_element(i)?;
-                    buf.add(*expr.clone(), sp);
+                    buf.add((*expr).clone(), sp);
                 }
                 InterpolationPart::Text(s) => {
                     let mut sb = String::new();
@@ -93,7 +101,7 @@ impl<'parse> StringExpression<'parse> {
         buf.write_char_code(q);
 
         let span = self.text.span()?;
-        buf.interpolation(span)
+        buf.interpolation(arena, span)
     }
 }
 
@@ -222,7 +230,7 @@ mod tests {
     fn test_construction() {
         let arena = Bump::new();
         let span = test_span(&arena, "\"hello\"", 0, 7);
-        let expr = StringExpression::plain("hello", span, true);
+        let expr = StringExpression::plain(&arena, "hello", span, true);
         assert!(expr.has_quotes);
     }
 
@@ -230,7 +238,7 @@ mod tests {
     fn test_string() {
         let arena = Bump::new();
         let span = test_span(&arena, "\"hello\"", 0, 7);
-        let expr = StringExpression::plain("hello", span, true);
+        let expr = StringExpression::plain(&arena, "hello", span, true);
         let result = format!("{expr}");
         assert_eq!(result, "\"hello\"");
     }
@@ -239,7 +247,7 @@ mod tests {
     fn test_unquoted() {
         let arena = Bump::new();
         let span = test_span(&arena, "hello", 0, 5);
-        let expr = StringExpression::plain("hello", span, false);
+        let expr = StringExpression::plain(&arena, "hello", span, false);
         assert_eq!(format!("{expr}"), "hello");
     }
 
@@ -268,7 +276,7 @@ mod tests {
     fn test_source_interpolation() {
         let arena = Bump::new();
         let span = test_span(&arena, "\"hello\"", 0, 7);
-        let expr = StringExpression::plain("hello", span, true);
+        let expr = StringExpression::plain(&arena, "hello", span, true);
         assert!(expr.source_interpolation().is_some());
     }
 }

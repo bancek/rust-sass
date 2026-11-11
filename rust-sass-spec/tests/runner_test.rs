@@ -2,11 +2,26 @@ use std::io::Write;
 use std::path::PathBuf;
 use std::sync::atomic::Ordering;
 
+use rust_sass_spec::RunnerStats;
+
 const DEFAULT_SPEC_PATH: &str = "../sass-spec/spec";
 
 #[test]
 #[ignore = "requires sass-spec checkout"]
 fn spec_suite() {
+    let (spec_path, spec_root) = resolve_paths();
+
+    #[cfg(feature = "leak-gate")]
+    leak_gate_run(&spec_path, &spec_root);
+
+    #[cfg(not(feature = "leak-gate"))]
+    {
+        let (failures, stats) = rust_sass_spec::run_specs(&spec_path, &spec_root);
+        report_and_assert(failures, &stats);
+    }
+}
+
+fn resolve_paths() -> (String, String) {
     let spec_path = std::env::var("SASS_SPEC_PATH").unwrap_or_else(|_| {
         if let Ok(sub) = std::env::var("SASS_SPEC") {
             let mut p = PathBuf::from(DEFAULT_SPEC_PATH);
@@ -35,22 +50,57 @@ fn spec_suite() {
         spec_path
     };
 
-    let (failures, stats) = rust_sass_spec::run_specs(&spec_path, &spec_root);
+    (spec_path, spec_root)
+}
 
-    let total = stats.total.load(Ordering::Relaxed);
-    let passed = stats.passed.load(Ordering::Relaxed);
-    let warnings_compared = stats.warnings_compared.load(Ordering::Relaxed);
-    let errors_compared = stats.errors_compared.load(Ordering::Relaxed);
-    let pct = if total > 0 {
-        (passed as f64 / total as f64) * 100.0
+#[derive(Clone, Copy)]
+struct Counters {
+    total: usize,
+    passed: usize,
+    warnings_compared: usize,
+    errors_compared: usize,
+}
+
+fn counters(stats: &RunnerStats) -> Counters {
+    Counters {
+        total: stats.total.load(Ordering::Relaxed),
+        passed: stats.passed.load(Ordering::Relaxed),
+        warnings_compared: stats.warnings_compared.load(Ordering::Relaxed),
+        errors_compared: stats.errors_compared.load(Ordering::Relaxed),
+    }
+}
+
+fn stats_line(c: Counters) -> String {
+    let pct = if c.total > 0 {
+        (c.passed as f64 / c.total as f64) * 100.0
     } else {
         0.0
     };
-
-    let stats_str = format!(
+    format!(
         "\n{}/{} passed ({:.1}%) — {} warnings, {} errors compared",
-        passed, total, pct, warnings_compared, errors_compared
+        c.passed, c.total, pct, c.warnings_compared, c.errors_compared
+    )
+}
+
+fn assert_corpus(c: Counters) {
+    // Only a full-suite run is guaranteed to exercise warning/error files;
+    // focused `SASS_SPEC` subsets frequently contain neither.
+    if std::env::var_os("SASS_SPEC").is_some() {
+        return;
+    }
+    // The corpus must actually exercise warning and error files; if a future
+    // corpus change silently drops them, this catches it.
+    assert!(
+        c.warnings_compared > 0 && c.errors_compared > 0,
+        "spec run compared {} warnings and {} errors; expected both to be non-zero",
+        c.warnings_compared,
+        c.errors_compared
     );
+}
+
+fn report_and_assert(failures: Vec<String>, stats: &RunnerStats) {
+    let c = counters(stats);
+    let stats_str = stats_line(c);
 
     if failures.is_empty() {
         writeln!(std::io::stderr().lock(), "{stats_str}").unwrap();
@@ -63,12 +113,85 @@ fn spec_suite() {
         );
     }
 
-    // The corpus must actually exercise warning and error files; if a future
-    // corpus change silently drops them, this catches it.
+    assert_corpus(c);
+}
+
+/// Runs the suite twice: an untracked warm-up pass, then a measured pass.
+/// Asserts that the measured pass retains no bytes.
+///
+/// The untracked pass *is* the warm-up: it builds every process-lifetime table
+/// and regex engine these tests can reach, so the measured pass pays only for
+/// per-compilation work.
+///
+/// `LEAK_GATE_ALLOW` is a debugging knob for reading the number while a leak
+/// is being fixed; it defaults to 0, i.e. any retention fails.
+#[cfg(feature = "leak-gate")]
+fn leak_gate_run(spec_path: &str, spec_root: &str) {
+    let (failures, stats) = rust_sass_spec::run_specs(spec_path, spec_root);
+    report_and_assert(failures, &stats);
+    drop(stats);
+
+    rust_sass_spec::leak_gate::start();
+    let (failures, stats) = rust_sass_spec::run_specs(spec_path, spec_root);
+    let c = counters(&stats);
+    let failure_count = failures.len();
+    // Only allocated when the run failed, in which case the test panics and
+    // the distorted leak number does not matter.
+    let failure_text = if failures.is_empty() {
+        String::new()
+    } else {
+        failures.join("\n\n")
+    };
+    drop(failures);
+    drop(stats);
+    rust_sass_spec::leak_gate::stop();
+
+    let leaked = rust_sass_spec::leak_gate::live();
+    let mut offenders = rust_sass_spec::leak_gate::report();
+    offenders.sort_by_key(|&(_, delta)| std::cmp::Reverse(delta));
+
+    let stats_str = stats_line(c);
+    if failure_count == 0 {
+        writeln!(std::io::stderr().lock(), "{stats_str}").unwrap();
+    } else {
+        panic!("{failure_count} spec test(s) failed:\n\n{failure_text}\n\n{stats_str}");
+    }
+    assert_corpus(c);
+
+    {
+        let mut stderr = std::io::stderr().lock();
+        let _ = writeln!(
+            stderr,
+            "\nleak gate: {leaked} bytes retained across the measured pass \
+             ({} tests with a non-zero delta)",
+            offenders.len()
+        );
+        for (path, delta) in offenders.iter().take(20) {
+            let _ = writeln!(stderr, "  {delta:>12}  {path}");
+        }
+    }
+
+    // Harness-only work (normalizing expectations, regex caches) is excluded
+    // from the measurement at its call sites via `leak_gate::without_tracking`.
+    // What remains is per-test noise of a few bytes each — allocator
+    // bookkeeping, not value data: the full suite totals 3976 B over 14 400
+    // tests, and the per-test deltas are 1 B (css selectors) and 4-10 B
+    // (libsass). A regression that puts arena data in the bump shows up as
+    // kilobytes on a handful of tests, well above this.
+    const HARNESS_NOISE: isize = 8 * 1024;
+
+    // `LEAK_GATE_ALLOW` overrides the noise floor for local runs.
+    let allowed: isize = std::env::var("LEAK_GATE_ALLOW")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(HARNESS_NOISE);
     assert!(
-        warnings_compared > 0 && errors_compared > 0,
-        "spec run compared {warnings_compared} warnings and {errors_compared} errors; \
-         expected both to be non-zero"
+        leaked <= allowed,
+        "leak gate: {leaked} bytes retained after the measured pass (allowed {allowed}).\n\
+         The first {n} tests above hold the retained bytes. A few bytes per test is \n\
+         harness noise; kilobytes on one test is a real leak — run heaptrack as \n\
+         described in docs/CONTRIBUTING.md.",
+        n = offenders.len().min(20)
     );
 }
 

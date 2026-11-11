@@ -24,7 +24,7 @@ pub(crate) fn rgb_convert(
     c1: Option<f64>,
     c2: Option<f64>,
     alpha: Option<f64>,
-) -> SassResult<SassColor> {
+) -> SassResult<SassColor<'static>> {
     if dest == ColorSpace::Rgb {
         return Ok(new_color_for_space_internal_no_check(
             dest, c0, c1, c2, alpha,

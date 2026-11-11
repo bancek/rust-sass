@@ -180,7 +180,7 @@ mod tests {
     use rust_sass::common::file_span::SourceLocation;
     use rust_sass::common::source_span_span_with_context::SourceSpanWithContext;
     use rust_sass::io::VirtualIo;
-    use rust_sass::url::SassUrl;
+    use rust_sass::url::OwnedUrl;
     use wasm_bindgen_test::wasm_bindgen_test;
 
     fn get(obj: &js_sys::Object, key: &str) -> JsValue {
@@ -253,7 +253,7 @@ mod tests {
         let err = SassError::Runtime {
             message: "boom".into(),
             span: SourceSpanWithContext {
-                source_url: SassUrl::parse("file:///a.scss").ok(),
+                source_url: OwnedUrl::parse("file:///a.scss").ok(),
                 start: SourceLocation {
                     offset: 0,
                     line: 0,
@@ -268,13 +268,13 @@ mod tests {
                 context: "a { b: c; }".into(),
             },
             trace: Trace::new(vec![Frame {
-                uri: Some(SassUrl::parse("file:///a.scss").unwrap()),
+                uri: Some(OwnedUrl::parse("file:///a.scss").unwrap()),
                 line: 1,
                 column: 2,
                 member: "foo".into(),
             }]),
             cause: None,
-            loaded_urls: vec![SassUrl::parse("file:///a.scss").unwrap()],
+            loaded_urls: vec![OwnedUrl::parse("file:///a.scss").unwrap()],
         };
         let v = sass_error_to_js(&err, &io, MessageHighlight::default());
         let obj = js_sys::Object::from(v);
@@ -316,13 +316,13 @@ mod tests {
             },
             trace: Trace::new(vec![
                 Frame {
-                    uri: Some(SassUrl::parse("file:///a.scss").unwrap()),
+                    uri: Some(OwnedUrl::parse("file:///a.scss").unwrap()),
                     line: 1,
                     column: 2,
                     member: "foo".into(),
                 },
                 Frame {
-                    uri: Some(SassUrl::parse("file:///b.scss").unwrap()),
+                    uri: Some(OwnedUrl::parse("file:///b.scss").unwrap()),
                     line: 10,
                     column: 3,
                     member: "bar".into(),

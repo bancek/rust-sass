@@ -9,7 +9,8 @@
 
 use crate::common::time::SassTime;
 use crate::io::clean_path;
-use crate::url::SassUrl;
+use crate::url::OwnedUrl;
+use bumpalo::Bump;
 #[cfg(feature = "async")]
 use futures::future::LocalBoxFuture;
 use percent_encoding::percent_decode_str;
@@ -57,12 +58,12 @@ fn canonicalize_lexical(io: &dyn Io, path: &str) -> String {
 /// visible during canonicalization and resolution starts from the containing
 /// file's directory, falling back to the entry-point directory.
 #[derive(Clone)]
-pub struct NodePackageImporter {
-    pub entry_point_directory: String,
-    cwd: FilesystemImporter,
+pub struct NodePackageImporter<'parse> {
+    pub entry_point_directory: &'parse str,
+    cwd: FilesystemImporter<'parse>,
 }
 
-impl fmt::Debug for NodePackageImporter {
+impl fmt::Debug for NodePackageImporter<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("NodePackageImporter")
             .field("entry_point_directory", &self.entry_point_directory)
@@ -71,15 +72,15 @@ impl fmt::Debug for NodePackageImporter {
     }
 }
 
-impl NodePackageImporter {
+impl<'parse> NodePackageImporter<'parse> {
     /// Creates a Node package importer with the associated entry point.
     ///
     /// Matches Dart: `NodePackageImporter(entryPointDirectory)`.
-    pub fn new(entry_point_directory: &str, io: Rc<dyn Io>) -> Self {
+    pub fn new(arena: &'parse Bump, entry_point_directory: &str, io: Rc<dyn Io>) -> Self {
         let abs = Path::new(&io.current_dir()).join(entry_point_directory);
         NodePackageImporter {
-            entry_point_directory: abs.to_string_lossy().into_owned(),
-            cwd: FilesystemImporter::new_cwd(io),
+            entry_point_directory: &*arena.alloc_str(&abs.to_string_lossy()),
+            cwd: FilesystemImporter::new_cwd(arena, io),
         }
     }
 
@@ -95,14 +96,15 @@ impl NodePackageImporter {
     ///
     /// Matches Dart: `NodePackageImporter.canonicalize`.
     #[rust_sass_macros::maybe_async]
-    pub async fn canonicalize<'parse>(
+    pub async fn canonicalize<'a>(
         &self,
-        url: &SassUrl,
+        io: &dyn Io,
+        url: &OwnedUrl,
         ctx: &mut CanonicalizeContext,
-        warn_logger: &dyn WarnLogger<'parse>,
-    ) -> SassResult<Option<SassUrl>> {
+        warn_logger: &dyn WarnLogger<'a>,
+    ) -> SassResult<Option<OwnedUrl>> {
         if url.is_file_like() {
-            return self.cwd.canonicalize(url, ctx, warn_logger).await;
+            return self.cwd.canonicalize(io, url, ctx, warn_logger).await;
         }
         // Dart returns `None` for every non-`pkg` scheme INCLUDING relative
         // URLs (scheme `''`) return None like any other non-`pkg` scheme (node_package.dart:34).
@@ -146,9 +148,9 @@ impl NodePackageImporter {
             Path::new(&path)
                 .parent()
                 .map(|p| p.to_string_lossy().to_string())
-                .unwrap_or_else(|| self.entry_point_directory.clone())
+                .unwrap_or_else(|| self.entry_point_directory.to_string())
         } else {
-            self.entry_point_directory.clone()
+            self.entry_point_directory.to_string()
         };
 
         // Dart's `Uri.path` is percent-decoded and `_packageNameAndSubpath`
@@ -168,7 +170,7 @@ impl NodePackageImporter {
         }
 
         let package_root = self
-            .resolve_package_root(&package_name, &base_directory)
+            .resolve_package_root(io, &package_name, &base_directory)
             .await?;
         let package_root = match package_root {
             Some(p) => p,
@@ -179,12 +181,7 @@ impl NodePackageImporter {
         // Dart `readFile` throws `FileSystemException` on a missing package.json
         // (io/vm.dart) — a MISSING file is not a parse error. Only a present
         // but malformed file throws "Failed to parse ...".
-        let json_bytes = self
-            .cwd
-            .io
-            .read_file(&json_path)
-            .await
-            .map_err(io_err_to_sass)?;
+        let json_bytes = io.read_file(&json_path).await.map_err(io_err_to_sass)?;
         let json_str = String::from_utf8_lossy(&json_bytes).into_owned();
 
         let package_manifest: serde_json::Value =
@@ -200,6 +197,7 @@ impl NodePackageImporter {
 
         if let Some(resolved) = self
             .resolve_package_exports(
+                io,
                 &package_root,
                 subpath.as_deref(),
                 &package_manifest,
@@ -211,12 +209,14 @@ impl NodePackageImporter {
                 if VALID_EXTENSIONS.contains(&ext) {
                     // Dart loads the import-only variant for `@import`
                     // (`_resolveImportOnly`, node_package.dart:86).
-                    let resolved = self.resolve_import_only(&resolved, ctx.from_import).await?;
+                    let resolved = self
+                        .resolve_import_only(io, &resolved, ctx.from_import)
+                        .await?;
                     // Dart canonicalizes the exports/root-values branches with
                     // `p.canonicalize` (pure LEXICAL, no realpath, no
                     // case-correction) — node_package.dart:83,95. Match that.
-                    let canonical = canonicalize_lexical(&*self.cwd.io, &resolved);
-                    let file_url = SassUrl::file_url_from_abs_path(&canonical).map_err(|_| {
+                    let canonical = canonicalize_lexical(io, &resolved);
+                    let file_url = OwnedUrl::file_url_from_abs_path(&canonical).map_err(|_| {
                         SassError::Script {
                             message: format!("Invalid path for URL: {canonical}"),
                             argument_name: None,
@@ -239,15 +239,16 @@ impl NodePackageImporter {
 
         if subpath.is_none() {
             if let Some(root_path) = self
-                .resolve_package_root_values(&package_root, &package_manifest, ctx.from_import)
+                .resolve_package_root_values(io, &package_root, &package_manifest, ctx.from_import)
                 .await?
             {
-                let canonical = canonicalize_lexical(&*self.cwd.io, &root_path);
-                let file_url =
-                    SassUrl::file_url_from_abs_path(&canonical).map_err(|_| SassError::Script {
+                let canonical = canonicalize_lexical(io, &root_path);
+                let file_url = OwnedUrl::file_url_from_abs_path(&canonical).map_err(|_| {
+                    SassError::Script {
                         message: format!("Invalid path for URL: {canonical}"),
                         argument_name: None,
-                    })?;
+                    }
+                })?;
                 return Ok(Some(file_url));
             }
             return Ok(None);
@@ -255,24 +256,26 @@ impl NodePackageImporter {
 
         let subpath = subpath.unwrap();
         let subpath_in_root = Path::new(&package_root).join(&subpath);
-        let subpath_url = SassUrl::file_url_from_abs_path(&subpath_in_root.to_string_lossy())
+        let subpath_url = OwnedUrl::file_url_from_abs_path(&subpath_in_root.to_string_lossy())
             .map_err(|_| SassError::Script {
                 message: format!("Invalid subpath URL: {}", subpath_in_root.display()),
                 argument_name: None,
             })?;
-        self.cwd.canonicalize(&subpath_url, ctx, warn_logger).await
+        self.cwd
+            .canonicalize(io, &subpath_url, ctx, warn_logger)
+            .await
     }
 
     /// Loads a previously canonicalized URL from disk.
     ///
     /// Matches Dart: `NodePackageImporter.load`.
     #[rust_sass_macros::maybe_async]
-    pub async fn load(&self, url: &SassUrl) -> SassResult<Option<ImporterResult>> {
-        self.cwd.load(url).await
+    pub async fn load(&self, io: &dyn Io, url: &OwnedUrl) -> SassResult<Option<ImporterResult>> {
+        self.cwd.load(io, url).await
     }
 
     /// Always `true`: any URL could in principle resolve through `node_modules`.
-    pub fn could_canonicalize(&self, _url: &SassUrl, _canonical_url: &SassUrl) -> bool {
+    pub fn could_canonicalize(&self, _url: &OwnedUrl, _canonical_url: &OwnedUrl) -> bool {
         true
     }
 
@@ -284,12 +287,12 @@ impl NodePackageImporter {
         scheme == "pkg"
     }
 
-    pub fn modification_time(&self, _url: &SassUrl) -> SassResult<SassTime> {
+    pub fn modification_time(&self, _url: &OwnedUrl) -> SassResult<SassTime> {
         Ok(SassTime::now())
     }
 }
 
-impl NodePackageImporter {
+impl<'parse> NodePackageImporter<'parse> {
     fn url_extension(path: &str) -> Option<&str> {
         path.rfind('/')
             .map(|i| &path[i + 1..])
@@ -331,19 +334,14 @@ impl NodePackageImporter {
     #[rust_sass_macros::maybe_async]
     async fn resolve_package_root(
         &self,
+        io: &dyn Io,
         package_name: &str,
         base_directory: &str,
     ) -> Result<Option<String>, Box<SassError>> {
         let mut dir = base_directory.to_string();
         loop {
             let potential = Path::new(&dir).join("node_modules").join(package_name);
-            if self
-                .cwd
-                .io
-                .dir_exists(&potential)
-                .await
-                .map_err(io_err_to_sass)?
-            {
+            if io.dir_exists(&potential).await.map_err(io_err_to_sass)? {
                 return Ok(Some(potential.to_string_lossy().into_owned()));
             }
             let parent = Path::new(&dir).parent();
@@ -367,6 +365,7 @@ impl NodePackageImporter {
     #[rust_sass_macros::maybe_async]
     async fn resolve_package_root_values(
         &self,
+        io: &dyn Io,
         package_root: &str,
         package_manifest: &serde_json::Value,
         from_import: bool,
@@ -376,6 +375,7 @@ impl NodePackageImporter {
             if VALID_EXTENSIONS.contains(&ext) {
                 return Ok(Some(
                     self.resolve_import_only(
+                        io,
                         &Path::new(package_root).join(sass_value).to_string_lossy(),
                         from_import,
                     )
@@ -388,6 +388,7 @@ impl NodePackageImporter {
             if VALID_EXTENSIONS.contains(&ext) {
                 return Ok(Some(
                     self.resolve_import_only(
+                        io,
                         &Path::new(package_root).join(style_value).to_string_lossy(),
                         from_import,
                     )
@@ -397,7 +398,7 @@ impl NodePackageImporter {
         }
 
         let index_path = Path::new(package_root).join("index");
-        resolve_import_path(&*self.cwd.io, &index_path.to_string_lossy(), from_import).await
+        resolve_import_path(io, &index_path.to_string_lossy(), from_import).await
     }
 
     /// Returns either `path` or, if necessary, the import-only variant that
@@ -408,6 +409,7 @@ impl NodePackageImporter {
     #[rust_sass_macros::maybe_async]
     async fn resolve_import_only(
         &self,
+        io: &dyn Io,
         path: &str,
         from_import: bool,
     ) -> Result<String, Box<SassError>> {
@@ -421,9 +423,7 @@ impl NodePackageImporter {
         );
         let stem = &path[..path.len() - ext.len()];
         let import_only = format!("{stem}.import{ext}");
-        let exists = self
-            .cwd
-            .io
+        let exists = io
             .file_exists(Path::new(&import_only))
             .await
             .map_err(io_err_to_sass)?;
@@ -442,6 +442,7 @@ impl NodePackageImporter {
     #[rust_sass_macros::maybe_async]
     async fn resolve_package_exports(
         &self,
+        io: &dyn Io,
         package_root: &str,
         subpath: Option<&str>,
         package_manifest: &serde_json::Value,
@@ -456,6 +457,7 @@ impl NodePackageImporter {
         let subpath_variants = Self::exports_to_check(subpath, false);
         if let Some(path) = self
             .node_package_exports_resolve(
+                io,
                 package_root,
                 &subpath_variants,
                 exports,
@@ -476,6 +478,7 @@ impl NodePackageImporter {
 
         let subpath_index_variants = Self::exports_to_check(subpath, true);
         self.node_package_exports_resolve(
+            io,
             package_root,
             &subpath_index_variants,
             exports,
@@ -494,6 +497,7 @@ impl NodePackageImporter {
     #[rust_sass_macros::maybe_async]
     async fn node_package_exports_resolve(
         &self,
+        io: &dyn Io,
         package_root: &str,
         subpath_variants: &[Option<String>],
         exports: &serde_json::Value,
@@ -525,8 +529,14 @@ impl NodePackageImporter {
                     let main_export = Self::get_main_export(exports);
                     match main_export {
                         Some(me) => {
-                            self.package_target_resolve(variant.as_deref(), me, package_root, None)
-                                .await?
+                            self.package_target_resolve(
+                                io,
+                                variant.as_deref(),
+                                me,
+                                package_root,
+                                None,
+                            )
+                            .await?
                         }
                         None => None,
                     }
@@ -539,6 +549,7 @@ impl NodePackageImporter {
                             && !match_key.contains('*')
                         {
                             self.package_target_resolve(
+                                io,
                                 Some(v),
                                 &map[&match_key],
                                 package_root,
@@ -573,6 +584,7 @@ impl NodePackageImporter {
                                                 ..match_key.len() - pattern_trailer.len()];
                                             if let Some(resolved) = self
                                                 .package_target_resolve(
+                                                    io,
                                                     Some(v),
                                                     t,
                                                     package_root,
@@ -655,6 +667,7 @@ impl NodePackageImporter {
     #[allow(clippy::only_used_in_recursion)]
     fn package_target_resolve<'a>(
         &'a self,
+        io: &'a dyn Io,
         subpath: Option<&'a str>,
         exports: &'a serde_json::Value,
         package_root: &'a str,
@@ -679,13 +692,7 @@ impl NodePackageImporter {
                     // only, not replace-all.
                     let replaced = s.replacen('*', pattern_match.unwrap(), 1);
                     let path = Path::new(package_root).join(&replaced);
-                    if self
-                        .cwd
-                        .io
-                        .file_exists(&path)
-                        .await
-                        .map_err(io_err_to_sass)?
-                    {
+                    if io.file_exists(&path).await.map_err(io_err_to_sass)? {
                         Some(path.to_string_lossy().into_owned())
                     } else {
                         None
@@ -709,7 +716,7 @@ impl NodePackageImporter {
                             continue;
                         }
                         if let Some(result) = self
-                            .package_target_resolve(subpath, value, package_root, pattern_match)
+                            .package_target_resolve(io, subpath, value, package_root, pattern_match)
                             .await?
                         {
                             return Ok(Some(result));
@@ -724,7 +731,7 @@ impl NodePackageImporter {
                             continue;
                         }
                         if let Some(result) = self
-                            .package_target_resolve(subpath, value, package_root, pattern_match)
+                            .package_target_resolve(io, subpath, value, package_root, pattern_match)
                             .await?
                         {
                             return Ok(Some(result));
@@ -835,6 +842,7 @@ mod tests {
     // with entry `/app` (base dir) so `resolve_package_root` finds it.
     #[rust_sass_macros::maybe_test]
     async fn test_non_relative_export_throws() {
+        let arena = Bump::new();
         let _arena = Bump::new();
         let mut files = HashMap::new();
         files.insert(
@@ -846,11 +854,11 @@ mod tests {
             "a { b: 1; }".to_string(),
         );
         let io = make_io(files);
-        let imp = NodePackageImporter::new("/app", io);
-        let url = SassUrl::parse("pkg:p/a").unwrap();
+        let imp = NodePackageImporter::new(&arena, "/app", Rc::clone(&io));
+        let url = OwnedUrl::parse("pkg:p/a").unwrap();
         let mut ctx = make_ctx();
         let err = imp
-            .canonicalize(&url, &mut ctx, &NoOpWarnLogger)
+            .canonicalize(&*io, &url, &mut ctx, &NoOpWarnLogger)
             .await
             .unwrap_err();
         match *err {
@@ -883,11 +891,11 @@ mod tests {
             "a { b: 2; }".to_string(),
         );
         let io = make_io(files);
-        let imp = NodePackageImporter::new("/app", io);
-        let url = SassUrl::parse("pkg:p/a").unwrap();
+        let imp = NodePackageImporter::new(&arena, "/app", Rc::clone(&io));
+        let url = OwnedUrl::parse("pkg:p/a").unwrap();
         let mut ctx = make_ctx();
         let result = imp
-            .canonicalize(&url, &mut ctx, &NoOpWarnLogger)
+            .canonicalize(&*io, &url, &mut ctx, &NoOpWarnLogger)
             .await
             .unwrap()
             .unwrap();
@@ -905,11 +913,11 @@ mod tests {
             r#"{"name": "p", "exports": {"./a": 42}}"#.to_string(),
         );
         let io = make_io(files);
-        let imp = NodePackageImporter::new("/app", io);
-        let url = SassUrl::parse("pkg:p/a").unwrap();
+        let imp = NodePackageImporter::new(&arena, "/app", Rc::clone(&io));
+        let url = OwnedUrl::parse("pkg:p/a").unwrap();
         let mut ctx = make_ctx();
         let err = imp
-            .canonicalize(&url, &mut ctx, &NoOpWarnLogger)
+            .canonicalize(&*io, &url, &mut ctx, &NoOpWarnLogger)
             .await
             .unwrap_err();
         match *err {
@@ -929,6 +937,7 @@ mod tests {
     // Layout: `/app/node_modules/p/…` with entry `/app`.
     #[rust_sass_macros::maybe_test]
     async fn test_exports_import_only_for_import() {
+        let arena = Bump::new();
         let _arena = Bump::new();
         let mut files = HashMap::new();
         files.insert(
@@ -944,12 +953,12 @@ mod tests {
             "a { b: 2; }".to_string(),
         );
         let io = make_io(files);
-        let imp = NodePackageImporter::new("/app", io);
-        let url = SassUrl::parse("pkg:p").unwrap();
+        let imp = NodePackageImporter::new(&arena, "/app", Rc::clone(&io));
+        let url = OwnedUrl::parse("pkg:p").unwrap();
 
         let mut import_ctx = make_import_ctx();
         let result = imp
-            .canonicalize(&url, &mut import_ctx, &NoOpWarnLogger)
+            .canonicalize(&*io, &url, &mut import_ctx, &NoOpWarnLogger)
             .await
             .unwrap()
             .unwrap();
@@ -960,7 +969,7 @@ mod tests {
 
         let mut use_ctx = make_ctx();
         let result = imp
-            .canonicalize(&url, &mut use_ctx, &NoOpWarnLogger)
+            .canonicalize(&*io, &url, &mut use_ctx, &NoOpWarnLogger)
             .await
             .unwrap()
             .unwrap();
@@ -971,6 +980,7 @@ mod tests {
     // file (node_package.dart `_resolveImportOnly`, #2772).
     #[rust_sass_macros::maybe_test]
     async fn test_exports_missing_import_only_falls_back() {
+        let arena = Bump::new();
         let _arena = Bump::new();
         let mut files = HashMap::new();
         files.insert(
@@ -982,11 +992,11 @@ mod tests {
             "a { b: 1; }".to_string(),
         );
         let io = make_io(files);
-        let imp = NodePackageImporter::new("/app", io);
-        let url = SassUrl::parse("pkg:p").unwrap();
+        let imp = NodePackageImporter::new(&arena, "/app", Rc::clone(&io));
+        let url = OwnedUrl::parse("pkg:p").unwrap();
         let mut ctx = make_import_ctx();
         let result = imp
-            .canonicalize(&url, &mut ctx, &NoOpWarnLogger)
+            .canonicalize(&*io, &url, &mut ctx, &NoOpWarnLogger)
             .await
             .unwrap()
             .unwrap();
@@ -999,6 +1009,7 @@ mod tests {
     // manifest, so neither `exports` nor `sass`/`style` applies.
     #[rust_sass_macros::maybe_test]
     async fn test_index_fallback_import_only_for_import() {
+        let arena = Bump::new();
         let _arena = Bump::new();
         for (index, import_only) in [
             ("index.scss", "index.import.scss"),
@@ -1018,12 +1029,12 @@ mod tests {
                 "a { b: 2; }".to_string(),
             );
             let io = make_io(files);
-            let imp = NodePackageImporter::new("/app", io);
-            let url = SassUrl::parse("pkg:p").unwrap();
+            let imp = NodePackageImporter::new(&arena, "/app", Rc::clone(&io));
+            let url = OwnedUrl::parse("pkg:p").unwrap();
 
             let mut import_ctx = make_import_ctx();
             let result = imp
-                .canonicalize(&url, &mut import_ctx, &NoOpWarnLogger)
+                .canonicalize(&*io, &url, &mut import_ctx, &NoOpWarnLogger)
                 .await
                 .unwrap()
                 .unwrap();
@@ -1035,7 +1046,7 @@ mod tests {
 
             let mut use_ctx = make_ctx();
             let result = imp
-                .canonicalize(&url, &mut use_ctx, &NoOpWarnLogger)
+                .canonicalize(&*io, &url, &mut use_ctx, &NoOpWarnLogger)
                 .await
                 .unwrap()
                 .unwrap();
@@ -1051,6 +1062,7 @@ mod tests {
     // `@import` but not for `@use` (node_package.dart:150, #2772).
     #[rust_sass_macros::maybe_test]
     async fn test_sass_key_import_only_for_import() {
+        let arena = Bump::new();
         let _arena = Bump::new();
         let mut files = HashMap::new();
         files.insert(
@@ -1066,12 +1078,12 @@ mod tests {
             "a { b: 2; }".to_string(),
         );
         let io = make_io(files);
-        let imp = NodePackageImporter::new("/app", io);
-        let url = SassUrl::parse("pkg:p").unwrap();
+        let imp = NodePackageImporter::new(&arena, "/app", Rc::clone(&io));
+        let url = OwnedUrl::parse("pkg:p").unwrap();
 
         let mut import_ctx = make_import_ctx();
         let result = imp
-            .canonicalize(&url, &mut import_ctx, &NoOpWarnLogger)
+            .canonicalize(&*io, &url, &mut import_ctx, &NoOpWarnLogger)
             .await
             .unwrap()
             .unwrap();
@@ -1082,7 +1094,7 @@ mod tests {
 
         let mut use_ctx = make_ctx();
         let result = imp
-            .canonicalize(&url, &mut use_ctx, &NoOpWarnLogger)
+            .canonicalize(&*io, &url, &mut use_ctx, &NoOpWarnLogger)
             .await
             .unwrap()
             .unwrap();

@@ -532,6 +532,9 @@ fn run_spec_test_wrapped(
         .map(|p| p.to_string_lossy().to_string())
         .unwrap_or_else(|_| test_dir.to_string());
 
+    #[cfg(feature = "leak-gate")]
+    let _leak_guard = crate::leak_gate::TestGuard::new(&rel_path);
+
     let n = stats.inc_total();
 
     let _ = writeln!(std::io::stderr().lock(), "[{}] {} ...", n + 1, rel_path);
@@ -728,6 +731,23 @@ fn lookup_impl_file(
 }
 
 fn normalize_output(output: &str) -> String {
+    // Harness-only work: excluded from the leak gate's measurement, because the
+    // regex engines allocate here (growing their lazy DFA caches) and the
+    // allocator cannot tell those bytes apart from the compiler's.
+    #[cfg(feature = "leak-gate")]
+    {
+        if crate::leak_gate::paused() {
+            return normalize_output_uncounted(output);
+        }
+        // The regexes read `output` and produce owned `String`s, so running the
+        // body inside the bypass is safe: nothing allocated here escapes.
+        crate::leak_gate::without_tracking(|| normalize_output_uncounted(output))
+    }
+    #[cfg(not(feature = "leak-gate"))]
+    normalize_output_uncounted(output)
+}
+
+fn normalize_output_uncounted(output: &str) -> String {
     let output = output.replace("\r\n", "\n");
     let output = RE_CONSECUTIVE_NEWLINES.replace_all(&output, "\n");
     let output = RE_INPUT_PATH.replace_all(&output, "$1");

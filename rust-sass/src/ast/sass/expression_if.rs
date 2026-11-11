@@ -1,3 +1,5 @@
+use bumpalo::Bump;
+
 // Copyright 2025 Google Inc. Use of this source code is governed by an
 // MIT-style license that can be found in the LICENSE file or at
 // https://opensource.org/licenses/MIT.
@@ -50,13 +52,13 @@ pub struct IfExpression<'parse> {
     ///
     /// A [`None`] condition indicates an `else` branch that is always
     /// evaluated.
-    pub branches: Vec<IfBranch<'parse>>,
+    pub branches: &'parse [IfBranch<'parse>],
     pub span: FileSpan<'parse>,
 }
 
 impl<'parse> IfExpression<'parse> {
     pub fn new(
-        branches: Vec<IfBranch<'parse>>,
+        branches: &'parse [IfBranch<'parse>],
         span: FileSpan<'parse>,
     ) -> Result<Self, ArgumentError> {
         if branches.is_empty() {
@@ -119,7 +121,7 @@ pub enum IfConditionExpression<'parse> {
     Parenthesized(IfConditionParenthesized<'parse>),
     Negation(IfConditionNegation<'parse>),
     Operation(IfConditionOperation<'parse>),
-    Function(Box<IfConditionFunction<'parse>>),
+    Function(&'parse IfConditionFunction<'parse>),
     Sass(IfConditionSass<'parse>),
     Raw(IfConditionRaw<'parse>),
 }
@@ -147,15 +149,20 @@ impl<'parse> IfConditionExpression<'parse> {
     // [`IfConditionSass`]; the passed node's span is used for that error.
     pub fn to_interpolation(
         &self,
+        arena: &'parse Bump,
         arbitrary_substitution: &dyn AstNode<'parse>,
     ) -> SassResult<Interpolation<'parse>> {
         match self {
-            IfConditionExpression::Parenthesized(c) => c.to_interpolation(arbitrary_substitution),
-            IfConditionExpression::Negation(c) => c.to_interpolation(arbitrary_substitution),
-            IfConditionExpression::Operation(c) => c.to_interpolation(arbitrary_substitution),
-            IfConditionExpression::Function(c) => c.to_interpolation(arbitrary_substitution),
-            IfConditionExpression::Sass(c) => c.to_interpolation(arbitrary_substitution),
-            IfConditionExpression::Raw(c) => c.to_interpolation(arbitrary_substitution),
+            IfConditionExpression::Parenthesized(c) => {
+                c.to_interpolation(arena, arbitrary_substitution)
+            }
+            IfConditionExpression::Negation(c) => c.to_interpolation(arena, arbitrary_substitution),
+            IfConditionExpression::Operation(c) => {
+                c.to_interpolation(arena, arbitrary_substitution)
+            }
+            IfConditionExpression::Function(c) => c.to_interpolation(arena, arbitrary_substitution),
+            IfConditionExpression::Sass(c) => c.to_interpolation(arena, arbitrary_substitution),
+            IfConditionExpression::Raw(c) => c.to_interpolation(arena, arbitrary_substitution),
         }
     }
 
@@ -195,7 +202,7 @@ impl<'parse> IfConditionExpression<'parse> {
             IfConditionExpression::Parenthesized(c) => c.to_display_string(),
             IfConditionExpression::Negation(c) => c.to_display_string(),
             IfConditionExpression::Operation(c) => c.to_display_string(),
-            IfConditionExpression::Function(c) => c.as_ref().to_display_string(),
+            IfConditionExpression::Function(c) => c.to_display_string(),
             IfConditionExpression::Sass(c) => c.to_display_string(),
             IfConditionExpression::Raw(c) => c.to_display_string(),
         }
@@ -216,15 +223,19 @@ impl<'parse> fmt::Display for IfConditionExpression<'parse> {
 /// A parenthesized condition.
 #[derive(Clone, Debug)]
 pub struct IfConditionParenthesized<'parse> {
-    /// The parenthesized expression.
-    pub expression: Box<IfConditionExpression<'parse>>,
+    /// The parenthesized expression, allocated in the compile arena.
+    pub expression: &'parse IfConditionExpression<'parse>,
     pub span: FileSpan<'parse>,
 }
 
 impl<'parse> IfConditionParenthesized<'parse> {
-    pub fn new(expression: IfConditionExpression<'parse>, span: FileSpan<'parse>) -> Self {
+    pub fn new(
+        arena: &'parse Bump,
+        expression: IfConditionExpression<'parse>,
+        span: FileSpan<'parse>,
+    ) -> Self {
         IfConditionParenthesized {
-            expression: Box::new(expression),
+            expression: arena.alloc(expression),
             span,
         }
     }
@@ -235,15 +246,18 @@ impl<'parse> IfConditionParenthesized<'parse> {
 
     pub fn to_interpolation(
         &self,
+        arena: &'parse Bump,
         arbitrary_substitution: &dyn AstNode<'parse>,
     ) -> SassResult<Interpolation<'parse>> {
         let mut buf = InterpolationBuffer::new();
         buf.write_char_code('(');
-        let inner = self.expression.to_interpolation(arbitrary_substitution)?;
+        let inner = self
+            .expression
+            .to_interpolation(arena, arbitrary_substitution)?;
         buf.add_interpolation(&inner);
         buf.write_char_code(')');
         let span = self.span()?;
-        buf.interpolation(span)
+        buf.interpolation(arena, span)
     }
 }
 
@@ -275,15 +289,19 @@ impl<'parse> fmt::Display for IfConditionParenthesized<'parse> {
 /// A negated condition.
 #[derive(Clone, Debug)]
 pub struct IfConditionNegation<'parse> {
-    /// The expression negated by this.
-    pub expression: Box<IfConditionExpression<'parse>>,
+    /// The expression negated by this, allocated in the compile arena.
+    pub expression: &'parse IfConditionExpression<'parse>,
     pub span: FileSpan<'parse>,
 }
 
 impl<'parse> IfConditionNegation<'parse> {
-    pub fn new(expression: IfConditionExpression<'parse>, span: FileSpan<'parse>) -> Self {
+    pub fn new(
+        arena: &'parse Bump,
+        expression: IfConditionExpression<'parse>,
+        span: FileSpan<'parse>,
+    ) -> Self {
         IfConditionNegation {
-            expression: Box::new(expression),
+            expression: arena.alloc(expression),
             span,
         }
     }
@@ -294,14 +312,17 @@ impl<'parse> IfConditionNegation<'parse> {
 
     pub fn to_interpolation(
         &self,
+        arena: &'parse Bump,
         arbitrary_substitution: &dyn AstNode<'parse>,
     ) -> SassResult<Interpolation<'parse>> {
         let mut buf = InterpolationBuffer::new();
         buf.write("not ");
-        let inner = self.expression.to_interpolation(arbitrary_substitution)?;
+        let inner = self
+            .expression
+            .to_interpolation(arena, arbitrary_substitution)?;
         buf.add_interpolation(&inner);
         let span = self.span()?;
-        buf.interpolation(span)
+        buf.interpolation(arena, span)
     }
 }
 
@@ -365,13 +386,13 @@ impl fmt::Display for BooleanOperator {
 #[derive(Clone, Debug)]
 pub struct IfConditionOperation<'parse> {
     /// The expressions conjoined or disjoined by this operation.
-    pub expressions: Vec<IfConditionExpression<'parse>>,
+    pub expressions: &'parse [IfConditionExpression<'parse>],
     pub operator: BooleanOperator,
 }
 
 impl<'parse> IfConditionOperation<'parse> {
     pub fn new(
-        expressions: Vec<IfConditionExpression<'parse>>,
+        expressions: &'parse [IfConditionExpression<'parse>],
         operator: BooleanOperator,
     ) -> Result<Self, ArgumentError> {
         if expressions.len() < 2 {
@@ -392,6 +413,7 @@ impl<'parse> IfConditionOperation<'parse> {
 
     pub fn to_interpolation(
         &self,
+        arena: &'parse Bump,
         arbitrary_substitution: &dyn AstNode<'parse>,
     ) -> SassResult<Interpolation<'parse>> {
         let mut buf = InterpolationBuffer::new();
@@ -401,11 +423,11 @@ impl<'parse> IfConditionOperation<'parse> {
                 buf.write(&format!("{}", self.operator));
                 buf.write_char_code(' ');
             }
-            let inner = expr.to_interpolation(arbitrary_substitution)?;
+            let inner = expr.to_interpolation(arena, arbitrary_substitution)?;
             buf.add_interpolation(&inner);
         }
         let span = self.span()?;
-        buf.interpolation(span)
+        buf.interpolation(arena, span)
     }
 }
 
@@ -480,6 +502,7 @@ impl<'parse> IfConditionFunction<'parse> {
 
     pub fn to_interpolation(
         &self,
+        arena: &'parse Bump,
         _arbitrary_substitution: &dyn AstNode<'parse>,
     ) -> SassResult<Interpolation<'parse>> {
         let mut buf = InterpolationBuffer::new();
@@ -488,7 +511,7 @@ impl<'parse> IfConditionFunction<'parse> {
         buf.add_interpolation(&self.arguments);
         buf.write_char_code(')');
         let span = self.span()?;
-        buf.interpolation(span)
+        buf.interpolation(arena, span)
     }
 }
 
@@ -520,15 +543,20 @@ impl<'parse> fmt::Display for IfConditionFunction<'parse> {
 /// A Sass condition that will evaluate to true or false at compile time.
 #[derive(Clone, Debug)]
 pub struct IfConditionSass<'parse> {
-    /// The expression that determines whether this condition matches.
-    pub expression: Box<Expression<'parse>>,
+    /// The expression that determines whether this condition matches,
+    /// allocated in the compile arena.
+    pub expression: &'parse Expression<'parse>,
     pub span: FileSpan<'parse>,
 }
 
 impl<'parse> IfConditionSass<'parse> {
-    pub fn new(expression: Expression<'parse>, span: FileSpan<'parse>) -> Self {
+    pub fn new(
+        arena: &'parse Bump,
+        expression: Expression<'parse>,
+        span: FileSpan<'parse>,
+    ) -> Self {
         IfConditionSass {
-            expression: Box::new(expression),
+            expression: arena.alloc(expression),
             span,
         }
     }
@@ -539,6 +567,7 @@ impl<'parse> IfConditionSass<'parse> {
 
     pub fn to_interpolation(
         &self,
+        _arena: &'parse Bump,
         arbitrary_substitution: &dyn AstNode<'parse>,
     ) -> SassResult<Interpolation<'parse>> {
         let sub_span = arbitrary_substitution.span()?;
@@ -570,12 +599,7 @@ impl<'parse> AstNode<'parse> for IfConditionSass<'parse> {
 impl<'parse> IfConditionSass<'parse> {
     pub fn to_display_string(&self) -> SassResult<String> {
         let mut buf = String::new();
-        write!(
-            buf,
-            "sass({})",
-            self.expression.as_ref().to_display_string()?
-        )
-        .unwrap();
+        write!(buf, "sass({})", self.expression.to_display_string()?).unwrap();
         Ok(buf)
     }
 }
@@ -612,6 +636,7 @@ impl<'parse> IfConditionRaw<'parse> {
 
     pub fn to_interpolation(
         &self,
+        _arena: &'parse Bump,
         _arbitrary_substitution: &dyn AstNode<'parse>,
     ) -> SassResult<Interpolation<'parse>> {
         Ok(self.text.clone())
@@ -643,6 +668,8 @@ impl<'parse> fmt::Display for IfConditionRaw<'parse> {
 
 #[cfg(test)]
 mod tests {
+    use crate::ast::sass::arena_slice;
+
     use super::*;
     use crate::ast::sass::expression_boolean::BooleanExpression;
     use crate::common::source_span_file_source::FileSource;
@@ -668,12 +695,13 @@ mod tests {
         let span = test_span(&arena, "x", 0, 1);
         let branches = vec![IfBranch {
             condition: Some(IfConditionExpression::Sass(IfConditionSass::new(
+                &arena,
                 Expression::Boolean(BooleanExpression::new(true, span)),
                 span,
             ))),
             expression: Expression::Boolean(BooleanExpression::new(true, span)),
         }];
-        let expr = IfExpression::new(branches, span).unwrap();
+        let expr = IfExpression::new(arena_slice(&arena, branches), span).unwrap();
         assert_eq!(expr.branches.len(), 1);
     }
 
@@ -681,7 +709,7 @@ mod tests {
     fn test_if_empty_branches_error() {
         let arena = Bump::new();
         let span = test_span(&arena, "", 0, 0);
-        assert!(IfExpression::new(vec![], span).is_err());
+        assert!(IfExpression::new(&[], span).is_err());
     }
 
     #[test]
@@ -689,6 +717,7 @@ mod tests {
         let arena = Bump::new();
         let span = test_span(&arena, "true", 0, 4);
         let cond = IfConditionExpression::Sass(IfConditionSass::new(
+            &arena,
             Expression::Boolean(BooleanExpression::new(true, span)),
             span,
         ));
@@ -700,10 +729,11 @@ mod tests {
         let arena = Bump::new();
         let span = test_span(&arena, "true", 0, 4);
         let inner = IfConditionExpression::Sass(IfConditionSass::new(
+            &arena,
             Expression::Boolean(BooleanExpression::new(true, span)),
             span,
         ));
-        let cond = IfConditionParenthesized::new(inner, span);
+        let cond = IfConditionParenthesized::new(&arena, inner, span);
         assert_eq!(format!("{cond}"), "(sass(true))");
     }
 
@@ -712,10 +742,11 @@ mod tests {
         let arena = Bump::new();
         let span = test_span(&arena, "true", 0, 4);
         let inner = IfConditionExpression::Sass(IfConditionSass::new(
+            &arena,
             Expression::Boolean(BooleanExpression::new(true, span)),
             span,
         ));
-        let cond = IfConditionNegation::new(inner, span);
+        let cond = IfConditionNegation::new(&arena, inner, span);
         assert_eq!(format!("{cond}"), "not sass(true)");
     }
 }

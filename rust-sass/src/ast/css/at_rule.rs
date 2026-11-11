@@ -9,6 +9,9 @@
 
 use std::fmt;
 
+use bumpalo::Bump;
+
+use crate::arena_map::ArenaVec;
 use crate::common::ast_css_value::CssValue;
 use crate::common::ast_node::AstNode;
 use crate::common::exception::SassResult;
@@ -21,9 +24,9 @@ use crate::ast::css::node::CssNode;
 #[derive(Clone, Debug)]
 pub struct CssAtRule<'parse> {
     /// The name of this rule.
-    pub name: CssValue<'parse, String>,
+    pub name: CssValue<'parse, &'parse str>,
     /// The value of this rule, if it has one.
-    pub value: Option<CssValue<'parse, String>>,
+    pub value: Option<CssValue<'parse, &'parse str>>,
     /// The child statements of this rule.
     pub children: Vec<CssNode<'parse>>,
     /// Whether the rule has no children and is emitted without curly braces.
@@ -46,10 +49,10 @@ impl<'parse> CssAtRule<'parse> {
     /// (such as `@import "foo.css";`); `@foo {}` gets `childless: false`
     /// with an empty [`children`](CssAtRule::children) list.
     pub fn new(
-        name: CssValue<'parse, String>,
+        name: CssValue<'parse, &'parse str>,
         span: FileSpan<'parse>,
         childless: bool,
-        value: Option<CssValue<'parse, String>>,
+        value: Option<CssValue<'parse, &'parse str>>,
     ) -> Self {
         CssAtRule {
             name,
@@ -95,31 +98,32 @@ impl<'parse> fmt::Display for CssAtRule<'parse> {
 #[derive(Clone, Debug)]
 pub struct ModifiableCssAtRule<'parse> {
     /// The name of this rule.
-    pub name: CssValue<'parse, String>,
+    pub name: CssValue<'parse, &'parse str>,
     /// The value of this rule, if it has one.
-    pub value: Option<CssValue<'parse, String>>,
+    pub value: Option<CssValue<'parse, &'parse str>>,
     /// Whether the rule has no children; childless rules reject `add_child`.
     pub childless: bool,
     /// The source span for this rule.
     pub span: FileSpan<'parse>,
     /// The child statements of this rule.
-    pub children: Vec<ModifiableCssNode<'parse>>,
+    pub children: ArenaVec<'parse, ModifiableCssNode<'parse>>,
 }
 
 impl<'parse> ModifiableCssAtRule<'parse> {
     /// Creates an at-rule with no children yet attached.
     pub fn new(
-        name: CssValue<'parse, String>,
+        arena: &'parse Bump,
+        name: CssValue<'parse, &'parse str>,
         span: FileSpan<'parse>,
         childless: bool,
-        value: Option<CssValue<'parse, String>>,
+        value: Option<CssValue<'parse, &'parse str>>,
     ) -> Self {
         ModifiableCssAtRule {
             name,
             value,
             childless,
             span,
-            children: Vec::new(),
+            children: ArenaVec::new_in(arena),
         }
     }
 }
@@ -163,12 +167,12 @@ mod tests {
         FileSpan::new(Some(fs), 0, text.len())
     }
 
-    fn make_val<'compile, 'parse>(arena: &'compile Bump, s: &str) -> CssValue<'parse, String>
+    fn make_val<'compile, 'parse>(arena: &'compile Bump, s: &str) -> CssValue<'parse, &'parse str>
     where
         'compile: 'parse,
         'parse: 'compile,
     {
-        CssValue::new(s.into(), make_span(arena, s))
+        CssValue::new(&*arena.alloc_str(s), make_span(arena, s))
     }
 
     #[test]
@@ -176,7 +180,7 @@ mod tests {
         let arena = Bump::new();
         let span = make_span(&arena, "@media {}");
         let name = make_val(&arena, "media");
-        let r = ModifiableCssAtRule::new(name, span, false, None);
+        let r = ModifiableCssAtRule::new(&arena, name, span, false, None);
         assert_eq!(r.name.value, "media");
         assert!(!r.childless);
     }
@@ -186,7 +190,7 @@ mod tests {
         let arena = Bump::new();
         let span = make_span(&arena, "@import;");
         let name = make_val(&arena, "import");
-        let r = ModifiableCssAtRule::new(name, span, true, None);
+        let r = ModifiableCssAtRule::new(&arena, name, span, true, None);
         assert!(r.childless);
     }
 

@@ -7,6 +7,7 @@
 // dart-source: lib/src/ast/sass/statement/import_rule.dart
 // go-source: go/value/sass_statement_import_rule.go
 
+use bumpalo::Bump;
 use std::fmt;
 use std::fmt::Write;
 
@@ -20,13 +21,16 @@ use crate::ast::sass::import::Import;
 #[derive(Clone, Debug)]
 pub struct ImportRule<'parse> {
     /// The imports imported by this statement.
-    pub imports: Vec<Import<'parse>>,
+    pub imports: &'parse [Import<'parse>],
     pub span: FileSpan<'parse>,
 }
 
 impl<'parse> ImportRule<'parse> {
-    pub fn new(imports: Vec<Import<'parse>>, span: FileSpan<'parse>) -> Self {
-        ImportRule { imports, span }
+    pub fn new(arena: &'parse Bump, imports: Vec<Import<'parse>>, span: FileSpan<'parse>) -> Self {
+        ImportRule {
+            imports: arena.alloc_slice_fill_iter(imports),
+            span,
+        }
     }
 }
 
@@ -56,7 +60,7 @@ impl<'parse> fmt::Display for ImportRule<'parse> {
 
 #[cfg(test)]
 mod tests {
-    use crate::url::SassUrl;
+    use crate::url::ArenaUrl;
 
     use super::*;
     use crate::ast::sass::dynamic_import::DynamicImport;
@@ -77,8 +81,12 @@ mod tests {
     fn test_new() {
         let arena = Bump::new();
         let span = make_span(&arena, "@import 'foo';");
-        let di = DynamicImport::new("foo.scss".into(), SassUrl::parse("foo.scss").unwrap(), span);
-        let ir = ImportRule::new(vec![Import::Dynamic(di)], span);
+        let di = DynamicImport::new(
+            arena.alloc_str("foo.scss"),
+            ArenaUrl::parse(&arena, "foo.scss").unwrap(),
+            span,
+        );
+        let ir = ImportRule::new(&arena, vec![Import::Dynamic(di)], span);
         assert_eq!(ir.imports.len(), 1);
     }
 
@@ -86,8 +94,12 @@ mod tests {
     fn test_span() {
         let arena = Bump::new();
         let span = make_span(&arena, "@import 'foo';");
-        let di = DynamicImport::new("foo.scss".into(), SassUrl::parse("foo.scss").unwrap(), span);
-        let ir = ImportRule::new(vec![Import::Dynamic(di)], span);
+        let di = DynamicImport::new(
+            arena.alloc_str("foo.scss"),
+            ArenaUrl::parse(&arena, "foo.scss").unwrap(),
+            span,
+        );
+        let ir = ImportRule::new(&arena, vec![Import::Dynamic(di)], span);
         assert_eq!(ir.span().unwrap(), span);
     }
 
@@ -95,8 +107,12 @@ mod tests {
     fn test_display() {
         let arena = Bump::new();
         let span = make_span(&arena, "@import 'foo';");
-        let di = DynamicImport::new("foo.scss".into(), SassUrl::parse("foo.scss").unwrap(), span);
-        let ir = ImportRule::new(vec![Import::Dynamic(di)], span);
+        let di = DynamicImport::new(
+            arena.alloc_str("foo.scss"),
+            ArenaUrl::parse(&arena, "foo.scss").unwrap(),
+            span,
+        );
+        let ir = ImportRule::new(&arena, vec![Import::Dynamic(di)], span);
         let s = format!("{ir}");
         assert!(s.starts_with("@import "), "got {s:?}");
         assert!(s.ends_with(';'), "got {s:?}");

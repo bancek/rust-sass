@@ -1,3 +1,5 @@
+#![forbid(unsafe_code)]
+
 mod console;
 mod error;
 mod js_host;
@@ -28,15 +30,16 @@ use wasm_bindgen::prelude::*;
 #[rust_sass_macros::maybe_async]
 #[wasm_bindgen(js_name = compileString)]
 pub async fn compile_string_js(source: &str, options: &JsValue) -> Result<JsValue, JsValue> {
+    let js_fns = js_host::JsRegistry::new();
     let arena = Bump::new();
     let io = make_io(options);
     let hl = error::highlight_from_options(options);
-    let ctx = marshaller::MarshallingContext::new();
-    let opts = match options::parse_options(&arena, options, io.clone(), ctx) {
+    let ctx = arena.alloc(marshaller::MarshallingContext::new_in(&arena));
+    let mut opts = match options::parse_options(&arena, options, io.clone(), ctx, &js_fns) {
         Ok(o) => o,
         Err(e) => return Err(error::sass_error_to_js(&e, &*io, hl)),
     };
-    match compile::compile_string(source, io.clone(), opts, &arena).await {
+    match compile::compile_string(source, io.clone(), &mut opts, &arena).await {
         Ok(r) => {
             result::compile_result_to_js(&r).map_err(|e| error::sass_error_to_js(&e, &*io, hl))
         }
@@ -50,15 +53,16 @@ pub async fn compile_string_js(source: &str, options: &JsValue) -> Result<JsValu
 #[rust_sass_macros::maybe_async]
 #[wasm_bindgen(js_name = compile)]
 pub async fn compile_js(path: &str, options: &JsValue) -> Result<JsValue, JsValue> {
+    let js_fns = js_host::JsRegistry::new();
     let arena = Bump::new();
     let io = make_io(options);
     let hl = error::highlight_from_options(options);
-    let ctx = marshaller::MarshallingContext::new();
-    let opts = match options::parse_options(&arena, options, io.clone(), ctx) {
+    let ctx = arena.alloc(marshaller::MarshallingContext::new_in(&arena));
+    let mut opts = match options::parse_options(&arena, options, io.clone(), ctx, &js_fns) {
         Ok(o) => o,
         Err(e) => return Err(error::sass_error_to_js(&e, &*io, hl)),
     };
-    match compile::compile(path, io.clone(), opts, &arena).await {
+    match compile::compile(path, io.clone(), &mut opts, &arena).await {
         Ok(r) => {
             result::compile_result_to_js(&r).map_err(|e| error::sass_error_to_js(&e, &*io, hl))
         }
@@ -76,11 +80,12 @@ pub async fn compile_js(path: &str, options: &JsValue) -> Result<JsValue, JsValu
 #[rust_sass_macros::maybe_async]
 #[wasm_bindgen(js_name = compile_bytes)]
 pub async fn compile_bytes_js(source: &[u8], options: &JsValue) -> Result<JsValue, JsValue> {
+    let js_fns = js_host::JsRegistry::new();
     let arena = Bump::new();
     let io = make_io(options);
     let hl = error::highlight_from_options(options);
-    let ctx = marshaller::MarshallingContext::new();
-    let opts = match options::parse_options(&arena, options, io.clone(), ctx) {
+    let ctx = arena.alloc(marshaller::MarshallingContext::new_in(&arena));
+    let mut opts = match options::parse_options(&arena, options, io.clone(), ctx, &js_fns) {
         Ok(o) => o,
         Err(e) => return Err(error::sass_error_to_js(&e, &*io, hl)),
     };
@@ -88,7 +93,7 @@ pub async fn compile_bytes_js(source: &[u8], options: &JsValue) -> Result<JsValu
         Ok(s) => s,
         Err(e) => return Err(error::sass_error_to_js(&e, &*io, hl)),
     };
-    match compile::compile_string(source, io.clone(), opts, &arena).await {
+    match compile::compile_string(source, io.clone(), &mut opts, &arena).await {
         Ok(r) => {
             result::compile_result_to_js(&r).map_err(|e| error::sass_error_to_js(&e, &*io, hl))
         }

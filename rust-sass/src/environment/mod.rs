@@ -23,14 +23,40 @@ use crate::module::forwarded::ForwardedModuleView;
 use crate::module::ModuleKind;
 use crate::module::ModuleVariables;
 use std::cell::RefCell;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::fmt;
 use std::fmt::Debug;
 #[cfg(feature = "async")]
 use std::ops::AsyncFnOnce;
 
+use allocator_api2::vec::Vec as AllocVec;
 use bumpalo::Bump;
 use indexmap::IndexMap;
+
+use crate::arena_map::{ArenaHashMap, ArenaHashSet, ArenaMap};
+
+/// Rebuilds a `HashSet` in the arena (`&Bump` has no `Default`, so `collect()`
+/// would use the global allocator).
+fn arena_collect_strs<'a, 'p>(arena: &'a Bump, strs: Vec<&'p str>) -> ArenaHashSet<'a, &'p str>
+where
+    'p: 'a,
+{
+    let mut out =
+        hashbrown::HashSet::with_hasher_in(hashbrown::DefaultHashBuilder::default(), arena);
+    for item in strs {
+        out.insert(item);
+    }
+    out
+}
+
+/// Arena-backed Vec (Dart `List<T>`).
+type ArenaVec<'p, T> = AllocVec<T, &'p Bump>;
+/// Arena-backed ordered map with arena string keys (Dart `Map<String, V>`).
+type ArenaStrMap<'p, V> = ArenaMap<'p, &'p str, V>;
+/// Dart `Map<String, int>` index cache, stored in the arena.
+type ArenaCache<'p> = ArenaHashMap<'p, &'p str, usize>;
+/// Dart `Set<String>`, stored in the arena.
+type ArenaStrSet<'p> = ArenaHashSet<'p, &'p str>;
 
 use crate::ast::sass::statement::forward_rule::ForwardRule;
 use crate::callable::Callable;
@@ -49,46 +75,51 @@ use crate::value::Value;
 // `environment.dart:80-124`.)
 
 pub(crate) struct EnvironmentInner<'compile, 'parse> {
-    pub(crate) variables: Vec<&'parse RefCell<IndexMap<String, Value<'parse>>>>,
-    pub(crate) variable_nodes: Vec<&'parse RefCell<IndexMap<String, FileSpan<'parse>>>>,
-    pub(crate) functions: Vec<&'parse RefCell<IndexMap<String, Callable<'compile, 'parse>>>>,
-    pub(crate) mixins: Vec<&'parse RefCell<IndexMap<String, Callable<'compile, 'parse>>>>,
+    /// The compile arena, used to allocate `&'parse str` keys.
+    pub(crate) arena: &'compile Bump,
+    pub(crate) variables: ArenaVec<'parse, &'parse RefCell<ArenaStrMap<'parse, Value<'parse>>>>,
+    pub(crate) variable_nodes:
+        ArenaVec<'parse, &'parse RefCell<ArenaStrMap<'parse, FileSpan<'parse>>>>,
+    pub(crate) functions:
+        ArenaVec<'parse, &'parse RefCell<ArenaStrMap<'parse, Callable<'compile, 'parse>>>>,
+    pub(crate) mixins:
+        ArenaVec<'parse, &'parse RefCell<ArenaStrMap<'parse, Callable<'compile, 'parse>>>>,
     /// The modules used in the current scope, indexed by their namespaces.
-    pub(crate) modules: &'parse RefCell<IndexMap<String, Module<'compile, 'parse>>>,
+    pub(crate) modules: &'parse RefCell<ArenaStrMap<'parse, Module<'compile, 'parse>>>,
     /// A map from module namespaces to the nodes whose spans indicate where
     /// those modules were originally loaded.
-    pub(crate) namespace_nodes: &'parse RefCell<IndexMap<String, FileSpan<'parse>>>,
+    pub(crate) namespace_nodes: &'parse RefCell<ArenaStrMap<'parse, FileSpan<'parse>>>,
     /// A map from namespaceless modules to the `@use` rules whose spans
     /// indicate where those modules were originally loaded. Excludes modules
     /// imported into the current scope.
     pub(crate) global_modules:
-        &'parse RefCell<IndexMap<Module<'compile, 'parse>, FileSpan<'parse>>>,
+        &'parse RefCell<ArenaMap<'parse, Module<'compile, 'parse>, FileSpan<'parse>>>,
     /// A map from modules imported into the current scope to the nodes whose
     /// spans indicate where those modules were originally loaded.
     pub(crate) imported_modules:
-        &'parse RefCell<IndexMap<Module<'compile, 'parse>, FileSpan<'parse>>>,
+        &'parse RefCell<ArenaMap<'parse, Module<'compile, 'parse>, FileSpan<'parse>>>,
     /// A map from modules forwarded by this module to the nodes whose spans
     /// indicate where those modules were originally forwarded. `None` when
     /// there are no forwarded modules.
     pub(crate) forwarded_modules:
-        Option<&'parse RefCell<IndexMap<Module<'compile, 'parse>, FileSpan<'parse>>>>,
+        Option<&'parse RefCell<ArenaMap<'parse, Module<'compile, 'parse>, FileSpan<'parse>>>>,
     /// Modules forwarded by nested imports at each lexical scope level
     /// *beneath the global scope*. `None` until needed, since most
     /// environments never use this.
     pub(crate) nested_forwarded_modules:
-        &'parse RefCell<Option<Vec<Vec<Module<'compile, 'parse>>>>>,
+        &'parse RefCell<Option<ArenaVec<'parse, ArenaVec<'parse, Module<'compile, 'parse>>>>>,
     /// Modules from `modules`, `global_modules`, and `forwarded_modules`, in
     /// the order in which they were `@use`d.
-    pub(crate) all_modules: &'parse RefCell<Vec<Module<'compile, 'parse>>>,
+    pub(crate) all_modules: &'parse RefCell<ArenaVec<'parse, Module<'compile, 'parse>>>,
     /// A map of variable/function/mixin names to their indices in the scope
     /// lists. Filled in as-needed; may not be complete. (Dart:
     /// `_variableIndices` etc., `environment.dart:95-124`.)
-    pub(crate) variable_indices: HashMap<String, usize>,
-    pub(crate) function_indices: HashMap<String, usize>,
-    pub(crate) mixin_indices: HashMap<String, usize>,
+    pub(crate) variable_indices: ArenaCache<'parse>,
+    pub(crate) function_indices: ArenaCache<'parse>,
+    pub(crate) mixin_indices: ArenaCache<'parse>,
     /// The name/index of the last variable accessed. Cached to speed up
     /// repeated references to the same variable and its span.
-    pub(crate) last_variable_name: String,
+    pub(crate) last_variable_name: Option<&'parse str>,
     pub(crate) last_variable_index: usize,
     pub(crate) has_last_variable_index: bool,
     /// The content block passed to the lexically-enclosing mixin, or `None`
@@ -97,7 +128,7 @@ pub(crate) struct EnvironmentInner<'compile, 'parse> {
     /// The set of variable names that could be configured when loading the
     /// module. Used to detect passing a new configuration through `@forward`
     /// to an already-loaded module.
-    pub(crate) configurable_variables: &'parse RefCell<HashSet<String>>,
+    pub(crate) configurable_variables: &'parse RefCell<ArenaStrSet<'parse>>,
     /// Whether the environment is lexically within a mixin.
     pub(crate) in_mixin: bool,
     /// Whether the environment is currently in a global or semi-global scope.
@@ -108,26 +139,35 @@ pub(crate) struct EnvironmentInner<'compile, 'parse> {
 
 impl<'compile: 'parse, 'parse> EnvironmentInner<'compile, 'parse> {
     fn new(arena: &'compile Bump) -> Self {
+        let mut variables = ArenaVec::new_in(arena);
+        variables.push(&*arena.alloc(RefCell::new(ArenaMap::new_in(arena))));
+        let mut variable_nodes = ArenaVec::new_in(arena);
+        variable_nodes.push(&*arena.alloc(RefCell::new(ArenaMap::new_in(arena))));
+        let mut functions = ArenaVec::new_in(arena);
+        functions.push(&*arena.alloc(RefCell::new(ArenaMap::new_in(arena))));
+        let mut mixins = ArenaVec::new_in(arena);
+        mixins.push(&*arena.alloc(RefCell::new(ArenaMap::new_in(arena))));
         EnvironmentInner {
-            variables: vec![arena.alloc(RefCell::new(IndexMap::new()))],
-            variable_nodes: vec![arena.alloc(RefCell::new(IndexMap::new()))],
-            functions: vec![arena.alloc(RefCell::new(IndexMap::new()))],
-            mixins: vec![arena.alloc(RefCell::new(IndexMap::new()))],
-            modules: arena.alloc(RefCell::new(IndexMap::new())),
-            namespace_nodes: arena.alloc(RefCell::new(IndexMap::new())),
-            global_modules: arena.alloc(RefCell::new(IndexMap::new())),
-            imported_modules: arena.alloc(RefCell::new(IndexMap::new())),
+            arena,
+            variables,
+            variable_nodes,
+            functions,
+            mixins,
+            modules: arena.alloc(RefCell::new(ArenaMap::new_in(arena))),
+            namespace_nodes: arena.alloc(RefCell::new(ArenaMap::new_in(arena))),
+            global_modules: arena.alloc(RefCell::new(ArenaMap::new_in(arena))),
+            imported_modules: arena.alloc(RefCell::new(ArenaMap::new_in(arena))),
             forwarded_modules: None,
             nested_forwarded_modules: arena.alloc(RefCell::new(None)),
-            all_modules: arena.alloc(RefCell::new(Vec::new())),
-            variable_indices: HashMap::new(),
-            function_indices: HashMap::new(),
-            mixin_indices: HashMap::new(),
-            last_variable_name: String::new(),
+            all_modules: arena.alloc(RefCell::new(ArenaVec::new_in(arena))),
+            variable_indices: ArenaCache::new_in(arena),
+            function_indices: ArenaCache::new_in(arena),
+            mixin_indices: ArenaCache::new_in(arena),
+            last_variable_name: None,
             last_variable_index: 0,
             has_last_variable_index: false,
             content: None,
-            configurable_variables: arena.alloc(RefCell::new(HashSet::new())),
+            configurable_variables: arena.alloc(RefCell::new(ArenaStrSet::new_in(arena))),
             in_mixin: false,
             in_semi_global_scope: true,
         }
@@ -139,41 +179,42 @@ impl<'compile: 'parse, 'parse> EnvironmentInner<'compile, 'parse> {
 
     fn push_frame(&mut self, arena: &'compile Bump) {
         self.variables
-            .push(arena.alloc(RefCell::new(IndexMap::new())));
+            .push(arena.alloc(RefCell::new(ArenaMap::new_in(arena))));
         self.variable_nodes
-            .push(arena.alloc(RefCell::new(IndexMap::new())));
+            .push(arena.alloc(RefCell::new(ArenaMap::new_in(arena))));
         self.functions
-            .push(arena.alloc(RefCell::new(IndexMap::new())));
-        self.mixins.push(arena.alloc(RefCell::new(IndexMap::new())));
+            .push(arena.alloc(RefCell::new(ArenaMap::new_in(arena))));
+        self.mixins
+            .push(arena.alloc(RefCell::new(ArenaMap::new_in(arena))));
         if let Some(ref mut nested) = *self.nested_forwarded_modules.borrow_mut() {
-            nested.push(Vec::new());
+            nested.push(ArenaVec::new_in(arena));
         }
     }
 
     fn pop_frame(&mut self) {
         if let Some(last_vars) = self.variables.last() {
             for name in last_vars.borrow().keys() {
-                self.variable_indices.remove(name);
+                self.variable_indices.remove(*name);
             }
         }
         self.variables.pop();
         self.variable_nodes.pop();
         if let Some(last_fns) = self.functions.last() {
             for name in last_fns.borrow().keys() {
-                self.function_indices.remove(name);
+                self.function_indices.remove(*name);
             }
         }
         self.functions.pop();
         if let Some(last_mix) = self.mixins.last() {
             for name in last_mix.borrow().keys() {
-                self.mixin_indices.remove(name);
+                self.mixin_indices.remove(*name);
             }
         }
         self.mixins.pop();
         if let Some(ref mut nested) = *self.nested_forwarded_modules.borrow_mut() {
             nested.pop();
         }
-        self.last_variable_name.clear();
+        self.last_variable_name = None;
         self.has_last_variable_index = false;
     }
 
@@ -326,14 +367,15 @@ impl<'compile: 'parse, 'parse> Environment<'compile, 'parse> {
             forwarded_modules: inner.forwarded_modules,
             nested_forwarded_modules: inner.nested_forwarded_modules,
             all_modules: inner.all_modules,
-            variable_indices: HashMap::new(),
-            function_indices: HashMap::new(),
-            mixin_indices: HashMap::new(),
-            last_variable_name: String::new(),
+            arena,
+            variable_indices: ArenaCache::new_in(arena),
+            function_indices: ArenaCache::new_in(arena),
+            mixin_indices: ArenaCache::new_in(arena),
+            last_variable_name: None,
             last_variable_index: 0,
             has_last_variable_index: false,
             content: inner.content,
-            configurable_variables: arena.alloc(RefCell::new(HashSet::new())),
+            configurable_variables: arena.alloc(RefCell::new(ArenaStrSet::new_in(arena))),
             in_mixin: false,
             in_semi_global_scope: true,
         };
@@ -355,17 +397,18 @@ impl<'compile: 'parse, 'parse> Environment<'compile, 'parse> {
             variable_nodes: inner.variable_nodes.clone(),
             functions: inner.functions.clone(),
             mixins: inner.mixins.clone(),
-            modules: arena.alloc(RefCell::new(IndexMap::new())),
-            namespace_nodes: arena.alloc(RefCell::new(IndexMap::new())),
-            global_modules: arena.alloc(RefCell::new(IndexMap::new())),
+            arena,
+            modules: arena.alloc(RefCell::new(ArenaMap::new_in(arena))),
+            namespace_nodes: arena.alloc(RefCell::new(ArenaMap::new_in(arena))),
+            global_modules: arena.alloc(RefCell::new(ArenaMap::new_in(arena))),
             imported_modules: inner.imported_modules,
             forwarded_modules: None,
             nested_forwarded_modules: inner.nested_forwarded_modules,
-            all_modules: arena.alloc(RefCell::new(Vec::new())),
-            variable_indices: HashMap::new(),
-            function_indices: HashMap::new(),
-            mixin_indices: HashMap::new(),
-            last_variable_name: String::new(),
+            all_modules: arena.alloc(RefCell::new(ArenaVec::new_in(arena))),
+            variable_indices: ArenaCache::new_in(arena),
+            function_indices: ArenaCache::new_in(arena),
+            mixin_indices: ArenaCache::new_in(arena),
+            last_variable_name: None,
             last_variable_index: 0,
             has_last_variable_index: false,
             content: inner.content,
@@ -379,7 +422,13 @@ impl<'compile: 'parse, 'parse> Environment<'compile, 'parse> {
     // --- Module operations ---
 
     pub fn modules(&self) -> IndexMap<String, Module<'compile, 'parse>> {
-        self.0.borrow().modules.borrow().clone()
+        self.0
+            .borrow()
+            .modules
+            .borrow()
+            .iter()
+            .map(|(name, module)| (name.to_string(), *module))
+            .collect()
     }
 
     /// Adds `module` to the set of modules visible in this environment.
@@ -395,6 +444,7 @@ impl<'compile: 'parse, 'parse> Environment<'compile, 'parse> {
         node_span: FileSpan<'parse>,
         namespace: Option<&str>,
     ) -> SassResult<()> {
+        let arena = self.0.borrow().arena;
         let inner = self.0.borrow();
         if let Some(ns) = namespace {
             if inner.modules.borrow().contains_key(ns) {
@@ -417,16 +467,14 @@ impl<'compile: 'parse, 'parse> Environment<'compile, 'parse> {
                     trace: Default::default(),
                 }));
             }
-            inner.modules.borrow_mut().insert(ns.to_string(), module);
-            inner
-                .namespace_nodes
-                .borrow_mut()
-                .insert(ns.to_string(), node_span);
+            let ns: &'parse str = arena.alloc_str(ns);
+            inner.modules.borrow_mut().insert(ns, module);
+            inner.namespace_nodes.borrow_mut().insert(ns, node_span);
         } else {
             // Check for variable name conflicts with global module
-            let global_vars: HashSet<_> = inner.variables[0].borrow().keys().cloned().collect();
+            let global_vars: HashSet<_> = inner.variables[0].borrow().keys().copied().collect();
             for name in module.variables().keys() {
-                if global_vars.contains(&name) {
+                if global_vars.contains(name.as_str()) {
                     return Err(Box::new(SassError::Script {
                         message: format!(
                             "This module and the new module both define a variable named \"${}\".",
@@ -456,7 +504,7 @@ impl<'compile: 'parse, 'parse> Environment<'compile, 'parse> {
         let mut inner = self.0.borrow_mut();
 
         if inner.forwarded_modules.is_none() {
-            inner.forwarded_modules = Some(arena.alloc(RefCell::new(IndexMap::new())));
+            inner.forwarded_modules = Some(&*arena.alloc(RefCell::new(ArenaMap::new_in(arena))));
         }
 
         // Go: view = ForwardedModuleViewIfNecessary(module, rule)
@@ -466,7 +514,8 @@ impl<'compile: 'parse, 'parse> Environment<'compile, 'parse> {
         // Go: for other := range e.forwardedModules { assertNoConflicts(...) }
         // Hold the shared-map guard across the conflict checks (read-only).
         let forwarded_guard = inner.forwarded_modules.as_ref().unwrap().borrow();
-        let forwarded: &IndexMap<Module<'compile, 'parse>, FileSpan<'parse>> = &forwarded_guard;
+        let forwarded: &ArenaMap<'parse, Module<'compile, 'parse>, FileSpan<'parse>> =
+            &forwarded_guard;
         for (other_view, _) in forwarded.iter() {
             assert_no_conflicts(
                 &view.variables(),
@@ -545,11 +594,12 @@ impl<'compile: 'parse, 'parse> Environment<'compile, 'parse> {
             let module = self.get_module(ns)?;
             return Ok(module.variables().get(name));
         }
+        let arena = self.0.borrow().arena;
 
         // Fast path: last variable cache
         let fast_hit: Option<Value<'parse>> = {
             let inner = self.0.borrow();
-            if inner.has_last_variable_index && inner.last_variable_name == name {
+            if inner.has_last_variable_index && inner.last_variable_name == Some(name) {
                 let map = inner.variables[inner.last_variable_index].borrow();
                 map.get(name).cloned()
             } else {
@@ -561,7 +611,7 @@ impl<'compile: 'parse, 'parse> Environment<'compile, 'parse> {
         }
         let cache_hit: bool = {
             let inner = self.0.borrow();
-            inner.has_last_variable_index && inner.last_variable_name == name
+            inner.has_last_variable_index && inner.last_variable_name == Some(name)
         };
         if cache_hit {
             return self.get_variable_from_global_module(name);
@@ -572,7 +622,7 @@ impl<'compile: 'parse, 'parse> Environment<'compile, 'parse> {
         if let Some(index) = index_cache {
             let found: Option<Value<'parse>> = {
                 let mut inner = self.0.borrow_mut();
-                inner.last_variable_name = name.to_string();
+                inner.last_variable_name = Some(&*arena.alloc_str(name));
                 inner.last_variable_index = index;
                 inner.has_last_variable_index = true;
                 let map = inner.variables[index].borrow();
@@ -589,10 +639,12 @@ impl<'compile: 'parse, 'parse> Environment<'compile, 'parse> {
         if let Some(index) = scan_index {
             let found: Option<Value<'parse>> = {
                 let mut inner = self.0.borrow_mut();
-                inner.last_variable_name = name.to_string();
+                inner.last_variable_name = Some(&*arena.alloc_str(name));
                 inner.last_variable_index = index;
                 inner.has_last_variable_index = true;
-                inner.variable_indices.insert(name.to_string(), index);
+                inner
+                    .variable_indices
+                    .insert(&*arena.alloc_str(name), index);
                 let map = inner.variables[index].borrow();
                 map.get(name).cloned()
             };
@@ -626,11 +678,12 @@ impl<'compile: 'parse, 'parse> Environment<'compile, 'parse> {
             let module = self.get_module(ns)?;
             return Ok(module.variable_nodes().get(name));
         }
+        let arena = self.0.borrow().arena;
 
         // Fast path
         let fast_hit: Option<FileSpan<'parse>> = {
             let inner = self.0.borrow();
-            if inner.has_last_variable_index && inner.last_variable_name == name {
+            if inner.has_last_variable_index && inner.last_variable_name == Some(name) {
                 let map = inner.variable_nodes[inner.last_variable_index].borrow();
                 map.get(name).copied()
             } else {
@@ -642,7 +695,7 @@ impl<'compile: 'parse, 'parse> Environment<'compile, 'parse> {
         }
         let cache_hit: bool = {
             let inner = self.0.borrow();
-            inner.has_last_variable_index && inner.last_variable_name == name
+            inner.has_last_variable_index && inner.last_variable_name == Some(name)
         };
         if cache_hit {
             return self.get_variable_node_from_global_module(name);
@@ -653,7 +706,7 @@ impl<'compile: 'parse, 'parse> Environment<'compile, 'parse> {
         if let Some(index) = index_cache {
             let found: Option<FileSpan<'parse>> = {
                 let mut inner = self.0.borrow_mut();
-                inner.last_variable_name = name.to_string();
+                inner.last_variable_name = Some(&*arena.alloc_str(name));
                 inner.last_variable_index = index;
                 inner.has_last_variable_index = true;
                 let map = inner.variable_nodes[index].borrow();
@@ -670,10 +723,12 @@ impl<'compile: 'parse, 'parse> Environment<'compile, 'parse> {
         if let Some(index) = scan_index {
             let found: Option<FileSpan<'parse>> = {
                 let mut inner = self.0.borrow_mut();
-                inner.last_variable_name = name.to_string();
+                inner.last_variable_name = Some(&*arena.alloc_str(name));
                 inner.last_variable_index = index;
                 inner.has_last_variable_index = true;
-                inner.variable_indices.insert(name.to_string(), index);
+                inner
+                    .variable_indices
+                    .insert(&*arena.alloc_str(name), index);
                 let map = inner.variable_nodes[index].borrow();
                 map.get(name).copied()
             };
@@ -748,6 +803,7 @@ impl<'compile: 'parse, 'parse> Environment<'compile, 'parse> {
             let module = self.get_module(ns)?;
             return module.set_variable(name, val, node_span);
         }
+        let arena = self.0.borrow().arena;
 
         let is_global = {
             let inner = self.0.borrow();
@@ -759,10 +815,10 @@ impl<'compile: 'parse, 'parse> Environment<'compile, 'parse> {
             {
                 let mut inner = self.0.borrow_mut();
                 if !inner.variable_indices.contains_key(name) {
-                    inner.last_variable_name = name.to_string();
+                    inner.last_variable_name = Some(&*arena.alloc_str(name));
                     inner.last_variable_index = 0;
                     inner.has_last_variable_index = true;
-                    inner.variable_indices.insert(name.to_string(), 0);
+                    inner.variable_indices.insert(&*arena.alloc_str(name), 0);
                 }
             }
 
@@ -792,10 +848,10 @@ impl<'compile: 'parse, 'parse> Environment<'compile, 'parse> {
                 let inner = self.0.borrow();
                 inner.variables[0]
                     .borrow_mut()
-                    .insert(name.to_string(), val);
+                    .insert(&*arena.alloc_str(name), val);
                 inner.variable_nodes[0]
                     .borrow_mut()
-                    .insert(name.to_string(), node_span);
+                    .insert(&*arena.alloc_str(name), node_span);
             }
             return Ok(());
         }
@@ -827,7 +883,7 @@ impl<'compile: 'parse, 'parse> Environment<'compile, 'parse> {
         // Resolve index
         let index = {
             let mut inner = self.0.borrow_mut();
-            let idx = if inner.has_last_variable_index && inner.last_variable_name == name {
+            let idx = if inner.has_last_variable_index && inner.last_variable_name == Some(name) {
                 inner.last_variable_index
             } else if let Some(&idx) = inner.variable_indices.get(name) {
                 idx
@@ -835,19 +891,21 @@ impl<'compile: 'parse, 'parse> Environment<'compile, 'parse> {
                 let idx = inner
                     .variable_index(name)
                     .unwrap_or(inner.variables.len() - 1);
-                inner.variable_indices.insert(name.to_string(), idx);
+                inner.variable_indices.insert(&*arena.alloc_str(name), idx);
                 idx
             };
 
             let idx = if !inner.in_semi_global_scope && idx == 0 {
                 let new_idx = inner.variables.len() - 1;
-                inner.variable_indices.insert(name.to_string(), new_idx);
+                inner
+                    .variable_indices
+                    .insert(&*arena.alloc_str(name), new_idx);
                 new_idx
             } else {
                 idx
             };
 
-            inner.last_variable_name = name.to_string();
+            inner.last_variable_name = Some(&*arena.alloc_str(name));
             inner.last_variable_index = idx;
             inner.has_last_variable_index = true;
             idx
@@ -858,10 +916,10 @@ impl<'compile: 'parse, 'parse> Environment<'compile, 'parse> {
             let inner = self.0.borrow();
             inner.variables[index]
                 .borrow_mut()
-                .insert(name.to_string(), val);
+                .insert(&*arena.alloc_str(name), val);
             inner.variable_nodes[index]
                 .borrow_mut()
-                .insert(name.to_string(), node_span);
+                .insert(&*arena.alloc_str(name), node_span);
         }
         Ok(())
     }
@@ -870,18 +928,21 @@ impl<'compile: 'parse, 'parse> Environment<'compile, 'parse> {
     /// when an outer scope already declares it (unlike
     /// [`set_variable`](Self::set_variable)).
     pub fn set_local_variable(&self, name: &str, val: Value<'parse>, node_span: FileSpan<'parse>) {
+        let arena = self.0.borrow().arena;
         let mut inner = self.0.borrow_mut();
         let index = inner.variables.len() - 1;
-        inner.last_variable_name = name.to_string();
+        inner.last_variable_name = Some(&*arena.alloc_str(name));
         inner.last_variable_index = index;
         inner.has_last_variable_index = true;
-        inner.variable_indices.insert(name.to_string(), index);
+        inner
+            .variable_indices
+            .insert(&*arena.alloc_str(name), index);
         inner.variables[index]
             .borrow_mut()
-            .insert(name.to_string(), val);
+            .insert(&*arena.alloc_str(name), val);
         inner.variable_nodes[index]
             .borrow_mut()
-            .insert(name.to_string(), node_span);
+            .insert(&*arena.alloc_str(name), node_span);
     }
 
     /// Returns the value of the variable named `name` in the current scope
@@ -928,6 +989,7 @@ impl<'compile: 'parse, 'parse> Environment<'compile, 'parse> {
             let module = self.get_module(ns)?;
             return Ok(module.functions().get(name));
         }
+        let arena = self.0.borrow().arena;
 
         // Index cache
         let index_cache: Option<usize> = self.0.borrow().function_indices.get(name).copied();
@@ -948,7 +1010,9 @@ impl<'compile: 'parse, 'parse> Environment<'compile, 'parse> {
         if let Some(index) = scan_index {
             let found: Option<Callable<'compile, 'parse>> = {
                 let mut inner = self.0.borrow_mut();
-                inner.function_indices.insert(name.to_string(), index);
+                inner
+                    .function_indices
+                    .insert(&*arena.alloc_str(name), index);
                 let map = inner.functions[index].borrow();
                 map.get(name).cloned()
             };
@@ -980,10 +1044,11 @@ impl<'compile: 'parse, 'parse> Environment<'compile, 'parse> {
 
     /// Sets `callable` in the current scope, keyed under its own name.
     pub fn set_function(&self, callable: Callable<'compile, 'parse>) {
+        let arena = self.0.borrow().arena;
         let mut inner = self.0.borrow_mut();
         let index = inner.functions.len() - 1;
-        let name = callable.name().to_string();
-        inner.function_indices.insert(name.clone(), index);
+        let name: &'parse str = arena.alloc_str(callable.name());
+        inner.function_indices.insert(name, index);
         inner.functions[index].borrow_mut().insert(name, callable);
     }
 
@@ -1001,6 +1066,7 @@ impl<'compile: 'parse, 'parse> Environment<'compile, 'parse> {
             let module = self.get_module(ns)?;
             return Ok(module.mixins().get(name));
         }
+        let arena = self.0.borrow().arena;
 
         // Index cache
         let index_cache: Option<usize> = self.0.borrow().mixin_indices.get(name).copied();
@@ -1021,7 +1087,7 @@ impl<'compile: 'parse, 'parse> Environment<'compile, 'parse> {
         if let Some(index) = scan_index {
             let found: Option<Callable<'compile, 'parse>> = {
                 let mut inner = self.0.borrow_mut();
-                inner.mixin_indices.insert(name.to_string(), index);
+                inner.mixin_indices.insert(&*arena.alloc_str(name), index);
                 let map = inner.mixins[index].borrow();
                 map.get(name).cloned()
             };
@@ -1053,10 +1119,11 @@ impl<'compile: 'parse, 'parse> Environment<'compile, 'parse> {
 
     /// Sets `callable` in the current scope, keyed under its own name.
     pub fn set_mixin(&self, callable: Callable<'compile, 'parse>) {
+        let arena = self.0.borrow().arena;
         let mut inner = self.0.borrow_mut();
         let index = inner.mixins.len() - 1;
-        let name = callable.name().to_string();
-        inner.mixin_indices.insert(name.clone(), index);
+        let name: &'parse str = arena.alloc_str(callable.name());
+        inner.mixin_indices.insert(name, index);
         inner.mixins[index].borrow_mut().insert(name, callable);
     }
 
@@ -1066,11 +1133,13 @@ impl<'compile: 'parse, 'parse> Environment<'compile, 'parse> {
     /// this module, whether or not it actually was. Used to detect passing a
     /// new configuration through `@forward` to an already-loaded module.
     pub fn mark_variable_configurable(&self, name: &str) {
+        let arena = self.0.borrow().arena;
+        let name: &'parse str = arena.alloc_str(name);
         self.0
             .borrow()
             .configurable_variables
             .borrow_mut()
-            .insert(name.to_string());
+            .insert(name);
     }
 
     /// Creates an implicit configuration from the variables declared in this
@@ -1085,10 +1154,10 @@ impl<'compile: 'parse, 'parse> Environment<'compile, 'parse> {
 
         for i in 0..inner.variables.len() {
             let modules: Vec<Module<'compile, 'parse>> = if i == 0 {
-                inner.imported_modules.borrow().keys().cloned().collect()
+                inner.imported_modules.borrow().keys().copied().collect()
             } else if let Some(ref nested) = *inner.nested_forwarded_modules.borrow() {
                 if i < nested.len() {
-                    nested[i].clone()
+                    nested[i].iter().copied().collect()
                 } else {
                     vec![]
                 }
@@ -1111,7 +1180,10 @@ impl<'compile: 'parse, 'parse> Environment<'compile, 'parse> {
                     .get(name)
                     .copied()
                     .unwrap_or(FileSpan::new(None, 0, 0));
-                config.insert(name.clone(), ConfiguredValue::implicit(*val, node_span));
+                config.insert(
+                    (*name).to_string(),
+                    ConfiguredValue::implicit(*val, node_span),
+                );
             }
         }
 
@@ -1233,7 +1305,7 @@ impl<'compile: 'parse, 'parse> Environment<'compile, 'parse> {
             arena,
             *self,
             css.clone(),
-            pre_module_comments.clone(),
+            pre_module_comments,
             extension_store,
             &forwarded,
             &inner.all_modules.borrow(),
@@ -1301,7 +1373,7 @@ impl<'compile: 'parse, 'parse> Environment<'compile, 'parse> {
                 !(existing_guard.contains_key(mod_) && global_guard.contains_key(mod_))
             });
         } else {
-            inner.forwarded_modules = Some(arena.alloc(RefCell::new(IndexMap::new())));
+            inner.forwarded_modules = Some(&*arena.alloc(RefCell::new(ArenaMap::new_in(arena))));
         }
 
         let mut forwarded_vars = HashSet::new();
@@ -1318,6 +1390,30 @@ impl<'compile: 'parse, 'parse> Environment<'compile, 'parse> {
                 forwarded_mixins.insert(name.clone());
             }
         }
+        let forwarded_vars: &'parse ArenaHashSet<'parse, &'parse str> =
+            arena.alloc(arena_collect_strs(
+                arena,
+                forwarded_vars
+                    .iter()
+                    .map(|n| &*arena.alloc_str(n))
+                    .collect::<Vec<&'parse str>>(),
+            ));
+        let forwarded_funcs: &'parse ArenaHashSet<'parse, &'parse str> =
+            arena.alloc(arena_collect_strs(
+                arena,
+                forwarded_funcs
+                    .iter()
+                    .map(|n| &*arena.alloc_str(n))
+                    .collect::<Vec<&'parse str>>(),
+            ));
+        let forwarded_mixins: &'parse ArenaHashSet<'parse, &'parse str> =
+            arena.alloc(arena_collect_strs(
+                arena,
+                forwarded_mixins
+                    .iter()
+                    .map(|n| &*arena.alloc_str(n))
+                    .collect::<Vec<&'parse str>>(),
+            ));
 
         if inner.at_root() {
             // Hide members from modules that have already been imported or
@@ -1327,9 +1423,9 @@ impl<'compile: 'parse, 'parse> Environment<'compile, 'parse> {
                 if let Some(shadowed) = ShadowedModuleView::if_necessary(
                     arena,
                     &mod_,
-                    &forwarded_vars,
-                    &forwarded_funcs,
-                    &forwarded_mixins,
+                    forwarded_vars,
+                    forwarded_funcs,
+                    forwarded_mixins,
                 ) {
                     let node = inner
                         .imported_modules
@@ -1353,9 +1449,9 @@ impl<'compile: 'parse, 'parse> Environment<'compile, 'parse> {
                     if let Some(shadowed) = ShadowedModuleView::if_necessary(
                         arena,
                         &mod_,
-                        &forwarded_vars,
-                        &forwarded_funcs,
-                        &forwarded_mixins,
+                        forwarded_vars,
+                        forwarded_funcs,
+                        forwarded_mixins,
                     ) {
                         let node = fwd.shift_remove(&mod_).unwrap();
                         let is_empty = match shadowed.kind() {
@@ -1370,21 +1466,22 @@ impl<'compile: 'parse, 'parse> Environment<'compile, 'parse> {
             }
 
             // Copy forwarded modules into imported and forwarded maps
-            for (mod_, node) in &forwarded {
+            for (mod_, node) in forwarded.iter() {
                 inner.imported_modules.borrow_mut().insert(*mod_, *node);
             }
             if let Some(fwd_cell) = inner.forwarded_modules.as_ref() {
                 let mut fwd = fwd_cell.borrow_mut();
-                for (mod_, node) in &forwarded {
+                for (mod_, node) in forwarded.iter() {
                     fwd.insert(*mod_, *node);
                 }
             }
         } else {
             if inner.nested_forwarded_modules.borrow().is_none() {
                 let len = inner.variables.len();
-                let mut nested: Vec<Vec<Module<'compile, 'parse>>> = Vec::with_capacity(len);
+                let mut nested: ArenaVec<'parse, ArenaVec<'parse, Module<'compile, 'parse>>> =
+                    ArenaVec::new_in(arena);
                 for _ in 0..len {
-                    nested.push(Vec::new());
+                    nested.push(ArenaVec::new_in(arena));
                 }
                 *inner.nested_forwarded_modules.borrow_mut() = Some(nested);
             }
@@ -1398,25 +1495,25 @@ impl<'compile: 'parse, 'parse> Environment<'compile, 'parse> {
 
         // Remove existing member definitions that are now shadowed by the
         // forwarded modules.
-        for name in &forwarded_vars {
-            inner.variable_indices.remove(name);
+        for name in forwarded_vars.iter() {
+            inner.variable_indices.remove(*name);
             if let Some(last_vars) = inner.variables.last() {
-                last_vars.borrow_mut().shift_remove(name);
+                last_vars.borrow_mut().shift_remove(*name);
             }
             if let Some(last_nodes) = inner.variable_nodes.last() {
-                last_nodes.borrow_mut().shift_remove(name);
+                last_nodes.borrow_mut().shift_remove(*name);
             }
         }
-        for name in &forwarded_funcs {
-            inner.function_indices.remove(name);
+        for name in forwarded_funcs.iter() {
+            inner.function_indices.remove(*name);
             if let Some(last_funcs) = inner.functions.last() {
-                last_funcs.borrow_mut().shift_remove(name);
+                last_funcs.borrow_mut().shift_remove(*name);
             }
         }
-        for name in &forwarded_mixins {
-            inner.mixin_indices.remove(name);
+        for name in forwarded_mixins.iter() {
+            inner.mixin_indices.remove(*name);
             if let Some(last_mixins) = inner.mixins.last() {
-                last_mixins.borrow_mut().shift_remove(name);
+                last_mixins.borrow_mut().shift_remove(*name);
             }
         }
 
@@ -1442,7 +1539,7 @@ fn assert_no_conflicts<'compile: 'parse, 'parse, V: Clone + Debug + PartialEq>(
     new_module: &Module<'compile, 'parse>,
     old_module: &Module<'compile, 'parse>,
     member_type: &str,
-    forwarded_modules: &IndexMap<Module<'compile, 'parse>, FileSpan<'parse>>,
+    forwarded_modules: &ArenaMap<'parse, Module<'compile, 'parse>, FileSpan<'parse>>,
     new_span: FileSpan<'parse>,
 ) -> SassResult<()> {
     let (smaller, larger, smaller_mod, larger_mod) = if new_members.len() < old_members.len() {
@@ -1695,7 +1792,7 @@ mod tests {
         files.insert("/_m1.scss".to_string(), "@forward \"up\";".to_string());
         files.insert("/_m2.scss".to_string(), "@forward \"up\";".to_string());
         let io: Rc<dyn Io> = Rc::new(VirtualIo::with_files(files));
-        let result = compile("/main.scss", io, CompileOptions::new(&arena), &arena)
+        let result = compile("/main.scss", io, &mut CompileOptions::new(&arena), &arena)
             .await
             .unwrap();
         assert_eq!(result.css(), "a {\n  b: 1;\n}");
@@ -1725,7 +1822,7 @@ mod tests {
         files.insert("/_m2.scss".to_string(), "@forward \"up\";".to_string());
         files.insert("/_m3.scss".to_string(), "@forward \"other\";".to_string());
         let io: Rc<dyn Io> = Rc::new(VirtualIo::with_files(files));
-        let err = compile("/main.scss", io, CompileOptions::new(&arena), &arena)
+        let err = compile("/main.scss", io, &mut CompileOptions::new(&arena), &arena)
             .await
             .unwrap_err();
         match *err {
@@ -1759,7 +1856,7 @@ mod tests {
         let err = compile_string(
             "@use \"sass:meta\";\n@mixin inner { @content; }\n@mixin outer {\n  @include inner {\n    a { b: meta.content-exists(); }\n  }\n}\n@include outer;\n",
             io,
-            CompileOptions::new(&arena),
+            &mut CompileOptions::new(&arena),
             &arena,
         )
         .await
@@ -1782,7 +1879,7 @@ mod tests {
     #[test]
     fn test_frame_scoped_variable_readers() {
         fn num<'a>(arena: &'a Bump, v: f64) -> Value<'a> {
-            Value::new_with_arena(arena, ValueKind::Number(SassNumber::new(v, None)))
+            Value::new_with_arena(arena, ValueKind::Number(SassNumber::new(arena, v, None)))
         }
 
         fn number_of(value: Value<'_>) -> Option<f64> {

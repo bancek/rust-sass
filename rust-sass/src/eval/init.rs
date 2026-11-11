@@ -35,7 +35,7 @@ where
     'parse: 'compile,
 {
     for m in functions::core_modules(arena) {
-        let url = m.url.clone();
+        let url = m.url.to_string();
         v.config
             .built_in_modules
             .insert(url, Module::new(arena, ModuleKind::BuiltIn(m)));
@@ -43,7 +43,7 @@ where
 
     let global_fns = functions::global_functions(arena);
     for f in global_fns.iter() {
-        let normalized = f.name().replace('_', "-");
+        let normalized = arena.alloc_str(&f.name().replace('_', "-"));
         v.config
             .built_in_functions
             .borrow_mut()
@@ -52,7 +52,7 @@ where
     v.config
         .global_functions
         .borrow_mut()
-        .extend(global_fns.clone());
+        .extend(global_fns.iter().copied());
 
     register_meta_functions(v, arena)?;
     Ok(())

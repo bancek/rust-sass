@@ -85,10 +85,7 @@ pub fn merge_extensions<'compile: 'parse, 'parse>(
         return Ok(*right);
     }
 
-    let media_context = left
-        .media_context()
-        .or_else(|| right.media_context())
-        .cloned();
+    let media_context = left.media_context().or_else(|| right.media_context());
 
     let base_ext = BaseExtension::new(
         arena,
@@ -134,21 +131,21 @@ mod tests {
     use crate::selector::SimpleSelector;
     use bumpalo::Bump;
 
-    fn class(name: &str) -> SimpleSelector<'static> {
-        SimpleSelector::Class(ClassSelector::new(name.into(), BOGUS_SPAN))
+    fn class(name: &'static str) -> SimpleSelector<'static> {
+        SimpleSelector::Class(ClassSelector::new(name, BOGUS_SPAN))
     }
 
-    fn make_complex(name: &str) -> ComplexSelector<'static> {
+    fn make_complex<'p>(arena: &'p Bump, name: &'static str) -> ComplexSelector<'p> {
         let s = class(name);
-        let compound = CompoundSelector::new(vec![s], BOGUS_SPAN).unwrap();
-        let comp = ComplexSelectorComponent::new(Box::new(compound), vec![], BOGUS_SPAN);
-        ComplexSelector::new(vec![], vec![comp], BOGUS_SPAN, false).unwrap()
+        let compound = CompoundSelector::new(arena, vec![s], BOGUS_SPAN).unwrap();
+        let comp = ComplexSelectorComponent::new(arena, compound, vec![], BOGUS_SPAN);
+        ComplexSelector::new(arena, vec![], vec![comp], BOGUS_SPAN, false).unwrap()
     }
 
     #[test]
     fn test_merge_same_extender_and_target() {
         let arena = Bump::new();
-        let extender = make_complex("a");
+        let extender = make_complex(&arena, "a");
         let target = class("b");
         let left = BaseExtension::new(
             &arena,
@@ -173,8 +170,8 @@ mod tests {
     #[test]
     fn test_merge_different_extender() {
         let arena = Bump::new();
-        let extender1 = make_complex("a");
-        let extender2 = make_complex("c");
+        let extender1 = make_complex(&arena, "a");
+        let extender2 = make_complex(&arena, "c");
         let target = class("b");
         let left = BaseExtension::new(&arena, extender1, target.clone(), BOGUS_SPAN, None, false);
         let right = BaseExtension::new(&arena, extender2, target.clone(), BOGUS_SPAN, None, false);
@@ -185,7 +182,7 @@ mod tests {
     #[test]
     fn test_merge_different_target() {
         let arena = Bump::new();
-        let extender = make_complex("a");
+        let extender = make_complex(&arena, "a");
         let left = BaseExtension::new(
             &arena,
             extender.clone(),
@@ -209,7 +206,7 @@ mod tests {
     #[test]
     fn test_merge_compatible_media_contexts() {
         let arena = Bump::new();
-        let extender = make_complex("a");
+        let extender = make_complex(&arena, "a");
         let target = class("b");
         let mc = vec![CssMediaQuery::test_type(
             Some("screen".into()),
@@ -221,7 +218,7 @@ mod tests {
             extender.clone(),
             target.clone(),
             BOGUS_SPAN,
-            Some(mc.clone()),
+            Some(&mc),
             false,
         );
         let right = BaseExtension::new(
@@ -229,7 +226,7 @@ mod tests {
             extender.clone(),
             target.clone(),
             BOGUS_SPAN,
-            Some(mc),
+            Some(&mc),
             false,
         );
         let merged = merge_extensions(&arena, &left, &right).unwrap();
@@ -248,15 +245,17 @@ mod tests {
         let left_media_span = FileSpan::new(Some(src), 7, 13); // screen
         let right_media_span = FileSpan::new(Some(src), 24, 29); // print
 
-        let extender = make_complex("a");
+        let extender = make_complex(&arena, "a");
         let target = class("b");
         let mc1 = vec![CssMediaQuery::new_type(
+            &arena,
             Some("screen".into()),
             left_media_span,
             None,
             vec![],
         )];
         let mc2 = vec![CssMediaQuery::new_type(
+            &arena,
             Some("print".into()),
             right_media_span,
             None,
@@ -267,7 +266,7 @@ mod tests {
             extender.clone(),
             target.clone(),
             left_span,
-            Some(mc1),
+            Some(&mc1),
             false,
         );
         let right = BaseExtension::new(
@@ -275,7 +274,7 @@ mod tests {
             extender.clone(),
             target.clone(),
             right_span,
-            Some(mc2),
+            Some(&mc2),
             false,
         );
         let err = merge_extensions(&arena, &left, &right).unwrap_err();
@@ -308,7 +307,7 @@ mod tests {
     #[test]
     fn test_merge_right_optional_no_media() {
         let arena = Bump::new();
-        let extender = make_complex("a");
+        let extender = make_complex(&arena, "a");
         let target = class("b");
         let left = BaseExtension::new(
             &arena,
@@ -333,7 +332,7 @@ mod tests {
     #[test]
     fn test_merge_left_optional_no_media() {
         let arena = Bump::new();
-        let extender = make_complex("a");
+        let extender = make_complex(&arena, "a");
         let target = class("b");
         let left = BaseExtension::new(
             &arena,
@@ -358,7 +357,7 @@ mod tests {
     #[test]
     fn test_unmerge_base() {
         let arena = Bump::new();
-        let extender = make_complex("a");
+        let extender = make_complex(&arena, "a");
         let target = class("b");
         let ext = BaseExtension::new(&arena, extender, target.clone(), BOGUS_SPAN, None, false);
         let unmerged = unmerge_extensions(&ext);
@@ -369,7 +368,7 @@ mod tests {
     #[test]
     fn test_unmerge_merged() {
         let arena = Bump::new();
-        let extender = make_complex("a");
+        let extender = make_complex(&arena, "a");
         let target = class("b");
         let left = BaseExtension::new(
             &arena,

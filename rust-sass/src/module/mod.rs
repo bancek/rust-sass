@@ -18,9 +18,10 @@ use std::hash::{Hash, Hasher};
 
 use bumpalo::Bump;
 
-use crate::url::SassUrl;
+use crate::url::OwnedUrl;
 use indexmap::IndexMap;
 
+use crate::arena_map::ArenaMap;
 use crate::ast::css::comment::CssComment;
 use crate::ast::css::modifiable_node::{ModifiableCssNode, ModifiableCssNodeKind};
 use crate::ast::css::stylesheet::ModifiableCssStylesheet;
@@ -32,19 +33,25 @@ use crate::extend::store::ExtensionStore;
 use crate::member_map::{self, MemberMap};
 use crate::value::Value;
 
+use allocator_api2::vec::Vec as AllocVec;
+
+type ArenaVec<'p, T> = AllocVec<T, &'p Bump>;
+
 /// A module provided by Sass, available under the special `sass:` URL space.
 ///
 /// Dart: `BuiltInModule` (`module/built_in.dart`). Functions and mixins are
 /// stored keyed by their own names; variables are immutable once constructed.
 #[derive(Clone)]
 pub struct BuiltInModule<'compile, 'parse> {
-    pub url: String,
-    pub variables: IndexMap<String, Value<'parse>>,
-    pub functions: IndexMap<String, Callable<'compile, 'parse>>,
-    pub mixins: IndexMap<String, Callable<'compile, 'parse>>,
+    pub url: &'parse str,
+    pub variables: ArenaMap<'parse, &'parse str, Value<'parse>>,
+    pub functions: ArenaMap<'parse, &'parse str, Callable<'compile, 'parse>>,
+    pub mixins: ArenaMap<'parse, &'parse str, Callable<'compile, 'parse>>,
     pub css: ModifiableCssNode<'parse>,
-    variable_nodes: IndexMap<String, FileSpan<'parse>>,
-    pre_module_comments: IndexMap<Module<'compile, 'parse>, Vec<CssComment<'parse>>>,
+    variable_nodes: ArenaMap<'parse, &'parse str, FileSpan<'parse>>,
+    // Always empty for built-in modules.
+    pre_module_comments:
+        ArenaMap<'parse, Module<'compile, 'parse>, ArenaVec<'parse, CssComment<'parse>>>,
 }
 
 impl<'compile: 'parse, 'parse> BuiltInModule<'compile, 'parse> {
@@ -57,29 +64,38 @@ impl<'compile: 'parse, 'parse> BuiltInModule<'compile, 'parse> {
         mixins: &[Callable<'compile, 'parse>],
         variables: IndexMap<String, Value<'parse>>,
     ) -> Self {
-        let fn_map: IndexMap<String, Callable<'compile, 'parse>> = functions
-            .iter()
-            .map(|f| (f.name().to_string(), *f))
-            .collect();
-        let mx_map: IndexMap<String, Callable<'compile, 'parse>> =
-            mixins.iter().map(|m| (m.name().to_string(), *m)).collect();
+        let mut fn_map: ArenaMap<'parse, &'parse str, Callable<'compile, 'parse>> =
+            ArenaMap::new_in(arena);
+        for f in functions {
+            fn_map.insert(arena.alloc_str(f.name()), *f);
+        }
+        let mut mx_map: ArenaMap<'parse, &'parse str, Callable<'compile, 'parse>> =
+            ArenaMap::new_in(arena);
+        for m in mixins {
+            mx_map.insert(arena.alloc_str(m.name()), *m);
+        }
+        let mut var_map: ArenaMap<'parse, &'parse str, Value<'parse>> = ArenaMap::new_in(arena);
+        for (key, value) in variables {
+            var_map.insert(arena.alloc_str(&key), value);
+        }
+        let url: &'parse str = arena.alloc_str(&format!("sass:{name}"));
         BuiltInModule {
-            url: format!("sass:{name}"),
-            variables,
+            url,
+            variables: var_map,
             functions: fn_map,
             mixins: mx_map,
             css: ModifiableCssNode::new(
                 arena,
-                ModifiableCssNodeKind::Stylesheet(ModifiableCssStylesheet::new(BOGUS_SPAN)),
+                ModifiableCssNodeKind::Stylesheet(ModifiableCssStylesheet::new(arena, BOGUS_SPAN)),
             ),
-            variable_nodes: IndexMap::new(),
-            pre_module_comments: IndexMap::new(),
+            variable_nodes: ArenaMap::new_in(arena),
+            pre_module_comments: ArenaMap::new_in(arena),
         }
     }
 
     /// The canonical URL for this module's source file (`sass:<name>`).
-    pub fn url(&self) -> SassResult<Option<SassUrl>> {
-        Ok(Some(SassUrl::parse(&self.url).map_err(|_| {
+    pub fn url(&self) -> SassResult<Option<OwnedUrl>> {
+        Ok(Some(OwnedUrl::parse(self.url).map_err(|_| {
             SassError::Script {
                 message: format!("Invalid module URL: {}", self.url),
                 argument_name: None,
@@ -88,13 +104,13 @@ impl<'compile: 'parse, 'parse> BuiltInModule<'compile, 'parse> {
     }
 
     /// Matches Go: BuiltInModule.AddFunction.
-    pub fn add_function(&mut self, fn_: Callable<'compile, 'parse>) {
-        self.functions.insert(fn_.name().to_string(), fn_);
+    pub fn add_function(&mut self, arena: &'parse Bump, fn_: Callable<'compile, 'parse>) {
+        self.functions.insert(arena.alloc_str(fn_.name()), fn_);
     }
 
     /// Matches Go: BuiltInModule.AddMixin.
-    pub fn add_mixin(&mut self, mx: Callable<'compile, 'parse>) {
-        self.mixins.insert(mx.name().to_string(), mx);
+    pub fn add_mixin(&mut self, arena: &'parse Bump, mx: Callable<'compile, 'parse>) {
+        self.mixins.insert(arena.alloc_str(mx.name()), mx);
     }
 
     /// Modules that this module uses. Built-in modules use no others.
@@ -104,7 +120,7 @@ impl<'compile: 'parse, 'parse> BuiltInModule<'compile, 'parse> {
 
     /// The nodes where each variable was defined. Built-in modules carry no
     /// spans, so this is always empty.
-    pub fn variable_nodes(&self) -> &IndexMap<String, FileSpan<'parse>> {
+    pub fn variable_nodes(&self) -> &ArenaMap<'parse, &'parse str, FileSpan<'parse>> {
         &self.variable_nodes
     }
 
@@ -118,7 +134,7 @@ impl<'compile: 'parse, 'parse> BuiltInModule<'compile, 'parse> {
     /// Built-in modules carry none.
     pub fn pre_module_comments(
         &self,
-    ) -> &IndexMap<Module<'compile, 'parse>, Vec<CssComment<'parse>>> {
+    ) -> &ArenaMap<'parse, Module<'compile, 'parse>, ArenaVec<'parse, CssComment<'parse>>> {
         &self.pre_module_comments
     }
 
@@ -215,7 +231,7 @@ pub enum ModuleKind<'compile, 'parse> {
     BuiltIn(BuiltInModule<'compile, 'parse>),
     Forwarded(ForwardedModuleView<'compile, 'parse>),
     Shadowed(ShadowedModuleView<'compile, 'parse>),
-    Environment(Box<EnvironmentModule<'compile, 'parse>>),
+    Environment(EnvironmentModule<'compile, 'parse>),
 }
 
 // === Module wrapper with arena identity ===
@@ -262,12 +278,14 @@ impl<'compile: 'parse, 'parse> Module<'compile, 'parse> {
 
     /// The canonical URL for this module's source file, or `None` when loaded
     /// from a string without a URL.
-    pub fn url(&self) -> SassResult<Option<SassUrl>> {
+    pub fn url(&self) -> SassResult<Option<OwnedUrl>> {
         match self.0 {
             ModuleKind::BuiltIn(b) => b.url(),
             ModuleKind::Forwarded(f) => f.inner.url(),
             ModuleKind::Shadowed(s) => s.inner.url(),
-            ModuleKind::Environment(e) => Ok(e.css.span()?.source_url().cloned()),
+            ModuleKind::Environment(e) => {
+                Ok(e.css.span()?.source_url().map(|url| url.to_owned_url()))
+            }
         }
     }
 
@@ -277,7 +295,7 @@ impl<'compile: 'parse, 'parse> Module<'compile, 'parse> {
             ModuleKind::BuiltIn(_) => vec![],
             ModuleKind::Forwarded(f) => f.inner.upstream(),
             ModuleKind::Shadowed(s) => s.inner.upstream(),
-            ModuleKind::Environment(e) => e.upstream.clone(),
+            ModuleKind::Environment(e) => e.upstream.to_vec(),
         }
     }
 
@@ -293,9 +311,7 @@ impl<'compile: 'parse, 'parse> Module<'compile, 'parse> {
 
     pub fn variables_view(&self, arena: &'compile Bump) -> &'parse dyn MemberMap<Value<'parse>> {
         match self.0 {
-            ModuleKind::BuiltIn(b) => arena.alloc(member_map::IndexMapView {
-                map: b.variables.clone(),
-            }),
+            ModuleKind::BuiltIn(b) => arena.alloc(member_map::ArenaMapView { map: &b.variables }),
             ModuleKind::Forwarded(f) => f.variables,
             ModuleKind::Shadowed(s) => s.variables,
             ModuleKind::Environment(e) => e.variables,
@@ -319,8 +335,8 @@ impl<'compile: 'parse, 'parse> Module<'compile, 'parse> {
         arena: &'compile Bump,
     ) -> &'parse dyn MemberMap<FileSpan<'parse>> {
         match self.0 {
-            ModuleKind::BuiltIn(b) => arena.alloc(member_map::IndexMapView {
-                map: b.variable_nodes().clone(),
+            ModuleKind::BuiltIn(b) => arena.alloc(member_map::ArenaMapView {
+                map: b.variable_nodes(),
             }),
             ModuleKind::Forwarded(f) => f.variable_nodes,
             ModuleKind::Shadowed(s) => s.variable_nodes,
@@ -343,9 +359,7 @@ impl<'compile: 'parse, 'parse> Module<'compile, 'parse> {
         arena: &'compile Bump,
     ) -> &'parse dyn MemberMap<Callable<'compile, 'parse>> {
         match self.0 {
-            ModuleKind::BuiltIn(b) => arena.alloc(member_map::IndexMapView {
-                map: b.functions.clone(),
-            }),
+            ModuleKind::BuiltIn(b) => arena.alloc(member_map::ArenaMapView { map: &b.functions }),
             ModuleKind::Forwarded(f) => f.functions,
             ModuleKind::Shadowed(s) => s.functions,
             ModuleKind::Environment(e) => e.functions,
@@ -367,9 +381,7 @@ impl<'compile: 'parse, 'parse> Module<'compile, 'parse> {
         arena: &'compile Bump,
     ) -> &'parse dyn MemberMap<Callable<'compile, 'parse>> {
         match self.0 {
-            ModuleKind::BuiltIn(b) => arena.alloc(member_map::IndexMapView {
-                map: b.mixins.clone(),
-            }),
+            ModuleKind::BuiltIn(b) => arena.alloc(member_map::ArenaMapView { map: &b.mixins }),
             ModuleKind::Forwarded(f) => f.mixins,
             ModuleKind::Shadowed(s) => s.mixins,
             ModuleKind::Environment(e) => e.mixins,
@@ -383,7 +395,7 @@ impl<'compile: 'parse, 'parse> Module<'compile, 'parse> {
             ModuleKind::BuiltIn(_) => ExtensionStore::Empty,
             ModuleKind::Forwarded(_) => ExtensionStore::Empty,
             ModuleKind::Shadowed(_) => ExtensionStore::Empty,
-            ModuleKind::Environment(e) => e.extension_store.clone(),
+            ModuleKind::Environment(e) => e.extension_store,
         }
     }
 
@@ -396,12 +408,12 @@ impl<'compile: 'parse, 'parse> Module<'compile, 'parse> {
     /// written in this module that should be emitted before the given module.
     pub fn pre_module_comments(
         &self,
-    ) -> &IndexMap<Module<'compile, 'parse>, Vec<CssComment<'parse>>> {
+    ) -> &ArenaMap<'parse, Module<'compile, 'parse>, ArenaVec<'parse, CssComment<'parse>>> {
         match self.0 {
             ModuleKind::BuiltIn(b) => b.pre_module_comments(),
             ModuleKind::Forwarded(f) => f.inner.pre_module_comments(),
             ModuleKind::Shadowed(s) => s.inner.pre_module_comments(),
-            ModuleKind::Environment(e) => &e.pre_module_comments,
+            ModuleKind::Environment(e) => e.pre_module_comments,
         }
     }
 
@@ -546,7 +558,7 @@ use std::fmt::Debug;
 
 #[derive(Clone, Copy)]
 pub enum ModuleVariables<'a, V: Clone + Debug> {
-    Owned(&'a IndexMap<String, V>),
+    Owned(&'a ArenaMap<'a, &'a str, V>),
     View(&'a dyn MemberMap<V>),
 }
 
@@ -578,14 +590,16 @@ impl<'a, V: Clone + Debug> ModuleVariables<'a, V> {
 
     pub fn keys(&self) -> Vec<String> {
         match self {
-            ModuleVariables::Owned(m) => m.keys().cloned().collect(),
+            ModuleVariables::Owned(m) => m.keys().map(|k| k.to_string()).collect(),
             ModuleVariables::View(v) => v.keys(),
         }
     }
 
     pub fn entries(&self) -> Vec<(String, V)> {
         match self {
-            ModuleVariables::Owned(m) => m.iter().map(|(k, v)| (k.clone(), v.clone())).collect(),
+            ModuleVariables::Owned(m) => {
+                m.iter().map(|(k, v)| (k.to_string(), v.clone())).collect()
+            }
             ModuleVariables::View(v) => v.entries(),
         }
     }
@@ -593,19 +607,38 @@ impl<'a, V: Clone + Debug> ModuleVariables<'a, V> {
 
 #[cfg(test)]
 mod tests {
+    fn arena_set<'a>(
+        arena: &'a Bump,
+        names: &[&str],
+    ) -> &'a crate::arena_map::ArenaHashSet<'a, &'a str> {
+        let names: Vec<&'a str> = names.iter().map(|n| &*arena.alloc_str(n)).collect();
+        arena.alloc(arena_set_refs(arena, &names))
+    }
+
+    fn arena_set_refs<'a>(
+        arena: &'a Bump,
+        names: &[&'a str],
+    ) -> crate::arena_map::ArenaHashSet<'a, &'a str> {
+        let mut set =
+            hashbrown::HashSet::with_hasher_in(hashbrown::DefaultHashBuilder::default(), arena);
+        for name in names {
+            set.insert(*name);
+        }
+        set
+    }
+
     use crate::ast::sass::parameter_list::ParameterList;
     use crate::ast::sass::statement::ForwardRule;
     use crate::callable::BuiltInCallable;
     use crate::callable::CallableKind;
     use crate::callable::SyncBuiltInCallback;
     use crate::environment::Environment;
+    use crate::url::ArenaUrl;
     use crate::value::SassNumber;
-    use std::rc::Rc;
 
     use crate::ast::css::comment::ModifiableCssComment;
     use crate::ast::css::modifiable_node::{ModifiableCssNode, ModifiableCssNodeKind};
     use crate::ast::css::stylesheet::ModifiableCssStylesheet;
-    use crate::url::SassUrl;
     use crate::value::{Value, ValueKind};
 
     use super::*;
@@ -623,11 +656,13 @@ mod tests {
         'parse: 'compile,
     {
         let pl = ParameterList::empty(test_span());
-        let cb: SyncBuiltInCallback<'compile, 'parse> =
-            Rc::new(|_config, _state, _args, arena: &'compile Bump| {
+        let cb: SyncBuiltInCallback<'compile, 'parse> = crate::callable::built_in_callback(
+            arena,
+            |_config, _state, _args, arena: &'compile Bump| {
                 Ok(Value::new_with_arena(arena, ValueKind::Null))
-            });
-        let bic = BuiltInCallable::new(name.to_string(), pl, cb);
+            },
+        );
+        let bic = BuiltInCallable::new(arena, name, pl, cb);
         Callable::new(arena, CallableKind::BuiltIn(bic))
     }
 
@@ -657,7 +692,7 @@ mod tests {
             Value::new_with_arena(
                 &arena,
                 // Arbitrary value: this test only asserts key presence.
-                ValueKind::Number(SassNumber::new(1.0, None)),
+                ValueKind::Number(SassNumber::new(&arena, 1.0, None)),
             ),
         );
         let m = BuiltInModule::new(&arena, "math".into(), &[], &[], vars);
@@ -761,10 +796,11 @@ mod tests {
         let inner_mod = Module::new(&arena, ModuleKind::BuiltIn(inner));
 
         let rule = ForwardRule::new(
-            SassUrl::parse("file:///test").unwrap(),
+            &arena,
+            ArenaUrl::parse(&arena, "file:///test").unwrap(),
             test_span(),
-            Some("ns-".into()),
-            vec![],
+            Some("ns-"),
+            &[],
         );
         let fv = ForwardedModuleView::new(&arena, inner_mod, &rule);
         // Go PrefixedMapView ADDS prefix: inner "a" → visible as "ns-a"
@@ -778,10 +814,11 @@ mod tests {
         let inner = BuiltInModule::new(&arena, "test".into(), &[], &[], IndexMap::new());
         let inner_mod = Module::new(&arena, ModuleKind::BuiltIn(inner));
         let rule = ForwardRule::new(
-            SassUrl::parse("file:///test").unwrap(),
+            &arena,
+            ArenaUrl::parse(&arena, "file:///test").unwrap(),
             test_span(),
             None,
-            vec![],
+            &[],
         );
         let result = ForwardedModuleView::if_necessary(&arena, inner_mod, &rule);
         assert!(result == inner_mod);
@@ -793,10 +830,11 @@ mod tests {
         let inner = BuiltInModule::new(&arena, "test".into(), &[], &[], IndexMap::new());
         let inner_mod = Module::new(&arena, ModuleKind::BuiltIn(inner));
         let rule = ForwardRule::new(
-            SassUrl::parse("file:///test").unwrap(),
+            &arena,
+            ArenaUrl::parse(&arena, "file:///test").unwrap(),
             test_span(),
-            Some("ns-".into()),
-            vec![],
+            Some("ns-"),
+            &[],
         );
         let result = ForwardedModuleView::if_necessary(&arena, inner_mod, &rule);
         assert!(result != inner_mod);
@@ -808,10 +846,11 @@ mod tests {
         let inner = BuiltInModule::new(&arena, "math".into(), &[], &[], IndexMap::new());
         let inner_mod = Module::new(&arena, ModuleKind::BuiltIn(inner));
         let rule = ForwardRule::new(
-            SassUrl::parse("file:///test").unwrap(),
+            &arena,
+            ArenaUrl::parse(&arena, "file:///test").unwrap(),
             test_span(),
             None,
-            vec![],
+            &[],
         );
         let fv = ForwardedModuleView::new(&arena, inner_mod, &rule);
         let fv_mod = Module::new(&arena, ModuleKind::Forwarded(fv));
@@ -830,13 +869,13 @@ mod tests {
         let inner = BuiltInModule::new(&arena, "test".into(), &[], &[], vars);
         let inner_mod = Module::new(&arena, ModuleKind::BuiltIn(inner));
 
-        let blocked: HashSet<String> = ["b".into()].into();
+        let blocked = arena_set(&arena, &["b"]);
         let sv = ShadowedModuleView::new(
             &arena,
             inner_mod,
-            &blocked,
-            &HashSet::new(),
-            &HashSet::new(),
+            blocked,
+            arena_set(&arena, &[]),
+            arena_set(&arena, &[]),
         );
 
         assert!(sv.variables.has("a"));
@@ -851,9 +890,9 @@ mod tests {
         let result = ShadowedModuleView::if_necessary(
             &arena,
             &inner_mod,
-            &HashSet::new(),
-            &HashSet::new(),
-            &HashSet::new(),
+            arena_set(&arena, &[]),
+            arena_set(&arena, &[]),
+            arena_set(&arena, &[]),
         );
         assert!(result.is_none());
     }
@@ -865,13 +904,13 @@ mod tests {
         vars.insert("a".into(), Value::new_with_arena(&arena, ValueKind::Null));
         let inner = BuiltInModule::new(&arena, "test".into(), &[], &[], vars);
         let inner_mod = Module::new(&arena, ModuleKind::BuiltIn(inner));
-        let blocked: HashSet<String> = ["a".into()].into();
+        let blocked = arena_set(&arena, &["a"]);
         let result = ShadowedModuleView::if_necessary(
             &arena,
             &inner_mod,
-            &blocked,
-            &HashSet::new(),
-            &HashSet::new(),
+            blocked,
+            arena_set(&arena, &[]),
+            arena_set(&arena, &[]),
         );
         assert!(result.is_some());
     }
@@ -883,13 +922,13 @@ mod tests {
         vars.insert("a".into(), Value::new_with_arena(&arena, ValueKind::Null));
         let inner = BuiltInModule::new(&arena, "test".into(), &[], &[], vars);
         let inner_mod = Module::new(&arena, ModuleKind::BuiltIn(inner));
-        let blocked: HashSet<String> = ["a".into()].into();
+        let blocked = arena_set(&arena, &["a"]);
         let sv = ShadowedModuleView::new(
             &arena,
             inner_mod,
-            &blocked,
-            &HashSet::new(),
-            &HashSet::new(),
+            blocked,
+            arena_set(&arena, &[]),
+            arena_set(&arena, &[]),
         );
         assert!(sv.is_empty().unwrap());
     }
@@ -911,27 +950,42 @@ mod tests {
         vars.insert("b".into(), Value::new_with_arena(&arena, ValueKind::Null));
         let inner = BuiltInModule::new(&arena, "test".into(), &[], &[], vars);
         let inner_mod = Module::new(&arena, ModuleKind::BuiltIn(inner));
-        let blocked: HashSet<String> = ["b".into()].into();
+        let blocked = arena_set(&arena, &["b"]);
 
-        let make = |blocked: &HashSet<String>| {
-            Module::new(
+        let first = Module::new(
+            &arena,
+            ModuleKind::Shadowed(ShadowedModuleView::new(
                 &arena,
-                ModuleKind::Shadowed(ShadowedModuleView::new(
-                    &arena,
-                    inner_mod,
-                    blocked,
-                    &HashSet::new(),
-                    &HashSet::new(),
-                )),
-            )
-        };
-        let first = make(&blocked);
-        let second = make(&blocked);
+                inner_mod,
+                blocked,
+                arena_set(&arena, &[]),
+                arena_set(&arena, &[]),
+            )),
+        );
+        let second = Module::new(
+            &arena,
+            ModuleKind::Shadowed(ShadowedModuleView::new(
+                &arena,
+                inner_mod,
+                blocked,
+                arena_set(&arena, &[]),
+                arena_set(&arena, &[]),
+            )),
+        );
         assert_eq!(first, second);
         assert_eq!(hash_of(&first), hash_of(&second));
 
-        let other: HashSet<String> = ["a".into()].into();
-        let different = make(&other);
+        let other = arena_set(&arena, &["a"]);
+        let different = Module::new(
+            &arena,
+            ModuleKind::Shadowed(ShadowedModuleView::new(
+                &arena,
+                inner_mod,
+                other,
+                arena_set(&arena, &[]),
+                arena_set(&arena, &[]),
+            )),
+        );
         assert_ne!(first, different);
 
         // Shadowing a shadowed view compares the inner view structurally.
@@ -940,9 +994,9 @@ mod tests {
             ModuleKind::Shadowed(ShadowedModuleView::new(
                 &arena,
                 first,
-                &other,
-                &HashSet::new(),
-                &HashSet::new(),
+                other,
+                arena_set(&arena, &[]),
+                arena_set(&arena, &[]),
             )),
         );
         let nested_again = Module::new(
@@ -950,9 +1004,9 @@ mod tests {
             ModuleKind::Shadowed(ShadowedModuleView::new(
                 &arena,
                 second,
-                &other,
-                &HashSet::new(),
-                &HashSet::new(),
+                other,
+                arena_set(&arena, &[]),
+                arena_set(&arena, &[]),
             )),
         );
         assert_eq!(nested, nested_again);
@@ -966,10 +1020,11 @@ mod tests {
         let inner_mod = Module::new(&arena, ModuleKind::BuiltIn(inner));
         let span = FileSpan::new(None, 4, 20);
         let rule = ForwardRule::new(
-            SassUrl::parse("file:///test").unwrap(),
+            &arena,
+            ArenaUrl::parse(&arena, "file:///test").unwrap(),
             span,
-            Some("ns-".into()),
-            vec![],
+            Some("ns-"),
+            &[],
         );
         let first = ForwardedModuleView::if_necessary(&arena, inner_mod, &rule);
         let second = ForwardedModuleView::if_necessary(&arena, inner_mod, &rule);
@@ -977,10 +1032,11 @@ mod tests {
         assert_eq!(hash_of(&first), hash_of(&second));
 
         let other_rule = ForwardRule::new(
-            SassUrl::parse("file:///test").unwrap(),
+            &arena,
+            ArenaUrl::parse(&arena, "file:///test").unwrap(),
             FileSpan::new(None, 21, 40),
-            Some("ns-".into()),
-            vec![],
+            Some("ns-"),
+            &[],
         );
         let different = ForwardedModuleView::if_necessary(&arena, inner_mod, &other_rule);
         assert_ne!(first, different);
@@ -1020,7 +1076,7 @@ mod tests {
         let env = Environment::new(arena);
         let mut children: Vec<ModifiableCssNode<'parse>> = Vec::new();
         if has_content {
-            let comment = ModifiableCssComment::new("/* test */".into(), test_span());
+            let comment = ModifiableCssComment::new("/* test */", test_span());
             children.push(ModifiableCssNode::new(
                 arena,
                 ModifiableCssNodeKind::Comment(comment),
@@ -1028,7 +1084,7 @@ mod tests {
         }
         let css = ModifiableCssNode::new(
             arena,
-            ModifiableCssNodeKind::Stylesheet(ModifiableCssStylesheet::new(test_span())),
+            ModifiableCssNodeKind::Stylesheet(ModifiableCssStylesheet::new(arena, test_span())),
         );
         for child in &children {
             css.add_child(child).unwrap();
@@ -1037,7 +1093,7 @@ mod tests {
             arena,
             env,
             css,
-            IndexMap::new(),
+            &IndexMap::new(),
             ExtensionStore::Empty,
             &[],
             &[],

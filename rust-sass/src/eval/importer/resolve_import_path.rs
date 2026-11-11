@@ -12,7 +12,7 @@ use std::path::Path;
 
 use crate::common::exception::SassError;
 use crate::io::{Io, IoError};
-use crate::url::SassUrl;
+use crate::url::OwnedUrl;
 
 fn io_err_to_sass(e: IoError) -> SassError {
     SassError::Script {
@@ -153,7 +153,7 @@ fn exactly_one(paths: &[String], io: &dyn Io) -> Result<Option<String>, Box<Sass
         _ => {
             let lines: Vec<String> = paths
                 .iter()
-                .map(|p| match SassUrl::file_url_from_abs_path(p) {
+                .map(|p| match OwnedUrl::file_url_from_abs_path(p) {
                     Ok(url) => format!("  {}", pretty_uri(&url, io)),
                     Err(()) => format!("  {p}"),
                 })

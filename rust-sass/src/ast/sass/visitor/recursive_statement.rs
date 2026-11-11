@@ -46,18 +46,18 @@ impl<'parse> StatementVisitor<'parse> for RecursiveStatementVisitor {
     type Output = ();
 
     fn visit_at_root_rule(&mut self, node: &AtRootRule<'parse>) -> SassResult<()> {
-        self.visit_children(&node.children)
+        self.visit_children(node.children)
     }
 
     fn visit_at_rule(&mut self, node: &AtRule<'parse>) -> SassResult<()> {
-        if let Some(ref children) = node.children {
+        if let Some(children) = node.children {
             self.visit_children(children)?;
         }
         Ok(())
     }
 
     fn visit_content_block(&mut self, node: &ContentBlock<'parse>) -> SassResult<()> {
-        self.visit_children(&node.children)
+        self.visit_children(node.children)
     }
 
     fn visit_content_rule(&mut self, _node: &ContentRule<'parse>) -> SassResult<()> {
@@ -69,14 +69,14 @@ impl<'parse> StatementVisitor<'parse> for RecursiveStatementVisitor {
     }
 
     fn visit_declaration(&mut self, node: &Declaration<'parse>) -> SassResult<()> {
-        if let Some(ref children) = node.children {
+        if let Some(children) = node.children {
             self.visit_children(children)?;
         }
         Ok(())
     }
 
     fn visit_each_rule(&mut self, node: &EachRule<'parse>) -> SassResult<()> {
-        self.visit_children(&node.children)
+        self.visit_children(node.children)
     }
 
     fn visit_error_rule(&mut self, _node: &ErrorRule<'parse>) -> SassResult<()> {
@@ -88,7 +88,7 @@ impl<'parse> StatementVisitor<'parse> for RecursiveStatementVisitor {
     }
 
     fn visit_for_rule(&mut self, node: &ForRule<'parse>) -> SassResult<()> {
-        self.visit_children(&node.children)
+        self.visit_children(node.children)
     }
 
     fn visit_forward_rule(&mut self, _node: &ForwardRule<'parse>) -> SassResult<()> {
@@ -96,16 +96,16 @@ impl<'parse> StatementVisitor<'parse> for RecursiveStatementVisitor {
     }
 
     fn visit_function_rule(&mut self, node: &FunctionRule<'parse>) -> SassResult<()> {
-        self.visit_children(&node.children)
+        self.visit_children(node.children)
     }
 
     fn visit_if_rule(&mut self, node: &IfRule<'parse>) -> SassResult<()> {
-        for clause in &node.clauses {
-            for child in &clause.children {
+        for clause in node.clauses {
+            for child in clause.children {
                 child.accept(self)?;
             }
         }
-        if let Some(ref last) = node.last_clause {
+        if let Some(last) = node.last_clause {
             for child in last {
                 child.accept(self)?;
             }
@@ -118,7 +118,7 @@ impl<'parse> StatementVisitor<'parse> for RecursiveStatementVisitor {
     }
 
     fn visit_include_rule(&mut self, node: &IncludeRule<'parse>) -> SassResult<()> {
-        if let Some(ref content) = node.content {
+        if let Some(content) = node.content {
             self.visit_content_block(content)?;
         }
         Ok(())
@@ -129,11 +129,11 @@ impl<'parse> StatementVisitor<'parse> for RecursiveStatementVisitor {
     }
 
     fn visit_media_rule(&mut self, node: &MediaRule<'parse>) -> SassResult<()> {
-        self.visit_children(&node.children)
+        self.visit_children(node.children)
     }
 
     fn visit_mixin_rule(&mut self, node: &MixinRule<'parse>) -> SassResult<()> {
-        self.visit_children(&node.children)
+        self.visit_children(node.children)
     }
 
     fn visit_return_rule(&mut self, _node: &ReturnRule<'parse>) -> SassResult<()> {
@@ -145,15 +145,15 @@ impl<'parse> StatementVisitor<'parse> for RecursiveStatementVisitor {
     }
 
     fn visit_stylesheet(&mut self, node: &Stylesheet<'parse>) -> SassResult<()> {
-        self.visit_children(&node.children)
+        self.visit_children(node.children)
     }
 
     fn visit_style_rule(&mut self, node: &StyleRule<'parse>) -> SassResult<()> {
-        self.visit_children(&node.children)
+        self.visit_children(node.children)
     }
 
     fn visit_supports_rule(&mut self, node: &SupportsRule<'parse>) -> SassResult<()> {
-        self.visit_children(&node.children)
+        self.visit_children(node.children)
     }
 
     fn visit_use_rule(&mut self, _node: &UseRule<'parse>) -> SassResult<()> {
@@ -172,12 +172,14 @@ impl<'parse> StatementVisitor<'parse> for RecursiveStatementVisitor {
     }
 
     fn visit_while_rule(&mut self, node: &WhileRule<'parse>) -> SassResult<()> {
-        self.visit_children(&node.children)
+        self.visit_children(node.children)
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use crate::ast::sass::arena_slice;
+
     use super::*;
     use crate::ast::sass::argument_list::ArgumentList;
     use crate::ast::sass::expression::Expression;
@@ -188,6 +190,7 @@ mod tests {
     use crate::ast::sass::expression_string::StringExpression;
     use crate::ast::sass::interpolation::Interpolation;
     use crate::ast::sass::parameter_list::ParameterList;
+    use crate::ast::sass::statement::arena_statements;
     use crate::ast::sass::statement::IfClause;
     use crate::ast::sass::supports_condition::{SupportsCondition, SupportsDeclaration};
     use crate::common::file_span::FileSpan;
@@ -227,7 +230,8 @@ mod tests {
     {
         Statement::VariableDeclaration(
             VariableDeclaration::new(
-                name.to_string(),
+                arena,
+                name,
                 null_expr(arena),
                 test_span(arena, name),
                 None,
@@ -259,7 +263,11 @@ mod tests {
         let arena = Bump::new();
         let mut v = RecursiveStatementVisitor::new();
         let child = var_decl(&arena, "x");
-        let ss = Stylesheet::new(vec![child], test_span(&arena, "$x: null;"));
+        let ss = Stylesheet::new(
+            &arena,
+            arena_statements(&arena, vec![child]),
+            test_span(&arena, "$x: null;"),
+        );
         Statement::Stylesheet(ss).accept(&mut v).unwrap();
     }
 
@@ -267,7 +275,7 @@ mod tests {
     fn test_visit_at_rule_nil_children() {
         let arena = Bump::new();
         let mut v = RecursiveStatementVisitor::new();
-        let name = Interpolation::plain("foo".into(), test_span(&arena, "foo"));
+        let name = Interpolation::plain(&arena, "foo".into(), test_span(&arena, "foo"));
         let ar = AtRule::new(name, test_span(&arena, "@foo;"), None, None);
         Statement::AtRule(ar).accept(&mut v).unwrap();
     }
@@ -276,8 +284,8 @@ mod tests {
     fn test_visit_at_rule_empty_children() {
         let arena = Bump::new();
         let mut v = RecursiveStatementVisitor::new();
-        let name = Interpolation::plain("foo".into(), test_span(&arena, "foo"));
-        let ar = AtRule::new(name, test_span(&arena, "@foo { }"), None, Some(vec![]));
+        let name = Interpolation::plain(&arena, "foo".into(), test_span(&arena, "foo"));
+        let ar = AtRule::new(name, test_span(&arena, "@foo { }"), None, Some(&[]));
         Statement::AtRule(ar).accept(&mut v).unwrap();
     }
 
@@ -285,9 +293,14 @@ mod tests {
     fn test_visit_at_rule_with_children() {
         let arena = Bump::new();
         let mut v = RecursiveStatementVisitor::new();
-        let name = Interpolation::plain("foo".into(), test_span(&arena, "foo"));
+        let name = Interpolation::plain(&arena, "foo".into(), test_span(&arena, "foo"));
         let child = var_decl(&arena, "x");
-        let ar = AtRule::new(name, test_span(&arena, "@foo { }"), None, Some(vec![child]));
+        let ar = AtRule::new(
+            name,
+            test_span(&arena, "@foo { }"),
+            None,
+            Some(arena_statements(&arena, vec![child])),
+        );
         Statement::AtRule(ar).accept(&mut v).unwrap();
     }
 
@@ -295,7 +308,7 @@ mod tests {
     fn test_visit_declaration_nil_children() {
         let arena = Bump::new();
         let mut v = RecursiveStatementVisitor::new();
-        let name = Interpolation::plain("color".into(), test_span(&arena, "color"));
+        let name = Interpolation::plain(&arena, "color".into(), test_span(&arena, "color"));
         let val = null_expr(&arena);
         let d = Declaration::new(name, val, test_span(&arena, "color: null;"));
         Statement::Declaration(d).accept(&mut v).unwrap();
@@ -305,12 +318,12 @@ mod tests {
     fn test_visit_declaration_with_children() {
         let arena = Bump::new();
         let mut v = RecursiveStatementVisitor::new();
-        let name = Interpolation::plain("color".into(), test_span(&arena, "color"));
+        let name = Interpolation::plain(&arena, "color".into(), test_span(&arena, "color"));
         let _val = null_expr(&arena);
         let child = var_decl(&arena, "x");
         let d = Declaration::nested(
             name,
-            vec![child],
+            arena_statements(&arena, vec![child]),
             test_span(&arena, "color: null { }"),
             None,
         );
@@ -324,9 +337,14 @@ mod tests {
         let child = var_decl(&arena, "x");
         let clause = IfClause {
             expression: bool_expr(&arena, true),
-            children: vec![child],
+            children: arena_statements(&arena, vec![child]),
         };
-        let if_rule = IfRule::new(vec![clause], test_span(&arena, "@if true { }"), None);
+        let if_rule = IfRule::new(
+            &arena,
+            vec![clause],
+            test_span(&arena, "@if true { }"),
+            None,
+        );
         Statement::IfRule(if_rule).accept(&mut v).unwrap();
     }
 
@@ -337,12 +355,13 @@ mod tests {
         let child = var_decl(&arena, "x");
         let clause = IfClause {
             expression: bool_expr(&arena, true),
-            children: vec![child.clone()],
+            children: arena_statements(&arena, vec![child.clone()]),
         };
         let if_rule = IfRule::new(
+            &arena,
             vec![clause],
             test_span(&arena, "@if true { } @else { }"),
-            Some(vec![child]),
+            Some(arena_statements(&arena, vec![child])),
         );
         Statement::IfRule(if_rule).accept(&mut v).unwrap();
     }
@@ -352,14 +371,15 @@ mod tests {
         let arena = Bump::new();
         let mut v = RecursiveStatementVisitor::new();
         let params = ParameterList::empty(test_span(&arena, ""));
-        let cb = ContentBlock::new(params, vec![], test_span(&arena, "{ }"));
+        let cb = ContentBlock::new(params, &[], test_span(&arena, "{ }"));
         let args = ArgumentList::empty(test_span(&arena, ""));
         let ir = IncludeRule::new(
-            "foo".into(),
+            &arena,
+            "foo",
             args,
             test_span(&arena, "+foo"),
             None,
-            Some(cb),
+            Some(&cb),
         );
         Statement::IncludeRule(ir).accept(&mut v).unwrap();
     }
@@ -369,7 +389,7 @@ mod tests {
         let arena = Bump::new();
         let mut v = RecursiveStatementVisitor::new();
         let args = ArgumentList::empty(test_span(&arena, ""));
-        let ir = IncludeRule::new("foo".into(), args, test_span(&arena, "+foo"), None, None);
+        let ir = IncludeRule::new(&arena, "foo", args, test_span(&arena, "+foo"), None, None);
         Statement::IncludeRule(ir).accept(&mut v).unwrap();
     }
 
@@ -380,9 +400,10 @@ mod tests {
         let params = ParameterList::empty(test_span(&arena, ""));
         let child = var_decl(&arena, "x");
         let fr = FunctionRule::new(
-            "f".into(),
+            &arena,
+            "f",
             params,
-            vec![child],
+            arena_statements(&arena, vec![child]),
             test_span(&arena, "@function f() { }"),
             None,
         );
@@ -396,9 +417,10 @@ mod tests {
         let params = ParameterList::empty(test_span(&arena, ""));
         let child = var_decl(&arena, "x");
         let mr = MixinRule::new(
-            "m".into(),
+            &arena,
+            "m",
             params,
-            vec![child],
+            arena_statements(&arena, vec![child]),
             test_span(&arena, "@mixin m() { }"),
             None,
         );
@@ -412,7 +434,7 @@ mod tests {
 
         let base_span = test_span(&arena, "test");
         let null = null_expr(&arena);
-        let plain = Interpolation::plain("a".into(), test_span(&arena, "a"));
+        let plain = Interpolation::plain(&arena, "a".into(), test_span(&arena, "a"));
 
         let leaves: Vec<Statement<'_>> = vec![
             Statement::ContentRule(ContentRule::new(ArgumentList::empty(base_span), base_span)),
@@ -421,14 +443,15 @@ mod tests {
             Statement::WarnRule(WarnRule::new(null.clone(), base_span)),
             Statement::ReturnRule(ReturnRule::new(null.clone(), base_span)),
             Statement::ExtendRule(ExtendRule::new(plain, base_span, false)),
-            Statement::ImportRule(ImportRule::new(vec![], base_span)),
+            Statement::ImportRule(ImportRule::new(&arena, vec![], base_span)),
             Statement::LoudComment(LoudComment::new(Interpolation::plain(
+                &arena,
                 "/* */".into(),
                 base_span,
             ))),
-            Statement::SilentComment(SilentComment::new("//".into(), base_span)),
+            Statement::SilentComment(SilentComment::new(&arena, "//", base_span)),
             Statement::VariableDeclaration(
-                VariableDeclaration::new("x".into(), null, base_span, None, false, false, None)
+                VariableDeclaration::new(&arena, "x", null, base_span, None, false, false, None)
                     .unwrap(),
             ),
         ];
@@ -442,9 +465,13 @@ mod tests {
     fn test_visit_style_rule() {
         let arena = Bump::new();
         let mut v = RecursiveStatementVisitor::new();
-        let sel = Interpolation::plain(".a".into(), test_span(&arena, ".a"));
+        let sel = Interpolation::plain(&arena, ".a".into(), test_span(&arena, ".a"));
         let child = var_decl(&arena, "x");
-        let sr = StyleRule::new(sel, vec![child], test_span(&arena, ".a { }"));
+        let sr = StyleRule::new(
+            sel,
+            arena_statements(&arena, vec![child]),
+            test_span(&arena, ".a { }"),
+        );
         Statement::StyleRule(sr).accept(&mut v).unwrap();
     }
 
@@ -452,8 +479,8 @@ mod tests {
     fn test_visit_media_rule() {
         let arena = Bump::new();
         let mut v = RecursiveStatementVisitor::new();
-        let query = Interpolation::plain("screen".into(), test_span(&arena, "screen"));
-        let mr = MediaRule::new(query, vec![], test_span(&arena, "@media screen { }"));
+        let query = Interpolation::plain(&arena, "screen".into(), test_span(&arena, "screen"));
+        let mr = MediaRule::new(query, &[], test_span(&arena, "@media screen { }"));
         Statement::MediaRule(mr).accept(&mut v).unwrap();
     }
 
@@ -462,11 +489,21 @@ mod tests {
         let arena = Bump::new();
         let mut v = RecursiveStatementVisitor::new();
         let decl = SupportsCondition::Declaration(SupportsDeclaration::new(
-            Expression::String(StringExpression::plain("a", test_span(&arena, "a"), false)),
-            Expression::String(StringExpression::plain("b", test_span(&arena, "b"), false)),
+            Expression::String(StringExpression::plain(
+                &arena,
+                "a",
+                test_span(&arena, "a"),
+                false,
+            )),
+            Expression::String(StringExpression::plain(
+                &arena,
+                "b",
+                test_span(&arena, "b"),
+                false,
+            )),
             test_span(&arena, "(a: b)"),
         ));
-        let sr = SupportsRule::new(decl, vec![], test_span(&arena, "@supports (a: b) { }"));
+        let sr = SupportsRule::new(decl, &[], test_span(&arena, "@supports (a: b) { }"));
         Statement::SupportsRule(sr).accept(&mut v).unwrap();
     }
 
@@ -475,19 +512,32 @@ mod tests {
         let arena = Bump::new();
         let mut v = RecursiveStatementVisitor::new();
         let list = Expression::List(ListExpression::new(
-            vec![
-                Expression::String(StringExpression::plain("a", test_span(&arena, "a"), true)),
-                Expression::String(StringExpression::plain("b", test_span(&arena, "b"), true)),
-            ],
+            arena_slice(
+                &arena,
+                vec![
+                    Expression::String(StringExpression::plain(
+                        &arena,
+                        "a",
+                        test_span(&arena, "a"),
+                        true,
+                    )),
+                    Expression::String(StringExpression::plain(
+                        &arena,
+                        "b",
+                        test_span(&arena, "b"),
+                        true,
+                    )),
+                ],
+            ),
             ListSeparator::Comma,
             test_span(&arena, "(a, b)"),
             true,
         ));
         let child = var_decl(&arena, "x");
         let er = EachRule::new(
-            vec!["x".into()],
+            &["x"],
             list,
-            vec![child],
+            arena_statements(&arena, vec![child]),
             test_span(&arena, "@each $x in (a, b) { }"),
         );
         Statement::EachRule(er).accept(&mut v).unwrap();
@@ -500,10 +550,10 @@ mod tests {
         let from = Expression::Number(NumberExpression::new(1.0, test_span(&arena, "1"), None));
         let to = Expression::Number(NumberExpression::new(3.0, test_span(&arena, "3"), None));
         let fr = ForRule::new(
-            "i".into(),
+            "i",
             from,
             to,
-            vec![],
+            &[],
             test_span(&arena, "@for $i from 1 through 3 { }"),
             true,
         );
@@ -515,7 +565,7 @@ mod tests {
         let arena = Bump::new();
         let mut v = RecursiveStatementVisitor::new();
         let cond = bool_expr(&arena, true);
-        let wr = WhileRule::new(cond, vec![], test_span(&arena, "@while true { }"));
+        let wr = WhileRule::new(cond, &[], test_span(&arena, "@while true { }"));
         Statement::WhileRule(wr).accept(&mut v).unwrap();
     }
 
@@ -524,7 +574,11 @@ mod tests {
         let arena = Bump::new();
         let mut v = RecursiveStatementVisitor::new();
         let child = var_decl(&arena, "x");
-        let ar = AtRootRule::new(vec![child], test_span(&arena, "@at-root { }"), None);
+        let ar = AtRootRule::new(
+            arena_statements(&arena, vec![child]),
+            test_span(&arena, "@at-root { }"),
+            None,
+        );
         Statement::AtRootRule(ar).accept(&mut v).unwrap();
     }
 }

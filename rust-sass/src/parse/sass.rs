@@ -24,7 +24,7 @@ use crate::ast::sass::static_import::StaticImport;
 use crate::common::span_scanner::SpanScanner;
 use crate::parse::atrule::import_argument_impl;
 use crate::parse::stylesheet::at_end_of_statement_impl;
-use crate::url::SassUrl;
+use crate::url::ArenaUrl;
 use crate::util::character;
 
 use crate::parse::anyvalue::almost_any_value_impl;
@@ -293,8 +293,8 @@ pub(crate) fn sass_silent_comment_impl<'b>(
         }
     }
     let span = span_from_impl(scanner, &state.parser_state, start)?.file_span()?;
-    let comment = SilentComment::new(text, span);
-    state.last_silent_comment = Some(Box::new(comment.clone()));
+    let comment = SilentComment::new(state.arena, &text, span);
+    state.last_silent_comment = Some(&*state.arena.alloc(comment.clone()));
     Ok(comment)
 }
 
@@ -413,7 +413,7 @@ pub(crate) fn sass_loud_comment_impl<'b>(
                     }
 
                     let interp = buffer
-                        .interpolation(span)
+                        .interpolation(state.arena, span)
                         .map_err(|e| Box::new(ParseError::Sass(e)))?;
                     return Ok(LoudComment::new(interp));
                 }
@@ -437,7 +437,7 @@ pub(crate) fn sass_loud_comment_impl<'b>(
     // Unterminated comment
     let span = span_from_impl(scanner, &state.parser_state, start)?.file_span()?;
     let interp = buffer
-        .interpolation(span)
+        .interpolation(state.arena, span)
         .map_err(|e| Box::new(ParseError::Sass(e)))?;
     Ok(LoudComment::new(interp))
 }
@@ -802,7 +802,7 @@ pub(crate) fn sass_import_argument_impl<'b>(
     if is_plain_import_url(&raw_url) {
         let quoted = format!("\"{raw_url}\"");
         Ok(Import::Static(StaticImport::new(
-            Interpolation::plain(quoted, span),
+            Interpolation::plain(state.arena, quoted, span),
             span,
             None,
         )))
@@ -811,9 +811,13 @@ pub(crate) fn sass_import_argument_impl<'b>(
         // Matches Dart: DynamicImport(parseImportUrl(url), urlSpan) — the URL
         // is passed through unchanged; Uri.parse(url) only validates (throwing
         // a FormatException caught as "Invalid URL").
-        let url =
-            SassUrl::parse(&parsed).map_err(|e| error_impl(&format!("Invalid URL: {e}"), &span))?;
-        Ok(Import::Dynamic(DynamicImport::new(parsed, url, span)))
+        let url = ArenaUrl::parse(state.arena, &parsed)
+            .map_err(|e| error_impl(&format!("Invalid URL: {e}"), &span))?;
+        Ok(Import::Dynamic(DynamicImport::new(
+            state.arena.alloc_str(&parsed),
+            url,
+            span,
+        )))
     }
 }
 
@@ -851,7 +855,7 @@ pub(crate) fn sass_style_rule_selector_impl<'b>(
     }
     let span = span_from_impl(scanner, &state.parser_state, start)?.file_span()?;
     buffer
-        .interpolation(span)
+        .interpolation(state.arena, span)
         .map_err(|e| Box::new(ParseError::Sass(e)))
 }
 
@@ -879,7 +883,7 @@ mod tests {
     fn parse_sass_error(text: &str) -> Box<crate::common::exception::SassError> {
         let arena = Bump::new();
         let fs = FileSource::new_in(&arena, text, None);
-        let mut parser = StylesheetParser::new(fs, sass_syntax(), None);
+        let mut parser = StylesheetParser::new(fs, sass_syntax(), None, &arena);
         parse_impl(&mut parser.scanner, &mut parser.state)
             .unwrap_err()
             .into()
@@ -912,7 +916,7 @@ mod tests {
         // mapping back to the source (dart-sass#2848).
         let arena = Bump::new();
         let fs = FileSource::new_in(&arena, "a,\nb\n  c: d\n", None);
-        let mut parser = StylesheetParser::new(fs, sass_syntax(), None);
+        let mut parser = StylesheetParser::new(fs, sass_syntax(), None, &arena);
         let sheet = parse_impl(&mut parser.scanner, &mut parser.state).unwrap();
         let Statement::StyleRule(rule) = &sheet.children[0] else {
             panic!("expected style rule, got {:?}", sheet.children[0]);
@@ -938,7 +942,7 @@ mod tests {
         // EOF: the next iteration adds an empty interpolation and breaks.
         let arena = Bump::new();
         let fs = FileSource::new_in(&arena, "a,\n", None);
-        let mut parser = StylesheetParser::new(fs, sass_syntax(), None);
+        let mut parser = StylesheetParser::new(fs, sass_syntax(), None, &arena);
         let sheet = parse_impl(&mut parser.scanner, &mut parser.state).unwrap();
         assert_eq!(sheet.children.len(), 1);
     }

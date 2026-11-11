@@ -23,9 +23,9 @@ use crate::ast::sass::statement::Statement;
 /// Iterates a set number of times.
 #[derive(Clone, Debug)]
 pub struct ForRule<'parse> {
-    pub children: Vec<Statement<'parse>>,
+    pub children: &'parse [Statement<'parse>],
     /// The name of the variable that will contain the index value.
-    pub variable: String,
+    pub variable: &'parse str,
     /// The expression for the start index.
     pub from: Expression<'parse>,
     /// The expression for the end index.
@@ -38,10 +38,10 @@ pub struct ForRule<'parse> {
 
 impl<'parse> ForRule<'parse> {
     pub fn new(
-        variable: String,
+        variable: &'parse str,
         from: Expression<'parse>,
         to: Expression<'parse>,
-        children: Vec<Statement<'parse>>,
+        children: &'parse [Statement<'parse>],
         span: FileSpan<'parse>,
         exclusive: bool,
     ) -> Self {
@@ -69,12 +69,12 @@ impl<'parse> ForRule<'parse> {
         write!(
             buf,
             "@for ${} from {} {op} {} {{",
-            to_css_identifier(&self.variable)?,
+            to_css_identifier(self.variable)?,
             Expression::to_display_string(&self.from)?,
             Expression::to_display_string(&self.to)?
         )
         .unwrap();
-        for child in &self.children {
+        for child in self.children {
             write!(buf, " {child}").unwrap();
         }
         write!(buf, " }}").unwrap();
@@ -113,7 +113,7 @@ mod tests {
         let span = make_span(&arena, "@for $i from 1 to 5 { }");
         let from = Expression::Boolean(BooleanExpression::new(true, span));
         let to = Expression::Boolean(BooleanExpression::new(true, span));
-        let rule = ForRule::new("i".into(), from, to, vec![], span, true);
+        let rule = ForRule::new("i", from, to, &[], span, true);
         assert_eq!(rule.variable, "i");
         assert!(rule.is_exclusive);
     }
@@ -124,7 +124,7 @@ mod tests {
         let span = make_span(&arena, "@for $i from 1 to 5 { }");
         let from = Expression::Boolean(BooleanExpression::new(true, span));
         let to = Expression::Boolean(BooleanExpression::new(true, span));
-        let rule = ForRule::new("i".into(), from, to, vec![], span, true);
+        let rule = ForRule::new("i", from, to, &[], span, true);
         let s = format!("{rule}");
         assert!(s.contains("to"), "got {s:?}");
     }
@@ -135,7 +135,7 @@ mod tests {
         let span = make_span(&arena, "@for $i from 1 through 5 { }");
         let from = Expression::Boolean(BooleanExpression::new(true, span));
         let to = Expression::Boolean(BooleanExpression::new(true, span));
-        let rule = ForRule::new("i".into(), from, to, vec![], span, false);
+        let rule = ForRule::new("i", from, to, &[], span, false);
         let s = format!("{rule}");
         assert!(s.contains("through"), "got {s:?}");
     }
@@ -146,7 +146,7 @@ mod tests {
         let span = make_span(&arena, "@for $i from 1 to 5 { }");
         let from = Expression::Boolean(BooleanExpression::new(true, span));
         let to = Expression::Boolean(BooleanExpression::new(true, span));
-        let rule = ForRule::new("i".into(), from, to, vec![], span, true);
+        let rule = ForRule::new("i", from, to, &[], span, true);
         assert_eq!(rule.span().unwrap(), span);
     }
 }

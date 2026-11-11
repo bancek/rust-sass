@@ -118,7 +118,7 @@ impl AtRootQuery {
         'compile: 'parse,
     {
         let source = FileSource::new_in(arena, contents, None);
-        let mut parser = AtRootQueryParser::new(source, interpolation_map);
+        let mut parser = AtRootQueryParser::new(arena, source, interpolation_map);
         parser.parse().unwrap_or_else(|_| Self::default_query())
     }
 }
@@ -208,7 +208,7 @@ mod tests {
         let fs = FileSource::new_in(&arena, "(color)", None);
         let span = FileSpan::new(Some(fs), 0, 7);
         let mq = parse_list(&arena, "(color)").unwrap();
-        let mr = CssMediaRule::new(mq, span).unwrap();
+        let mr = CssMediaRule::new(&*arena.alloc_slice_fill_iter(mq), span).unwrap();
         let node = CssParentNode::MediaRule(mr);
 
         let mut names = HashSet::new();
@@ -225,7 +225,7 @@ mod tests {
         let arena = bumpalo::Bump::new();
         let fs = FileSource::new_in(&arena, "display: grid", None);
         let span = FileSpan::new(Some(fs), 0, 13);
-        let cond = CssValue::new("display: grid".into(), span);
+        let cond = CssValue::new("display: grid", span);
         let sr = CssSupportsRule::new(cond, span);
         let node = CssParentNode::SupportsRule(sr);
 
@@ -243,7 +243,7 @@ mod tests {
         let arena = bumpalo::Bump::new();
         let fs = FileSource::new_in(&arena, "@print", None);
         let span = FileSpan::new(Some(fs), 0, 6);
-        let name = CssValue::new("print".into(), span);
+        let name = CssValue::new("print", span);
         let ar = CssAtRule::new(name, span, false, None);
         let node = CssParentNode::AtRule(ar);
 
@@ -266,7 +266,7 @@ mod tests {
         let arena = bumpalo::Bump::new();
         let fs = FileSource::new_in(&arena, "@foo", None);
         let span = FileSpan::new(Some(fs), 0, 4);
-        let name = CssValue::new("foo".into(), span);
+        let name = CssValue::new("foo", span);
         let ar = CssAtRule::new(name, span, false, None);
         let node = CssParentNode::AtRule(ar);
 
@@ -295,7 +295,7 @@ mod tests {
         let arena = bumpalo::Bump::new();
         let fs = FileSource::new_in(&arena, "from", None);
         let span = FileSpan::new(Some(fs), 0, 4);
-        let sel = CssValue::new(vec!["from".into()], span);
+        let sel = CssValue::new(&["from"][..], span);
         let kb = CssKeyframeBlock::new(sel, span);
         let node = CssParentNode::KeyframeBlock(kb);
         let q = AtRootQuery::default_query();

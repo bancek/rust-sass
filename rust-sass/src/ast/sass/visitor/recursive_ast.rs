@@ -94,7 +94,7 @@ impl RecursiveAstVisitor {
     }
 
     fn visit_parameter_defaults(&mut self, parameters: &ParameterList<'_>) -> SassResult<()> {
-        for param in &parameters.parameters {
+        for param in parameters.parameters {
             if let Some(ref default) = param.default_value {
                 self.visit_expression(default)?;
             }
@@ -103,16 +103,16 @@ impl RecursiveAstVisitor {
     }
 
     fn visit_argument_list(&mut self, args: &ArgumentList<'_>) -> SassResult<()> {
-        for expr in &args.positional {
+        for expr in args.positional {
             self.visit_expression(expr)?;
         }
-        for expr in args.named.values() {
+        for (_, expr) in args.named {
             self.visit_expression(expr)?;
         }
-        if let Some(ref rest) = args.rest {
+        if let Some(rest) = args.rest {
             self.visit_expression(rest)?;
         }
-        if let Some(ref keyword_rest) = args.keyword_rest {
+        if let Some(keyword_rest) = args.keyword_rest {
             self.visit_expression(keyword_rest)?;
         }
         Ok(())
@@ -121,11 +121,11 @@ impl RecursiveAstVisitor {
     fn visit_supports_condition(&mut self, condition: &SupportsCondition<'_>) -> SassResult<()> {
         match condition {
             SupportsCondition::Operation(op) => {
-                self.visit_supports_condition(&op.left)?;
-                self.visit_supports_condition(&op.right)?;
+                self.visit_supports_condition(op.left)?;
+                self.visit_supports_condition(op.right)?;
             }
             SupportsCondition::Negation(neg) => {
-                self.visit_supports_condition(&neg.condition)?;
+                self.visit_supports_condition(neg.condition)?;
             }
             SupportsCondition::Interpolation(interp) => {
                 self.visit_expression(&interp.expression)?;
@@ -140,7 +140,7 @@ impl RecursiveAstVisitor {
     }
 
     fn visit_interpolation(&mut self, interp: &Interpolation<'_>) -> SassResult<()> {
-        for part in &interp.contents {
+        for part in interp.contents {
             if let InterpolationPart::Expression(expr) = part {
                 self.visit_expression(expr)?;
             }
@@ -164,7 +164,7 @@ impl<'parse> StatementVisitor<'parse> for RecursiveAstVisitor {
         if let Some(ref query) = node.query {
             self.visit_interpolation(query)?;
         }
-        self.visit_children(&node.children)
+        self.visit_children(node.children)
     }
 
     fn visit_at_rule(&mut self, node: &AtRule<'parse>) -> SassResult<()> {
@@ -172,7 +172,7 @@ impl<'parse> StatementVisitor<'parse> for RecursiveAstVisitor {
         if let Some(ref value) = node.value {
             self.visit_interpolation(value)?;
         }
-        if let Some(ref children) = node.children {
+        if let Some(children) = node.children {
             self.visit_children(children)?;
         }
         Ok(())
@@ -180,7 +180,7 @@ impl<'parse> StatementVisitor<'parse> for RecursiveAstVisitor {
 
     fn visit_content_block(&mut self, node: &ContentBlock<'parse>) -> SassResult<()> {
         self.visit_parameter_defaults(&node.parameters)?;
-        self.visit_children(&node.children)
+        self.visit_children(node.children)
     }
 
     fn visit_content_rule(&mut self, node: &ContentRule<'parse>) -> SassResult<()> {
@@ -196,7 +196,7 @@ impl<'parse> StatementVisitor<'parse> for RecursiveAstVisitor {
         if let Some(ref value) = node.value {
             self.visit_expression(value)?;
         }
-        if let Some(ref children) = node.children {
+        if let Some(children) = node.children {
             self.visit_children(children)?;
         }
         Ok(())
@@ -204,7 +204,7 @@ impl<'parse> StatementVisitor<'parse> for RecursiveAstVisitor {
 
     fn visit_each_rule(&mut self, node: &EachRule<'parse>) -> SassResult<()> {
         self.visit_expression(&node.list)?;
-        self.visit_children(&node.children)
+        self.visit_children(node.children)
     }
 
     fn visit_error_rule(&mut self, node: &ErrorRule<'parse>) -> SassResult<()> {
@@ -218,11 +218,11 @@ impl<'parse> StatementVisitor<'parse> for RecursiveAstVisitor {
     fn visit_for_rule(&mut self, node: &ForRule<'parse>) -> SassResult<()> {
         self.visit_expression(&node.from)?;
         self.visit_expression(&node.to)?;
-        self.visit_children(&node.children)
+        self.visit_children(node.children)
     }
 
     fn visit_forward_rule(&mut self, node: &ForwardRule<'parse>) -> SassResult<()> {
-        for var in &node.configuration {
+        for var in node.configuration {
             self.visit_expression(&var.expression)?;
         }
         Ok(())
@@ -230,17 +230,17 @@ impl<'parse> StatementVisitor<'parse> for RecursiveAstVisitor {
 
     fn visit_function_rule(&mut self, node: &FunctionRule<'parse>) -> SassResult<()> {
         self.visit_parameter_defaults(&node.parameters)?;
-        self.visit_children(&node.children)
+        self.visit_children(node.children)
     }
 
     fn visit_if_rule(&mut self, node: &IfRule<'parse>) -> SassResult<()> {
-        for clause in &node.clauses {
+        for clause in node.clauses {
             self.visit_expression(&clause.expression)?;
-            for child in &clause.children {
+            for child in clause.children {
                 child.accept(self)?;
             }
         }
-        if let Some(ref last) = node.last_clause {
+        if let Some(last) = node.last_clause {
             for child in last {
                 child.accept(self)?;
             }
@@ -249,7 +249,7 @@ impl<'parse> StatementVisitor<'parse> for RecursiveAstVisitor {
     }
 
     fn visit_import_rule(&mut self, node: &ImportRule<'parse>) -> SassResult<()> {
-        for imp in &node.imports {
+        for imp in node.imports {
             if let Import::Static(s) = imp {
                 self.visit_interpolation(&s.url)?;
                 if let Some(ref modifiers) = s.modifiers {
@@ -262,7 +262,7 @@ impl<'parse> StatementVisitor<'parse> for RecursiveAstVisitor {
 
     fn visit_include_rule(&mut self, node: &IncludeRule<'parse>) -> SassResult<()> {
         self.visit_argument_list(&node.arguments)?;
-        if let Some(ref content) = node.content {
+        if let Some(content) = node.content {
             self.visit_content_block(content)?;
         }
         Ok(())
@@ -274,12 +274,12 @@ impl<'parse> StatementVisitor<'parse> for RecursiveAstVisitor {
 
     fn visit_media_rule(&mut self, node: &MediaRule<'parse>) -> SassResult<()> {
         self.visit_interpolation(&node.query)?;
-        self.visit_children(&node.children)
+        self.visit_children(node.children)
     }
 
     fn visit_mixin_rule(&mut self, node: &MixinRule<'parse>) -> SassResult<()> {
         self.visit_parameter_defaults(&node.parameters)?;
-        self.visit_children(&node.children)
+        self.visit_children(node.children)
     }
 
     fn visit_return_rule(&mut self, node: &ReturnRule<'parse>) -> SassResult<()> {
@@ -291,23 +291,23 @@ impl<'parse> StatementVisitor<'parse> for RecursiveAstVisitor {
     }
 
     fn visit_stylesheet(&mut self, _node: &Stylesheet<'parse>) -> SassResult<()> {
-        self.visit_children(&_node.children)
+        self.visit_children(_node.children)
     }
 
     fn visit_style_rule(&mut self, node: &StyleRule<'parse>) -> SassResult<()> {
         if let Some(ref selector) = node.selector {
             self.visit_interpolation(selector)?;
         }
-        self.visit_children(&node.children)
+        self.visit_children(node.children)
     }
 
     fn visit_supports_rule(&mut self, node: &SupportsRule<'parse>) -> SassResult<()> {
         self.visit_supports_condition(&node.condition)?;
-        self.visit_children(&node.children)
+        self.visit_children(node.children)
     }
 
     fn visit_use_rule(&mut self, node: &UseRule<'parse>) -> SassResult<()> {
-        for var in &node.configuration {
+        for var in node.configuration {
             self.visit_expression(&var.expression)?;
         }
         Ok(())
@@ -323,7 +323,7 @@ impl<'parse> StatementVisitor<'parse> for RecursiveAstVisitor {
 
     fn visit_while_rule(&mut self, node: &WhileRule<'parse>) -> SassResult<()> {
         self.visit_expression(&node.condition)?;
-        self.visit_children(&node.children)
+        self.visit_children(node.children)
     }
 }
 
@@ -352,7 +352,7 @@ impl<'parse> ExpressionVisitor<'parse> for RecursiveAstVisitor {
     }
 
     fn visit_if(&mut self, node: &IfExpression<'parse>) -> SassResult<()> {
-        for branch in &node.branches {
+        for branch in node.branches {
             if let Some(ref condition) = branch.condition {
                 condition.accept(self)?;
             }
@@ -374,14 +374,14 @@ impl<'parse> ExpressionVisitor<'parse> for RecursiveAstVisitor {
     }
 
     fn visit_list(&mut self, node: &ListExpression<'parse>) -> SassResult<()> {
-        for item in &node.contents {
+        for item in node.contents {
             item.accept(self)?;
         }
         Ok(())
     }
 
     fn visit_map(&mut self, node: &MapExpression<'parse>) -> SassResult<()> {
-        for pair in &node.pairs {
+        for pair in node.pairs {
             pair.0.accept(self)?;
             pair.1.accept(self)?;
         }
@@ -409,7 +409,7 @@ impl<'parse> ExpressionVisitor<'parse> for RecursiveAstVisitor {
     }
 
     fn visit_supports(&mut self, node: &SupportsExpression) -> SassResult<()> {
-        self.visit_supports_condition(&node.condition)
+        self.visit_supports_condition(node.condition)
     }
 
     fn visit_unary_operation(&mut self, node: &UnaryOperationExpression<'parse>) -> SassResult<()> {
@@ -438,7 +438,7 @@ impl<'parse> IfConditionExpressionVisitor<'parse> for RecursiveAstVisitor {
     }
 
     fn visit_operation(&mut self, node: &IfConditionOperation<'parse>) -> SassResult<()> {
-        for expr in &node.expressions {
+        for expr in node.expressions {
             expr.accept(self)?;
         }
         Ok(())
@@ -484,7 +484,7 @@ impl<'parse> InterpolatedSelectorVisitor<'parse> for RecursiveAstVisitor {
         &mut self,
         node: &InterpolatedComplexSelector<'parse>,
     ) -> SassResult<()> {
-        for component in &node.components {
+        for component in node.components.iter() {
             self.visit_compound_selector(&component.selector)?;
         }
         Ok(())
@@ -494,7 +494,7 @@ impl<'parse> InterpolatedSelectorVisitor<'parse> for RecursiveAstVisitor {
         &mut self,
         node: &InterpolatedCompoundSelector<'parse>,
     ) -> SassResult<()> {
-        for simple in &node.components {
+        for simple in node.components.iter() {
             simple.accept(self)?;
         }
         Ok(())
@@ -536,7 +536,7 @@ impl<'parse> InterpolatedSelectorVisitor<'parse> for RecursiveAstVisitor {
     }
 
     fn visit_selector_list(&mut self, node: &InterpolatedSelectorList<'parse>) -> SassResult<()> {
-        for component in &node.components {
+        for component in node.components.iter() {
             self.visit_complex_selector(component)?;
         }
         Ok(())
@@ -559,6 +559,9 @@ impl<'parse> InterpolatedSelectorVisitor<'parse> for RecursiveAstVisitor {
 
 #[cfg(test)]
 mod tests {
+    use crate::ast::sass::arena_slice;
+    use crate::url::ArenaUrl;
+
     use super::*;
     use crate::ast::sass::binary_operator::BinaryOperator;
     use crate::ast::sass::configured_variable::ConfiguredVariable;
@@ -582,7 +585,6 @@ mod tests {
     use crate::ast::sass::unary_operator::UnaryOperator;
     use crate::common::file_span::FileSpan;
     use crate::common::source_span_file_source::FileSource;
-    use crate::url::SassUrl;
     use crate::value::ListSeparator;
     use bumpalo::Bump;
 
@@ -621,11 +623,13 @@ mod tests {
         let left = Expression::Number(NumberExpression::new(1.0, test_span(&arena, "1"), None));
         let right = Expression::Number(NumberExpression::new(2.0, test_span(&arena, "2"), None));
         let bin = Expression::BinaryOperation(BinaryOperationExpression::new(
+            &arena,
             BinaryOperator::Plus,
             left,
             right,
         ));
-        let vd = VariableDeclaration::new("x".into(), bin, span, None, false, false, None).unwrap();
+        let vd =
+            VariableDeclaration::new(&arena, "x", bin, span, None, false, false, None).unwrap();
         Statement::VariableDeclaration(vd).accept(&mut v).unwrap();
     }
 
@@ -634,8 +638,8 @@ mod tests {
         let arena = Bump::new();
         let mut v = RecursiveAstVisitor::new();
         let span = test_span(&arena, "@foo bar { }");
-        let name = Interpolation::plain("foo".into(), test_span(&arena, "foo"));
-        let value = Interpolation::plain("bar".into(), test_span(&arena, "bar"));
+        let name = Interpolation::plain(&arena, "foo".into(), test_span(&arena, "foo"));
+        let value = Interpolation::plain(&arena, "bar".into(), test_span(&arena, "bar"));
         let ar = AtRule::new(name, span, Some(value), None);
         Statement::AtRule(ar).accept(&mut v).unwrap();
     }
@@ -645,8 +649,9 @@ mod tests {
         let arena = Bump::new();
         let mut v = RecursiveAstVisitor::new();
         let span = test_span(&arena, "color: red;");
-        let name = Interpolation::plain("color".into(), test_span(&arena, "color"));
+        let name = Interpolation::plain(&arena, "color".into(), test_span(&arena, "color"));
         let val = Expression::String(StringExpression::plain(
+            &arena,
             "red",
             test_span(&arena, "red"),
             false,
@@ -662,6 +667,7 @@ mod tests {
         let span = test_span(&arena, "@content($a);");
         let positional = vec![null_expr(&arena)];
         let args = ArgumentList::new(
+            &arena,
             positional,
             indexmap::IndexMap::new(),
             indexmap::IndexMap::new(),
@@ -684,6 +690,7 @@ mod tests {
             None,
         ))];
         let args = ArgumentList::new(
+            &arena,
             positional,
             indexmap::IndexMap::new(),
             indexmap::IndexMap::new(),
@@ -691,7 +698,7 @@ mod tests {
             None,
             None,
         );
-        let ir = IncludeRule::new("foo".into(), args, span, None, None);
+        let ir = IncludeRule::new(&arena, "foo", args, span, None, None);
         Statement::IncludeRule(ir).accept(&mut v).unwrap();
     }
 
@@ -702,6 +709,7 @@ mod tests {
         let left = Expression::Number(NumberExpression::new(1.0, test_span(&arena, "1"), None));
         let right = Expression::Number(NumberExpression::new(2.0, test_span(&arena, "2"), None));
         let bin = Expression::BinaryOperation(BinaryOperationExpression::new(
+            &arena,
             BinaryOperator::Plus,
             left,
             right,
@@ -714,11 +722,21 @@ mod tests {
         let arena = Bump::new();
         let mut v = RecursiveAstVisitor::new();
         let items = vec![
-            Expression::String(StringExpression::plain("a", test_span(&arena, "a"), true)),
-            Expression::String(StringExpression::plain("b", test_span(&arena, "b"), true)),
+            Expression::String(StringExpression::plain(
+                &arena,
+                "a",
+                test_span(&arena, "a"),
+                true,
+            )),
+            Expression::String(StringExpression::plain(
+                &arena,
+                "b",
+                test_span(&arena, "b"),
+                true,
+            )),
         ];
         let le = ListExpression::new(
-            items,
+            arena_slice(&arena, items),
             ListSeparator::Comma,
             test_span(&arena, "(a, b)"),
             true,
@@ -731,10 +749,15 @@ mod tests {
         let arena = Bump::new();
         let mut v = RecursiveAstVisitor::new();
         let pairs = vec![(
-            Expression::String(StringExpression::plain("a", test_span(&arena, "a"), false)),
+            Expression::String(StringExpression::plain(
+                &arena,
+                "a",
+                test_span(&arena, "a"),
+                false,
+            )),
             Expression::Number(NumberExpression::new(1.0, test_span(&arena, "1"), None)),
         )];
-        let me = MapExpression::new(pairs, test_span(&arena, "(a: 1)"));
+        let me = MapExpression::new(arena_slice(&arena, pairs), test_span(&arena, "(a: 1)"));
         Expression::Map(me).accept(&mut v).unwrap();
     }
 
@@ -743,7 +766,7 @@ mod tests {
         let arena = Bump::new();
         let mut v = RecursiveAstVisitor::new();
         let inner = Expression::Number(NumberExpression::new(1.0, test_span(&arena, "1"), None));
-        let pe = ParenthesizedExpression::new(inner, test_span(&arena, "(1)"));
+        let pe = ParenthesizedExpression::new(&arena, inner, test_span(&arena, "(1)"));
         Expression::Parenthesized(pe).accept(&mut v).unwrap();
     }
 
@@ -752,8 +775,12 @@ mod tests {
         let arena = Bump::new();
         let mut v = RecursiveAstVisitor::new();
         let operand = Expression::Number(NumberExpression::new(1.0, test_span(&arena, "1"), None));
-        let ue =
-            UnaryOperationExpression::new(UnaryOperator::Minus, operand, test_span(&arena, "-1"));
+        let ue = UnaryOperationExpression::new(
+            &arena,
+            UnaryOperator::Minus,
+            operand,
+            test_span(&arena, "-1"),
+        );
         Expression::UnaryOperation(ue).accept(&mut v).unwrap();
     }
 
@@ -762,7 +789,7 @@ mod tests {
         let arena = Bump::new();
         let mut v = RecursiveAstVisitor::new();
         let args = ArgumentList::empty(test_span(&arena, ""));
-        let fe = FunctionExpression::new("foo".into(), args, test_span(&arena, "foo()"), None);
+        let fe = FunctionExpression::new(&arena, "foo", args, test_span(&arena, "foo()"), None);
         Expression::Function(fe).accept(&mut v).unwrap();
     }
 
@@ -771,15 +798,26 @@ mod tests {
         let arena = Bump::new();
         let mut v = RecursiveAstVisitor::new();
         let decl = SupportsCondition::Declaration(SupportsDeclaration::new(
-            Expression::String(StringExpression::plain("a", test_span(&arena, "a"), false)),
-            Expression::String(StringExpression::plain("b", test_span(&arena, "b"), false)),
+            Expression::String(StringExpression::plain(
+                &arena,
+                "a",
+                test_span(&arena, "a"),
+                false,
+            )),
+            Expression::String(StringExpression::plain(
+                &arena,
+                "b",
+                test_span(&arena, "b"),
+                false,
+            )),
             test_span(&arena, "(a: b)"),
         ));
         let neg = SupportsCondition::Negation(SupportsNegation::new(
+            &arena,
             decl,
             test_span(&arena, "not (a: b)"),
         ));
-        let se = Expression::Supports(SupportsExpression::new(neg));
+        let se = Expression::Supports(SupportsExpression::new(&arena, neg));
         se.accept(&mut v).unwrap();
     }
 
@@ -788,10 +826,10 @@ mod tests {
         let arena = Bump::new();
         let mut v = RecursiveAstVisitor::new();
         let span = test_span(&arena, "@forward 'foo' with ($x: 1)");
-        let u = SassUrl::parse("sass:foo").unwrap();
+        let u = ArenaUrl::parse(&arena, "sass:foo").unwrap();
         let expr = Expression::Number(NumberExpression::new(1.0, test_span(&arena, "1"), None));
-        let cv = ConfiguredVariable::new("x".into(), expr, span, false);
-        let fr = ForwardRule::new(u, span, None, vec![cv]);
+        let cv = ConfiguredVariable::new("x", expr, span, false);
+        let fr = ForwardRule::new(&arena, u, span, None, arena_slice(&arena, vec![cv]));
         Statement::ForwardRule(fr).accept(&mut v).unwrap();
     }
 
@@ -800,10 +838,10 @@ mod tests {
         let arena = Bump::new();
         let mut v = RecursiveAstVisitor::new();
         let span = test_span(&arena, "@use 'foo' with ($x: 1)");
-        let u = SassUrl::parse("sass:foo").unwrap();
+        let u = ArenaUrl::parse(&arena, "sass:foo").unwrap();
         let expr = Expression::Number(NumberExpression::new(1.0, test_span(&arena, "1"), None));
-        let cv = ConfiguredVariable::new("x".into(), expr, span, false);
-        let ur = UseRule::new(u, None, span, vec![cv]).unwrap();
+        let cv = ConfiguredVariable::new("x", expr, span, false);
+        let ur = UseRule::new(&arena, u, None, span, arena_slice(&arena, vec![cv])).unwrap();
         Statement::UseRule(ur).accept(&mut v).unwrap();
     }
 
@@ -812,9 +850,9 @@ mod tests {
         let arena = Bump::new();
         let mut v = RecursiveAstVisitor::new();
         let span = test_span(&arena, "@import 'foo';");
-        let url = Interpolation::plain("foo".into(), test_span(&arena, "foo"));
+        let url = Interpolation::plain(&arena, "foo".into(), test_span(&arena, "foo"));
         let si = Import::Static(StaticImport::new(url, test_span(&arena, "'foo'"), None));
-        let ir = ImportRule::new(vec![si], span);
+        let ir = ImportRule::new(&arena, vec![si], span);
         Statement::ImportRule(ir).accept(&mut v).unwrap();
     }
 
@@ -828,9 +866,9 @@ mod tests {
             test_span(&arena, "1"),
             None,
         )));
-        let param = Parameter::new("x".into(), span, default);
-        let pl = ParameterList::new(vec![param], span, None);
-        let fr = FunctionRule::new("f".into(), pl, vec![], span, None);
+        let param = Parameter::new(arena.alloc_str("x"), span, default);
+        let pl = ParameterList::new(arena.alloc_slice_fill_iter(vec![param]), span, None);
+        let fr = FunctionRule::new(&arena, "f", pl, &[], span, None);
         Statement::FunctionRule(fr).accept(&mut v).unwrap();
     }
 
@@ -838,8 +876,8 @@ mod tests {
     fn test_visit_style_rule_selector() {
         let arena = Bump::new();
         let mut v = RecursiveAstVisitor::new();
-        let sel = Interpolation::plain(".a".into(), test_span(&arena, ".a"));
-        let sr = StyleRule::new(sel, vec![], test_span(&arena, ".a { }"));
+        let sel = Interpolation::plain(&arena, ".a".into(), test_span(&arena, ".a"));
+        let sr = StyleRule::new(sel, &[], test_span(&arena, ".a { }"));
         Statement::StyleRule(sr).accept(&mut v).unwrap();
     }
 
@@ -847,7 +885,7 @@ mod tests {
     fn test_visit_loud_comment_interpolation() {
         let arena = Bump::new();
         let mut v = RecursiveAstVisitor::new();
-        let text = Interpolation::plain("/* */".into(), test_span(&arena, "/* */"));
+        let text = Interpolation::plain(&arena, "/* */".into(), test_span(&arena, "/* */"));
         let lc = LoudComment::new(text);
         Statement::LoudComment(lc).accept(&mut v).unwrap();
     }
@@ -856,8 +894,8 @@ mod tests {
     fn test_visit_media_rule_interpolation() {
         let arena = Bump::new();
         let mut v = RecursiveAstVisitor::new();
-        let query = Interpolation::plain("screen".into(), test_span(&arena, "screen"));
-        let mr = MediaRule::new(query, vec![], test_span(&arena, "@media screen { }"));
+        let query = Interpolation::plain(&arena, "screen".into(), test_span(&arena, "screen"));
+        let mr = MediaRule::new(query, &[], test_span(&arena, "@media screen { }"));
         Statement::MediaRule(mr).accept(&mut v).unwrap();
     }
 
@@ -865,7 +903,7 @@ mod tests {
     fn test_visit_string_expression_interpolation() {
         let arena = Bump::new();
         let mut v = RecursiveAstVisitor::new();
-        let text = Interpolation::plain("hello".into(), test_span(&arena, "hello"));
+        let text = Interpolation::plain(&arena, "hello".into(), test_span(&arena, "hello"));
         let se = StringExpression::new(text, true);
         Expression::String(se).accept(&mut v).unwrap();
     }

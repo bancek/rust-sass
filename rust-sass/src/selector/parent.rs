@@ -46,9 +46,12 @@ impl<'parse> ParentSelector<'parse> {
     pub fn new<'compile: 'parse>(
         arena: &'compile Bump,
         span: FileSpan<'parse>,
-        suffix: Option<String>,
+        suffix: Option<&str>,
     ) -> Self {
-        ParentSelector(arena.alloc(ParentSelectorInner { span, suffix }))
+        ParentSelector(arena.alloc(ParentSelectorInner {
+            span,
+            suffix: suffix.map(str::to_string),
+        }))
     }
 
     /// The source span of this selector.
@@ -133,7 +136,11 @@ impl<'parse> ParentSelector<'parse> {
 
     // Matches Dart: the suffix is resolved during parent resolution, so it
     // cannot be extended with another suffix here.
-    pub fn add_suffix(&self, _suffix: &str) -> SassResult<SimpleSelector<'parse>> {
+    pub fn add_suffix(
+        &self,
+        _arena: &'parse Bump,
+        _suffix: &str,
+    ) -> SassResult<SimpleSelector<'parse>> {
         Err(Box::new(SassError::Script {
             message: "parent selector cannot have a suffix".into(),
             argument_name: None,
@@ -197,7 +204,7 @@ mod tests {
     #[test]
     fn test_parent_selector_with_suffix() {
         let arena = Bump::new();
-        let s = ParentSelector::new(&arena, BOGUS_SPAN, Some("suffix".into()));
+        let s = ParentSelector::new(&arena, BOGUS_SPAN, Some("suffix"));
         assert_eq!(s.suffix(), Some("suffix"));
     }
 
@@ -233,7 +240,8 @@ mod tests {
     fn test_parent_selector_add_suffix() {
         let arena = Bump::new();
         let s = ParentSelector::new(&arena, BOGUS_SPAN, None);
-        assert!(s.add_suffix("x").is_err());
+        let arena = bumpalo::Bump::new();
+        assert!(s.add_suffix(&arena, "x").is_err());
     }
 
     #[test]
@@ -256,8 +264,8 @@ mod tests {
     #[test]
     fn test_parent_identity_different_rc_same_suffix_not_equal() {
         let arena = Bump::new();
-        let s1 = ParentSelector::new(&arena, BOGUS_SPAN, Some("x".into()));
-        let s2 = ParentSelector::new(&arena, BOGUS_SPAN, Some("x".into()));
+        let s1 = ParentSelector::new(&arena, BOGUS_SPAN, Some("x"));
+        let s2 = ParentSelector::new(&arena, BOGUS_SPAN, Some("x"));
         assert_ne!(
             s1, s2,
             "different Rc with same suffix should be != (Dart identity)"
@@ -270,10 +278,10 @@ mod tests {
     fn test_parent_hashmap_key() {
         let arena = Bump::new();
         let mut map: HashMap<ParentSelector, i32> = HashMap::new();
-        let key = ParentSelector::new(&arena, BOGUS_SPAN, Some("&".into()));
+        let key = ParentSelector::new(&arena, BOGUS_SPAN, Some("&"));
         map.insert(key, 1);
         assert_eq!(map.get(&key), Some(&1));
-        let different = ParentSelector::new(&arena, BOGUS_SPAN, Some("&".into()));
+        let different = ParentSelector::new(&arena, BOGUS_SPAN, Some("&"));
         assert_eq!(
             map.get(&different),
             None,
@@ -291,7 +299,7 @@ mod tests {
     #[test]
     fn test_parent_selector_to_css_string_with_suffix() {
         let arena = Bump::new();
-        let s = ParentSelector::new(&arena, BOGUS_SPAN, Some("my-suffix".into()));
+        let s = ParentSelector::new(&arena, BOGUS_SPAN, Some("my-suffix"));
         assert_eq!(s.to_css_string(true).unwrap(), "&my-suffix");
     }
 

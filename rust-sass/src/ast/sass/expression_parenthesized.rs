@@ -8,6 +8,7 @@
 // go-source: go/value/sass_expression_parenthesized.go
 
 use crate::ast::sass::interpolation::Interpolation;
+use bumpalo::Bump;
 use std::fmt;
 
 use crate::common::ast_node::AstNode;
@@ -20,14 +21,18 @@ use crate::ast::sass::expression::Expression;
 #[derive(Clone, Debug)]
 pub struct ParenthesizedExpression<'parse> {
     /// The internal expression.
-    pub expression: Box<Expression<'parse>>,
+    pub expression: &'parse Expression<'parse>,
     pub span: FileSpan<'parse>,
 }
 
 impl<'parse> ParenthesizedExpression<'parse> {
-    pub fn new(expression: Expression<'parse>, span: FileSpan<'parse>) -> Self {
+    pub fn new(
+        arena: &'parse Bump,
+        expression: Expression<'parse>,
+        span: FileSpan<'parse>,
+    ) -> Self {
         ParenthesizedExpression {
-            expression: Box::new(expression),
+            expression: arena.alloc(expression),
             span,
         }
     }
@@ -41,7 +46,7 @@ impl<'parse> ParenthesizedExpression<'parse> {
     pub fn to_display_string(&self) -> SassResult<String> {
         Ok(format!(
             "({})",
-            Expression::to_display_string(&self.expression)?
+            Expression::to_display_string(self.expression)?
         ))
     }
 }
@@ -75,7 +80,7 @@ mod tests {
         let span = FileSpan::new(Some(fs), 0, 6);
         let inner =
             Expression::Boolean(BooleanExpression::new(true, FileSpan::new(Some(fs), 1, 5)));
-        let expr = ParenthesizedExpression::new(inner, span);
+        let expr = ParenthesizedExpression::new(&arena, inner, span);
         expr.span().unwrap();
     }
 
@@ -86,7 +91,7 @@ mod tests {
         let span = FileSpan::new(Some(fs), 0, 6);
         let inner =
             Expression::Boolean(BooleanExpression::new(true, FileSpan::new(Some(fs), 1, 5)));
-        let expr = ParenthesizedExpression::new(inner, span);
+        let expr = ParenthesizedExpression::new(&arena, inner, span);
         assert_eq!(format!("{expr}"), "(true)");
     }
 
@@ -97,7 +102,7 @@ mod tests {
         let span = FileSpan::new(Some(fs), 0, 3);
         let inner =
             Expression::Boolean(BooleanExpression::new(true, FileSpan::new(Some(fs), 1, 2)));
-        let expr = ParenthesizedExpression::new(inner, span);
+        let expr = ParenthesizedExpression::new(&arena, inner, span);
         assert!(expr.source_interpolation().is_none());
     }
 }

@@ -89,7 +89,7 @@ use rust_sass::io::{DefaultIo, Io};
 use rust_sass::logger::{Logger, NoOpWarnLogger};
 use rust_sass::parse::stylesheet::{SassIndentState, Syntax};
 use rust_sass::serialize::OutputStyle;
-use rust_sass::url::SassUrl;
+use rust_sass::url::OwnedUrl;
 
 use crate::base::{copy_bytes_nul, guard};
 use crate::functions::ImportStackEntry;
@@ -356,7 +356,7 @@ impl ContextCommon {
         css: &str,
         source_map_json: Option<String>,
         css_comment: Option<String>,
-        loaded_urls: &[rust_sass::url::SassUrl],
+        loaded_urls: &[rust_sass::url::OwnedUrl],
         entry_is_data: bool,
     ) {
         self.result.clear();
@@ -688,7 +688,7 @@ fn run_data_compile(common: &mut ContextCommon, source: &str, snapshot: &Compile
             return;
         }
     }
-    let outcome = rust_sass::compile::compile_string(source, io.clone(), opts, &arena);
+    let outcome = rust_sass::compile::compile_string(source, io.clone(), &mut opts, &arena);
     let want_map = snapshot.source_map_file.is_some() || snapshot.source_map_embed;
     finish_compile(common, outcome, snapshot, want_map, &*io, true);
     drain_warnings(common, &capture);
@@ -723,7 +723,7 @@ fn run_file_compile(common: &mut ContextCommon, path: &str, snapshot: &CompileSn
             return;
         }
     }
-    let outcome = rust_sass::compile::compile(path, io.clone(), opts, &arena);
+    let outcome = rust_sass::compile::compile(path, io.clone(), &mut opts, &arena);
     finish_compile(common, outcome, snapshot, want_map, &*io, false);
     drain_warnings(common, &capture);
 }
@@ -885,7 +885,7 @@ fn finish_compile(
 /// shape.
 fn store_files(
     result: &mut ContextResult,
-    loaded_urls: &[rust_sass::url::SassUrl],
+    loaded_urls: &[rust_sass::url::OwnedUrl],
     entry_is_data: bool,
 ) {
     let mut texts: Vec<String> = Vec::new();
@@ -1640,7 +1640,7 @@ fn run_file_parse(common: &mut ContextCommon, path: &str, snapshot: &CompileSnap
             return;
         }
     };
-    let file_url = match SassUrl::file_url_from_abs_path(&abs_path) {
+    let file_url = match OwnedUrl::file_url_from_abs_path(&abs_path) {
         Ok(u) => u,
         Err(_) => {
             common.fail_with_message(&format!("Could not create URL from path: {path}"));
@@ -1714,12 +1714,12 @@ fn run_file_parse(common: &mut ContextCommon, path: &str, snapshot: &CompileSnap
 #[allow(clippy::too_many_arguments)]
 fn discover_imports<'a>(
     stylesheet: &Stylesheet<'a>,
-    base_url: Option<&SassUrl>,
+    base_url: Option<&OwnedUrl>,
     snapshot: &CompileSnapshot,
     token: &ImportStackEntry,
     io: Rc<dyn Io>,
     arena: &'a Bump,
-) -> SassResult<Vec<SassUrl>> {
+) -> SassResult<Vec<OwnedUrl>> {
     // Direct calls, never through `maybe_block_on!`: the adapter is
     // sync-only (see `run_data_compile`), so the core entry points below are
     // plain sync functions here — an async core underneath would fail loudly
@@ -1735,10 +1735,9 @@ fn discover_imports<'a>(
         io.clone(),
         None,
     );
-    let default = Importer::new(
-        arena,
-        ImporterKind::Filesystem(FilesystemImporter::new_no_load_path(io)),
-    );
+    let default = Importer::new(ImporterKind::Filesystem(
+        FilesystemImporter::new_no_load_path(io),
+    ));
     let mut visited = HashSet::new();
     if let Some(entry) = base_url {
         visited.insert(entry.to_string());
@@ -1762,18 +1761,18 @@ fn discover_imports<'a>(
 /// into the C array).
 fn discover_step<'a>(
     sheet: &Stylesheet<'a>,
-    base_url: Option<&SassUrl>,
+    base_url: Option<&OwnedUrl>,
     cache: &mut ImportCache<'a, 'a>,
     default: &Importer<'a>,
     visited: &mut HashSet<String>,
-    out: &mut Vec<SassUrl>,
+    out: &mut Vec<OwnedUrl>,
 ) -> SassResult<()> {
     let report = find_dependencies(sheet)?;
     // The report sets iterate nondeterministically; sort for a stable
     // canonicalization order so custom-importer side effects don't depend on
     // hash order run to run.
     let modules = report.modules();
-    let mut deps: Vec<(&SassUrl, bool)> = Vec::new();
+    let mut deps: Vec<(&OwnedUrl, bool)> = Vec::new();
     for url in &modules {
         deps.push((url, false));
     }
@@ -2336,7 +2335,7 @@ mod tests {
             "file:///app/apple.scss",
             "file:///app/mango.scss",
         ]
-        .map(|s| SassUrl::parse(s).unwrap());
+        .map(|s| OwnedUrl::parse(s).unwrap());
         common.store_success("", None, None, &urls, false);
         assert_eq!(
             unsafe { read_files(common.result.included_files) },
@@ -2354,7 +2353,7 @@ mod tests {
             result: ContextResult::new(),
         };
         let urls =
-            ["stdin", "file:///b.scss", "file:///a.scss"].map(|s| SassUrl::parse(s).unwrap());
+            ["stdin", "file:///b.scss", "file:///a.scss"].map(|s| OwnedUrl::parse(s).unwrap());
         common.store_success("", None, None, &urls, true);
         assert_eq!(
             unsafe { read_files(common.result.included_files) },
@@ -2649,7 +2648,7 @@ mod tests {
             options: OptionsBox::new(),
             result: ContextResult::new(),
         };
-        let urls = ["file:///a.scss", "file:///b.scss"].map(|s| SassUrl::parse(s).unwrap());
+        let urls = ["file:///a.scss", "file:///b.scss"].map(|s| OwnedUrl::parse(s).unwrap());
         store_files(&mut common.result, &urls, false);
         assert_eq!(
             unsafe { sass_context_get_included_files_size(&mut common as *mut ContextCommon) },

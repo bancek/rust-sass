@@ -189,7 +189,7 @@ pub(crate) fn almost_any_value_impl<'b>(
     }
 
     let span = span_from_impl(scanner, &state.parser_state, start)?;
-    Ok(buffer.interpolation(span)?)
+    Ok(buffer.interpolation(state.arena, span)?)
 }
 
 /// Consumes a `url(...)` or identifier beginning at the scanner into
@@ -458,7 +458,7 @@ pub(crate) fn interpolated_declaration_value_impl<'b>(
         return Err(Box::new(scanner.error("Expected token.", None, 0).into()));
     }
     let span = span_from_impl(scanner, &state.parser_state, start)?;
-    Ok(buffer.interpolation(span)?)
+    Ok(buffer.interpolation(state.arena, span)?)
 }
 
 // ======================================================================
@@ -505,7 +505,9 @@ mod tests {
         let fs = FileSource::new_in(arena, text, None);
         let scanner = SpanScanner::new(fs);
         let state = StylesheetState {
+            arena,
             parser_state: ParserState {
+                arena,
                 syntax: Syntax::Scss,
                 interpolation_map: None,
                 in_expression: false,

@@ -123,16 +123,16 @@ pub(crate) fn visit_complex_selector_impl(
     state: &SerializeState,
     complex: &ComplexSelector<'_>,
 ) -> SassResult<()> {
-    write_combinators_impl(buf, state, &complex.leading_combinators)?;
+    write_combinators_impl(buf, state, complex.leading_combinators)?;
     if !complex.leading_combinators.is_empty() && !complex.components.is_empty() {
         state.write_optional_space(buf);
     }
     for (i, comp) in complex.components.iter().enumerate() {
-        visit_compound_selector_impl(buf, state, &comp.selector)?;
+        visit_compound_selector_impl(buf, state, comp.selector)?;
         if !comp.combinators.is_empty() {
             state.write_optional_space(buf);
         }
-        write_combinators_impl(buf, state, &comp.combinators)?;
+        write_combinators_impl(buf, state, comp.combinators)?;
         if i != complex.components.len() - 1
             && (!matches!(state.style, OutputStyle::Compressed) || comp.combinators.is_empty())
         {
@@ -150,7 +150,7 @@ pub(crate) fn visit_compound_selector_impl(
     compound: &CompoundSelector<'_>,
 ) -> SassResult<()> {
     let start = buf.len();
-    for simple in &compound.components {
+    for simple in compound.components {
         visit_simple_selector_impl(buf, state, simple)?;
     }
     if buf.len() == start {
@@ -190,8 +190,8 @@ pub(crate) fn visit_attribute_selector_impl(
     if let Some(ref op) = attr.op {
         write!(buf, "{}", op).unwrap();
         if let Some(ref value) = attr.value {
-            let is_ident = try_css_identifier(value).as_deref() == Some(value.as_str())
-                && !value.starts_with("--");
+            let is_ident =
+                try_css_identifier(value).as_deref() == Some(*value) && !value.starts_with("--");
             if is_ident {
                 write!(buf, "{}", value).unwrap();
                 if attr.modifier.is_some() {
@@ -218,7 +218,7 @@ pub(crate) fn visit_class_selector_impl(
     c: &ClassSelector<'_>,
 ) -> SassResult<()> {
     buf.write_char('.').unwrap();
-    write!(buf, "{}", to_css_identifier(&c.name)?).unwrap();
+    write!(buf, "{}", to_css_identifier(c.name)?).unwrap();
     Ok(())
 }
 
@@ -228,7 +228,7 @@ pub(crate) fn visit_id_selector_impl(
     i: &IdSelector<'_>,
 ) -> SassResult<()> {
     buf.write_char('#').unwrap();
-    write!(buf, "{}", to_css_identifier(&i.name)?).unwrap();
+    write!(buf, "{}", to_css_identifier(i.name)?).unwrap();
     Ok(())
 }
 
@@ -238,7 +238,7 @@ pub(crate) fn visit_placeholder_selector_impl(
     p: &PlaceholderSelector<'_>,
 ) -> SassResult<()> {
     buf.write_char('%').unwrap();
-    write!(buf, "{}", to_css_identifier(&p.name)?).unwrap();
+    write!(buf, "{}", to_css_identifier(p.name)?).unwrap();
     Ok(())
 }
 
@@ -251,11 +251,9 @@ pub(crate) fn visit_pseudo_selector_impl(
     pseudo: &PseudoSelector<'_>,
 ) -> SassResult<()> {
     if pseudo.name == "not" {
-        if let Some(ref sel) = pseudo.selector {
-            if let Selector::List(ref sl) = **sel {
-                if sl.is_invisible() {
-                    return Ok(());
-                }
+        if let Some(Selector::List(ref sl)) = pseudo.selector {
+            if sl.is_invisible() {
+                return Ok(());
             }
         }
     }
@@ -263,7 +261,7 @@ pub(crate) fn visit_pseudo_selector_impl(
     if !pseudo.is_syntactic_class {
         buf.write_char(':').unwrap();
     }
-    write!(buf, "{}", to_css_identifier(&pseudo.name)?).unwrap();
+    write!(buf, "{}", to_css_identifier(pseudo.name)?).unwrap();
     if pseudo.argument.is_none() && pseudo.selector.is_none() {
         return Ok(());
     }
@@ -274,7 +272,7 @@ pub(crate) fn visit_pseudo_selector_impl(
             buf.write_char(' ').unwrap();
         }
     }
-    if let Some(ref sel) = pseudo.selector {
+    if let Some(sel) = pseudo.selector {
         visit_selector_impl(buf, state, sel)?;
     }
     buf.write_char(')').unwrap();
@@ -366,9 +364,9 @@ mod tests {
     #[rust_sass_macros::maybe_test]
     async fn test_attribute_selector_empty_value_is_quoted() {
         let attr = AttributeSelector::new_with_operator(
-            QualifiedName::new("a".into()),
+            QualifiedName::new("a"),
             AttributeOperator::Equal,
-            String::new(),
+            "",
             BOGUS_SPAN,
             None,
         );

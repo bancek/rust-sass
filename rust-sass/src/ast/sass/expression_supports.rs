@@ -7,6 +7,7 @@
 // dart-source: lib/src/ast/sass/expression/supports.dart
 // go-source: go/value/sass_expression_supports.go
 
+use bumpalo::Bump;
 use std::fmt;
 
 use crate::common::ast_node::AstNode;
@@ -22,14 +23,14 @@ use crate::ast::sass::supports_condition::SupportsCondition;
 /// It doesn't include the function name wrapping the condition.
 #[derive(Clone, Debug)]
 pub struct SupportsExpression<'parse> {
-    /// The condition itself.
-    pub condition: Box<SupportsCondition<'parse>>,
+    /// The condition itself, allocated in the compile arena.
+    pub condition: &'parse SupportsCondition<'parse>,
 }
 
 impl<'parse> SupportsExpression<'parse> {
-    pub fn new(condition: SupportsCondition<'parse>) -> Self {
+    pub fn new(arena: &'parse Bump, condition: SupportsCondition<'parse>) -> Self {
         SupportsExpression {
-            condition: Box::new(condition),
+            condition: arena.alloc(condition),
         }
     }
 
@@ -88,7 +89,7 @@ mod tests {
         let span = test_span(&arena, "#{x}", 0, 4);
         let expr = Expression::Boolean(BooleanExpression::new(true, test_span(&arena, "x", 2, 3)));
         let cond = SupportsCondition::Interpolation(SupportsInterpolation::new(expr, span));
-        let supports = SupportsExpression::new(cond);
+        let supports = SupportsExpression::new(&arena, cond);
         assert_eq!(format!("{supports}"), "#{true}");
     }
 
@@ -98,7 +99,7 @@ mod tests {
         let span = test_span(&arena, "#{x}", 0, 4);
         let expr = Expression::Boolean(BooleanExpression::new(true, test_span(&arena, "x", 2, 3)));
         let cond = SupportsCondition::Interpolation(SupportsInterpolation::new(expr, span));
-        let supports = SupportsExpression::new(cond);
+        let supports = SupportsExpression::new(&arena, cond);
         assert!(supports.source_interpolation().is_none());
     }
 }

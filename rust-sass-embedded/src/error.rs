@@ -323,7 +323,7 @@ mod golden_tests {
     use rust_sass::compile::{compile_string, CompileOptions};
     use rust_sass::io::{DefaultIo, Io};
     use rust_sass::logger::QuietLogger;
-    use rust_sass::url::SassUrl;
+    use rust_sass::url::OwnedUrl;
     use rust_sass::Bump;
     use std::rc::Rc;
 
@@ -601,16 +601,16 @@ mod golden_tests {
     async fn compile_failure(source: &str, url: &str) -> Box<SassError> {
         let io: Rc<dyn Io> = Rc::new(DefaultIo::new());
         let arena = Bump::new();
-        let opts = CompileOptions {
+        let mut opts = CompileOptions {
             url: if url.is_empty() {
                 None
             } else {
-                Some(SassUrl::parse(url).unwrap())
+                Some(OwnedUrl::parse(url).unwrap())
             },
             logger: Some(Rc::new(QuietLogger)),
             ..CompileOptions::new(&arena)
         };
-        let result = compile_string(source, io.clone(), opts, &arena).await;
+        let result = compile_string(source, io.clone(), &mut opts, &arena).await;
         match result {
             Ok(_) => panic!("expected compilation of {source:?} to fail"),
             Err(e) => e,

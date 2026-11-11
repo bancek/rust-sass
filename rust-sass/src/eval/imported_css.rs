@@ -45,7 +45,6 @@ use crate::eval::helpers;
 use crate::eval::{EvalConfig, EvalState};
 use bumpalo::Bump;
 use std::cell::RefCell;
-use std::rc::Rc;
 
 // ===========================================================================
 // evaluate_imported_css_at_rule
@@ -73,6 +72,7 @@ where
     let mod_node = ModifiableCssNode::new(
         arena,
         ModifiableCssNodeKind::AtRule(ModifiableCssAtRule::new(
+            arena,
             node.name.clone(),
             node.span,
             node.childless,
@@ -117,7 +117,7 @@ where
 {
     let mod_node = ModifiableCssNode::new(
         arena,
-        ModifiableCssNodeKind::Comment(ModifiableCssComment::new(node.text.clone(), node.span)),
+        ModifiableCssNodeKind::Comment(ModifiableCssComment::new(node.text, node.span)),
     );
     helpers::add_child(arena, state, &mod_node, None)
 }
@@ -260,7 +260,8 @@ where
     let mod_node = ModifiableCssNode::new(
         arena,
         ModifiableCssNodeKind::MediaRule(ModifiableCssMediaRule::new(
-            node.queries.clone(),
+            arena,
+            node.queries.to_vec(),
             node.span,
         )?),
     );
@@ -269,7 +270,7 @@ where
     // Dart: hasBeenMerged = mediaQueries == null || _mergeMediaQueries(mediaQueries, node.queries) != null
     let has_been_merged = match &state.media_queries {
         None => true,
-        Some(mq) => helpers::merge_media_queries(mq, &node.queries).is_some(),
+        Some(mq) => helpers::merge_media_queries(arena, mq, node.queries).is_some(),
     };
 
     let through: &dyn Fn(&ModifiableCssNode<'parse>) -> bool =
@@ -317,7 +318,8 @@ where
     let mod_node = ModifiableCssNode::new(
         arena,
         ModifiableCssNodeKind::StyleRule(ModifiableCssStyleRule::new(
-            Rc::new(RefCell::new(node.selector)),
+            arena,
+            arena.alloc(RefCell::new(node.selector)),
             node.span,
             Some(node.original_selector),
             node.from_plain_css,
@@ -407,6 +409,7 @@ where
     let mod_node = ModifiableCssNode::new(
         arena,
         ModifiableCssNodeKind::SupportsRule(ModifiableCssSupportsRule::new(
+            arena,
             node.condition.clone(),
             node.span,
         )),
@@ -507,12 +510,12 @@ mod tests {
         FileSpan::new(Some(fs), 0, text.len())
     }
 
-    fn make_val<'compile, 'parse>(arena: &'compile Bump, s: &str) -> CssValue<'parse, String>
+    fn make_val<'compile, 'parse>(arena: &'compile Bump, s: &str) -> CssValue<'parse, &'parse str>
     where
         'compile: 'parse,
         'parse: 'compile,
     {
-        CssValue::new(s.into(), make_span(arena, s))
+        CssValue::new(&*arena.alloc_str(s), make_span(arena, s))
     }
 
     fn test_state<'compile, 'parse>(
@@ -533,7 +536,7 @@ mod tests {
         let mut state = EvalState::new(arena, span);
         let root = ModifiableCssNode::new(
             arena,
-            ModifiableCssNodeKind::Stylesheet(ModifiableCssStylesheet::new(span)),
+            ModifiableCssNodeKind::Stylesheet(ModifiableCssStylesheet::new(arena, span)),
         );
         state.root = Some(root.clone());
         state.parent = Some(root);
@@ -545,7 +548,7 @@ mod tests {
     async fn test_imported_css_comment() {
         let arena = Bump::new();
         let (config, mut state) = test_state(&arena);
-        let c = CssComment::new("/* imported */".into(), make_span(&arena, "/* imported */"));
+        let c = CssComment::new("/* imported */", make_span(&arena, "/* imported */"));
         evaluate_imported_css_comment(&config, &mut state, &arena, &c).unwrap();
     }
 
@@ -572,7 +575,7 @@ mod tests {
         let arena = Bump::new();
         let (config, mut state) = test_state(&arena);
         let kb = CssKeyframeBlock::new(
-            CssValue::new(vec!["10%".into()], make_span(&arena, "10%")),
+            CssValue::new(&["10%"][..], make_span(&arena, "10%")),
             make_span(&arena, "10% {}"),
         );
         let err =
@@ -631,11 +634,11 @@ mod tests {
         let arena = Bump::new();
         let (config, mut state) = test_state(&arena);
         let mr = CssMediaRule::new(
-            vec![CssMediaQuery::test_type(
+            &*arena.alloc_slice_fill_iter(vec![CssMediaQuery::test_type(
                 Some("screen".into()),
                 None,
                 vec![],
-            )],
+            )]),
             make_span(&arena, "@media screen {}"),
         )
         .unwrap();
@@ -665,6 +668,7 @@ mod tests {
         let at_rule = ModifiableCssNode::new(
             &arena,
             ModifiableCssNodeKind::AtRule(ModifiableCssAtRule::new(
+                &arena,
                 make_val(&arena, "custom"),
                 make_span(&arena, "@custom"),
                 false,
@@ -684,7 +688,7 @@ mod tests {
     async fn test_imported_css_stylesheet() {
         let arena = Bump::new();
         let (config, mut state) = test_state(&arena);
-        let c = CssComment::new("/* imported */".into(), make_span(&arena, "/* imported */"));
+        let c = CssComment::new("/* imported */", make_span(&arena, "/* imported */"));
         let ss = CssStylesheet::new(vec![CssNode::Comment(c)], make_span(&arena, ""));
         evaluate_imported_css_stylesheet(&config, &mut state, &arena, &ss)
             .await
@@ -703,9 +707,9 @@ mod tests {
             span,
             crate::selector::qualified_name::SelectorNamespace::Default,
         ));
-        let compound = CompoundSelector::new(vec![simple], span).unwrap();
-        let comp = ComplexSelectorComponent::new(Box::new(compound), vec![], span);
-        let complex = ComplexSelector::new(vec![], vec![comp], span, false).unwrap();
+        let compound = CompoundSelector::new(&arena, vec![simple], span).unwrap();
+        let comp = ComplexSelectorComponent::new(&arena, compound, vec![], span);
+        let complex = ComplexSelector::new(&arena, vec![], vec![comp], span, false).unwrap();
         let sel_list = SelectorList::new(&arena, vec![complex], span).unwrap();
         let span_rule = make_span(&arena, ".foo {}");
         let sr = CssStyleRule {

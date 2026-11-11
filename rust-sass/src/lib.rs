@@ -1,5 +1,8 @@
 // dart-source: N/A (true-original crate root — module declarations only, no Dart counterpart)
+#![forbid(unsafe_code)]
+
 /// `rust-sass`: a Rust port of Dart Sass (see `docs/architecture.md`).
+pub mod arena_map;
 pub mod ast;
 pub mod callable;
 pub mod common;

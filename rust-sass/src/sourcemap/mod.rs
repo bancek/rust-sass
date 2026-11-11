@@ -421,7 +421,7 @@ mod tests {
     use super::*;
     use crate::common::file_span::FileSpan;
     use crate::common::source_span_file_source::FileSource;
-    use crate::url::SassUrl;
+    use crate::url::OwnedUrl;
     use bumpalo::Bump;
 
     fn test_file_source<'compile, 'parse>(
@@ -433,8 +433,8 @@ mod tests {
         'compile: 'parse,
         'parse: 'compile,
     {
-        let url = SassUrl::parse(url_str).unwrap();
-        FileSource::new_in(arena, text, Some(url))
+        let url = OwnedUrl::parse(url_str).unwrap();
+        FileSource::new_in_owned(arena, text, Some(&url))
     }
 
     fn test_span<'compile, 'parse>(

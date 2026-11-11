@@ -23,13 +23,13 @@ pub struct MapExpression<'parse> {
     ///
     /// This is a list of pairs rather than a map because a map may have two
     /// keys with the same expression (e.g. `(unique-id(): 1, unique-id(): 2)`).
-    pub pairs: Vec<(Expression<'parse>, Expression<'parse>)>,
+    pub pairs: &'parse [(Expression<'parse>, Expression<'parse>)],
     pub span: FileSpan<'parse>,
 }
 
 impl<'parse> MapExpression<'parse> {
     pub fn new(
-        pairs: Vec<(Expression<'parse>, Expression<'parse>)>,
+        pairs: &'parse [(Expression<'parse>, Expression<'parse>)],
         span: FileSpan<'parse>,
     ) -> Self {
         MapExpression { pairs, span }
@@ -43,7 +43,7 @@ impl<'parse> MapExpression<'parse> {
 impl<'parse> MapExpression<'parse> {
     pub fn to_display_string(&self) -> SassResult<String> {
         let mut parts = Vec::new();
-        for (k, v) in &self.pairs {
+        for (k, v) in self.pairs {
             parts.push(format!(
                 "{}: {}",
                 k.to_display_string()?,
@@ -71,6 +71,8 @@ impl<'parse> fmt::Display for MapExpression<'parse> {
 
 #[cfg(test)]
 mod tests {
+    use crate::ast::sass::arena_slice;
+
     use super::*;
     use crate::ast::sass::expression_string::StringExpression;
     use crate::common::source_span_file_source::FileSource;
@@ -96,15 +98,15 @@ mod tests {
         let span = test_span(&arena, "(a: b)", 0, 6);
         let pairs = vec![(
             Expression::String(StringExpression::new(
-                Interpolation::plain("a".into(), span),
+                Interpolation::plain(&arena, "a".into(), span),
                 false,
             )),
             Expression::String(StringExpression::new(
-                Interpolation::plain("b".into(), span),
+                Interpolation::plain(&arena, "b".into(), span),
                 false,
             )),
         )];
-        let expr = MapExpression::new(pairs, span);
+        let expr = MapExpression::new(arena_slice(&arena, pairs), span);
         assert_eq!(expr.pairs.len(), 1);
     }
 
@@ -114,15 +116,15 @@ mod tests {
         let span = test_span(&arena, "(a: b)", 0, 6);
         let pairs = vec![(
             Expression::String(StringExpression::new(
-                Interpolation::plain("a".into(), span),
+                Interpolation::plain(&arena, "a".into(), span),
                 false,
             )),
             Expression::String(StringExpression::new(
-                Interpolation::plain("b".into(), span),
+                Interpolation::plain(&arena, "b".into(), span),
                 false,
             )),
         )];
-        let expr = MapExpression::new(pairs, span);
+        let expr = MapExpression::new(arena_slice(&arena, pairs), span);
         assert_eq!(format!("{expr}"), "(a: b)");
     }
 }

@@ -17,6 +17,7 @@
 //! does not wrap the WHATWG `url` crate: Dart accepts URLs that crate cannot
 //! represent and normalizes differently.
 
+use bumpalo::Bump;
 use std::fmt::{self, Display, Formatter};
 use std::hash::{Hash, Hasher};
 
@@ -89,7 +90,7 @@ impl Display for DartUriError {
 impl std::error::Error for DartUriError {}
 
 // ---------------------------------------------------------------------------
-// SassUrl
+// OwnedUrl
 // ---------------------------------------------------------------------------
 
 /// Which Dart `Uri` implementation a value came from.
@@ -97,16 +98,83 @@ impl std::error::Error for DartUriError {}
 /// Dart parses `".."` as a full `_Uri` and `"../"` as a `_SimpleUri`; both
 /// have the same public components and compare equal, but resolve differently.
 /// The kind is not part of equality, hashing, or display; it only selects
-/// `_simpleMerge` in [`SassUrl::resolve_uri`].
+/// `_simpleMerge` in [`OwnedUrl::resolve_uri`].
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum UriKind {
     Simple,
     Full,
 }
 
+/// Read-only access to a Dart-compatible URI.
+///
+/// Implemented by [`OwnedUrl`] (heap-owned) and [`ArenaUrl`] (arena-backed).
+/// The getters mirror `dart:core`'s `Uri` exactly, including the
+/// empty-string/zero sentinels for absent components and the separate
+/// `has_*` predicates.
+pub trait Url: Display {
+    fn scheme(&self) -> &str;
+    fn user_info(&self) -> &str;
+    /// Dart's `Uri.host` getter: strips `[...]` from IP literals, but not from
+    /// IPvFuture literals (`[v...]`).
+    fn host(&self) -> &str;
+    fn port(&self) -> i64;
+    fn path(&self) -> &str;
+    fn query(&self) -> &str;
+    fn fragment(&self) -> &str;
+    fn has_authority(&self) -> bool;
+    fn has_port(&self) -> bool;
+    fn has_query(&self) -> bool;
+    fn has_fragment(&self) -> bool;
+    fn as_str(&self) -> &str;
+    fn to_file_path_string(&self) -> Option<String>;
+
+    /// The owned form, when this URL already is owned — lets callers cache a
+    /// URL without copying it when it is arena-backed.
+    fn as_owned(&self) -> Option<&OwnedUrl> {
+        None
+    }
+
+    /// A heap-owned copy of this URL, without reparsing.
+    fn to_owned_url(&self) -> OwnedUrl;
+
+    fn has_scheme(&self) -> bool {
+        !self.scheme().is_empty()
+    }
+
+    fn has_empty_path(&self) -> bool {
+        self.path().is_empty()
+    }
+
+    fn has_absolute_path(&self) -> bool {
+        self.path().starts_with('/')
+    }
+
+    fn is_absolute(&self) -> bool {
+        self.has_scheme() && !self.has_fragment()
+    }
+
+    fn is_relative(&self) -> bool {
+        !self.has_scheme()
+    }
+
+    fn is_file(&self) -> bool {
+        self.scheme() == "file"
+    }
+
+    fn is_file_like(&self) -> bool {
+        self.is_file() || self.is_relative()
+    }
+
+    /// Whether this URI cannot be used as a base (no authority and a
+    /// rootless path).
+    fn cannot_be_a_base(&self) -> bool {
+        !self.has_authority() && !self.path().starts_with('/')
+    }
+}
+
 /// A Dart-compatible URI.
 #[derive(Clone, Debug)]
-pub struct SassUrl {
+pub struct OwnedUrl {
     scheme: String,
     user_info: String,
     host: Option<String>,
@@ -119,7 +187,7 @@ pub struct SassUrl {
     kind: UriKind,
 }
 
-impl SassUrl {
+impl OwnedUrl {
     fn make(
         scheme: String,
         user_info: String,
@@ -129,7 +197,7 @@ impl SassUrl {
         query: Option<String>,
         fragment: Option<String>,
     ) -> Self {
-        let mut url = SassUrl {
+        let mut url = OwnedUrl {
             scheme,
             user_info,
             host,
@@ -252,12 +320,12 @@ impl SassUrl {
     // --- Resolution -------------------------------------------------------
 
     /// Resolves `reference` against this URI using Dart's `Uri.resolve`.
-    pub fn resolve(&self, reference: &str) -> Result<SassUrl, DartUriError> {
-        Ok(self.resolve_uri(&SassUrl::parse(reference)?))
+    pub fn resolve(&self, reference: &str) -> Result<OwnedUrl, DartUriError> {
+        Ok(self.resolve_uri(&OwnedUrl::parse(reference)?))
     }
 
     /// Resolves an already-parsed reference.
-    pub fn resolve_uri(&self, reference: &SassUrl) -> SassUrl {
+    pub fn resolve_uri(&self, reference: &OwnedUrl) -> OwnedUrl {
         let target_scheme;
         let mut target_user_info = String::new();
         let mut target_host: Option<String> = None;
@@ -345,7 +413,7 @@ impl SassUrl {
         }
 
         let fragment = reference.fragment.clone();
-        let mut url = SassUrl::make(
+        let mut url = OwnedUrl::make(
             target_scheme,
             target_user_info,
             target_host,
@@ -395,13 +463,13 @@ impl SassUrl {
     }
 }
 
-impl Display for SassUrl {
+impl Display for OwnedUrl {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         f.write_str(&self.text)
     }
 }
 
-impl PartialEq for SassUrl {
+impl PartialEq for OwnedUrl {
     fn eq(&self, other: &Self) -> bool {
         self.scheme == other.scheme
             && self.has_authority() == other.has_authority()
@@ -416,9 +484,9 @@ impl PartialEq for SassUrl {
     }
 }
 
-impl Eq for SassUrl {}
+impl Eq for OwnedUrl {}
 
-impl Hash for SassUrl {
+impl Hash for OwnedUrl {
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.scheme.hash(state);
         self.has_authority().hash(state);
@@ -433,11 +501,343 @@ impl Hash for SassUrl {
     }
 }
 
+impl Url for OwnedUrl {
+    fn as_owned(&self) -> Option<&OwnedUrl> {
+        Some(self)
+    }
+
+    fn to_owned_url(&self) -> OwnedUrl {
+        self.clone()
+    }
+
+    fn scheme(&self) -> &str {
+        OwnedUrl::scheme(self)
+    }
+
+    fn user_info(&self) -> &str {
+        OwnedUrl::user_info(self)
+    }
+
+    fn host(&self) -> &str {
+        OwnedUrl::host(self)
+    }
+
+    fn port(&self) -> i64 {
+        OwnedUrl::port(self)
+    }
+
+    fn path(&self) -> &str {
+        OwnedUrl::path(self)
+    }
+
+    fn query(&self) -> &str {
+        OwnedUrl::query(self)
+    }
+
+    fn fragment(&self) -> &str {
+        OwnedUrl::fragment(self)
+    }
+
+    fn has_authority(&self) -> bool {
+        OwnedUrl::has_authority(self)
+    }
+
+    fn has_port(&self) -> bool {
+        OwnedUrl::has_port(self)
+    }
+
+    fn has_query(&self) -> bool {
+        OwnedUrl::has_query(self)
+    }
+
+    fn has_fragment(&self) -> bool {
+        OwnedUrl::has_fragment(self)
+    }
+
+    fn as_str(&self) -> &str {
+        OwnedUrl::as_str(self)
+    }
+
+    fn to_file_path_string(&self) -> Option<String> {
+        OwnedUrl::to_file_path_string(self)
+    }
+}
+
+/// An [`OwnedUrl`] whose components live in the compile arena.
+///
+/// The canonical `toString()` form is cached, like [`OwnedUrl`]. The struct is
+/// `Copy`; only the components are allocated in the arena. Use
+/// [`from_owned`](Self::from_owned) when an owned URL is already at hand, or
+/// [`parse`](Self::parse) to parse and copy in one step.
+#[derive(Clone, Copy, Debug)]
+pub struct ArenaUrl<'parse> {
+    scheme: &'parse str,
+    user_info: &'parse str,
+    host: Option<&'parse str>,
+    port: Option<i64>,
+    path: &'parse str,
+    query: Option<&'parse str>,
+    fragment: Option<&'parse str>,
+    /// Cached Dart `toString()` form.
+    text: &'parse str,
+    kind: UriKind,
+}
+
+impl<'parse> ArenaUrl<'parse> {
+    /// Copies `url`'s components into `arena` (no parsing).
+    pub fn from_owned(arena: &'parse Bump, url: &OwnedUrl) -> Self {
+        ArenaUrl {
+            scheme: &*arena.alloc_str(&url.scheme),
+            user_info: &*arena.alloc_str(&url.user_info),
+            host: url.host.as_deref().map(|host| &*arena.alloc_str(host)),
+            port: url.port,
+            path: &*arena.alloc_str(&url.path),
+            query: url.query.as_deref().map(|query| &*arena.alloc_str(query)),
+            fragment: url
+                .fragment
+                .as_deref()
+                .map(|fragment| &*arena.alloc_str(fragment)),
+            text: &*arena.alloc_str(&url.text),
+            kind: url.kind,
+        }
+    }
+
+    /// Parses `raw` with Dart's `Uri.parse` semantics, then copies the
+    /// components into `arena`.
+    pub fn parse(arena: &'parse Bump, raw: &str) -> Result<Self, DartUriError> {
+        Ok(Self::from_owned(arena, &OwnedUrl::parse(raw)?))
+    }
+
+    /// An owned copy of this URL, without reparsing.
+    pub fn to_owned_url(&self) -> OwnedUrl {
+        let mut owned = OwnedUrl::make(
+            self.scheme.to_string(),
+            self.user_info.to_string(),
+            self.host.map(str::to_string),
+            self.port,
+            self.path.to_string(),
+            self.query.map(str::to_string),
+            self.fragment.map(str::to_string),
+        );
+        // `make` computes these for a freshly parsed URL; keep the arena
+        // value's exact canonical form and Dart `UriKind`.
+        owned.kind = self.kind;
+        owned.text = self.text.to_string();
+        owned
+    }
+
+    // --- Getters (mirror OwnedUrl) ---
+
+    pub fn scheme(&self) -> &'parse str {
+        self.scheme
+    }
+
+    pub fn has_scheme(&self) -> bool {
+        !self.scheme.is_empty()
+    }
+
+    pub fn user_info(&self) -> &'parse str {
+        self.user_info
+    }
+
+    /// Dart's `Uri.host` getter: strips `[...]` from IP literals, but not from
+    /// IPvFuture literals (`[v...]`).
+    pub fn host(&self) -> &'parse str {
+        match self.host {
+            None => "",
+            Some(host) => {
+                if host.starts_with('[') && !host.starts_with("[v") {
+                    &host[1..host.len() - 1]
+                } else {
+                    host
+                }
+            }
+        }
+    }
+
+    pub fn has_authority(&self) -> bool {
+        self.host.is_some()
+    }
+
+    /// Dart's `Uri.port` getter (default port for the scheme when absent).
+    pub fn port(&self) -> i64 {
+        self.port.unwrap_or_else(|| default_port(self.scheme))
+    }
+
+    pub fn has_port(&self) -> bool {
+        self.port.is_some()
+    }
+
+    pub fn path(&self) -> &'parse str {
+        self.path
+    }
+
+    pub fn has_empty_path(&self) -> bool {
+        self.path.is_empty()
+    }
+
+    pub fn has_absolute_path(&self) -> bool {
+        self.path.starts_with('/')
+    }
+
+    pub fn query(&self) -> &'parse str {
+        self.query.unwrap_or("")
+    }
+
+    pub fn has_query(&self) -> bool {
+        self.query.is_some()
+    }
+
+    pub fn fragment(&self) -> &'parse str {
+        self.fragment.unwrap_or("")
+    }
+
+    pub fn has_fragment(&self) -> bool {
+        self.fragment.is_some()
+    }
+
+    pub fn is_absolute(&self) -> bool {
+        self.has_scheme() && !self.has_fragment()
+    }
+
+    pub fn is_relative(&self) -> bool {
+        !self.has_scheme()
+    }
+
+    pub fn is_file(&self) -> bool {
+        self.scheme == "file"
+    }
+
+    pub fn is_file_like(&self) -> bool {
+        self.is_file() || self.is_relative()
+    }
+
+    /// Whether this URI cannot be used as a base (no authority and a
+    /// rootless path).
+    pub fn cannot_be_a_base(&self) -> bool {
+        !self.has_authority() && !self.path.starts_with('/')
+    }
+
+    pub fn as_str(&self) -> &'parse str {
+        self.text
+    }
+
+    /// The filesystem path for a `file:` URL (Dart `Uri.toFilePath`).
+    pub fn to_file_path_string(&self) -> Option<String> {
+        if !self.is_file() {
+            return None;
+        }
+        file_path::uri_to_path(self.path, self.host.filter(|host| !host.is_empty()))
+    }
+
+    /// The filesystem path for passing a `file:` URL to the [`Io`] layer.
+    pub fn fs_path(&self) -> String {
+        self.to_file_path_string()
+            .unwrap_or_else(|| self.path.to_string())
+    }
+}
+
+impl Display for ArenaUrl<'_> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        f.write_str(self.text)
+    }
+}
+
+impl PartialEq for ArenaUrl<'_> {
+    fn eq(&self, other: &Self) -> bool {
+        self.scheme == other.scheme
+            && self.has_authority() == other.has_authority()
+            && self.user_info == other.user_info
+            && self.host() == other.host()
+            && self.port() == other.port()
+            && self.path == other.path
+            && self.has_query() == other.has_query()
+            && self.query() == other.query()
+            && self.has_fragment() == other.has_fragment()
+            && self.fragment() == other.fragment()
+    }
+}
+
+impl Eq for ArenaUrl<'_> {}
+
+impl Hash for ArenaUrl<'_> {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.scheme.hash(state);
+        self.has_authority().hash(state);
+        self.user_info.hash(state);
+        self.host().hash(state);
+        self.port().hash(state);
+        self.path.hash(state);
+        self.has_query().hash(state);
+        self.query().hash(state);
+        self.has_fragment().hash(state);
+        self.fragment().hash(state);
+    }
+}
+
+impl Url for ArenaUrl<'_> {
+    fn to_owned_url(&self) -> OwnedUrl {
+        ArenaUrl::to_owned_url(self)
+    }
+
+    fn scheme(&self) -> &str {
+        ArenaUrl::scheme(self)
+    }
+
+    fn user_info(&self) -> &str {
+        ArenaUrl::user_info(self)
+    }
+
+    fn host(&self) -> &str {
+        ArenaUrl::host(self)
+    }
+
+    fn port(&self) -> i64 {
+        ArenaUrl::port(self)
+    }
+
+    fn path(&self) -> &str {
+        ArenaUrl::path(self)
+    }
+
+    fn query(&self) -> &str {
+        ArenaUrl::query(self)
+    }
+
+    fn fragment(&self) -> &str {
+        ArenaUrl::fragment(self)
+    }
+
+    fn has_authority(&self) -> bool {
+        ArenaUrl::has_authority(self)
+    }
+
+    fn has_port(&self) -> bool {
+        ArenaUrl::has_port(self)
+    }
+
+    fn has_query(&self) -> bool {
+        ArenaUrl::has_query(self)
+    }
+
+    fn has_fragment(&self) -> bool {
+        ArenaUrl::has_fragment(self)
+    }
+
+    fn as_str(&self) -> &str {
+        ArenaUrl::as_str(self)
+    }
+
+    fn to_file_path_string(&self) -> Option<String> {
+        ArenaUrl::to_file_path_string(self)
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Parsing
 // ---------------------------------------------------------------------------
 
-fn parse_reference(units: &[u16]) -> Result<SassUrl, DartUriError> {
+fn parse_reference(units: &[u16]) -> Result<OwnedUrl, DartUriError> {
     let start = 0usize;
     let end = units.len();
 
@@ -569,7 +969,7 @@ fn parse_reference(units: &[u16]) -> Result<SassUrl, DartUriError> {
         None
     };
 
-    let mut url = SassUrl::make(scheme, user_info, host, port, path, query, fragment);
+    let mut url = OwnedUrl::make(scheme, user_info, host, port, path, query, fragment);
     url.kind = if is_simple {
         UriKind::Simple
     } else {
@@ -1379,7 +1779,7 @@ fn strip_data_scheme(units: &[u16]) -> Option<usize> {
     Some(5)
 }
 
-fn parse_data_uri(units: &[u16], start: usize) -> Result<SassUrl, DartUriError> {
+fn parse_data_uri(units: &[u16], start: usize) -> Result<OwnedUrl, DartUriError> {
     // Validate the media type/parameters/base64 marker and normalize the data
     // part, mirroring `UriData._parse`.
     let comma = 0x2cu16;
@@ -1412,7 +1812,7 @@ fn parse_data_uri(units: &[u16], start: usize) -> Result<SassUrl, DartUriError> 
         false,
         false,
     )?;
-    Ok(SassUrl::make(
+    Ok(OwnedUrl::make(
         "data".to_string(),
         String::new(),
         None,
@@ -1427,7 +1827,7 @@ fn parse_data_uri(units: &[u16], start: usize) -> Result<SassUrl, DartUriError> 
 // File paths (package:path's toUri/fromUri)
 // ---------------------------------------------------------------------------
 
-impl SassUrl {
+impl OwnedUrl {
     /// Converts an absolute filesystem path to a `file:` URL, matching
     /// `package:path`'s `toUri` for the current platform.
     #[allow(clippy::result_unit_err)]
@@ -1456,9 +1856,9 @@ mod tables;
 
 /// Resolves a file-like URL against a `file:` base.
 ///
-/// Relative URLs stay relative until [resolve](SassUrl::resolve); this helper
+/// Relative URLs stay relative until [resolve](OwnedUrl::resolve); this helper
 /// is the one place the importer layer combines them with a base URL.
-pub fn resolve_file_path(url: &SassUrl, base: &SassUrl) -> Option<SassUrl> {
+pub fn resolve_file_path(url: &OwnedUrl, base: &OwnedUrl) -> Option<OwnedUrl> {
     if !url.is_file_like() || !base.is_file() {
         return None;
     }
@@ -1538,7 +1938,7 @@ mod tests {
         for case in cases {
             let input = str_field(case, "input").expect("input");
             let expected_ok = case["ok"].as_bool().expect("ok");
-            let result = SassUrl::parse(input);
+            let result = OwnedUrl::parse(input);
             let mismatch = match (result, expected_ok) {
                 (Err(error), false) => {
                     let expected = str_field(case, "error").unwrap_or("");
@@ -1650,7 +2050,7 @@ mod tests {
         );
     }
 
-    fn assert_same_url(input: &str, url: &SassUrl, case: &serde_json::Value) -> Option<String> {
+    fn assert_same_url(input: &str, url: &OwnedUrl, case: &serde_json::Value) -> Option<String> {
         let expected_scheme = str_field(case, "scheme").unwrap_or("");
         let expected_user_info = str_field(case, "userInfo").unwrap_or("");
         let expected_host = str_field(case, "host").unwrap_or("");
@@ -1737,7 +2137,7 @@ mod tests {
             let base_input = str_field(case, "base").expect("base");
             let ref_input = str_field(case, "ref").expect("ref");
             let expected_ok = case["ok"].as_bool().expect("ok");
-            let base = match SassUrl::parse(base_input) {
+            let base = match OwnedUrl::parse(base_input) {
                 Ok(base) => base,
                 Err(error) => {
                     if expected_ok {
@@ -1748,7 +2148,7 @@ mod tests {
                     continue;
                 }
             };
-            match SassUrl::parse(ref_input) {
+            match OwnedUrl::parse(ref_input) {
                 Err(error) => {
                     if expected_ok {
                         failures.push(format!(
@@ -1793,9 +2193,9 @@ mod tests {
     fn resolve_distinguishes_simple_and_full_references() {
         // Dart parses ".." as a full `_Uri` and "../" as a `_SimpleUri`.
         // They compare equal but resolve differently; the kind preserves it.
-        let base = SassUrl::parse("foo/bar").unwrap();
-        let full = SassUrl::parse("..").unwrap();
-        let simple = SassUrl::parse("../").unwrap();
+        let base = OwnedUrl::parse("foo/bar").unwrap();
+        let full = OwnedUrl::parse("..").unwrap();
+        let simple = OwnedUrl::parse("../").unwrap();
         assert_eq!(full, simple);
         assert_eq!(full.kind, UriKind::Full);
         assert_eq!(simple.kind, UriKind::Simple);
@@ -1905,5 +2305,102 @@ mod tests {
             }
         }
         assert!(failures.is_empty(), "{}", failures.join("\n"));
+    }
+
+    // --- ArenaUrl / Url ---
+
+    use bumpalo::Bump;
+
+    const URL_CORPUS: &[&str] = &[
+        "file:///a/b.scss",
+        "file:///a%20b/c.scss",
+        "file:///C:/x/y.scss",
+        "file:///a/../b/./c.scss",
+        "file:///",
+        "file://localhost/a.scss",
+        "data:text/plain,hello%20world",
+        "sass:math",
+        "https://user:pass@example.com:8080/p?q=1#f",
+        "https://example.com",
+        "http://[::1]:80/x",
+        "mailto:user@example.com",
+        "a/b/c.scss",
+        "../up/./x.scss",
+        "..",
+        "../",
+        "#frag",
+        "?q",
+        "",
+    ];
+
+    fn hash_of<T: Hash>(value: &T) -> u64 {
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        value.hash(&mut hasher);
+        hasher.finish()
+    }
+
+    fn assert_url_accessors_match(a: &dyn Url, b: &dyn Url, raw: &str) {
+        assert_eq!(a.as_str(), b.as_str(), "{raw}: as_str");
+        assert_eq!(a.scheme(), b.scheme(), "{raw}: scheme");
+        assert_eq!(a.has_scheme(), b.has_scheme(), "{raw}: has_scheme");
+        assert_eq!(a.user_info(), b.user_info(), "{raw}: user_info");
+        assert_eq!(a.host(), b.host(), "{raw}: host");
+        assert_eq!(a.has_authority(), b.has_authority(), "{raw}: has_authority");
+        assert_eq!(a.port(), b.port(), "{raw}: port");
+        assert_eq!(a.has_port(), b.has_port(), "{raw}: has_port");
+        assert_eq!(a.path(), b.path(), "{raw}: path");
+        assert_eq!(
+            a.has_empty_path(),
+            b.has_empty_path(),
+            "{raw}: has_empty_path"
+        );
+        assert_eq!(
+            a.has_absolute_path(),
+            b.has_absolute_path(),
+            "{raw}: has_absolute_path"
+        );
+        assert_eq!(a.query(), b.query(), "{raw}: query");
+        assert_eq!(a.has_query(), b.has_query(), "{raw}: has_query");
+        assert_eq!(a.fragment(), b.fragment(), "{raw}: fragment");
+        assert_eq!(a.has_fragment(), b.has_fragment(), "{raw}: has_fragment");
+        assert_eq!(a.is_absolute(), b.is_absolute(), "{raw}: is_absolute");
+        assert_eq!(a.is_relative(), b.is_relative(), "{raw}: is_relative");
+        assert_eq!(a.is_file(), b.is_file(), "{raw}: is_file");
+        assert_eq!(a.is_file_like(), b.is_file_like(), "{raw}: is_file_like");
+        assert_eq!(
+            a.cannot_be_a_base(),
+            b.cannot_be_a_base(),
+            "{raw}: cannot_be_a_base"
+        );
+        assert_eq!(
+            a.to_file_path_string(),
+            b.to_file_path_string(),
+            "{raw}: to_file_path_string"
+        );
+        assert_eq!(a.to_string(), b.to_string(), "{raw}: display");
+    }
+
+    #[test]
+    fn arena_url_round_trips_owned() {
+        let arena = Bump::new();
+        for raw in URL_CORPUS {
+            let owned = OwnedUrl::parse(raw).unwrap_or_else(|e| panic!("{raw}: {e}"));
+            let arena_url = ArenaUrl::parse(&arena, raw).unwrap_or_else(|e| panic!("{raw}: {e}"));
+            assert_eq!(arena_url.to_owned_url(), owned, "{raw}: owned round-trip");
+            assert_eq!(hash_of(&arena_url), hash_of(&owned), "{raw}: hash");
+            assert_url_accessors_match(&owned, &arena_url, raw);
+        }
+    }
+
+    #[test]
+    fn arena_url_from_owned_matches_parse() {
+        let arena = Bump::new();
+        for raw in URL_CORPUS {
+            let owned = OwnedUrl::parse(raw).unwrap();
+            let from_owned = ArenaUrl::from_owned(&arena, &owned);
+            let parsed = ArenaUrl::parse(&arena, raw).unwrap();
+            assert_eq!(from_owned, parsed, "{raw}: from_owned vs parse");
+            assert_eq!(from_owned.as_str(), owned.as_str(), "{raw}: as_str");
+        }
     }
 }

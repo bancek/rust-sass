@@ -10,8 +10,8 @@
 use crate::common::SassResult;
 use std::cell::Cell;
 
+use crate::arena_map::ArenaMap;
 use bumpalo::Bump;
-use indexmap::IndexMap;
 
 use crate::value::{ListSeparator, SassList, Value};
 
@@ -27,7 +27,7 @@ pub struct SassArgumentList<'parse> {
     /// The keyword arguments attached to this argument list.
     ///
     /// The argument names don't include `$`.
-    pub keywords: IndexMap<String, Value<'parse>>,
+    pub keywords: ArenaMap<'parse, &'parse str, Value<'parse>>,
     /// Whether `keywords()` has been accessed. Arena-allocated `Cell`, shared
     /// across clones by reference (Copy), matching Go's pointer semantics (the
     /// evaluator checks the original value after built-in calls).
@@ -40,19 +40,23 @@ impl<'parse> SassArgumentList<'parse> {
     pub fn new<'compile: 'parse>(
         arena: &'compile Bump,
         contents: Vec<Value<'parse>>,
-        keywords: IndexMap<String, Value<'parse>>,
+        keywords: indexmap::IndexMap<String, Value<'parse>>,
         separator: ListSeparator,
     ) -> Self {
+        let mut keyword_map = ArenaMap::with_capacity_in(keywords.len(), arena);
+        for (name, value) in keywords {
+            keyword_map.insert(&*arena.alloc_str(&name), value);
+        }
         SassArgumentList {
-            list: SassList::new(contents, separator, false),
-            keywords,
+            list: SassList::new(arena, contents, separator, false),
+            keywords: keyword_map,
             were_keywords_accessed: arena.alloc(Cell::new(false)),
         }
     }
 
     /// Returns the keyword arguments, marking them as accessed.
     /// Matches Go: SassArgumentList.Keywords / Dart: keywords getter.
-    pub fn keywords(&self) -> &IndexMap<String, Value<'parse>> {
+    pub fn keywords(&self) -> &ArenaMap<'parse, &'parse str, Value<'parse>> {
         self.were_keywords_accessed.set(true);
         &self.keywords
     }
@@ -63,7 +67,7 @@ impl<'parse> SassArgumentList<'parse> {
     /// Normally, any time [`keywords`](Self::keywords) is accessed it's
     /// marked as such, which indicates that the caller was allowed to pass
     /// keywords to a rest argument. This avoids this marking.
-    pub fn keywords_without_marking(&self) -> &IndexMap<String, Value<'parse>> {
+    pub fn keywords_without_marking(&self) -> &ArenaMap<'parse, &'parse str, Value<'parse>> {
         &self.keywords
     }
 
@@ -143,6 +147,7 @@ mod tests {
     use super::*;
     use crate::value::{Value, ValueKind};
     use bumpalo::Bump;
+    use indexmap::IndexMap;
 
     #[test]
     fn test_arglist_construction() {
@@ -187,7 +192,7 @@ mod tests {
         let v1 = ValueKind::unitless_number(&arena, 1.0);
         let v2 = ValueKind::unitless_number(&arena, 2.0);
         let al = SassArgumentList::new(&arena, vec![v1, v2], IndexMap::new(), ListSeparator::Space);
-        let l = SassList::new(vec![v1, v2], ListSeparator::Space, false);
+        let l = SassList::new(&arena, vec![v1, v2], ListSeparator::Space, false);
         assert!(al.equals(&l));
         assert!(l.equals(&al.list));
     }
@@ -205,6 +210,7 @@ mod tests {
             ListSeparator::Space,
         );
         let l = SassList::new(
+            &arena,
             vec![
                 ValueKind::unitless_number(&arena, 1.0),
                 ValueKind::unitless_number(&arena, 2.0),
@@ -219,6 +225,7 @@ mod tests {
     fn test_arglist_to_css_string() {
         let arena = Bump::new();
         let list = SassList::new(
+            &arena,
             vec![
                 ValueKind::unitless_number(&arena, 1.0),
                 ValueKind::unitless_number(&arena, 2.0),
@@ -228,7 +235,7 @@ mod tests {
         );
         let al = SassArgumentList::new(
             &arena,
-            list.contents,
+            list.contents.to_vec(),
             Default::default(),
             ListSeparator::Space,
         );
@@ -241,6 +248,7 @@ mod tests {
         let arena = Bump::new();
         // Mirrors Go: TestArgListString — String() adds Dart toString parens.
         let list = SassList::new(
+            &arena,
             vec![
                 ValueKind::unitless_number(&arena, 1.0),
                 ValueKind::unitless_number(&arena, 2.0),
@@ -250,7 +258,7 @@ mod tests {
         );
         let al = SassArgumentList::new(
             &arena,
-            list.contents,
+            list.contents.to_vec(),
             Default::default(),
             ListSeparator::Space,
         );

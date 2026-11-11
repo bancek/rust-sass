@@ -18,6 +18,9 @@
 //! references. Nested bracketed lists use an explicit [`BracketFrame`] stack
 //! rather than recursive `_expression(bracketList: true)` calls.
 
+use bumpalo::Bump;
+
+use crate::ast::sass::arena_slice;
 use crate::ast::sass::argument_list::ArgumentList;
 use crate::ast::sass::binary_operator::BinaryOperator;
 use crate::ast::sass::expression::Expression;
@@ -74,8 +77,8 @@ use crate::parse::anyvalue::{interpolated_declaration_value_impl, DeclarationVal
 use crate::parse::identifier::{interpolated_identifier_expr_impl, single_interpolation_impl};
 use crate::parse::parser::{
     error_impl, escape_character_impl, expect_identifier_impl, identifier_impl,
-    looking_at_identifier, peek_char_or_escape, scan_identifier_impl, span_from_impl,
-    whitespace_impl, whitespace_without_comments_impl, ParseError, ParseResult,
+    identifier_str_impl, looking_at_identifier, peek_char_or_escape, scan_identifier_impl,
+    span_from_impl, whitespace_impl, whitespace_without_comments_impl, ParseError, ParseResult,
 };
 use crate::parse::stylesheet::{StylesheetParser, StylesheetState, Syntax};
 use crate::parse::util::looking_at_interpolated_identifier_impl;
@@ -133,6 +136,7 @@ pub(crate) struct Op<'parse> {
 // Uses the source text's float parsing so numbers with many digits do not
 // accumulate floating-point error.
 pub(crate) fn number_impl<'parse>(
+    arena: &'parse Bump,
     scanner: &mut SpanScanner<'parse>,
     state: &ParserState<'parse>,
 ) -> ParseResult<'parse, NumberExpression<'parse>> {
@@ -158,15 +162,15 @@ pub(crate) fn number_impl<'parse>(
         f64::INFINITY
     });
 
-    let mut unit: Option<String> = None;
+    let mut unit: Option<&'parse str> = None;
     if scanner.scan_char('%') {
-        unit = Some("%".to_string());
+        unit = Some("%");
     } else if looking_at_identifier(scanner, None)
         && !(scanner.peek_char(0) == '-' as i32 && scanner.peek_char(1) == '-' as i32)
     {
-        unit = Some(to_css_identifier(&identifier_impl(
-            scanner, state, false, true,
-        )?)?);
+        let identifier =
+            to_css_identifier(identifier_str_impl(arena, scanner, state, false, true)?)?;
+        unit = Some(arena.alloc_str(&identifier));
     }
 
     let span = scanner.span_from(start);
@@ -297,17 +301,23 @@ fn resolve_one<'parse>(
     if acc.allow_slash && !state.in_parentheses && op == BinaryOperator::DividedBy {
         if is_slash_operand_impl(&left) && is_slash_operand_impl(&right) {
             acc.single = Some(Expression::BinaryOperation(
-                BinaryOperationExpression::new_slash(left, right),
+                BinaryOperationExpression::new_slash(state.arena, left, right),
             ));
         } else {
             acc.single = Some(Expression::BinaryOperation(BinaryOperationExpression::new(
-                op, left, right,
+                state.arena,
+                op,
+                left,
+                right,
             )));
             acc.allow_slash = false;
         }
     } else {
         acc.single = Some(Expression::BinaryOperation(BinaryOperationExpression::new(
-            op, left, right,
+            state.arena,
+            op,
+            left,
+            right,
         )));
         acc.allow_slash = false;
     }
@@ -338,7 +348,7 @@ fn resolve_one<'parse>(
                     .unwrap_or(right_file);
                 state.warnings.push(ParseTimeWarning {
                     deprecation: Some(&deprecation::STRICT_UNARY),
-                    message: format!(
+                    message: state.arena.alloc_str(&format!(
                         "This operation is parsed as:\n\n    {} {} {}\n\n\
                          but you may have intended it to mean:\n\n    {} ({}{})\n\n\
                          Add a space after {} to clarify that it's meant to be a \
@@ -348,10 +358,10 @@ fn resolve_one<'parse>(
                          More info and automated migrator: \
                          https://sass-lang.com/d/strict-unary",
                         left_str, syn, right_str, left_str, syn, right_str, syn,
-                    ),
+                    )),
                     span: warn_span,
                     primary_label: None,
-                    secondary: vec![],
+                    secondary: &[],
                 });
             }
         }
@@ -377,6 +387,7 @@ fn resolve_all<'parse>(
 // [`ListExpression`].
 fn resolve_space<'parse>(
     scanner: &SpanScanner<'parse>,
+    arena: &'parse Bump,
     acc: &mut Acc<'parse>,
 ) -> ParseResult<'parse, ()> {
     if acc.space_exprs.is_empty() {
@@ -405,7 +416,7 @@ fn resolve_space<'parse>(
         .expand(&last_span)
         .map_err(|e| error_impl(&e.to_string(), &first))?;
     acc.single = Some(Expression::List(ListExpression::new(
-        acc.space_exprs.clone(),
+        arena_slice(arena, acc.space_exprs.clone()),
         ListSeparator::Space,
         span,
         false,
@@ -556,7 +567,12 @@ fn unary<'parse>(
     whitespace_impl(scanner, &mut state.parser_state, true)?;
     let operand = parse_single(scanner, state)?;
     let span = scanner.span_from(start);
-    Ok(UnaryOperationExpression::new(op, operand, span))
+    Ok(UnaryOperationExpression::new(
+        state.arena,
+        op,
+        operand,
+        span,
+    ))
 }
 
 // Whether the parser runs in plain-CSS mode (Dart's `plainCss`).
@@ -586,7 +602,7 @@ fn variable_impl<'parse>(
         )));
     }
     let span = span_from_impl(scanner, &state.parser_state, start)?.file_span()?;
-    Ok(VariableExpression::new(name, span, None))
+    Ok(VariableExpression::new(state.arena, &name, span, None))
 }
 
 /// Consumes the `&` parent-selector expression.
@@ -613,10 +629,10 @@ fn selector_expr_impl<'parse>(
         let sel_span = span_from_impl(scanner, &state.parser_state, start)?.file_span()?;
         state.warnings.push(ParseTimeWarning {
             deprecation: None,
-            message: "In Sass, \"&&\" means two copies of the parent selector. You probably want to use \"and\" instead.".to_string(),
+            message: "In Sass, \"&&\" means two copies of the parent selector. You probably want to use \"and\" instead.",
             span: sel_span,
             primary_label: None,
-            secondary: vec![],
+            secondary: &[],
         });
         scanner.set_position(scanner.pos().saturating_sub(1))?;
     }
@@ -652,7 +668,7 @@ pub(crate) fn parentheses_impl<'parse>(
         let list_span = span_from_impl(scanner, &state.parser_state, start)?.file_span()?;
         state.in_parentheses = was_in_parentheses;
         return Ok(Expression::List(ListExpression::new(
-            vec![],
+            &[],
             ListSeparator::Undecided,
             list_span,
             false,
@@ -679,7 +695,9 @@ pub(crate) fn parentheses_impl<'parse>(
         let paren_span = span_from_impl(scanner, &state.parser_state, start)?.file_span()?;
         state.in_parentheses = was_in_parentheses;
         return Ok(Expression::Parenthesized(ParenthesizedExpression::new(
-            first, paren_span,
+            state.arena,
+            first,
+            paren_span,
         )));
     }
     whitespace_impl(scanner, &mut state.parser_state, true)?;
@@ -705,11 +723,17 @@ pub(crate) fn parentheses_impl<'parse>(
         whitespace_impl(scanner, &mut state.parser_state, true)?;
     }
     let inside_span = span_from_impl(scanner, &state.parser_state, inside)?.file_span()?;
-    let list = ListExpression::new(expressions, ListSeparator::Comma, inside_span, false);
+    let list = ListExpression::new(
+        arena_slice(state.arena, expressions),
+        ListSeparator::Comma,
+        inside_span,
+        false,
+    );
     scanner.expect_char(')')?;
     let close_span = span_from_impl(scanner, &state.parser_state, start)?.file_span()?;
     state.in_parentheses = was_in_parentheses;
     Ok(Expression::Parenthesized(ParenthesizedExpression::new(
+        state.arena,
         Expression::List(list),
         close_span,
     )))
@@ -769,7 +793,10 @@ fn map_expr_impl<'parse>(
     }
     scanner.expect_char(')')?;
     let map_span = span_from_impl(scanner, &state.parser_state, start)?.file_span()?;
-    Ok(MapExpression::new(pairs, map_span))
+    Ok(MapExpression::new(
+        arena_slice(state.arena, pairs),
+        map_span,
+    ))
 }
 
 /// Consumes a quoted string expression with interpolation.
@@ -795,7 +822,7 @@ fn interpolated_string_impl<'parse>(
         if next == quote as i32 {
             scanner.read_char()?;
             let str_span = span_from_impl(scanner, &state.parser_state, start)?;
-            let interp = buffer.interpolation(str_span).map_err(|e| {
+            let interp = buffer.interpolation(state.arena, str_span).map_err(|e| {
                 let sp = span_from_impl(scanner, &state.parser_state, start).unwrap();
                 error_impl(&e.to_string(), &sp.file_span().unwrap())
             })?;
@@ -844,8 +871,9 @@ fn hash_expression_impl<'parse>(
     let start = scanner.state();
     scanner.expect_char('#')?;
     if character::is_digit(scanner.peek_char(0) as u8 as char) {
-        let color = hex_color_contents(scanner, start)?;
+        let color = hex_color_contents(state.arena, scanner, start)?;
         return Ok(Expression::Color(ColorExpression::new(
+            state.arena,
             color,
             scanner.span_from(start),
         )));
@@ -854,8 +882,9 @@ fn hash_expression_impl<'parse>(
     let identifier = interpolated_identifier_expr_impl(scanner, state)?;
     if is_hex_color(&identifier) {
         scanner.set_state(after_hash);
-        let color = hex_color_contents(scanner, start)?;
+        let color = hex_color_contents(state.arena, scanner, start)?;
         return Ok(Expression::Color(ColorExpression::new(
+            state.arena,
             color,
             scanner.span_from(start),
         )));
@@ -864,7 +893,7 @@ fn hash_expression_impl<'parse>(
     buffer.write_char_code('#');
     buffer.add_interpolation(&identifier);
     let hash_span = span_from_impl(scanner, &state.parser_state, start)?;
-    let interp = match buffer.interpolation(hash_span) {
+    let interp = match buffer.interpolation(state.arena, hash_span) {
         Ok(i) => i,
         Err(e) => {
             let sp = span_from_impl(scanner, &state.parser_state, start)?;
@@ -881,9 +910,10 @@ fn hash_expression_impl<'parse>(
 /// eight-digit forms keep no preserved format because browser support is
 /// still uneven.
 fn hex_color_contents<'parse>(
+    arena: &'parse Bump,
     scanner: &mut SpanScanner<'parse>,
     start: LineScannerState,
-) -> ParseResult<'parse, SassColor> {
+) -> ParseResult<'parse, SassColor<'parse>> {
     let d1 = hex_digit(scanner)?;
     let d2 = hex_digit(scanner)?;
     let d3 = hex_digit(scanner)?;
@@ -929,10 +959,9 @@ fn hex_color_contents<'parse>(
     // Matches Dart: SassColor.rgbInternal(r, g, b, alpha, SpanColorFormat(span))
     // Matches Go:  NewColorRGBInternal(..., &format) where format is SpanColorFormat
     let format = if a.is_none() {
-        let original = scanner
-            .substring(start.position, Some(scanner.pos()))
-            .to_string();
-        Some(ColorFormat::Preserved(original))
+        Some(ColorFormat::Preserved(arena.alloc_str(
+            scanner.substring(start.position, Some(scanner.pos())),
+        )))
     } else {
         None
     };
@@ -977,6 +1006,7 @@ fn is_hex_color(interp: &Interpolation) -> bool {
 /// after the range is an error.
 fn unicode_range_impl<'parse>(
     scanner: &mut SpanScanner<'parse>,
+    arena: &'parse Bump,
 ) -> ParseResult<'parse, StringExpression<'parse>> {
     let start = scanner.state();
     scanner.read_char()?;
@@ -1000,6 +1030,7 @@ fn unicode_range_impl<'parse>(
         let err_span = span_from_impl(
             scanner,
             &ParserState {
+                arena,
                 syntax: Syntax::Scss,
                 interpolation_map: None,
                 in_expression: true,
@@ -1014,6 +1045,7 @@ fn unicode_range_impl<'parse>(
     }
     if has_q {
         return Ok(StringExpression::plain(
+            arena,
             scanner.substring(start.position, None),
             scanner.span_from(start),
             false,
@@ -1035,6 +1067,7 @@ fn unicode_range_impl<'parse>(
             let s2span = span_from_impl(
                 scanner,
                 &ParserState {
+                    arena,
                     syntax: Syntax::Scss,
                     interpolation_map: None,
                     in_expression: true,
@@ -1051,6 +1084,7 @@ fn unicode_range_impl<'parse>(
         ));
     }
     Ok(StringExpression::plain(
+        arena,
         scanner.substring(start.position, None),
         scanner.span_from(start),
         false,
@@ -1082,7 +1116,10 @@ fn ident_like<'parse>(
             // hacks. Matches Dart: `identifierLike` (`stylesheet.dart`).
             let span = span_from_impl(scanner, &state.parser_state, start)?.file_span()?;
             return Ok(Expression::String(StringExpression::plain(
-                "\\0 ", span, false,
+                state.arena,
+                "\\0 ",
+                span,
+                false,
             )));
         }
         if p == "if" && scanner.peek_char(0) == '(' as i32 {
@@ -1108,10 +1145,10 @@ fn ident_like<'parse>(
                     let expr_span = expr.span()?;
                     state.warnings.push(ParseTimeWarning {
                         deprecation: Some(&deprecation::IF_FUNCTION),
-                        message: msg,
+                        message: state.arena.alloc_str(&msg),
                         span: expr_span,
                         primary_label: None,
-                        secondary: vec![],
+                        secondary: &[],
                     });
                     return Ok(Expression::LegacyIf(expr));
                 }
@@ -1128,6 +1165,7 @@ fn ident_like<'parse>(
             let expr = parse_single(scanner, state)?;
             let not_span = span_from_impl(scanner, &state.parser_state, start)?.file_span()?;
             return Ok(Expression::UnaryOperation(UnaryOperationExpression::new(
+                state.arena,
                 UnaryOperator::Not,
                 expr,
                 not_span,
@@ -1154,11 +1192,16 @@ fn ident_like<'parse>(
                 // Matches Dart: SassColor.rgbInternal(..., SpanColorFormat(identifier.span))
                 // Matches Go:  NewColorRGBInternal(..., &SpanColorFormat{Span: span})
                 let mut color = color;
-                let original_text = scanner
-                    .substring(start.position, Some(scanner.pos()))
-                    .to_string();
-                color.set_format(Some(ColorFormat::Preserved(original_text)));
-                return Ok(Expression::Color(ColorExpression::new(color, span)));
+                color.set_format(Some(ColorFormat::Preserved(
+                    state
+                        .arena
+                        .alloc_str(scanner.substring(start.position, Some(scanner.pos()))),
+                )));
+                return Ok(Expression::Color(ColorExpression::new(
+                    state.arena,
+                    color,
+                    span,
+                )));
             }
         }
         let lower = p.to_lowercase();
@@ -1188,7 +1231,11 @@ fn ident_like<'parse>(
             let invocation = argument_invocation(scanner, state, false, allow_empty)?;
             let func_span = span_from_impl(scanner, &state.parser_state, start)?.file_span()?;
             Ok(Expression::Function(FunctionExpression::new(
-                p, invocation, func_span, None,
+                state.arena,
+                &p,
+                invocation,
+                func_span,
+                None,
             )))
         }
         _ if scanner.peek_char(0) == '(' as i32 => {
@@ -1203,7 +1250,7 @@ fn ident_like<'parse>(
 }
 
 // Looks up a CSS named color (Dart's `colorsByName`).
-fn named_color(name: &str) -> Option<SassColor> {
+fn named_color(name: &str) -> Option<SassColor<'static>> {
     // Literal color table; a named alias would be single-use indirection.
     #[allow(clippy::type_complexity)]
     static PAIRS: &[(&str, (u8, u8, u8, f64))] = &[
@@ -1405,7 +1452,7 @@ pub(crate) fn argument_invocation<'parse>(
         } else if let Expression::Variable(ref ve) = expression {
             if scanner.scan_char(':') {
                 whitespace_impl(scanner, &mut state.parser_state, true)?;
-                let name = ve.name.clone();
+                let name = ve.name.to_string();
                 if named.contains_key(&name) {
                     let ve_span = ve.span()?;
                     return Err(Box::new(error_impl("Duplicate argument.", &ve_span)));
@@ -1422,14 +1469,14 @@ pub(crate) fn argument_invocation<'parse>(
                     emitted_rest_deprecation = true;
                     let rest_span = rest.as_ref().and_then(|r| r.span().ok());
                     let secondary = rest_span
-                        .map(|rs| vec![(rs, "rest argument".to_string())])
+                        .map(|rs| vec![(rs, "rest argument")])
                         .unwrap_or_default();
                     state.warnings.push(ParseTimeWarning {
                         deprecation: Some(&MISPLACED_REST),
-                        message: "Named arguments must come before rest arguments.\nThis will be an error in Dart Sass 2.0.0.".to_string(),
+                        message: "Named arguments must come before rest arguments.\nThis will be an error in Dart Sass 2.0.0.",
                         span: exp_span,
-                        primary_label: Some("named argument".to_string()),
-                        secondary,
+                        primary_label: Some("named argument"),
+                        secondary: arena_slice(state.arena, secondary),
                     });
                 }
                 named_spans.insert(name.clone(), exp_span);
@@ -1448,14 +1495,14 @@ pub(crate) fn argument_invocation<'parse>(
                     let expr_span = expression.span()?;
                     let rest_span = rest.as_ref().and_then(|r| r.span().ok());
                     let secondary = rest_span
-                        .map(|rs| vec![(rs, "rest argument".to_string())])
+                        .map(|rs| vec![(rs, "rest argument")])
                         .unwrap_or_default();
                     state.warnings.push(ParseTimeWarning {
                         deprecation: Some(&MISPLACED_REST),
-                        message: "Positional arguments must come before rest arguments.\nThis will be an error in Dart Sass 2.0.0.".to_string(),
+                        message: "Positional arguments must come before rest arguments.\nThis will be an error in Dart Sass 2.0.0.",
                         span: expr_span,
-                        primary_label: Some("positional argument".to_string()),
-                        secondary,
+                        primary_label: Some("positional argument"),
+                        secondary: arena_slice(state.arena, secondary),
                     });
                 }
                 positional.push(expression);
@@ -1473,14 +1520,14 @@ pub(crate) fn argument_invocation<'parse>(
                 let expr_span = expression.span()?;
                 let rest_span = rest.as_ref().and_then(|r| r.span().ok());
                 let secondary = rest_span
-                    .map(|rs| vec![(rs, "rest argument".to_string())])
+                    .map(|rs| vec![(rs, "rest argument")])
                     .unwrap_or_default();
                 state.warnings.push(ParseTimeWarning {
                     deprecation: Some(&MISPLACED_REST),
-                    message: "Positional arguments must come before rest arguments.\nThis will be an error in Dart Sass 2.0.0.".to_string(),
+                    message: "Positional arguments must come before rest arguments.\nThis will be an error in Dart Sass 2.0.0.",
                     span: expr_span,
-                    primary_label: Some("positional argument".to_string()),
-                    secondary,
+                    primary_label: Some("positional argument"),
+                    secondary: arena_slice(state.arena, secondary),
                 });
             }
             positional.push(expression);
@@ -1497,6 +1544,7 @@ pub(crate) fn argument_invocation<'parse>(
             && scanner.peek_char(0) == ')' as i32
         {
             positional.push(Expression::String(StringExpression::plain(
+                state.arena,
                 "",
                 scanner.empty_span(),
                 false,
@@ -1507,6 +1555,7 @@ pub(crate) fn argument_invocation<'parse>(
     scanner.expect_char(')')?;
     let span = span_from_impl(scanner, &state.parser_state, start)?.file_span()?;
     Ok(ArgumentList::new(
+        state.arena,
         positional,
         named,
         named_spans,
@@ -1607,7 +1656,7 @@ pub(crate) fn if_expression<'parse>(
         whitespace_impl(scanner, &mut state.parser_state, true)?;
     }
     scanner.expect_char(')')?;
-    IfExpression::new(branches, scanner.span_from(start))
+    IfExpression::new(arena_slice(state.arena, branches), scanner.span_from(start))
         .map_err(|e| Box::new(error_impl(&e.to_string(), &scanner.span_from(start))))
 }
 
@@ -1632,6 +1681,7 @@ fn if_condition<'parse>(
         whitespace_impl(scanner, &mut state.parser_state, true)?;
         let group = if_group(scanner, state)?;
         return Ok(IfConditionExpression::Negation(IfConditionNegation::new(
+            state.arena,
             group,
             scanner.span_from(start),
         )));
@@ -1688,9 +1738,11 @@ fn if_condition<'parse>(
                         groups.remove(0)
                     } else {
                         IfConditionExpression::Operation(
-                            IfConditionOperation::new(groups.clone(), op.unwrap()).map_err(
-                                |e| error_impl(&e.to_string(), &scanner.span_from(start)),
-                            )?,
+                            IfConditionOperation::new(
+                                arena_slice(state.arena, groups.clone()),
+                                op.unwrap(),
+                            )
+                            .map_err(|e| error_impl(&e.to_string(), &scanner.span_from(start)))?,
                         )
                     };
                     let next = if_group(scanner, state)?;
@@ -1701,9 +1753,11 @@ fn if_condition<'parse>(
                         groups.remove(0)
                     } else {
                         IfConditionExpression::Operation(
-                            IfConditionOperation::new(groups.clone(), op.unwrap()).map_err(
-                                |e| error_impl(&e.to_string(), &scanner.span_from(start)),
-                            )?,
+                            IfConditionOperation::new(
+                                arena_slice(state.arena, groups.clone()),
+                                op.unwrap(),
+                            )
+                            .map_err(|e| error_impl(&e.to_string(), &scanner.span_from(start)))?,
                         )
                     };
                     return if_condition_raw(scanner, state, preceding, substitution);
@@ -1717,7 +1771,7 @@ fn if_condition<'parse>(
         return Ok(groups.remove(0));
     }
     Ok(IfConditionExpression::Operation(
-        IfConditionOperation::new(groups, op.unwrap())
+        IfConditionOperation::new(arena_slice(state.arena, groups), op.unwrap())
             .map_err(|e| error_impl(&e.to_string(), &scanner.span_from(start)))?,
     ))
 }
@@ -1738,7 +1792,7 @@ fn if_group<'parse>(
         whitespace_impl(scanner, &mut state.parser_state, true)?;
         scanner.expect_char(')')?;
         return Ok(IfConditionExpression::Parenthesized(
-            IfConditionParenthesized::new(expr, scanner.span_from(start)),
+            IfConditionParenthesized::new(state.arena, expr, scanner.span_from(start)),
         ));
     }
     let is_sass = scan_identifier_impl(scanner, "sass", true)?;
@@ -1764,6 +1818,7 @@ fn if_group<'parse>(
             )));
         }
         return Ok(IfConditionExpression::Sass(IfConditionSass::new(
+            state.arena,
             expr,
             scanner.span_from(start),
         )));
@@ -1807,7 +1862,7 @@ fn if_group<'parse>(
     )?;
     whitespace_impl(scanner, &mut state.parser_state, true)?;
     scanner.expect_char(')')?;
-    Ok(IfConditionExpression::Function(Box::new(
+    Ok(IfConditionExpression::Function(state.arena.alloc(
         IfConditionFunction::new(identifier, expression, scanner.span_from(start)),
     )))
 }
@@ -1827,7 +1882,7 @@ fn try_arbitrary_substitution<'parse>(
         let mut buf = InterpolationBuffer::new();
         buf.add(expression, span);
         let raw = buf
-            .interpolation(span)
+            .interpolation(state.arena, span)
             .map_err(|e| error_impl(&e.to_string(), &span))?;
         return Ok(Some(IfConditionExpression::Raw(IfConditionRaw::new(raw))));
     }
@@ -1837,16 +1892,19 @@ fn try_arbitrary_substitution<'parse>(
 
     if scan_identifier_impl(scanner, "if", false)? {
         name = Some(Interpolation::plain(
+            state.arena,
             "if".to_string(),
             scanner.span_from(start),
         ));
     } else if scan_identifier_impl(scanner, "var", false)? {
         name = Some(Interpolation::plain(
+            state.arena,
             "var".to_string(),
             scanner.span_from(start),
         ));
     } else if scan_identifier_impl(scanner, "attr", false)? {
         name = Some(Interpolation::plain(
+            state.arena,
             "attr".to_string(),
             scanner.span_from(start),
         ));
@@ -1884,9 +1942,11 @@ fn try_arbitrary_substitution<'parse>(
     scanner.expect_char(')')?;
 
     let span = scanner.span_from(start);
-    Ok(Some(IfConditionExpression::Function(Box::new(
-        IfConditionFunction::new(name, arguments, span),
-    ))))
+    Ok(Some(IfConditionExpression::Function(
+        state
+            .arena
+            .alloc(IfConditionFunction::new(name, arguments, span)),
+    )))
 }
 
 /// Consumes the remainder of a would-be `if()` operation as raw text.
@@ -1922,10 +1982,10 @@ fn if_condition_raw<'parse>(
     }
 
     let mut buffer = InterpolationBuffer::new();
-    let preceding_interp = preceding.to_interpolation(subst)?;
+    let preceding_interp = preceding.to_interpolation(state.arena, subst)?;
     buffer.add_interpolation(&preceding_interp);
     buffer.write_char_code(' ');
-    let next_interp = next.to_interpolation(subst)?;
+    let next_interp = next.to_interpolation(state.arena, subst)?;
     buffer.add_interpolation(&next_interp);
 
     let mut last_group = next;
@@ -1954,7 +2014,7 @@ fn if_condition_raw<'parse>(
             // Dart: `var lastGroup = _ifGroup()` — shadow, outer not updated
             let lg = if_group(scanner, state)?;
             buffer.write(" and ");
-            let last_interp = lg.to_interpolation(subst)?;
+            let last_interp = lg.to_interpolation(state.arena, subst)?;
             buffer.add_interpolation(&last_interp);
         } else {
             let is_or = if op.is_none() || op != Some(IfBoolOp::And) {
@@ -1975,7 +2035,7 @@ fn if_condition_raw<'parse>(
                 let lg = if_group(scanner, state)?;
                 whitespace_impl(scanner, &mut state.parser_state, true)?;
                 buffer.write(" or ");
-                let last_interp = lg.to_interpolation(subst)?;
+                let last_interp = lg.to_interpolation(state.arena, subst)?;
                 buffer.add_interpolation(&last_interp);
                 last_group = lg;
             } else {
@@ -1987,12 +2047,12 @@ fn if_condition_raw<'parse>(
                 {
                     let lg = if_group(scanner, state)?;
                     buffer.write_char_code(' ');
-                    let last_interp = lg.to_interpolation(subst)?;
+                    let last_interp = lg.to_interpolation(state.arena, subst)?;
                     buffer.add_interpolation(&last_interp);
                     last_group = lg;
                 } else if let Some(nx) = try_arbitrary_substitution(scanner, state)? {
                     buffer.write_char_code(' ');
-                    let last_interp = nx.to_interpolation(subst)?;
+                    let last_interp = nx.to_interpolation(state.arena, subst)?;
                     buffer.add_interpolation(&last_interp);
                     last_group = nx;
                 } else {
@@ -2008,7 +2068,7 @@ fn if_condition_raw<'parse>(
     let end_pos = scanner.state().position;
     let span = scanner.span_from_to(start_pos, end_pos);
     let raw = buffer
-        .interpolation(span)
+        .interpolation(state.arena, span)
         .map_err(|e| error_impl(&e.to_string(), &span))?;
     Ok(IfConditionExpression::Raw(IfConditionRaw::new(raw)))
 }
@@ -2036,9 +2096,10 @@ pub(crate) fn namespaced<'parse>(
             )));
         }
         return Ok(Expression::Variable(VariableExpression::new(
-            name,
+            state.arena,
+            &name,
             var_span,
-            Some(namespace.to_string()),
+            Some(namespace),
         )));
     }
     let start_id = scanner.state();
@@ -2054,10 +2115,11 @@ pub(crate) fn namespaced<'parse>(
     let invocation = argument_invocation(scanner, state, false, false)?;
     let ns_func_span = span_from_impl(scanner, &state.parser_state, start)?.file_span()?;
     Ok(Expression::Function(FunctionExpression::new(
-        ident,
+        state.arena,
+        &ident,
         invocation,
         ns_func_span,
-        Some(namespace.to_string()),
+        Some(namespace),
     )))
 }
 
@@ -2163,15 +2225,15 @@ pub(crate) fn try_special_function_impl<'parse>(
                         span_from_impl(scanner, &state.parser_state, start)?.file_span()?;
                     state.warnings.push(ParseTimeWarning {
                         deprecation: Some(&deprecation::FUNCTION_NAME),
-                        message,
+                        message: state.arena.alloc_str(&message),
                         span: warn_span,
                         primary_label: None,
-                        secondary: vec![],
+                        secondary: &[],
                     });
                 }
                 let expr_span = span_from_impl(scanner, &state.parser_state, start)?.file_span()?;
                 let interp = buffer
-                    .interpolation(expr_span)
+                    .interpolation(state.arena, expr_span)
                     .map_err(|e| error_impl(&e.to_string(), &scanner.span_from(start)))?;
                 return Ok(Some(Expression::String(StringExpression::new(
                     interp, false,
@@ -2230,7 +2292,7 @@ pub(crate) fn try_special_function_impl<'parse>(
                     let vendor_span =
                         span_from_impl(scanner, &state.parser_state, start)?.file_span()?;
                     let interp = buffer
-                        .interpolation(vendor_span)
+                        .interpolation(state.arena, vendor_span)
                         .map_err(|e| error_impl(&e.to_string(), &scanner.span_from(start)))?;
                     let suggest_expr = StringExpression::new(interp, true);
                     let suggest_interp = suggest_expr
@@ -2239,19 +2301,19 @@ pub(crate) fn try_special_function_impl<'parse>(
                     let suggestion = suggest_interp.to_display_string().unwrap_or_default();
                     state.warnings.push(ParseTimeWarning {
                         deprecation: Some(&deprecation::FUNCTION_NAME),
-                        message: format!(
+                        message: state.arena.alloc_str(&format!(
                             "Vendor-prefixed progid:...() functions will no longer be supported in a future release of Dart Sass. To preserve current behavior:\n\n#{{{}}}\n\nMore info: https://sass-lang.com/d/function-name",
                             suggestion
-                        ),
+                        )),
                         span: vendor_span,
                         primary_label: None,
-                        secondary: vec![],
+                        secondary: &[],
                     });
                 }
                 let progid_span =
                     span_from_impl(scanner, &state.parser_state, start)?.file_span()?;
                 let interp = buffer
-                    .interpolation(progid_span)
+                    .interpolation(state.arena, progid_span)
                     .map_err(|e| error_impl(&e.to_string(), &scanner.span_from(start)))?;
                 return Ok(Some(Expression::String(StringExpression::new(
                     interp, false,
@@ -2308,7 +2370,7 @@ fn calc_like<'parse>(
     buffer.write_char_code(')');
     let calc_span = span_from_impl(scanner, &state.parser_state, start)?.file_span()?;
     let interp = buffer
-        .interpolation(calc_span)
+        .interpolation(state.arena, calc_span)
         .map_err(|e| error_impl(&e.to_string(), &scanner.span_from(start)))?;
     Ok(Some(Expression::String(StringExpression::new(
         interp, false,
@@ -2338,6 +2400,7 @@ fn parse_single<'parse>(
             let n = scanner.peek_char(1);
             if character::is_digit(n as u8 as char) || n == '.' as i32 {
                 return Ok(Expression::Number(number_impl(
+                    state.arena,
                     scanner,
                     &state.parser_state,
                 )?));
@@ -2348,6 +2411,7 @@ fn parse_single<'parse>(
             let n = scanner.peek_char(1);
             if character::is_digit(n as u8 as char) || n == '.' as i32 {
                 return Ok(Expression::Number(number_impl(
+                    state.arena,
                     scanner,
                     &state.parser_state,
                 )?));
@@ -2362,6 +2426,7 @@ fn parse_single<'parse>(
         }
         _ if ch == '.' as i32 => {
             return Ok(Expression::Number(number_impl(
+                state.arena,
                 scanner,
                 &state.parser_state,
             )?));
@@ -2401,6 +2466,7 @@ fn parse_single<'parse>(
             whitespace_impl(scanner, &mut state.parser_state, true)?;
             expect_identifier_impl(scanner, "important", "", true)?;
             return Ok(Expression::String(StringExpression::plain(
+                state.arena,
                 "!important",
                 // Matches Dart: spanFrom(start) covers `!important`.
                 scanner.span_from(bang),
@@ -2411,6 +2477,7 @@ fn parse_single<'parse>(
             let pct = scanner.state();
             scanner.read_char()?;
             return Ok(Expression::String(StringExpression::plain(
+                state.arena,
                 // Matches Dart: the span covers just `%`.
                 "%",
                 scanner.span_from_to(pct.position, pct.position + 1),
@@ -2418,10 +2485,14 @@ fn parse_single<'parse>(
             )));
         }
         _ if (ch == 'u' as i32 || ch == 'U' as i32) && scanner.peek_char(1) == '+' as i32 => {
-            return Ok(Expression::String(unicode_range_impl(scanner)?));
+            return Ok(Expression::String(unicode_range_impl(
+                scanner,
+                state.arena,
+            )?));
         }
         _ if character::is_digit(ch as u8 as char) => {
             return Ok(Expression::Number(number_impl(
+                state.arena,
                 scanner,
                 &state.parser_state,
             )?));
@@ -2466,14 +2537,14 @@ fn build_bracket_result<'parse>(
     resolve_all(scanner, state, ops, acc)?;
 
     if !acc.comma_exprs.is_empty() {
-        resolve_space(scanner, acc)?;
+        resolve_space(scanner, state.arena, acc)?;
         let mut comma = std::mem::take(&mut acc.comma_exprs);
         if let Some(se) = acc.single.take() {
             comma.push(se);
         }
         let span = span_from_impl(scanner, &state.parser_state, bracket_before)?.file_span()?;
         return Ok(Expression::List(ListExpression::new(
-            comma,
+            arena_slice(state.arena, comma),
             ListSeparator::Comma,
             span,
             true,
@@ -2487,7 +2558,7 @@ fn build_bracket_result<'parse>(
         }
         let span = span_from_impl(scanner, &state.parser_state, bracket_before)?.file_span()?;
         return Ok(Expression::List(ListExpression::new(
-            sp,
+            arena_slice(state.arena, sp),
             ListSeparator::Space,
             span,
             true,
@@ -2497,7 +2568,7 @@ fn build_bracket_result<'parse>(
     if let Some(single) = acc.single.take() {
         let span = span_from_impl(scanner, &state.parser_state, bracket_before)?.file_span()?;
         return Ok(Expression::List(ListExpression::new(
-            vec![single],
+            arena_slice(state.arena, vec![single]),
             ListSeparator::Undecided,
             span,
             true,
@@ -2506,7 +2577,7 @@ fn build_bracket_result<'parse>(
 
     let span = span_from_impl(scanner, &state.parser_state, bracket_before)?.file_span()?;
     Ok(Expression::List(ListExpression::new(
-        vec![],
+        &[],
         ListSeparator::Undecided,
         span,
         true,
@@ -2550,7 +2621,7 @@ where
         if scanner.scan_char(']') {
             let span = span_from_impl(scanner, &state.parser_state, bb)?.file_span()?;
             return Ok(Expression::List(ListExpression::new(
-                vec![],
+                &[],
                 ListSeparator::Undecided,
                 span,
                 true,
@@ -2589,7 +2660,7 @@ where
         if scanner.scan_char(']') {
             let span = span_from_impl(scanner, &state.parser_state, bb)?.file_span()?;
             acc.single = Some(Expression::List(ListExpression::new(
-                vec![],
+                &[],
                 ListSeparator::Undecided,
                 span,
                 true,
@@ -2678,7 +2749,8 @@ where
             _ if ch == '-' as i32 && acc.single.is_none() => {
                 let n = scanner.peek_char(1);
                 if character::is_digit(n as u8 as char) || n == '.' as i32 {
-                    let nn = Expression::Number(number_impl(scanner, &state.parser_state)?);
+                    let nn =
+                        Expression::Number(number_impl(state.arena, scanner, &state.parser_state)?);
                     add_single(scanner, state, &mut ops, &mut acc, nn, start)?;
                 } else if looking_at_interpolated_identifier_impl(scanner) {
                     let expr = ident_like(scanner, state)?;
@@ -2715,7 +2787,8 @@ where
                     && prev >= 0
                     && character::is_whitespace(prev as u8 as char)
                 {
-                    let nn = Expression::Number(number_impl(scanner, &state.parser_state)?);
+                    let nn =
+                        Expression::Number(number_impl(state.arena, scanner, &state.parser_state)?);
                     add_single(scanner, state, &mut ops, &mut acc, nn, start)?;
                 } else if looking_at_interpolated_identifier_impl(scanner) {
                     let expr = ident_like(scanner, state)?;
@@ -2763,7 +2836,8 @@ where
                 whitespace_impl(scanner, &mut state.parser_state, true)?;
                 if !looking_at_expression_impl(scanner) {
                     let span = scanner.span_from_pos(op_start);
-                    let expr = Expression::String(StringExpression::plain("%", span, false));
+                    let expr =
+                        Expression::String(StringExpression::plain(state.arena, "%", span, false));
                     add_single(scanner, state, &mut ops, &mut acc, expr, start)?;
                 } else {
                     add_op(
@@ -2837,7 +2911,7 @@ where
                         &mut ops,
                         &mut acc,
                         Expression::List(ListExpression::new(
-                            vec![],
+                            &[],
                             ListSeparator::Undecided,
                             span,
                             true,
@@ -2919,23 +2993,30 @@ where
                     expect_identifier_impl(scanner, "important", "", true)?;
                     // Matches Dart's loop `!` arm: span starts at `!`.
                     let span = scanner.span_from(bang);
-                    let e = Expression::String(StringExpression::plain("!important", span, false));
+                    let e = Expression::String(StringExpression::plain(
+                        state.arena,
+                        "!important",
+                        span,
+                        false,
+                    ));
                     add_single(scanner, state, &mut ops, &mut acc, e, start)?;
                 } else {
                     break;
                 }
             }
             _ if character::is_digit(ch as u8 as char) => {
-                let nn = Expression::Number(number_impl(scanner, &state.parser_state)?);
+                let nn =
+                    Expression::Number(number_impl(state.arena, scanner, &state.parser_state)?);
                 add_single(scanner, state, &mut ops, &mut acc, nn, start)?;
             }
             _ if ch == '.' as i32 && scanner.peek_char(1) == '.' as i32 => break,
             _ if ch == '.' as i32 => {
-                let nn = Expression::Number(number_impl(scanner, &state.parser_state)?);
+                let nn =
+                    Expression::Number(number_impl(state.arena, scanner, &state.parser_state)?);
                 add_single(scanner, state, &mut ops, &mut acc, nn, start)?;
             }
             _ if (ch == 'u' as i32 || ch == 'U' as i32) && scanner.peek_char(1) == '+' as i32 => {
-                let u = unicode_range_impl(scanner)?;
+                let u = unicode_range_impl(scanner, state.arena)?;
                 add_single(
                     scanner,
                     state,
@@ -2989,7 +3070,7 @@ where
                     ));
                 }
                 resolve_all(scanner, state, &mut ops, &mut acc)?;
-                resolve_space(scanner, &mut acc)?;
+                resolve_space(scanner, state.arena, &mut acc)?;
                 acc.comma_exprs.push(acc.single.take().unwrap());
                 scanner.read_char()?;
                 acc.allow_slash = true;
@@ -3010,7 +3091,7 @@ where
 
     // Comma list resolution
     if !acc.comma_exprs.is_empty() {
-        resolve_space(scanner, &mut acc)?;
+        resolve_space(scanner, state.arena, &mut acc)?;
         let mut comma = acc.comma_exprs.clone();
         if let Some(se) = acc.single.take() {
             comma.push(se);
@@ -3018,18 +3099,18 @@ where
         let span = span_from_impl(scanner, &state.parser_state, start)?.file_span()?;
         state.parser_state.in_expression = was_in_expr;
         return Ok(Expression::List(ListExpression::new(
-            comma,
+            arena_slice(state.arena, comma),
             ListSeparator::Comma,
             span,
             was_bracket_list,
         )));
     }
 
-    resolve_space(scanner, &mut acc)?;
+    resolve_space(scanner, state.arena, &mut acc)?;
 
     state.parser_state.in_expression = was_in_expr;
     Ok(acc.single.unwrap_or(Expression::List(ListExpression::new(
-        vec![],
+        &[],
         ListSeparator::Undecided,
         scanner.empty_span(),
         was_bracket_list,
@@ -3061,7 +3142,7 @@ pub(crate) fn dynamic_url_impl<'parse>(
     let dyn_span = span_from_impl(scanner, &state.parser_state, start)?.file_span()?;
     Ok(Expression::InterpolatedFunction(
         InterpolatedFunctionExpression::new(
-            Interpolation::plain("url".to_string(), scanner.span_from(start)),
+            Interpolation::plain(state.arena, "url".to_string(), scanner.span_from(start)),
             invocation,
             dyn_span,
         ),
@@ -3145,7 +3226,10 @@ pub(crate) fn try_url_contents<'parse>(
             buffer.write_char_code(c);
             let url_span = span_from_impl(scanner, &state.parser_state, start)?.file_span()?;
             let result = buffer
-                .interpolation(span_from_impl(scanner, &state.parser_state, start)?)
+                .interpolation(
+                    state.arena,
+                    span_from_impl(scanner, &state.parser_state, start)?,
+                )
                 .map_err(|e| error_impl(&e.to_string(), &url_span))?;
 
             if vendored && invalid_sass_script {
@@ -3159,13 +3243,13 @@ pub(crate) fn try_url_contents<'parse>(
                     .unwrap_or_default();
                 state.warnings.push(ParseTimeWarning {
                     deprecation: Some(&FUNCTION_NAME),
-                    message: format!(
+                    message: state.arena.alloc_str(&format!(
                         "Vendor-prefixed url() functions will no longer have special parsing in a future release of Dart Sass. Once that happens, this argument will be parsed as SassScript. To preserve current behavior:\n\nnull(#{{{}}})\n\nMore info: https://sass-lang.com/d/function-name",
                         suggestion
-                    ),
+                    )),
                     span: url_span,
                     primary_label: None,
-                    secondary: vec![],
+                    secondary: &[],
                 });
             }
 
@@ -3203,7 +3287,7 @@ pub(crate) fn interpolated_string_token_impl<'parse>(
             let ch = scanner.read_char()?;
             buffer.write_char_code(ch);
             let tok_span = span_from_impl(scanner, &state.parser_state, start)?;
-            return Ok(buffer.interpolation(tok_span).map_err(|e| {
+            return Ok(buffer.interpolation(state.arena, tok_span).map_err(|e| {
                 let sp = span_from_impl(scanner, &state.parser_state, start).unwrap();
                 error_impl(&e.to_string(), &sp.file_span().unwrap())
             })?);
@@ -3327,7 +3411,9 @@ mod tests {
         let fs = FileSource::new_in(arena, text, None);
         let scanner = SpanScanner::new(fs);
         let state = StylesheetState {
+            arena,
             parser_state: ParserState {
+                arena,
                 syntax: Syntax::Scss,
                 interpolation_map: None,
                 in_expression: true,
@@ -3480,7 +3566,7 @@ mod tests {
             until: None,
         };
         match _expression_impl(&mut s, &mut st, o).unwrap() {
-            Expression::Parenthesized(pe) => match &*pe.expression {
+            Expression::Parenthesized(pe) => match pe.expression {
                 Expression::Number(n) => {
                     assert_eq!(n.value, 42.0);
                 }
@@ -3520,8 +3606,10 @@ mod tests {
         let fs = FileSource::new_in(&a, "42", None);
         assert_eq!(
             number_impl(
+                &a,
                 &mut SpanScanner::new(fs),
                 &ParserState {
+                    arena: &a,
                     syntax: Syntax::Scss,
                     interpolation_map: None,
                     in_expression: false
@@ -3541,8 +3629,10 @@ mod tests {
         let fs = FileSource::new_in(&a, "3.14", None);
         assert_eq!(
             number_impl(
+                &a,
                 &mut SpanScanner::new(fs),
                 &ParserState {
+                    arena: &a,
                     syntax: Syntax::Scss,
                     interpolation_map: None,
                     in_expression: false
@@ -4082,7 +4172,7 @@ mod tests {
         match _expression_impl(&mut s, &mut st, o).unwrap() {
             Expression::BinaryOperation(be) => {
                 assert_eq!(be.operator, BinaryOperator::Plus);
-                match &*be.right {
+                match be.right {
                     Expression::BinaryOperation(right) => {
                         assert_eq!(right.operator, BinaryOperator::Times);
                     }
@@ -4110,7 +4200,7 @@ mod tests {
         match _expression_impl(&mut s, &mut st, o).unwrap() {
             Expression::BinaryOperation(be) => {
                 assert_eq!(be.operator, BinaryOperator::Times);
-                match &*be.left {
+                match be.left {
                     Expression::Parenthesized(_) => {}
                     _ => {
                         panic!();
@@ -4425,7 +4515,7 @@ mod tests {
         let a = Bump::new();
         let (mut s, mut st) = make_state(&a, "($x: 1)");
         let args = argument_invocation(&mut s, &mut st, false, false).unwrap();
-        assert!(args.named.contains_key("x"));
+        assert!(args.named.iter().any(|(name, _)| *name == "x"));
     }
 
     #[test]
@@ -4434,7 +4524,7 @@ mod tests {
         let (mut s, mut st) = make_state(&a, "(1, $x: 2)");
         let args = argument_invocation(&mut s, &mut st, false, false).unwrap();
         assert_eq!(args.positional.len(), 1);
-        assert!(args.named.contains_key("x"));
+        assert!(args.named.iter().any(|(name, _)| *name == "x"));
     }
 
     #[test]
@@ -4560,8 +4650,10 @@ mod tests {
         let fs = FileSource::new_in(&a, "-42", None);
         assert_eq!(
             number_impl(
+                &a,
                 &mut SpanScanner::new(fs),
                 &ParserState {
+                    arena: &a,
                     syntax: Syntax::Scss,
                     interpolation_map: None,
                     in_expression: false
@@ -4579,8 +4671,10 @@ mod tests {
         let fs = FileSource::new_in(&a, "+42", None);
         assert_eq!(
             number_impl(
+                &a,
                 &mut SpanScanner::new(fs),
                 &ParserState {
+                    arena: &a,
                     syntax: Syntax::Scss,
                     interpolation_map: None,
                     in_expression: false
@@ -4598,8 +4692,10 @@ mod tests {
         let fs = FileSource::new_in(&a, ".5", None);
         assert_eq!(
             number_impl(
+                &a,
                 &mut SpanScanner::new(fs),
                 &ParserState {
+                    arena: &a,
                     syntax: Syntax::Scss,
                     interpolation_map: None,
                     in_expression: false
@@ -4617,8 +4713,10 @@ mod tests {
         let fs = FileSource::new_in(&a, "1e3", None);
         assert_eq!(
             number_impl(
+                &a,
                 &mut SpanScanner::new(fs),
                 &ParserState {
+                    arena: &a,
                     syntax: Syntax::Scss,
                     interpolation_map: None,
                     in_expression: false
@@ -4636,8 +4734,10 @@ mod tests {
         let fs = FileSource::new_in(&a, "1e-3", None);
         assert_eq!(
             number_impl(
+                &a,
                 &mut SpanScanner::new(fs),
                 &ParserState {
+                    arena: &a,
                     syntax: Syntax::Scss,
                     interpolation_map: None,
                     in_expression: false
@@ -4655,8 +4755,10 @@ mod tests {
         let fs = FileSource::new_in(&a, "1e+3", None);
         assert_eq!(
             number_impl(
+                &a,
                 &mut SpanScanner::new(fs),
                 &ParserState {
+                    arena: &a,
                     syntax: Syntax::Scss,
                     interpolation_map: None,
                     in_expression: false
@@ -4713,8 +4815,10 @@ mod tests {
         let a = Bump::new();
         let fs = FileSource::new_in(&a, ".a", None);
         assert!(number_impl(
+            &a,
             &mut SpanScanner::new(fs),
             &ParserState {
+                arena: &a,
                 syntax: Syntax::Scss,
                 interpolation_map: None,
                 in_expression: false
@@ -4728,8 +4832,10 @@ mod tests {
         let a = Bump::new();
         let fs = FileSource::new_in(&a, "1e-", None);
         assert!(number_impl(
+            &a,
             &mut SpanScanner::new(fs),
             &ParserState {
+                arena: &a,
                 syntax: Syntax::Scss,
                 interpolation_map: None,
                 in_expression: false
@@ -4743,7 +4849,7 @@ mod tests {
         let a = Bump::new();
         let fs = FileSource::new_in(&a, "u+1", None);
         let mut sc = SpanScanner::new(fs);
-        let se = unicode_range_impl(&mut sc).unwrap();
+        let se = unicode_range_impl(&mut sc, &a).unwrap();
         assert_eq!(se.text.as_plain(), Some("u+1"));
     }
 
@@ -4752,7 +4858,7 @@ mod tests {
         let a = Bump::new();
         let fs = FileSource::new_in(&a, "u+10ffff", None);
         let mut sc = SpanScanner::new(fs);
-        let se = unicode_range_impl(&mut sc).unwrap();
+        let se = unicode_range_impl(&mut sc, &a).unwrap();
         assert_eq!(se.text.as_plain(), Some("u+10ffff"));
     }
 
@@ -4761,7 +4867,7 @@ mod tests {
         let a = Bump::new();
         let fs = FileSource::new_in(&a, "u+??", None);
         let mut sc = SpanScanner::new(fs);
-        let se = unicode_range_impl(&mut sc).unwrap();
+        let se = unicode_range_impl(&mut sc, &a).unwrap();
         assert_eq!(se.text.as_plain(), Some("u+??"));
     }
 
@@ -4770,7 +4876,7 @@ mod tests {
         let a = Bump::new();
         let fs = FileSource::new_in(&a, "u+0020-007e", None);
         let mut sc = SpanScanner::new(fs);
-        let se = unicode_range_impl(&mut sc).unwrap();
+        let se = unicode_range_impl(&mut sc, &a).unwrap();
         assert_eq!(se.text.as_plain(), Some("u+0020-007e"));
     }
 
@@ -4779,7 +4885,7 @@ mod tests {
         let a = Bump::new();
         let fs = FileSource::new_in(&a, "U+1", None);
         let mut sc = SpanScanner::new(fs);
-        let se = unicode_range_impl(&mut sc).unwrap();
+        let se = unicode_range_impl(&mut sc, &a).unwrap();
         assert_eq!(se.text.as_plain(), Some("U+1"));
     }
 
@@ -4788,7 +4894,7 @@ mod tests {
         let a = Bump::new();
         let fs = FileSource::new_in(&a, "u+", None);
         let mut sc = SpanScanner::new(fs);
-        match *unicode_range_impl(&mut sc).unwrap_err() {
+        match *unicode_range_impl(&mut sc, &a).unwrap_err() {
             ParseError::Scan(e) => {
                 assert_eq!(e.message, r#"Expected hex digit or "?"."#);
             }
@@ -4803,7 +4909,7 @@ mod tests {
         let a = Bump::new();
         let fs = FileSource::new_in(&a, "u+1234567", None);
         let mut sc = SpanScanner::new(fs);
-        assert!(unicode_range_impl(&mut sc).is_err());
+        assert!(unicode_range_impl(&mut sc, &a).is_err());
     }
 
     #[test]
@@ -5330,7 +5436,7 @@ mod tests {
         match _expression_impl(&mut s, &mut st, o).unwrap() {
             Expression::Variable(v) => {
                 assert_eq!(v.name, "x");
-                assert_eq!(v.namespace.as_deref(), Some("ns"));
+                assert_eq!(v.namespace, Some("ns"));
                 assert_eq!(v.span.text(), "ns.$x");
             }
             _ => {
@@ -5352,7 +5458,7 @@ mod tests {
         match _expression_impl(&mut s, &mut st, o).unwrap() {
             Expression::Function(fe) => {
                 assert_eq!(fe.original_name, "func");
-                assert_eq!(fe.namespace.as_deref(), Some("ns"));
+                assert_eq!(fe.namespace, Some("ns"));
             }
             _ => {
                 panic!();

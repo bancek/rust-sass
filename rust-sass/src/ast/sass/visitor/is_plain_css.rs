@@ -64,7 +64,7 @@ impl IsPlainCssVisitor {
         if !list.named.is_empty() || list.rest.is_some() {
             return Ok(false);
         }
-        for arg in &list.positional {
+        for arg in list.positional {
             if !arg.accept(self)? {
                 return Ok(false);
             }
@@ -99,7 +99,7 @@ impl<'parse> ExpressionVisitor<'parse> for IsPlainCssVisitor {
     }
 
     fn visit_if(&mut self, node: &IfExpression<'parse>) -> SassResult<bool> {
-        for branch in &node.branches {
+        for branch in node.branches {
             if let Some(ref cond) = branch.condition {
                 if !cond.accept(self)? {
                     return Ok(false);
@@ -130,7 +130,7 @@ impl<'parse> ExpressionVisitor<'parse> for IsPlainCssVisitor {
         if node.contents.is_empty() && !node.has_brackets {
             return Ok(false);
         }
-        for element in &node.contents {
+        for element in node.contents {
             if !element.accept(self)? {
                 return Ok(false);
             }
@@ -194,7 +194,7 @@ impl<'parse> IfConditionExpressionVisitor<'parse> for IsPlainCssVisitor {
     }
 
     fn visit_operation(&mut self, node: &IfConditionOperation<'parse>) -> SassResult<bool> {
-        for expr in &node.expressions {
+        for expr in node.expressions {
             if !expr.accept(self)? {
                 return Ok(false);
             }
@@ -217,6 +217,8 @@ impl<'parse> IfConditionExpressionVisitor<'parse> for IsPlainCssVisitor {
 
 #[cfg(test)]
 mod tests {
+    use crate::ast::sass::arena_slice;
+
     use super::*;
     use crate::ast::sass::binary_operator::BinaryOperator;
     use crate::ast::sass::expression::Expression;
@@ -247,7 +249,7 @@ mod tests {
         let arena = Bump::new();
         let span = test_span(&arena, "green", 0, 5);
         let color = SassColor::rgb(1.0, 2.0, 3.0, 1.0);
-        let expr = Expression::Color(ColorExpression::new(color, span));
+        let expr = Expression::Color(ColorExpression::new(&arena, color, span));
         let mut v = IsPlainCssVisitor::new(false);
         assert!(expr.accept(&mut v).unwrap());
     }
@@ -283,7 +285,7 @@ mod tests {
     fn test_variable() {
         let arena = Bump::new();
         let span = test_span(&arena, "$x", 0, 2);
-        let expr = Expression::Variable(VariableExpression::new("x".into(), span, None));
+        let expr = Expression::Variable(VariableExpression::new(&arena, "x", span, None));
         let mut v = IsPlainCssVisitor::new(false);
         assert!(!expr.accept(&mut v).unwrap());
     }
@@ -301,7 +303,7 @@ mod tests {
     fn test_map() {
         let arena = Bump::new();
         let span = test_span(&arena, "()", 0, 2);
-        let expr = Expression::Map(MapExpression::new(vec![], span));
+        let expr = Expression::Map(MapExpression::new(&[], span));
         let mut v = IsPlainCssVisitor::new(false);
         assert!(!expr.accept(&mut v).unwrap());
     }
@@ -310,7 +312,7 @@ mod tests {
     fn test_string_plain() {
         let arena = Bump::new();
         let span = test_span(&arena, "foo", 0, 3);
-        let text = Interpolation::plain("foo".into(), span);
+        let text = Interpolation::plain(&arena, "foo".into(), span);
         let expr = Expression::String(StringExpression::new(text, false));
         let mut v = IsPlainCssVisitor::new(false);
         assert!(expr.accept(&mut v).unwrap());
@@ -321,10 +323,10 @@ mod tests {
         let arena = Bump::new();
         let s = test_span(&arena, "#{$x}", 0, 5);
         let expr_span = test_span(&arena, "#{$x}", 2, 4);
-        let var_expr = Expression::Variable(VariableExpression::new("x".into(), expr_span, None));
+        let var_expr = Expression::Variable(VariableExpression::new(&arena, "x", expr_span, None));
         let mut buf = InterpolationBuffer::new();
         buf.add(var_expr, expr_span);
-        let text = buf.interpolation(s).unwrap();
+        let text = buf.interpolation(&arena, s).unwrap();
         let expr = Expression::String(StringExpression::new(text, false));
         let mut v = IsPlainCssVisitor::new(false);
         assert!(!expr.accept(&mut v).unwrap());
@@ -335,10 +337,10 @@ mod tests {
         let arena = Bump::new();
         let s = test_span(&arena, "#{$x}", 0, 5);
         let expr_span = test_span(&arena, "#{$x}", 2, 4);
-        let var_expr = Expression::Variable(VariableExpression::new("x".into(), expr_span, None));
+        let var_expr = Expression::Variable(VariableExpression::new(&arena, "x", expr_span, None));
         let mut buf = InterpolationBuffer::new();
         buf.add(var_expr, expr_span);
-        let text = buf.interpolation(s).unwrap();
+        let text = buf.interpolation(&arena, s).unwrap();
         let expr = Expression::String(StringExpression::new(text, false));
         let mut v = IsPlainCssVisitor::new(true);
         assert!(expr.accept(&mut v).unwrap());
@@ -349,7 +351,7 @@ mod tests {
         let arena = Bump::new();
         let span = test_span(&arena, "rgb()", 0, 5);
         let args = ArgumentList::empty(span);
-        let expr = Expression::Function(FunctionExpression::new("rgb".into(), args, span, None));
+        let expr = Expression::Function(FunctionExpression::new(&arena, "rgb", args, span, None));
         let mut v = IsPlainCssVisitor::new(false);
         assert!(expr.accept(&mut v).unwrap());
     }
@@ -360,10 +362,11 @@ mod tests {
         let span = test_span(&arena, "ns.rgb()", 0, 8);
         let args = ArgumentList::empty(span);
         let expr = Expression::Function(FunctionExpression::new(
-            "rgb".into(),
+            &arena,
+            "rgb",
             args,
             span,
-            Some("ns".into()),
+            Some("ns"),
         ));
         let mut v = IsPlainCssVisitor::new(false);
         assert!(!expr.accept(&mut v).unwrap());
@@ -377,6 +380,7 @@ mod tests {
         let left = Expression::Number(NumberExpression::new(1.0, left_span, None));
         let right = Expression::Number(NumberExpression::new(2.0, right_span, None));
         let expr = Expression::BinaryOperation(BinaryOperationExpression::new(
+            &arena,
             BinaryOperator::Plus,
             left,
             right,
@@ -391,8 +395,8 @@ mod tests {
         let span = test_span(&arena, "(red)", 0, 5);
         let inner_span = test_span(&arena, "red", 1, 4);
         let color = SassColor::rgb(1.0, 2.0, 3.0, 1.0);
-        let inner = Expression::Color(ColorExpression::new(color, inner_span));
-        let expr = Expression::Parenthesized(ParenthesizedExpression::new(inner, span));
+        let inner = Expression::Color(ColorExpression::new(&arena, color, inner_span));
+        let expr = Expression::Parenthesized(ParenthesizedExpression::new(&arena, inner, span));
         let mut v = IsPlainCssVisitor::new(false);
         assert!(expr.accept(&mut v).unwrap());
     }
@@ -402,7 +406,7 @@ mod tests {
         let arena = Bump::new();
         let span = test_span(&arena, "", 0, 0);
         let expr = Expression::List(ListExpression::new(
-            vec![],
+            arena_slice(&arena, vec![]),
             ListSeparator::Space,
             span,
             false,
@@ -420,7 +424,7 @@ mod tests {
             Expression::Number(NumberExpression::new(2.0, span, None)),
         ];
         let expr = Expression::List(ListExpression::new(
-            contents,
+            arena_slice(&arena, contents),
             ListSeparator::Space,
             span,
             false,
@@ -435,10 +439,10 @@ mod tests {
         let span = test_span(&arena, "1 $x", 0, 4);
         let contents = vec![
             Expression::Number(NumberExpression::new(1.0, span, None)),
-            Expression::Variable(VariableExpression::new("x".into(), span, None)),
+            Expression::Variable(VariableExpression::new(&arena, "x", span, None)),
         ];
         let expr = Expression::List(ListExpression::new(
-            contents,
+            arena_slice(&arena, contents),
             ListSeparator::Space,
             span,
             false,

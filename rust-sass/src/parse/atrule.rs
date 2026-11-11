@@ -21,11 +21,13 @@ use crate::parse::parser::raw_text_impl;
 use crate::parse::parser::string_impl;
 use crate::parse::sass::sass_import_argument_impl;
 use crate::parse::stylesheet::StylesheetParser;
+use bumpalo::Bump;
 use std::collections::{HashMap, HashSet};
 
-use crate::url::SassUrl;
+use crate::url::ArenaUrl;
 use crate::util::utils::{default_namespace, DefaultNamespaceResult};
 
+use crate::arena_map::ArenaHashSet;
 use crate::ast::sass::argument_list::ArgumentList;
 use crate::ast::sass::configured_variable::ConfiguredVariable;
 use crate::ast::sass::dynamic_import::DynamicImport;
@@ -59,7 +61,7 @@ use crate::ast::sass::statement::supports_rule::SupportsRule;
 use crate::ast::sass::statement::use_rule::UseRule;
 use crate::ast::sass::statement::warn_rule::WarnRule;
 use crate::ast::sass::statement::while_rule::WhileRule;
-use crate::ast::sass::statement::Statement;
+use crate::ast::sass::statement::{arena_statements, arena_statements_opt, Statement};
 use crate::ast::sass::static_import::StaticImport;
 use crate::ast::sass::supports_condition::SupportsCondition;
 use crate::common::ast_node::AstNode;
@@ -282,6 +284,7 @@ fn at_root_rule_impl<'b>(
     state: &mut StylesheetState<'b>,
     start: LineScannerState,
 ) -> ParseResult<'b, AtRootRule<'b>> {
+    let arena = state.arena;
     whitespace_impl(scanner, &mut state.parser_state, false)?;
     if scanner.peek_char(0) == '(' as i32 {
         let query = at_root_query_impl(scanner, state)?;
@@ -290,7 +293,13 @@ fn at_root_rule_impl<'b>(
             state,
             &mut |s, st| statement_impl(s, st, false).map(Some),
             start,
-            |_, children, span| Ok(AtRootRule::new(children, span, Some(query))),
+            |_, children, span| {
+                Ok(AtRootRule::new(
+                    arena_statements(arena, children),
+                    span,
+                    Some(query),
+                ))
+            },
         );
     }
     let has_children = looking_at_children_impl(scanner, state)?;
@@ -303,13 +312,19 @@ fn at_root_rule_impl<'b>(
             state,
             &mut |s, st| statement_impl(s, st, false).map(Some),
             start,
-            |_, children, span| Ok(AtRootRule::new(children, span, None)),
+            |_, children, span| {
+                Ok(AtRootRule::new(
+                    arena_statements(arena, children),
+                    span,
+                    None,
+                ))
+            },
         );
     }
     let child = style_rule_impl(scanner, state, None, None)?;
     let span = span_from_impl(scanner, &state.parser_state, start)?.file_span()?;
     Ok(AtRootRule::new(
-        vec![Statement::StyleRule(child)],
+        arena_statements(arena, vec![Statement::StyleRule(child)]),
         span,
         None,
     ))
@@ -358,7 +373,7 @@ fn at_root_query_impl<'b>(
     buffer.write_char_code(')');
     let span = span_from_impl(scanner, &state.parser_state, start)?.file_span()?;
     buffer
-        .interpolation(span)
+        .interpolation(state.arena, span)
         .map_err(|e| Box::new(ParseError::Sass(e)))
 }
 
@@ -543,7 +558,7 @@ fn return_rule_impl<'b>(
 fn use_namespace_impl<'b>(
     scanner: &mut SpanScanner<'b>,
     state: &mut StylesheetState<'b>,
-    url: &SassUrl,
+    url: &ArenaUrl<'b>,
     start: LineScannerState,
 ) -> ParseResult<'b, Option<String>> {
     let ok = scan_identifier_impl(scanner, "as", false)?;
@@ -582,6 +597,7 @@ pub(crate) fn use_rule_impl<'b>(
 ) -> ParseResult<'b, UseRule<'b>> {
     whitespace_impl(scanner, &mut state.parser_state, true)?;
     let url = url_string_impl(scanner, &state.parser_state)?;
+    let url = ArenaUrl::from_owned(state.arena, &url);
     whitespace_impl(scanner, &mut state.parser_state, false)?;
     let namespace = use_namespace_impl(scanner, state, &url, start)?;
     whitespace_impl(scanner, &mut state.parser_state, false)?;
@@ -595,7 +611,14 @@ pub(crate) fn use_rule_impl<'b>(
         )));
     }
     expect_statement_separator_impl(scanner, state, "@use rule")?;
-    UseRule::new(url, namespace, span, configuration).map_err(|e| Box::new(ParseError::Sass(e)))
+    UseRule::new(
+        state.arena,
+        url,
+        namespace.as_deref(),
+        span,
+        arena_config(state.arena, configuration),
+    )
+    .map_err(|e| Box::new(ParseError::Sass(e)))
 }
 
 // ======================================================================
@@ -613,12 +636,13 @@ fn forward_rule_impl<'b>(
 ) -> ParseResult<'b, ForwardRule<'b>> {
     whitespace_impl(scanner, &mut state.parser_state, true)?;
     let url = url_string_impl(scanner, &state.parser_state)?;
+    let url = ArenaUrl::from_owned(state.arena, &url);
     whitespace_impl(scanner, &mut state.parser_state, false)?;
-    let mut prefix: Option<String> = None;
+    let mut prefix: Option<&str> = None;
     if scan_identifier_impl(scanner, "as", false)? {
         whitespace_impl(scanner, &mut state.parser_state, true)?;
         let s = identifier_impl(scanner, &state.parser_state, true, false)?;
-        prefix = Some(s);
+        prefix = Some(&*state.arena.alloc_str(&s));
         scanner.expect_char('*')?;
         whitespace_impl(scanner, &mut state.parser_state, false)?;
     }
@@ -629,15 +653,15 @@ fn forward_rule_impl<'b>(
     if scan_identifier_impl(scanner, "show", false)? {
         whitespace_impl(scanner, &mut state.parser_state, true)?;
         let (order_mf, order_vars, idents, vars) = member_list_impl(scanner, state)?;
-        shown_mf = Some(idents);
-        shown_vars = Some(vars);
+        shown_mf = Some(arena_set(state.arena, idents));
+        shown_vars = Some(arena_set(state.arena, vars));
         shown_order_mf = Some(order_mf);
         shown_order_vars = Some(order_vars);
     } else if scan_identifier_impl(scanner, "hide", false)? {
         whitespace_impl(scanner, &mut state.parser_state, true)?;
         let (_, _, idents, vars) = member_list_impl(scanner, state)?;
-        hidden_mf = Some(idents);
-        hidden_vars = Some(vars);
+        hidden_mf = Some(arena_set(state.arena, idents));
+        hidden_vars = Some(arena_set(state.arena, vars));
     }
     let configuration = configuration_impl(scanner, state, true)?;
     whitespace_impl(scanner, &mut state.parser_state, false)?;
@@ -651,27 +675,43 @@ fn forward_rule_impl<'b>(
     }
     if let Some(sm) = shown_mf {
         return Ok(ForwardRule::show_ordered(
+            state.arena,
             url,
             sm,
-            shown_vars.unwrap_or_default(),
-            shown_order_mf.unwrap_or_default(),
-            shown_order_vars.unwrap_or_default(),
+            shown_vars.unwrap_or_else(|| arena_set(state.arena, HashSet::new())),
+            shown_order_mf
+                .unwrap_or_default()
+                .iter()
+                .map(|s| &*state.arena.alloc_str(s))
+                .collect(),
+            shown_order_vars
+                .unwrap_or_default()
+                .iter()
+                .map(|s| &*state.arena.alloc_str(s))
+                .collect(),
             span,
             prefix,
-            configuration,
+            arena_config(state.arena, configuration),
         ));
     }
     if let Some(hm) = hidden_mf {
         return Ok(ForwardRule::hide(
+            state.arena,
             url,
             hm,
-            hidden_vars.unwrap_or_default(),
+            hidden_vars.unwrap_or_else(|| arena_set(state.arena, HashSet::new())),
             span,
             prefix,
-            configuration,
+            arena_config(state.arena, configuration),
         ));
     }
-    Ok(ForwardRule::new(url, span, prefix, configuration))
+    Ok(ForwardRule::new(
+        state.arena,
+        url,
+        span,
+        prefix,
+        arena_config(state.arena, configuration),
+    ))
 }
 
 // Matches Dart: `_memberList` (stylesheet.dart:1131). Consumes the `show`
@@ -725,6 +765,28 @@ fn member_list_impl<'b>(
     ))
 }
 
+/// Rebuilds `set` in the compile arena (`&Bump` has no `Default`, so a plain
+/// `collect()` would allocate on the global heap).
+fn arena_set<'parse>(
+    arena: &'parse Bump,
+    set: HashSet<String>,
+) -> ArenaHashSet<'parse, &'parse str> {
+    let mut out =
+        hashbrown::HashSet::with_hasher_in(hashbrown::DefaultHashBuilder::default(), arena);
+    for item in set {
+        out.insert(&*arena.alloc_str(&item));
+    }
+    out
+}
+
+/// Moves a parsed `@use`/`@forward` configuration list into the arena.
+fn arena_config<'parse>(
+    arena: &'parse Bump,
+    configuration: Vec<ConfiguredVariable<'parse>>,
+) -> &'parse [ConfiguredVariable<'parse>] {
+    arena.alloc_slice_fill_iter(configuration)
+}
+
 // ======================================================================
 // configuration
 // ======================================================================
@@ -753,10 +815,10 @@ fn configuration_impl<'b>(
             let span = span_from_impl(scanner, &state.parser_state, variable_start)?.file_span()?;
             state.warnings.push(ParseTimeWarning {
                 deprecation: Some(&deprecation::WITH_PRIVATE),
-                message: "Configuring private variables is deprecated.\nThis will be an error in Dart Sass 2.0.0.".into(),
+                message: "Configuring private variables is deprecated.\nThis will be an error in Dart Sass 2.0.0.",
                 span,
                 primary_label: None,
-                secondary: vec![],
+                secondary: &[],
             });
         }
         whitespace_impl(scanner, &mut state.parser_state, true)?;
@@ -784,6 +846,7 @@ fn configuration_impl<'b>(
             )));
         }
         variable_names.insert(name.clone(), ());
+        let name = &*state.arena.alloc_str(&name);
         configuration.push(ConfiguredVariable::new(name, expression, span, guarded));
         if !scanner.scan_char(',') {
             break;
@@ -813,11 +876,13 @@ pub(crate) fn parameter_list_impl<'b>(
     scanner.expect_char('(')?;
     whitespace_impl(scanner, &mut state.parser_state, true)?;
     let mut parameters: Vec<Parameter<'b>> = Vec::new();
-    let mut named: HashMap<String, usize> = HashMap::new();
-    let mut rest_parameter: Option<String> = None;
+    let mut named: HashMap<&'b str, usize> = HashMap::new();
+    let mut rest_parameter: Option<&'b str> = None;
     while scanner.peek_char(0) == '$' as i32 {
         let variable_start = scanner.state();
-        let name = variable_name_impl(scanner, &state.parser_state)?;
+        let name = state
+            .arena
+            .alloc_str(&variable_name_impl(scanner, &state.parser_state)?);
         whitespace_impl(scanner, &mut state.parser_state, true)?;
 
         let default_value = if scanner.scan_char(':') {
@@ -832,7 +897,7 @@ pub(crate) fn parameter_list_impl<'b>(
             }
             let rest_span =
                 span_from_impl(scanner, &state.parser_state, variable_start)?.file_span()?;
-            if let Some(&first_index) = named.get(&name) {
+            if let Some(&first_index) = named.get(name) {
                 let first_span = parameters[first_index].span()?;
                 return Err(Box::new(multi_span_error_impl(
                     "Duplicate parameter.",
@@ -848,7 +913,7 @@ pub(crate) fn parameter_list_impl<'b>(
         };
         let param_span =
             span_from_impl(scanner, &state.parser_state, variable_start)?.file_span()?;
-        if let Some(&first_index) = named.get(&name) {
+        if let Some(&first_index) = named.get(name) {
             let first_span = parameters[first_index].span()?;
             return Err(Box::new(multi_span_error_impl(
                 "Duplicate parameter.",
@@ -857,7 +922,7 @@ pub(crate) fn parameter_list_impl<'b>(
                 vec![(param_span, "second".into())],
             )));
         }
-        named.insert(name.clone(), parameters.len());
+        named.insert(name, parameters.len());
         parameters.push(Parameter::new(name, param_span, default_value));
         if !scanner.scan_char(',') {
             break;
@@ -866,6 +931,7 @@ pub(crate) fn parameter_list_impl<'b>(
     }
     scanner.expect_char(')')?;
     let span = span_from_impl(scanner, &state.parser_state, start)?.file_span()?;
+    let parameters = state.arena.alloc_slice_fill_iter(parameters);
     Ok(ParameterList::new(parameters, span, rest_parameter))
 }
 
@@ -893,10 +959,10 @@ fn import_rule_impl<'b>(
             let dynamic_span = di.span()?;
             state.warnings.push(ParseTimeWarning {
                 deprecation: Some(&deprecation::IMPORT),
-                message: "Sass @import rules are deprecated and will be removed in Dart Sass 3.0.0.\n\nMore info and automated migrator: https://sass-lang.com/d/import".into(),
+                message: "Sass @import rules are deprecated and will be removed in Dart Sass 3.0.0.\n\nMore info and automated migrator: https://sass-lang.com/d/import",
                 span: dynamic_span,
                 primary_label: None,
-                secondary: vec![],
+                secondary: &[],
             });
             if state.in_control_directive || state.in_mixin {
                 let span = span_from_impl(scanner, &state.parser_state, start)?.file_span()?;
@@ -914,7 +980,7 @@ fn import_rule_impl<'b>(
     }
     expect_statement_separator_impl(scanner, state, "@import rule")?;
     let span = span_from_impl(scanner, &state.parser_state, start)?.file_span()?;
-    Ok(ImportRule::new(imports, span))
+    Ok(ImportRule::new(state.arena, imports, span))
 }
 
 /// Consumes an argument to an `@import` rule.
@@ -937,7 +1003,8 @@ pub(crate) fn import_argument_impl<'b>(
         } else {
             let expr_span = url_expr.span()?;
             Interpolation::new(
-                vec![InterpolationPart::Expression(Box::new(url_expr.clone()))],
+                state.arena,
+                vec![InterpolationPart::expression(state.arena, url_expr.clone())],
                 vec![Some(expr_span)],
                 Span::File(expr_span),
             )
@@ -954,7 +1021,7 @@ pub(crate) fn import_argument_impl<'b>(
         let span = span_from_impl(scanner, &state.parser_state, start)?.file_span()?;
         let url_span_text = url_span.text().to_string();
         return Ok(Import::Static(StaticImport::new(
-            Interpolation::plain(url_span_text, url_span),
+            Interpolation::plain(state.arena, url_span_text, url_span),
             span,
             modifiers,
         )));
@@ -962,10 +1029,12 @@ pub(crate) fn import_argument_impl<'b>(
     let parsed_str = parse_import_url(&url_str);
     // Matches Dart: DynamicImport(parseImportUrl(url), urlSpan) — the URL is
     // passed through unchanged; Uri.parse(url) only validates.
-    let url = SassUrl::parse(&parsed_str)
+    let url = ArenaUrl::parse(state.arena, &parsed_str)
         .map_err(|e| error_impl(&format!("Invalid URL: {e}"), &url_span))?;
     Ok(Import::Dynamic(DynamicImport::new(
-        parsed_str, url, url_span,
+        state.arena.alloc_str(&parsed_str),
+        url,
+        url_span,
     )))
 }
 
@@ -1001,7 +1070,7 @@ pub(crate) fn try_import_modifiers_impl<'b>(
                     }
                     let query_span = query.span()?;
                     buffer.add(
-                        Expression::Supports(SupportsExpression::new(query)),
+                        Expression::Supports(SupportsExpression::new(state.arena, query)),
                         query_span,
                     );
                     if !is_decl {
@@ -1037,7 +1106,7 @@ pub(crate) fn try_import_modifiers_impl<'b>(
                     let span = span_from_impl(scanner, &state.parser_state, start)?.file_span()?;
                     return Ok(Some(
                         buffer
-                            .interpolation(span)
+                            .interpolation(state.arena, span)
                             .map_err(|e| Box::new(ParseError::Sass(e)))?,
                     ));
                 }
@@ -1051,14 +1120,14 @@ pub(crate) fn try_import_modifiers_impl<'b>(
             let span = span_from_impl(scanner, &state.parser_state, start)?.file_span()?;
             return Ok(Some(
                 buffer
-                    .interpolation(span)
+                    .interpolation(state.arena, span)
                     .map_err(|e| Box::new(ParseError::Sass(e)))?,
             ));
         } else {
             let span = span_from_impl(scanner, &state.parser_state, start)?.file_span()?;
             return Ok(Some(
                 buffer
-                    .interpolation(span)
+                    .interpolation(state.arena, span)
                     .map_err(|e| Box::new(ParseError::Sass(e)))?,
             ));
         }
@@ -1080,6 +1149,7 @@ pub(crate) fn mixin_rule_impl<'b>(
     state: &mut StylesheetState<'b>,
     start: LineScannerState,
 ) -> ParseResult<'b, MixinRule<'b>> {
+    let arena = state.arena;
     whitespace_impl(scanner, &mut state.parser_state, true)?;
     let preceding_comment = state.last_silent_comment.take();
     let before_name = scanner.state();
@@ -1116,13 +1186,22 @@ pub(crate) fn mixin_rule_impl<'b>(
     state.in_mixin = true;
     let n = name.clone();
     let p = parameters.clone();
-    let comment = preceding_comment.map(|b| *b);
+    let comment = preceding_comment;
     let result = with_children_impl(
         scanner,
         state,
         &mut |s, st| statement_impl(s, st, false).map(Some),
         start,
-        |_, children, span| Ok(MixinRule::new(n, p, children, span, comment)),
+        |_, children, span| {
+            Ok(MixinRule::new(
+                arena,
+                &n,
+                p,
+                arena_statements(arena, children),
+                span,
+                comment,
+            ))
+        },
     )?;
     state.in_mixin = false;
     Ok(result)
@@ -1145,6 +1224,7 @@ fn function_rule_impl<'b>(
     start: LineScannerState,
     at_rule_name: &Interpolation<'b>,
 ) -> ParseResult<'b, Statement<'b>> {
+    let arena = state.arena;
     whitespace_impl(scanner, &mut state.parser_state, true)?;
     let preceding_comment = state.last_silent_comment.take();
     let before_name = scanner.state();
@@ -1181,10 +1261,10 @@ fn function_rule_impl<'b>(
         let span = span_from_impl(scanner, &state.parser_state, before_name)?.file_span()?;
         state.warnings.push(ParseTimeWarning {
             deprecation: Some(&deprecation::FUNCTION_NAME),
-            message: "Custom functions with this name are deprecated and will be removed in a future\nrelease. Please choose a different name.\nMore info: https://sass-lang.com/d/function-name".into(),
+            message: "Custom functions with this name are deprecated and will be removed in a future\nrelease. Please choose a different name.\nMore info: https://sass-lang.com/d/function-name",
             span,
             primary_label: None,
-            secondary: vec![],
+            secondary: &[],
         });
     }
     whitespace_impl(scanner, &mut state.parser_state, true)?;
@@ -1205,7 +1285,7 @@ fn function_rule_impl<'b>(
     whitespace_impl(scanner, &mut state.parser_state, false)?;
     let n = name.clone();
     let p = parameters.clone();
-    let comment = preceding_comment.map(|b| *b);
+    let comment = preceding_comment;
     with_children_impl(
         scanner,
         state,
@@ -1213,7 +1293,12 @@ fn function_rule_impl<'b>(
         start,
         |_, children, span| {
             Ok(Statement::FunctionRule(FunctionRule::new(
-                n, p, children, span, comment,
+                arena,
+                &n,
+                p,
+                arena_statements(arena, children),
+                span,
+                comment,
             )))
         },
     )
@@ -1235,6 +1320,7 @@ fn each_rule_impl<'b>(
         &mut StylesheetState<'b>,
     ) -> ParseResult<'b, Statement<'b>>,
 ) -> ParseResult<'b, EachRule<'b>> {
+    let arena = state.arena;
     whitespace_impl(scanner, &mut state.parser_state, true)?;
     let was_in_control_directive = state.in_control_directive;
     state.in_control_directive = true;
@@ -1258,14 +1344,25 @@ fn each_rule_impl<'b>(
             until: None,
         },
     )?;
-    let vars = variables.clone();
+    let vars: Vec<String> = variables.clone();
     let l = list.clone();
     let result = with_children_impl(
         scanner,
         state,
         &mut |s, st| child(s, st).map(Some),
         start,
-        |_, children, span| Ok(EachRule::new(vars, l, children, span)),
+        |_, children, span| {
+            Ok(EachRule::new(
+                arena.alloc_slice_fill_iter(
+                    vars.iter()
+                        .map(|v| &*arena.alloc_str(v))
+                        .collect::<Vec<&'b str>>(),
+                ),
+                l,
+                arena_statements(arena, children),
+                span,
+            ))
+        },
     )?;
     state.in_control_directive = was_in_control_directive;
     Ok(result)
@@ -1290,6 +1387,7 @@ pub(crate) fn for_rule_impl<'b>(
         &mut StylesheetState<'b>,
     ) -> ParseResult<'b, Statement<'b>>,
 ) -> ParseResult<'b, ForRule<'b>> {
+    let arena = state.arena;
     whitespace_impl(scanner, &mut state.parser_state, true)?;
     let was_in_control_directive = state.in_control_directive;
     state.in_control_directive = true;
@@ -1361,7 +1459,16 @@ pub(crate) fn for_rule_impl<'b>(
         state,
         &mut |s, st| child(s, st).map(Some),
         start,
-        |_, children, span| Ok(ForRule::new(v, f, t, children, span, exc)),
+        |_, children, span| {
+            Ok(ForRule::new(
+                arena.alloc_str(&v),
+                f,
+                t,
+                arena_statements(arena, children),
+                span,
+                exc,
+            ))
+        },
     )?;
     state.in_control_directive = was_in_control_directive;
     Ok(result)
@@ -1385,6 +1492,7 @@ fn if_rule_impl<'b>(
         &mut StylesheetState<'b>,
     ) -> ParseResult<'b, Statement<'b>>,
 ) -> ParseResult<'b, IfRule<'b>> {
+    let arena = state.arena;
     whitespace_impl(scanner, &mut state.parser_state, true)?;
     let _if_indentation = current_indentation_impl(state);
     let was_in_control_directive = state.in_control_directive;
@@ -1401,7 +1509,7 @@ fn if_rule_impl<'b>(
     )?;
     let children = children_impl(scanner, state, &mut |s, st| child(s, st).map(Some))?;
     whitespace_without_comments_impl(scanner, &state.parser_state, false)?;
-    let mut clauses = vec![IfClause::new(condition, children)];
+    let mut clauses = vec![IfClause::new(condition, arena_statements(arena, children))];
     let mut last_clause: Option<Vec<Statement<'b>>> = None;
     loop {
         if !scan_else_impl(scanner, state, _if_indentation)? {
@@ -1421,7 +1529,7 @@ fn if_rule_impl<'b>(
                 },
             )?;
             let ch = children_impl(scanner, state, &mut |s, st| child(s, st).map(Some))?;
-            clauses.push(IfClause::new(cond, ch));
+            clauses.push(IfClause::new(cond, arena_statements(arena, ch)));
         } else {
             let ch = children_impl(scanner, state, &mut |s, st| child(s, st).map(Some))?;
             last_clause = Some(ch);
@@ -1431,7 +1539,12 @@ fn if_rule_impl<'b>(
     state.in_control_directive = was_in_control_directive;
     let span = span_from_impl(scanner, &state.parser_state, start)?.file_span()?;
     whitespace_without_comments_impl(scanner, &state.parser_state, false)?;
-    Ok(IfRule::new(clauses, span, last_clause))
+    Ok(IfRule::new(
+        arena,
+        clauses,
+        span,
+        arena_statements_opt(arena, last_clause),
+    ))
 }
 
 // ======================================================================
@@ -1450,6 +1563,7 @@ fn while_rule_impl<'b>(
         &mut StylesheetState<'b>,
     ) -> ParseResult<'b, Statement<'b>>,
 ) -> ParseResult<'b, WhileRule<'b>> {
+    let arena = state.arena;
     whitespace_impl(scanner, &mut state.parser_state, true)?;
     let was_in_control_directive = state.in_control_directive;
     state.in_control_directive = true;
@@ -1469,7 +1583,7 @@ fn while_rule_impl<'b>(
         state,
         &mut |s, st| child(s, st).map(Some),
         start,
-        |_, children, span| Ok(WhileRule::new(c, children, span)),
+        |_, children, span| Ok(WhileRule::new(c, arena_statements(arena, children), span)),
     )?;
     state.in_control_directive = was_in_control_directive;
     Ok(result)
@@ -1488,6 +1602,7 @@ pub(crate) fn media_rule_impl<'b>(
     state: &mut StylesheetState<'b>,
     start: LineScannerState,
 ) -> ParseResult<'b, MediaRule<'b>> {
+    let arena = state.arena;
     whitespace_impl(scanner, &mut state.parser_state, false)?;
     let query = media_query_list_impl(scanner, state)?;
     let q = query;
@@ -1496,7 +1611,7 @@ pub(crate) fn media_rule_impl<'b>(
         state,
         &mut |s, st| statement_impl(s, st, false).map(Some),
         start,
-        |_, children, span| Ok(MediaRule::new(q, children, span)),
+        |_, children, span| Ok(MediaRule::new(q, arena_statements(arena, children), span)),
     )
 }
 
@@ -1509,6 +1624,7 @@ pub(crate) fn supports_rule_impl<'b>(
     state: &mut StylesheetState<'b>,
     start: LineScannerState,
 ) -> ParseResult<'b, SupportsRule<'b>> {
+    let arena = state.arena;
     whitespace_impl(scanner, &mut state.parser_state, false)?;
     let condition = supports_condition_impl(scanner, state, false)?;
     whitespace_impl(scanner, &mut state.parser_state, false)?;
@@ -1518,7 +1634,13 @@ pub(crate) fn supports_rule_impl<'b>(
         state,
         &mut |s, st| statement_impl(s, st, false).map(Some),
         start,
-        |_, children, span| Ok(SupportsRule::new(cond, children, span)),
+        |_, children, span| {
+            Ok(SupportsRule::new(
+                cond,
+                arena_statements(arena, children),
+                span,
+            ))
+        },
     )
 }
 
@@ -1538,6 +1660,7 @@ pub(crate) fn include_rule_impl<'b>(
     state: &mut StylesheetState<'b>,
     start: LineScannerState,
 ) -> ParseResult<'b, IncludeRule<'b>> {
+    let arena = state.arena;
     whitespace_impl(scanner, &mut state.parser_state, true)?;
     let mut namespace = String::new();
     let mut name = identifier_impl(scanner, &state.parser_state, false, false)?;
@@ -1571,7 +1694,13 @@ pub(crate) fn include_rule_impl<'b>(
             state,
             &mut |s, st| statement_impl(s, st, false).map(Some),
             start,
-            |_, children, span| Ok(ContentBlock::new(cp, children, span)),
+            |_, children, span| {
+                Ok(ContentBlock::new(
+                    cp,
+                    arena_statements(arena, children),
+                    span,
+                ))
+            },
         )?;
         state.in_content_block = was_in_content_block;
         content = Some(cb);
@@ -1581,7 +1710,7 @@ pub(crate) fn include_rule_impl<'b>(
     let ns = if namespace.is_empty() {
         None
     } else {
-        Some(namespace)
+        Some(&*state.arena.alloc_str(&namespace))
     };
     let span = if let Some(ref content) = content {
         let content_span = content.span()?;
@@ -1594,7 +1723,14 @@ pub(crate) fn include_rule_impl<'b>(
             span_from_to_impl(scanner, &state.parser_state, start, Some(&start))?.file_span()?;
         span_from.expand(&Span::File(arguments_span))?
     };
-    Ok(IncludeRule::new(name, arguments, span, ns, content))
+    Ok(IncludeRule::new(
+        arena,
+        arena.alloc_str(&name),
+        arguments,
+        span,
+        ns,
+        content.map(|cb| &*arena.alloc(cb)),
+    ))
 }
 
 // ======================================================================
@@ -1615,6 +1751,7 @@ pub(crate) fn moz_document_rule_impl<'b>(
     start: LineScannerState,
     name: &Interpolation<'b>,
 ) -> ParseResult<'b, AtRule<'b>> {
+    let arena = state.arena;
     whitespace_impl(scanner, &mut state.parser_state, false)?;
     let value_start = scanner.state();
     let mut buffer = InterpolationBuffer::new();
@@ -1681,7 +1818,7 @@ pub(crate) fn moz_document_rule_impl<'b>(
     let value_span = span_from_impl(scanner, &state.parser_state, value_start)?.file_span()?;
     let value = Some(
         buffer
-            .interpolation(value_span)
+            .interpolation(state.arena, value_span)
             .map_err(|e| Box::new(ParseError::Sass(e)))?,
     );
     let val = value;
@@ -1695,13 +1832,18 @@ pub(crate) fn moz_document_rule_impl<'b>(
             if needs_deprecation_warning {
                 st.warnings.push(ParseTimeWarning {
                 deprecation: Some(&deprecation::MOZ_DOCUMENT),
-                message: "@-moz-document is deprecated and support will be removed in Dart Sass 2.0.0.\n\nFor details, see https://sass-lang.com/d/moz-document.".into(),
+                message: "@-moz-document is deprecated and support will be removed in Dart Sass 2.0.0.\n\nFor details, see https://sass-lang.com/d/moz-document.",
                 span,
                 primary_label: None,
-                secondary: vec![],
+                secondary: &[],
             });
             }
-            Ok(AtRule::new(name2, span, val, Some(children)))
+            Ok(AtRule::new(
+                name2,
+                span,
+                val,
+                Some(arena_statements(arena, children)),
+            ))
         },
     )
 }
@@ -1723,6 +1865,7 @@ pub(crate) fn unknown_at_rule_impl<'b>(
     start: LineScannerState,
     name: &Interpolation<'b>,
 ) -> ParseResult<'b, Statement<'b>> {
+    let arena = state.arena;
     let was_in_unknown_at_rule = state.in_unknown_at_rule;
     state.in_unknown_at_rule = true;
     whitespace_impl(scanner, &mut state.parser_state, false)?;
@@ -1759,7 +1902,14 @@ pub(crate) fn unknown_at_rule_impl<'b>(
             state,
             &mut |s, st| statement_impl(s, st, false).map(Some),
             start,
-            |_, children, span| Ok(Statement::AtRule(AtRule::new(n2, span, v2, Some(children)))),
+            |_, children, span| {
+                Ok(Statement::AtRule(AtRule::new(
+                    n2,
+                    span,
+                    v2,
+                    Some(arena_statements(arena, children)),
+                )))
+            },
         )?;
         state.in_unknown_at_rule = was_in_unknown_at_rule;
         state.in_plain_css_function = was_in_plain_css_function;

@@ -7,17 +7,19 @@
 // dart-source: lib/src/ast/sass/statement/forward_rule.dart
 // go-source: go/value/sass_statement_forward_rule.go
 
-use std::collections::HashSet;
 use std::fmt;
 use std::fmt::Write;
 
-use crate::url::SassUrl;
+use bumpalo::Bump;
+
+use crate::url::ArenaUrl;
 
 use crate::common::ast_node::AstNode;
 use crate::common::exception::SassResult;
 use crate::common::file_span::FileSpan;
 use crate::util::css_identifier::to_css_identifier;
 
+use crate::arena_map::ArenaHashSet;
 use crate::ast::sass::configured_variable::ConfiguredVariable;
 
 /// A `@forward` rule.
@@ -26,54 +28,55 @@ pub struct ForwardRule<'parse> {
     /// The URL of the module to forward.
     ///
     /// Relative URLs resolve against the containing file.
-    pub url: SassUrl,
+    pub url: ArenaUrl<'parse>,
     /// The mixin and function names accessible from the forwarded module.
     ///
     /// Empty means no mixins or functions may be accessed; `None` imposes
     /// no restriction. When non-`None`, the hidden sets are both `None`
     /// and [`ForwardRule::shown_variables`] is non-`None`.
-    pub shown_mixins_and_functions: Option<HashSet<String>>,
+    pub shown_mixins_and_functions: Option<&'parse ArenaHashSet<'parse, &'parse str>>,
     /// The variable names (without `$`) accessible from the forwarded
     /// module.
     ///
     /// Empty means no variables may be accessed; `None` imposes no
     /// restriction. When non-`None`, the hidden sets are both `None` and
     /// [`ForwardRule::shown_mixins_and_functions`] is non-`None`.
-    pub shown_variables: Option<HashSet<String>>,
+    pub shown_variables: Option<&'parse ArenaHashSet<'parse, &'parse str>>,
     /// Source-order `@forward show` lists (Dart `LinkedHashSet` iteration
     /// drives `LimitedMapView` key order, observed via
     /// `meta.module-variables`). `None` unless this is a show-rule.
-    pub shown_order_mf: Option<Vec<String>>,
-    pub shown_order_vars: Option<Vec<String>>,
+    pub shown_order_mf: Option<&'parse [&'parse str]>,
+    pub shown_order_vars: Option<&'parse [&'parse str]>,
     /// The mixin and function names that may not be accessed from the
     /// forwarded module.
     ///
     /// Empty means any mixins or functions may be accessed; `None` imposes
     /// no restriction. When non-`None`, the shown sets are both `None` and
     /// [`ForwardRule::hidden_variables`] is non-`None`.
-    pub hidden_mixins_and_functions: Option<HashSet<String>>,
+    pub hidden_mixins_and_functions: Option<&'parse ArenaHashSet<'parse, &'parse str>>,
     /// The variable names (without `$`) that may not be accessed from the
     /// forwarded module.
     ///
     /// Empty means any variables may be accessed; `None` imposes no
     /// restriction. When non-`None`, the shown sets are both `None` and
     /// [`ForwardRule::hidden_mixins_and_functions`] is non-`None`.
-    pub hidden_variables: Option<HashSet<String>>,
+    pub hidden_variables: Option<&'parse ArenaHashSet<'parse, &'parse str>>,
     /// The prefix added to the front of member names from the forwarded
     /// module, or `None` when member names are used as-is.
-    pub prefix: Option<String>,
+    pub prefix: Option<&'parse str>,
     /// The variable assignments used to configure the forwarded module.
-    pub configuration: Vec<ConfiguredVariable<'parse>>,
+    pub configuration: &'parse [ConfiguredVariable<'parse>],
     pub span: FileSpan<'parse>,
 }
 
 impl<'parse> ForwardRule<'parse> {
     /// Creates a `@forward` rule that allows all members to be accessed.
     pub fn new(
-        url: SassUrl,
+        _arena: &'parse Bump,
+        url: ArenaUrl<'parse>,
         span: FileSpan<'parse>,
-        prefix: Option<String>,
-        configuration: Vec<ConfiguredVariable<'parse>>,
+        prefix: Option<&'parse str>,
+        configuration: &'parse [ConfiguredVariable<'parse>],
     ) -> Self {
         ForwardRule {
             url,
@@ -92,14 +95,16 @@ impl<'parse> ForwardRule<'parse> {
     /// Creates a `@forward` rule that allows only the listed members to be
     /// accessed.
     pub fn show(
-        url: SassUrl,
-        shown_mixins_and_functions: HashSet<String>,
-        shown_variables: HashSet<String>,
+        arena: &'parse Bump,
+        url: ArenaUrl<'parse>,
+        shown_mixins_and_functions: ArenaHashSet<'parse, &'parse str>,
+        shown_variables: ArenaHashSet<'parse, &'parse str>,
         span: FileSpan<'parse>,
-        prefix: Option<String>,
-        configuration: Vec<ConfiguredVariable<'parse>>,
+        prefix: Option<&'parse str>,
+        configuration: &'parse [ConfiguredVariable<'parse>],
     ) -> Self {
         Self::show_ordered(
+            arena,
             url,
             shown_mixins_and_functions,
             shown_variables,
@@ -117,21 +122,22 @@ impl<'parse> ForwardRule<'parse> {
     // diverge from the sibling `show` constructor shape.
     #[allow(clippy::too_many_arguments)]
     pub fn show_ordered(
-        url: SassUrl,
-        shown_mixins_and_functions: HashSet<String>,
-        shown_variables: HashSet<String>,
-        shown_order_mf: Vec<String>,
-        shown_order_vars: Vec<String>,
+        arena: &'parse Bump,
+        url: ArenaUrl<'parse>,
+        shown_mixins_and_functions: ArenaHashSet<'parse, &'parse str>,
+        shown_variables: ArenaHashSet<'parse, &'parse str>,
+        shown_order_mf: Vec<&'parse str>,
+        shown_order_vars: Vec<&'parse str>,
         span: FileSpan<'parse>,
-        prefix: Option<String>,
-        configuration: Vec<ConfiguredVariable<'parse>>,
+        prefix: Option<&'parse str>,
+        configuration: &'parse [ConfiguredVariable<'parse>],
     ) -> Self {
         ForwardRule {
             url,
-            shown_mixins_and_functions: Some(shown_mixins_and_functions),
-            shown_variables: Some(shown_variables),
-            shown_order_mf: Some(shown_order_mf),
-            shown_order_vars: Some(shown_order_vars),
+            shown_mixins_and_functions: Some(arena.alloc(shown_mixins_and_functions)),
+            shown_variables: Some(arena.alloc(shown_variables)),
+            shown_order_mf: Some(arena.alloc_slice_fill_iter(shown_order_mf)),
+            shown_order_vars: Some(arena.alloc_slice_fill_iter(shown_order_vars)),
             hidden_mixins_and_functions: None,
             hidden_variables: None,
             prefix,
@@ -143,12 +149,13 @@ impl<'parse> ForwardRule<'parse> {
     /// Creates a `@forward` rule that allows only members *not* in the
     /// given lists to be accessed.
     pub fn hide(
-        url: SassUrl,
-        hidden_mixins_and_functions: HashSet<String>,
-        hidden_variables: HashSet<String>,
+        arena: &'parse Bump,
+        url: ArenaUrl<'parse>,
+        hidden_mixins_and_functions: ArenaHashSet<'parse, &'parse str>,
+        hidden_variables: ArenaHashSet<'parse, &'parse str>,
         span: FileSpan<'parse>,
-        prefix: Option<String>,
-        configuration: Vec<ConfiguredVariable<'parse>>,
+        prefix: Option<&'parse str>,
+        configuration: &'parse [ConfiguredVariable<'parse>],
     ) -> Self {
         ForwardRule {
             url,
@@ -156,8 +163,8 @@ impl<'parse> ForwardRule<'parse> {
             shown_variables: None,
             shown_order_mf: None,
             shown_order_vars: None,
-            hidden_mixins_and_functions: Some(hidden_mixins_and_functions),
-            hidden_variables: Some(hidden_variables),
+            hidden_mixins_and_functions: Some(arena.alloc(hidden_mixins_and_functions)),
+            hidden_variables: Some(arena.alloc(hidden_variables)),
             prefix,
             configuration,
             span,
@@ -183,21 +190,11 @@ impl<'parse> ForwardRule<'parse> {
     pub fn to_display_string(&self) -> SassResult<String> {
         let mut buf = String::new();
         write!(buf, "@forward \"{}\"", self.url).unwrap();
-        if let Some(ref shown) = self.shown_mixins_and_functions {
-            write!(
-                buf,
-                " show {}",
-                member_list(shown, self.shown_variables.as_ref())?
-            )
-            .unwrap();
-        } else if let Some(ref hidden) = self.hidden_mixins_and_functions {
+        if let Some(shown) = self.shown_mixins_and_functions {
+            write!(buf, " show {}", member_list(shown, self.shown_variables)?).unwrap();
+        } else if let Some(hidden) = self.hidden_mixins_and_functions {
             if !hidden.is_empty() {
-                write!(
-                    buf,
-                    " hide {}",
-                    member_list(hidden, self.hidden_variables.as_ref())?
-                )
-                .unwrap();
+                write!(buf, " hide {}", member_list(hidden, self.hidden_variables)?).unwrap();
             }
         }
         if let Some(ref prefix) = self.prefix {
@@ -224,8 +221,8 @@ impl<'parse> fmt::Display for ForwardRule<'parse> {
 }
 
 fn member_list(
-    mixins_and_functions: &HashSet<String>,
-    variables: Option<&HashSet<String>>,
+    mixins_and_functions: &ArenaHashSet<'_, &str>,
+    variables: Option<&ArenaHashSet<'_, &str>>,
 ) -> SassResult<String> {
     let mut names = Vec::with_capacity(mixins_and_functions.len());
     for name in mixins_and_functions {
@@ -258,8 +255,8 @@ mod tests {
     fn test_new() {
         let arena = Bump::new();
         let span = make_span(&arena, "@forward 'mod';");
-        let url = SassUrl::parse("https://example.com/module").unwrap();
-        let fr = ForwardRule::new(url.clone(), span, None, vec![]);
+        let url = ArenaUrl::parse(&arena, "https://example.com/module").unwrap();
+        let fr = ForwardRule::new(&arena, url, span, None, &[]);
         assert_eq!(fr.url, url);
     }
 
@@ -267,8 +264,8 @@ mod tests {
     fn test_display() {
         let arena = Bump::new();
         let span = make_span(&arena, "@forward 'mod';");
-        let url = SassUrl::parse("https://example.com/module").unwrap();
-        let fr = ForwardRule::new(url, span, None, vec![]);
+        let url = ArenaUrl::parse(&arena, "https://example.com/module").unwrap();
+        let fr = ForwardRule::new(&arena, url, span, None, &[]);
         let s = format!("{fr}");
         assert!(s.starts_with("@forward "), "got {s:?}");
     }

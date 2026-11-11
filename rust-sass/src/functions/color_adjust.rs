@@ -11,10 +11,8 @@
 
 use crate::eval::warn::warn_deprecation;
 use crate::value::color_channel_types::ALPHA_CHANNEL;
-use std::rc::Rc;
 
 use bumpalo::Bump;
-use indexmap::IndexMap;
 
 use crate::callable::BuiltInCallable;
 use crate::common::exception::{SassError, SassResult};
@@ -124,13 +122,13 @@ where
             &Value::new_with_arena(arena, ValueKind::Number(adjustment.clone())),
             "hue",
         )?;
-        cloned = Some(SassNumber::new(deg, None));
+        cloned = Some(SassNumber::new(arena, deg, None));
         adjustment = cloned.as_ref().unwrap();
     } else if color.space == ColorSpace::Hsl
         && (channel.channel.name == "saturation" || channel.channel.name == "lightness")
     {
         check_percent_deprecation(config, state, adjustment, channel.channel.name)?;
-        cloned = Some(SassNumber::new(adjustment.value, Some("%")));
+        cloned = Some(SassNumber::new(arena, adjustment.value, Some("%")));
         adjustment = cloned.as_ref().unwrap();
     } else if channel.channel.name == "alpha" && adjustment.has_units() {
         warn_deprecation(config, state,
@@ -138,7 +136,7 @@ where
                 adjustment.unit_string(), adjustment.unit_suggestion("alpha", None)),
             &de::FUNCTION_UNITS,
         )?;
-        cloned = Some(SassNumber::new(adjustment.value, None));
+        cloned = Some(SassNumber::new(arena, adjustment.value, None));
         adjustment = cloned.as_ref().unwrap();
     }
     let adj_ptr = channel_from_value(channel, Some(adjustment), false)?;
@@ -233,7 +231,7 @@ fn adjust_color_impl<'compile, 'parse>(
     color: &SassColor,
     channel_args: &[Option<&SassNumber>],
     alpha_arg: Option<&SassNumber>,
-) -> SassResult<SassColor>
+) -> SassResult<SassColor<'parse>>
 where
     'compile: 'parse,
 {
@@ -287,11 +285,11 @@ where
 /// Each channel (and alpha) goes through [`scale_channel_impl`].
 ///
 /// Ports Dart's `_scaleColor` (color.dart:1154).
-fn scale_color_impl(
-    color: &SassColor,
+fn scale_color_impl<'parse>(
+    color: &SassColor<'parse>,
     channel_args: &[Option<&SassNumber>],
     alpha_arg: Option<&SassNumber>,
-) -> SassResult<SassColor> {
+) -> SassResult<SassColor<'parse>> {
     let chs = color.space.channels_linear();
     let scaled_alpha = if let Some(a) = alpha_arg {
         scale_channel_impl(color, &ALPHA_CHANNEL, color.alpha_or_nil(), Some(a))?
@@ -322,7 +320,7 @@ fn change_color_impl<'compile, 'parse>(
     color: &SassColor,
     channel_args: &[Option<Value<'parse>>],
     alpha_val: Option<&Value<'parse>>,
-) -> SassResult<SassColor>
+) -> SassResult<SassColor<'parse>>
 where
     'compile: 'parse,
 {
@@ -340,9 +338,9 @@ where
                         if (color.space == ColorSpace::Hsl || color.space == ColorSpace::Hwb)
                             && ch_idx > 0
                         {
-                            Ok(Some(SassNumber::new(v, Some("%"))))
+                            Ok(Some(SassNumber::new(arena, v, Some("%"))))
                         } else {
-                            Ok(Some(SassNumber::new(v, None)))
+                            Ok(Some(SassNumber::new(arena, v, None)))
                         }
                     } else {
                         Ok(None)
@@ -355,7 +353,9 @@ where
             if let ValueKind::Number(n) = &**arg {
                 return Ok(Some(n.clone()));
             }
-            let s = num_str(&SassNumber::new(0.0, None))
+            // The temporary number only proves `num_str` succeeds; it is
+            // formatted in a throwaway arena, not the compile one.
+            let s = num_str(&SassNumber::new(&Bump::new(), 0.0, None))
                 .map(|_| arg.to_display_string().unwrap_or_default())?;
             let chs = color.space.channels_linear();
             Err(Box::new(SassError::Script {
@@ -402,7 +402,7 @@ where
         false,
     )?;
     match &*result {
-        ValueKind::Color(c) => Ok(c.clone()),
+        ValueKind::Color(c) => Ok(*c),
         _ => panic!("expected Color"),
     }
 }
@@ -416,9 +416,11 @@ where
 ///
 /// Ports Dart's `_sniffLegacyColorSpace` (color.dart:1311), used for the
 /// backwards-compat path that converts legacy colors before keyword updates.
-fn sniff_legacy_color_space(keywords: &IndexMap<String, Value<'_>>) -> Option<ColorSpace> {
+fn sniff_legacy_color_space(
+    keywords: &crate::arena_map::ArenaMap<'_, &str, Value<'_>>,
+) -> Option<ColorSpace> {
     for key in keywords.keys() {
-        match key.as_str() {
+        match *key {
             "red" | "green" | "blue" => return Some(ColorSpace::Rgb),
             "saturation" | "lightness" => return Some(ColorSpace::Hsl),
             "whiteness" | "blackness" => return Some(ColorSpace::Hwb),
@@ -446,7 +448,8 @@ where
         "$color, $kwargs...",
         "sass:color",
         arena,
-        Rc::new(
+        crate::callable::built_in_callback(
+            arena,
             move |config: &EvalConfig<'compile, 'parse>,
                   state: &mut EvalState<'compile, 'parse>,
                   args,
@@ -470,7 +473,8 @@ where
         "$color, $kwargs...",
         "sass:color",
         arena,
-        Rc::new(
+        crate::callable::built_in_callback(
+            arena,
             move |config: &EvalConfig<'compile, 'parse>,
                   state: &mut EvalState<'compile, 'parse>,
                   args,
@@ -494,7 +498,8 @@ where
         "$color, $kwargs...",
         "sass:color",
         arena,
-        Rc::new(
+        crate::callable::built_in_callback(
+            arena,
             move |config: &EvalConfig<'compile, 'parse>,
                   state: &mut EvalState<'compile, 'parse>,
                   args,
@@ -535,7 +540,7 @@ where
     if !argument_list.as_list().is_empty() {
         return Err(Box::new(SassError::Script { message: "Only one positional argument is allowed. All other arguments must be passed by name.".into(), argument_name: None }));
     }
-    let all_keywords: IndexMap<String, Value<'parse>> = argument_list.keywords().clone();
+    let all_keywords = argument_list.keywords().clone();
     let mut keywords = all_keywords;
     let original_color = value::assert_color(&args[0], Some("color"))?;
     let space_keyword = keywords.swap_remove("space");
@@ -551,7 +556,7 @@ where
         if let Some(s) = sniff_legacy_color_space(&keywords) {
             original_color.to_space(s, Some(false))?
         } else {
-            original_color.clone()
+            *original_color
         }
     } else {
         color_in_space(
@@ -567,7 +572,7 @@ where
     for (key, val) in keywords.iter() {
         let mut found = false;
         for (i, ch) in chs.iter().enumerate() {
-            if ch.channel.name == key.as_str() {
+            if ch.channel.name == *key {
                 channel_args[i] = Some(*val);
                 found = true;
                 break;
@@ -579,7 +584,7 @@ where
                     "Color space {} doesn't have a channel with this name.",
                     color.space.name()
                 ),
-                argument_name: Some(key.clone()),
+                argument_name: Some((*key).to_string()),
             }));
         }
     }
@@ -628,10 +633,13 @@ mod tests {
     use crate::value::{SassNumber, ValueKind};
 
     fn n<'compile: 'parse, 'parse>(arena: &'compile Bump, v: f64) -> Value<'parse> {
-        Value::new_with_arena(arena, ValueKind::Number(SassNumber::new(v, None)))
+        Value::new_with_arena(arena, ValueKind::Number(SassNumber::new(arena, v, None)))
     }
     fn pc<'compile: 'parse, 'parse>(arena: &'compile Bump, v: f64) -> Value<'parse> {
-        Value::new_with_arena(arena, ValueKind::Number(SassNumber::new(v, Some("%"))))
+        Value::new_with_arena(
+            arena,
+            ValueKind::Number(SassNumber::new(arena, v, Some("%"))),
+        )
     }
 
     #[rust_sass_macros::maybe_test]

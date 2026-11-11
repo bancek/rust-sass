@@ -124,7 +124,7 @@ mod tests {
         let arena = Bump::new();
         let span = make_span(&arena, "[href]");
         let name_span = make_span(&arena, "href");
-        let name = Interpolation::plain("href".into(), name_span);
+        let name = Interpolation::plain(&arena, "href".into(), name_span);
         let qn = InterpolatedQualifiedName::new(name, name_span, None);
         let sel = InterpolatedAttributeSelector::new(qn, span);
         assert!(sel.op.is_none());
@@ -135,12 +135,12 @@ mod tests {
         let arena = Bump::new();
         let span = make_span(&arena, "[href=val]");
         let name_span = make_span(&arena, "href");
-        let name = Interpolation::plain("href".into(), name_span);
+        let name = Interpolation::plain(&arena, "href".into(), name_span);
         let qn = InterpolatedQualifiedName::new(name, name_span, None);
         let op_span = make_span(&arena, "=");
         let op = CssValue::new(AttributeOperator::Equal, op_span);
         let val_span = make_span(&arena, "val");
-        let val = Interpolation::plain("val".into(), val_span);
+        let val = Interpolation::plain(&arena, "val".into(), val_span);
         let sel = InterpolatedAttributeSelector::with_operator(qn, op, val, span, None);
         assert!(sel.op.is_some());
     }
@@ -150,7 +150,7 @@ mod tests {
         let arena = Bump::new();
         let span = make_span(&arena, "[href]");
         let name_span = make_span(&arena, "href");
-        let name = Interpolation::plain("href".into(), name_span);
+        let name = Interpolation::plain(&arena, "href".into(), name_span);
         let qn = InterpolatedQualifiedName::new(name, name_span, None);
         let sel = InterpolatedAttributeSelector::new(qn, span);
         assert_eq!(format!("{sel}"), "[href]");

@@ -71,8 +71,8 @@ pub(crate) fn scss_silent_comment_impl<'b>(
         )));
     }
     let text = scanner.substring(start.position, None).to_string();
-    let comment = SilentComment::new(text, span);
-    state.last_silent_comment = Some(Box::new(comment.clone()));
+    let comment = SilentComment::new(state.arena, &text, span);
+    state.last_silent_comment = Some(&*state.arena.alloc(comment.clone()));
     Ok(comment)
 }
 
@@ -114,7 +114,7 @@ pub(crate) fn scss_loud_comment_impl<'b>(
                 buffer.write_char_code(ch);
                 let span = span_from_impl(scanner, &state.parser_state, start)?.file_span()?;
                 let interp = buffer
-                    .interpolation(span)
+                    .interpolation(state.arena, span)
                     .map_err(|e| Box::new(ParseError::Sass(e)))?;
                 return Ok(LoudComment::new(interp));
             }
@@ -189,10 +189,10 @@ pub(crate) fn scss_scan_else_impl<'b>(
             let span = span_from_impl(scanner, &state.parser_state, before_at)?.file_span()?;
             state.warnings.push(ParseTimeWarning {
                 deprecation: Some(&deprecation::ELSEIF),
-                message: "@elseif is deprecated and will not be supported in future Sass versions.\n\nRecommendation: @else if".into(),
+                message: "@elseif is deprecated and will not be supported in future Sass versions.\n\nRecommendation: @else if",
                 span,
                 primary_label: None,
-                secondary: vec![],
+                secondary: &[],
             });
             scanner.set_position(scanner.pos() - 2)?;
             return Ok(true);
