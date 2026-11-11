@@ -96,8 +96,9 @@ contract, not by guard discipline.
 ## An arena value must not own heap memory
 
 `bumpalo::Bump` never runs `Drop`. A value allocated in the arena that owns a
-`Vec`/`String`/`Box`/map/`Rc` therefore leaks it for the life of the process
-(`architecture.md` §15). Fields of arena-resident types must be arena storage
+`Vec`/`String`/`Box`/map/`Rc` therefore leaks it for the life of the process.
+`architecture.md` §15 covers the mechanism and the containers that replace the
+owning ones. Fields of arena-resident types must be arena storage
 (`ArenaVec`, `ArenaMap`, `ArenaHashSet`/`ArenaHashMap`, `&'parse [T]`,
 `&'parse str`), arena handles to drop-free data (`&'parse dyn Trait`,
 `fn` pointers, `arena.alloc(closure)` with drop-free captures), or removed.

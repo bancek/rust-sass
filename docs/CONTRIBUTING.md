@@ -215,9 +215,13 @@ per-compilation work.
 The gate allows 8 KiB (`HARNESS_NOISE`). The full suite currently retains
 3,976 B spread thinly over 40 tests — 1 B on css selector tests, 4–10 B on
 libsass tests — which is allocator bookkeeping rather than Sass data.
-`LEAK_GATE_ALLOW=<bytes>` overrides the threshold for a local run. A real
-regression (an arena value owning a `Vec`/`String`/`Rc`) shows up as kilobytes
-on a handful of tests, so read the per-test list, not just the total.
+`LEAK_GATE_ALLOW=<bytes>` overrides the threshold for a local run.
+
+The threshold is a measurement floor, not a licence to leak. It exists because
+the residual is spread thin (a few bytes per test) and cannot be attributed;
+a real regression — an arena value owning a `Vec`/`String`/`Rc` — shows up as
+kilobytes concentrated on a handful of tests. Read the per-test list, not just
+the total, and fix the site rather than raising the number.
 
 Harness work inside the measured pass (normalizing expected output, the regex
 engines' caches) is left out by wrapping it in
@@ -270,6 +274,15 @@ values.
    normalisation) or only runtime/dependency frames exist. **UNKNOWN** means
    no frame named either crate: heaptrack truncates deep stacks, so open
    `leaks-demangled.txt` (already `c++filt`ed) and read the block in full.
+
+   Trust heaptrack's **sizes**, verify its **frames**. The block sizes are
+   exact — that is what the totals in this document come from — but the
+   `at file:line` chain is reconstructed from return addresses, and merged or
+   inlined frames can name a caller that cannot have produced the allocation.
+   One measured stack named `regex_automata` under `eval/init.rs` in a crate
+   with no `regex` dependency: a frame-merging artefact. When a frame
+   looks impossible, check `cargo tree -p <crate>` before believing it, and
+   prefer the gate's own per-test delta for attribution of small residuals.
 
    `--diff /tmp/rust-sass/<earlier>/heap.zst` records what changed against a
    previous run; `--strict` exits non-zero when any block is OURS, which is
