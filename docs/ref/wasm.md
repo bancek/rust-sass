@@ -121,7 +121,7 @@ spawns directly, so it is `chmod +x`), mirroring `sass.js` parity: no
 `%2A/` `sourceMappingURL` escape, `--embed-source-map` percent-encoding with the
 restricted `data:` set, `--source-map-urls relative` remapping only `file:`, and
 `--pkg-importer node` → `{__sassNodePackageImporter: cwd}`. `--version` prints
-`1.106.1 compiled with dart2js 3.13.6` (the reference `sass` info string, single-sourced in `version.ts`);
+`1.107.0 compiled with dart2js 3.13.7` (the reference `sass` info string, single-sourced in `version.ts`);
 `--quiet` → `Logger.silent` → `QuietLogger`; a Sass error exits `65` (writes
 `errorCss` for `--error-css`, `formatted` + `"\n"` to stderr); a file-read
 failure exits `66`. The sync artifact has no `--watch`.

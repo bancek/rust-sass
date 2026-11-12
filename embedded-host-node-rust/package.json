@@ -28,7 +28,7 @@
     "varint": "6.0.0"
   },
   "devDependencies": {
-    "sass-embedded": "1.106.1"
+    "sass-embedded": "1.107.0"
   },
   "scripts": {
     "build": "node build.mjs",

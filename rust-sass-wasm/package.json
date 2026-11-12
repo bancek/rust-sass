@@ -6,8 +6,8 @@
   "devDependencies": {
     "@types/node": "^22",
     "prettier": "^3.9.6",
-    "sass": "1.106.1",
-    "sass-embedded": "1.106.1",
+    "sass": "1.107.0",
+    "sass-embedded": "1.107.0",
     "sass-embedded-rust": "file:../../embedded-host-node-rust",
     "typescript": "6.0.3",
     "vitest": "4.1.11"

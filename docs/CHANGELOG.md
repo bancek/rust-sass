@@ -1,9 +1,23 @@
 # Changelog
 
-Release history. Tags track the pinned dart-sass version (`v1.106.1`); the
+Release history. Tags track the pinned dart-sass version (`v1.107.0`); the
 procedure lives in [`docs/release.md`](docs/release.md).
 
 ## Unreleased
+
+## 1.107.0
+
+- `--fatal-deprecation` accepts `-<name>` exclusions (for example
+  `--fatal-deprecation=1.107.0,-import`) and the special value `dart-sass-2`,
+  which marks fatal every deprecation that will become fatal in Dart Sass
+  2.0.0.
+- The JS API's `Options.fatalDeprecations` accepts a
+  `DeprecationSelectorDifference` object (`{include, except}`; `except` wins)
+  and `sass.deprecations.dartSass2`. The Dart API gains
+  `Deprecation.dartSass2`. Passing a version beyond the current Dart Sass
+  version is now deprecated.
+- Embedded protocol 3.3.0 (unchanged).
+- Byte-identical output to Dart Sass 1.107.0 (14400/14400 spec tests passing).
 
 ## 1.106.1
 

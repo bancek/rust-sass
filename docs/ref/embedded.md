@@ -15,7 +15,7 @@ Four crates implement it:
 - `rust-sass-cli` — the binary named `rust-sass` (its `--embedded` flag enters
   server mode).
 
-It reports protocol version `3.3.0`, compiler/implementation version `1.106.1`,
+It reports protocol version `3.3.0`, compiler/implementation version `1.107.0`,
 and implementation name `"dart-sass"` — the values the `sass-embedded` host
 requires.
 
@@ -55,7 +55,7 @@ instead of a response.
 | D2  | `prost` with **committed** generated code — no build-time `protoc`.                                                                                                                              |
 | D3  | Reader thread + dispatcher thread + per-compilation threads; `block_on` per compilation; crossbeam at the dispatcher, `futures::channel` for the waker-capable per-compilation mailbox.          |
 | D4  | `max_concurrent_compilations = 15` (fidelity; compilations block on host callbacks, so oversubscription is fine).                                                                                |
-| D5  | `"dart-sass"` / `"1.106.1"` hardcoded.                                                                                                                                                           |
+| D5  | `"dart-sass"` / `"1.107.0"` hardcoded.                                                                                                                                                           |
 | D6  | Host function signatures never panic — use `new_async` + `parse_parameter_list` (non-panicking) rather than `function_async` (which panics), so an invalid signature becomes a `CompileFailure`. |
 | D7  | `UserImporter::canonicalize` takes `&mut CanonicalizeContext` (so importers can mark `containing_url` accessed, which affects caching).                                                          |
 
