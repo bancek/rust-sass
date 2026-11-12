@@ -40,27 +40,35 @@ jobs:
         run: |
           # libsass first: rust-sass-libsass-tests links the prebuilt
           # libsass.so from target/<profile>/, so it must exist before
-          # the workspace build runs that crate's build script.
-          #
-          # Windows occasionally cannot open the freshly linked
-          # target/debug/deps/sass.dll (LNK1104: Defender locks it, and the
-          # normal/build-dependency units share that output name). Retry the
-          # whole sequence a bounded number of times instead of failing.
+          # the workspace build runs that crate's build script. Outside the
+          # retry loop below: a retry must not rebuild what it is waiting on.
           if [ "$RUNNER_OS" = "Windows" ]; then
-            attempts=5
+            # Defender's real-time scan holds a handle on the freshly written
+            # target/debug/deps/sass.dll, so the test binaries' link fails with
+            # LNK1104 against a file that exists. Exclude the workspace from
+            # scanning; run outside the PowerShell profile so a broken profile
+            # cannot fail the build.
+            powershell -NoProfile -Command \
+              "Add-MpPreference -ExclusionPath '${{ github.workspace }}'"
+          fi
+          cargo build -p rust-sass-libsass
+
+          # Retry only the workspace build: on Windows the LNK1104 above can
+          # still occur if the exclusion lands after a scan started.
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            attempts=10
             for i in $(seq 1 "$attempts"); do
-              if cargo build -p rust-sass-libsass && cargo build --workspace; then
+              if cargo build --workspace; then
                 exit 0
               fi
               if [ "$i" -eq "$attempts" ]; then
                 echo "build failed after $attempts attempts" >&2
                 exit 1
               fi
-              echo "build failed (attempt $i/$attempts); retrying in 10s" >&2
-              sleep 10
+              echo "build failed (attempt $i/$attempts); retrying in 5s" >&2
+              sleep 5
             done
           else
-            cargo build -p rust-sass-libsass
             cargo build --workspace
           fi
       - name: Clippy (sync)
@@ -93,25 +101,37 @@ jobs:
       # - uses: Swatinem/rust-cache@v2
       - name: Build
         run: |
-          # Windows occasionally cannot open the freshly linked
-          # target/debug/deps/sass.dll (LNK1104: Defender locks it, and the
-          # normal/build-dependency units share that output name). Retry the
-          # whole sequence a bounded number of times instead of failing.
+          # libsass first: rust-sass-libsass-tests links the prebuilt
+          # libsass.so from target/<profile>/, so it must exist before
+          # the workspace build runs that crate's build script. Outside the
+          # retry loop below: a retry must not rebuild what it is waiting on.
           if [ "$RUNNER_OS" = "Windows" ]; then
-            attempts=5
+            # Defender's real-time scan holds a handle on the freshly written
+            # target/debug/deps/sass.dll, so the test binaries' link fails with
+            # LNK1104 against a file that exists. Exclude the workspace from
+            # scanning; run outside the PowerShell profile so a broken profile
+            # cannot fail the build.
+            powershell -NoProfile -Command \
+              "Add-MpPreference -ExclusionPath '${{ github.workspace }}'"
+          fi
+          cargo build -p rust-sass-libsass
+
+          # Retry only the workspace build: on Windows the LNK1104 above can
+          # still occur if the exclusion lands after a scan started.
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            attempts=10
             for i in $(seq 1 "$attempts"); do
-              if cargo build -p rust-sass-libsass && cargo build --workspace; then
+              if cargo build --workspace; then
                 exit 0
               fi
               if [ "$i" -eq "$attempts" ]; then
                 echo "build failed after $attempts attempts" >&2
                 exit 1
               fi
-              echo "build failed (attempt $i/$attempts); retrying in 10s" >&2
-              sleep 10
+              echo "build failed (attempt $i/$attempts); retrying in 5s" >&2
+              sleep 5
             done
           else
-            cargo build -p rust-sass-libsass
             cargo build --workspace
           fi
       - name: sass-spec suite
