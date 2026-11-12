@@ -2,7 +2,7 @@
 
 Every _behavioral_ divergence between this port and Dart Sass has been resolved:
 the Rust port (and the Go port) produce byte-identical output to Dart Sass
-`1.107.0`. The resolved divergences are recorded only in git history, not here.
+`1.107.1`. The resolved divergences are recorded only in git history, not here.
 
 This document records the differences that remain **on purpose**: places where
 Dart, Go, and Rust differ in implementation while producing identical results,

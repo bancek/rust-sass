@@ -9,7 +9,7 @@
 
 use crate::syntax_from_proto;
 #[cfg(test)]
-use crate::COMPILER_VERSION;
+use crate::{COMPILER_VERSION, PROTOCOL_VERSION};
 use std::cell::RefCell;
 use std::collections::HashSet;
 #[cfg(test)]
@@ -589,7 +589,7 @@ pub(crate) fn test_host(rx: futures::channel::mpsc::UnboundedReceiver<Vec<u8>>) 
         io: Rc::new(rust_sass::io::DefaultIo::new()),
         rx: Rc::new(RefCell::new(rx)),
         compile_context: rust_sass::compile_context::new_compile_context(),
-        protocol_version: "3.3.0",
+        protocol_version: PROTOCOL_VERSION,
         compiler_version: COMPILER_VERSION,
         outbound_request_id: 0,
         writer: Arc::new(Mutex::new(Box::new(Vec::new()) as Box<dyn Write + Send>)),
@@ -605,7 +605,7 @@ pub(crate) fn test_host(rx: Receiver<Vec<u8>>) -> Rc<HostContext> {
         io: Rc::new(rust_sass::io::DefaultIo::new()),
         rx: Rc::new(RefCell::new(rx)),
         compile_context: rust_sass::compile_context::new_compile_context(),
-        protocol_version: "3.3.0",
+        protocol_version: PROTOCOL_VERSION,
         compiler_version: COMPILER_VERSION,
         outbound_request_id: 0,
         writer: Arc::new(Mutex::new(Box::new(Vec::new()) as Box<dyn Write + Send>)),

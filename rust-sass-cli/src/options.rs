@@ -32,7 +32,7 @@ use rust_sass::serialize::OutputStyle;
 
 /// The Sass version reported by `--version` and used for `--fatal-deprecation`
 /// version comparisons. Matches the embedded compiler's COMPILER_VERSION.
-pub const SASS_VERSION: &str = "1.107.0";
+pub const SASS_VERSION: &str = "1.107.1";
 
 /// A usage error: mirrors Dart's `UsageException` (exit code 64).
 #[derive(Debug)]

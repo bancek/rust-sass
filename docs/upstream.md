@@ -9,9 +9,9 @@ human-readable picture.
 
 |                     |                                                                        |
 | ------------------- | ---------------------------------------------------------------------- |
-| dart-sass commit    | `455cbc0508b3fb9952a6fc0bb000a58e46ef8574` (2026-10-28, `PORTED_FROM`) |
-| dart-sass version   | 1.107.0                                                                |
-| Embedded protocol   | 3.3.0                                                                  |
+| dart-sass commit    | `059beb7a8ecde742320bbff23304bcc3ce343e7b` (2026-10-30, `PORTED_FROM`) |
+| dart-sass version   | 1.107.1                                                                |
+| Embedded protocol   | 3.4.0                                                                  |
 | Dart SDK constraint | `>=3.13.0 <4.0.0` (dart-sass `pubspec.yaml`)                           |
 
 Before the first release the ports are re-synced to current `origin/main`

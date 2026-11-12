@@ -1,6 +1,6 @@
 # Release runbook
 
-Tags track the dart-sass version (`v1.107.0`); rehearsals add a suffix
+Tags track the dart-sass version (`v1.107.1`); rehearsals add a suffix
 (`v1.106.1-alpha0`, `v1.106.1-alpha1`). Mechanics: [`ci.md`](ci.md). Bump
 surfaces: [`CONTRIBUTING.md`](CONTRIBUTING.md#version-bump-checklist).
 

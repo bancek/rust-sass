@@ -21,7 +21,7 @@ layer — externalized CJS bypasses vite resolution), relying on the stock
 
 ## Build-time assembly (nothing vendored)
 
-`embedded-host-node` submodule @ tag `1.107.0` (`2ed4f2a0`), full clone:
+`embedded-host-node` submodule @ tag `1.107.1` (`3a8d8c30`), full clone:
 
 1. The compiler binary: dev builds it locally (`cargo build --release -p
    rust-sass-cli` for the host); CI feeds prebuilt per-platform binaries via
@@ -77,9 +77,9 @@ wrong engine.
   binaries in the `build-native` job) + `publish` job (wrapper with exact-pinned `optionalDependencies`
   via `package.dist.json`, host pattern). Android/riscv/armv7 triples arrive
   with full upstream parity later.
-- Wrapper version tracks dart-sass from `1.107.0` via `package.dist.json`
+- Wrapper version tracks dart-sass from `1.107.1` via `package.dist.json`
   (source `package.json` stays `0.0.0`); host runtime deps exact-pinned
-  (proven with host 1.107.0), lockfile committed.
+  (proven with host 1.107.1), lockfile committed.
 
 ## Update procedure
 
@@ -101,5 +101,5 @@ pristine either way.
 
 | Dart/JS                                                                | Rust                                                                           |
 | ---------------------------------------------------------------------- | ------------------------------------------------------------------------------ |
-| `embedded-host-node` submodule (`sass/embedded-host-node` @ `1.107.0`) | `embedded-host-node-rust/` (build script, patch application, manifests, tests) |
+| `embedded-host-node` submodule (`sass/embedded-host-node` @ `1.107.1`) | `embedded-host-node-rust/` (build script, patch application, manifests, tests) |
 | `sass-embedded` npm host (dev-only peer)                               | coexistence differential target                                                |
