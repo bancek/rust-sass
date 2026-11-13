@@ -22,6 +22,7 @@ use crate::serialize::list::list_sep_str;
 use crate::serialize::list::write_map_element;
 use crate::serialize::string::visit_quoted_string;
 use crate::serialize::string::visit_unquoted_string;
+use crate::util::css_identifier::to_css_identifier;
 use crate::value::CalcArgument;
 use crate::value::ListSeparator;
 use std::fmt::Write;
@@ -267,7 +268,7 @@ pub(crate) fn visit_function_impl(
         }));
     }
     write!(buf, "get-function(").unwrap();
-    visit_quoted_string(buf, state, value.callable.name());
+    visit_quoted_string(buf, state, &to_css_identifier(value.callable.name())?);
     buf.write_char(')').unwrap();
     Ok(())
 }
@@ -292,7 +293,7 @@ pub(crate) fn visit_mixin_impl(
         }));
     }
     write!(buf, "get-mixin(").unwrap();
-    visit_quoted_string(buf, state, value.callable.name());
+    visit_quoted_string(buf, state, &to_css_identifier(value.callable.name())?);
     buf.write_char(')').unwrap();
     Ok(())
 }
@@ -319,7 +320,7 @@ pub(crate) fn visit_module_impl(
     write!(buf, "get-module(").unwrap();
     if let Some(url) = value.module.url()? {
         if let DefaultNamespaceResult::DefaultNamespace(namespace) = default_namespace(&url) {
-            visit_quoted_string(buf, state, &namespace);
+            visit_quoted_string(buf, state, &to_css_identifier(&namespace)?);
         }
     }
     write!(buf, ")").unwrap();

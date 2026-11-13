@@ -51,6 +51,7 @@ use crate::environment::Environment;
 use crate::eval::{EvalConfig, EvalState, EvaluateVisitor};
 use crate::module::{Module, ModuleKind};
 use crate::url::OwnedUrl;
+use crate::util::css_identifier::{resolve_css_escapes_if_canonical, to_css_identifier};
 use crate::value::{
     assert_mixin, assert_string, SassFunction, SassMap, SassMixin, SassModule, SassString, Value,
     ValueKind, SASS_FALSE, SASS_TRUE,
@@ -173,23 +174,33 @@ where
                 ),
                 &CALL_STRING,
             )?;
-            let normalized = s.text.replace("_", "-");
-            let fn_callable = state
-                .env
-                .get_function(&normalized, None)?
-                .or_else(|| {
-                    config
-                        .built_in_functions
-                        .borrow()
-                        .get(normalized.as_str())
-                        .cloned()
-                })
-                .unwrap_or_else(|| {
-                    Callable::new(
-                        arena,
-                        CallableKind::PlainCss(PlainCssCallable { name: s.text }),
-                    )
-                });
+            // Dart resolves only a canonical name; anything else is treated as
+            // a plain-CSS callable named with the original text.
+            let fn_callable = match resolve_css_escapes_if_canonical(s.text) {
+                Some(name) => {
+                    let normalized = name.replace("_", "-");
+                    state
+                        .env
+                        .get_function(&normalized, None)?
+                        .or_else(|| {
+                            config
+                                .built_in_functions
+                                .borrow()
+                                .get(normalized.as_str())
+                                .cloned()
+                        })
+                        .unwrap_or_else(|| {
+                            Callable::new(
+                                arena,
+                                CallableKind::PlainCss(PlainCssCallable { name: s.text }),
+                            )
+                        })
+                }
+                None => Callable::new(
+                    arena,
+                    CallableKind::PlainCss(PlainCssCallable { name: s.text }),
+                ),
+            };
             let span = state.callable_span.unwrap_or(BOGUS_SPAN);
             let rest_val = args
                 .get(1)
@@ -339,10 +350,27 @@ fn get_nullable_module<'compile: 'parse, 'parse: 'compile>(
 ) -> SassResult<Option<Module<'compile, 'parse>>> {
     match &**module {
         ValueKind::Module(m) => Ok(Some(m.assert_compile_context(compile_context)?.module)),
-        ValueKind::String(s) => Ok(Some(env.get_module(s.text)?)),
+        ValueKind::String(s) => match resolve_css_escapes_if_canonical(s.text) {
+            // Dart: `text.resolveCssEscapesIfCanonical().andThen(getModule) ??
+            // (throw 'There is no module with namespace "$text".')` — the error
+            // quotes the original text, not the resolved name.
+            Some(name) => match env.get_module(&name) {
+                Ok(module) => Ok(Some(module)),
+                Err(_) => Err(no_such_namespace(s.text)),
+            },
+            None => Err(no_such_namespace(s.text)),
+        },
         ValueKind::Null => Ok(None),
         _ => Err(module_type_error(module)?),
     }
+}
+
+/// Dart's `There is no module with namespace "$text".` error.
+fn no_such_namespace(text: &str) -> Box<SassError> {
+    Box::new(SassError::Script {
+        message: format!("There is no module with namespace \"{text}\"."),
+        argument_name: None,
+    })
 }
 
 fn module_type_error<'parse>(module: &Value<'parse>) -> SassResult<Box<SassError>> {
@@ -440,9 +468,11 @@ where
                               args: Vec<Value<'parse>>,
                               _arena: &'compile Bump|
                               -> SassResult<Value<'parse>> {
-                            let normalized = assert_string(&args[0], Some("name"))?
-                                .text
-                                .replace("_", "-");
+                            let normalized = resolve_css_escapes_if_canonical(
+                                assert_string(&args[0], Some("name"))?.text,
+                            )
+                            .map(|n| n.replace("_", "-"))
+                            .unwrap_or_default();
                             let module = match args.get(1) {
                                 Some(m) => get_nullable_module(m, state.env, &cctx)?,
                                 None => None,
@@ -471,8 +501,11 @@ where
                           args: Vec<Value<'parse>>,
                           _arena: &'compile Bump|
                           -> SassResult<Value<'parse>> {
-                        let name = assert_string(&args[0], Some("name"))?;
-                        let normalized = name.text.replace("_", "-");
+                        let normalized = resolve_css_escapes_if_canonical(
+                            assert_string(&args[0], Some("name"))?.text,
+                        )
+                        .map(|n| n.replace("_", "-"))
+                        .unwrap_or_default();
                         let exists = state.env.variable_exists(&normalized)?;
                         Ok(Value::new_with_arena(
                             arena,
@@ -495,7 +528,9 @@ where
                           _arena: &'compile Bump|
                           -> SassResult<Value<'parse>> {
                         let name = assert_string(&args[0], Some("name"))?;
-                        let normalized = name.text.replace("_", "-");
+                        let normalized = resolve_css_escapes_if_canonical(name.text)
+                            .map(|n| n.replace("_", "-"))
+                            .unwrap_or_default();
                         let module = match args.get(1) {
                             Some(m) => get_nullable_module(m, state.env, &cctx)?,
                             None => None,
@@ -528,9 +563,11 @@ where
                           args: Vec<Value<'parse>>,
                           _arena: &'compile Bump|
                           -> SassResult<Value<'parse>> {
-                        let normalized = assert_string(&args[0], Some("name"))?
-                            .text
-                            .replace("_", "-");
+                        let normalized = resolve_css_escapes_if_canonical(
+                            assert_string(&args[0], Some("name"))?.text,
+                        )
+                        .map(|n| n.replace("_", "-"))
+                        .unwrap_or_default();
                         let module = match args.get(1) {
                             Some(m) => get_nullable_module(m, state.env, &cctx)?,
                             None => None,
@@ -594,7 +631,7 @@ where
                                 Value::new_with_arena(
                                     arena,
                                     ValueKind::String(SassString::new(
-                                        arena.alloc_str(&name),
+                                        arena.alloc_str(&to_css_identifier(&name)?),
                                         true,
                                     )),
                                 ),
@@ -626,7 +663,7 @@ where
                                 Value::new_with_arena(
                                     arena,
                                     ValueKind::String(SassString::new(
-                                        arena.alloc_str(&name),
+                                        arena.alloc_str(&to_css_identifier(&name)?),
                                         true,
                                     )),
                                 ),
@@ -664,7 +701,7 @@ where
                                 Value::new_with_arena(
                                     arena,
                                     ValueKind::String(SassString::new(
-                                        arena.alloc_str(&name),
+                                        arena.alloc_str(&to_css_identifier(&name)?),
                                         true,
                                     )),
                                 ),
@@ -723,7 +760,9 @@ where
                                 ));
                             }
 
-                            let normalized = name.text.replace("_", "-");
+                            let normalized = resolve_css_escapes_if_canonical(name.text)
+                                .map(|n| n.replace("_", "-"))
+                                .unwrap_or_default();
                             let callable = match module {
                                 Some(module) => module.functions().get(&normalized),
                                 None => env.get_function(&normalized, None)?.or_else(|| {
@@ -761,7 +800,9 @@ where
                           _arena: &'compile Bump|
                           -> SassResult<Value<'parse>> {
                         let name = assert_string(&args[0], Some("name"))?;
-                        let normalized = name.text.replace("_", "-");
+                        let normalized = resolve_css_escapes_if_canonical(name.text)
+                            .map(|n| n.replace("_", "-"))
+                            .unwrap_or_default();
                         let module = match args.get(1) {
                             Some(v) => get_nullable_module(v, state.env, &cctx)?,
                             None => None,
@@ -1014,8 +1055,8 @@ where
         let mut values: IndexMap<String, ConfiguredValue> = IndexMap::new();
         let mut private_deprecation = false;
         for (variable, val) in with_map.iter() {
-            let name_str = match &**variable {
-                ValueKind::String(s) => s.text.replace("_", "-"),
+            let original_name = match &**variable {
+                ValueKind::String(s) => s.text,
                 _ => {
                     return Err(Box::new(SassError::Script {
                         message: format!("{} is not a string.", variable.to_display_string()?),
@@ -1023,9 +1064,24 @@ where
                     }))
                 }
             };
+            // Dart: `resolveCssEscapesIfCanonical()?.replaceAll("_", "-")`, so a
+            // non-canonical key behaves as if never declared with `!default`.
+            let name_str = match resolve_css_escapes_if_canonical(original_name)
+                .map(|n| n.replace("_", "-"))
+            {
+                Some(name) => name,
+                None => {
+                    return Err(Box::new(SassError::Script {
+                        message: format!(
+                            "${original_name} was not declared with !default in the @used module."
+                        ),
+                        argument_name: None,
+                    }))
+                }
+            };
             if values.contains_key(&name_str) {
                 return Err(Box::new(SassError::Script {
-                    message: format!("The variable ${} was configured twice.", name_str),
+                    message: format!("The variable ${original_name} was configured twice."),
                     argument_name: None,
                 }));
             }
@@ -1035,10 +1091,9 @@ where
                     config,
                     state,
                     &format!(
-                        "Configuring private variables (such as ${}) \
+                        "Configuring private variables (such as ${original_name}) \
                      is deprecated.\nThis will be an error in \
-                     Dart Sass 2.0.0.",
-                        name_str
+                     Dart Sass 2.0.0."
                     ),
                     &WITH_PRIVATE,
                 )?;
@@ -2603,5 +2658,57 @@ mod tests {
             assert!(meta_mod.mixins.contains_key(name), "missing mixin {name}");
         }
         assert_eq!(v.config.global_functions.borrow().len(), 13); // fns only; mixins are module-only
+    }
+
+    // sass/sass#4268: `sass:meta` reflection stores and matches identifiers in
+    // canonical form, restoring pre-1.106.0 behavior. End-to-end so parse, eval
+    // and serialization are exercised together (mirrors the spec suite's
+    // `core_functions/meta/*/escape` cases).
+    //
+    // The tests call `compile_string` inline (not via a helper) because
+    // `maybe_test` rewrites `.await` in the *test body* only.
+    #[rust_sass_macros::maybe_test]
+    async fn test_escaped_identifier_resolves_in_meta_reflection() {
+        // `\61\62` is the canonical spelling of `ab`; `\61b` decodes to `a` +
+        // `b` but is not the canonical form `toCssIdentifier("ab")` emits.
+        let arena = Bump::new();
+        let io: Rc<dyn Io> = Rc::new(VirtualIo::new());
+        let css = compile_string(
+            "@use \"sass:meta\";\n\
+             $ab: 1;\n\
+             a {\n\
+               plain: meta.global-variable-exists(\"ab\");\n\
+               canonical: meta.global-variable-exists(\"\\61\\62\");\n\
+               non_canonical: meta.global-variable-exists(\"\\61b\");\n\
+             }\n",
+            io,
+            &mut CompileOptions::new(&arena),
+            &arena,
+        )
+        .await
+        .unwrap()
+        .css()
+        .to_string();
+        assert_eq!(
+            css,
+            "a {\n  plain: true;\n  canonical: true;\n  non_canonical: false;\n}"
+        );
+    }
+
+    #[rust_sass_macros::maybe_test]
+    async fn test_non_canonical_module_namespace_errors() {
+        // An empty namespace never names a module; the error quotes the text
+        // as written. Mirrors spec `core_functions/meta/get_module/error`.
+        let arena = Bump::new();
+        let io: Rc<dyn Io> = Rc::new(VirtualIo::new());
+        let err = compile_string(
+            "@use \"sass:meta\";\na { b: meta.get-module(\"\") }\n",
+            io,
+            &mut CompileOptions::new(&arena),
+            &arena,
+        )
+        .await
+        .unwrap_err();
+        assert_eq!(err.message(), "There is no module with namespace \"\".");
     }
 }

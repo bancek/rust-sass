@@ -42,6 +42,7 @@ use crate::eval::import_cache::ImportCache;
 use crate::eval::statement::evaluate_block;
 use crate::eval::warn::warn;
 use crate::eval::warn::warn_deprecation_span;
+use crate::util::css_identifier::{to_css_identifier, try_css_identifier};
 use crate::value::color_names::color_name_for;
 use crate::value::ListSeparator;
 use crate::value::SassArgumentList;
@@ -1051,8 +1052,13 @@ where
     let mut named_used = 0;
 
     for (i, param) in params.parameters.iter().enumerate() {
+        // Named arguments are stored canonically (sass/sass#4268), so the
+        // parameter name is compared in canonical form too. A name that can't
+        // be canonicalized (e.g. `$$`) simply won't match.
+        let name_ident = try_css_identifier(param.name);
+        let name_ident = name_ident.as_deref().unwrap_or(param.name);
         if i < positional_count {
-            if named.contains(param.name) {
+            if named.contains(name_ident) {
                 return Err(Box::new(SassError::Script {
                     message: format!(
                         "Argument {} was passed both by position and by name.",
@@ -1061,7 +1067,7 @@ where
                     argument_name: None,
                 }));
             }
-        } else if named.contains(param.name) {
+        } else if named.contains(name_ident) {
             named_used += 1;
         } else if param.default_value.is_none() {
             // Dart `ParameterList.verify` reports `_originalParameterName`
@@ -1104,9 +1110,20 @@ where
     }
 
     if named_used < named.len() {
+        let param_idents: Vec<Option<String>> = params
+            .parameters
+            .iter()
+            .map(|p| try_css_identifier(p.name))
+            .collect();
         let unknown_names: Vec<String> = named
             .iter()
-            .filter(|n| !params.parameters.iter().any(|p| p.name == *n))
+            .filter(|n| {
+                !params
+                    .parameters
+                    .iter()
+                    .enumerate()
+                    .any(|(i, p)| param_idents[i].as_deref().unwrap_or(p.name) == *n)
+            })
             .cloned()
             .collect();
 
@@ -1675,8 +1692,11 @@ where
         let span = expression_node(config, state, expr)?;
         let val = evaluate_expression(config, state, arena, expr).await?;
         let cleaned = without_slash(config, state, arena, val, span)?;
-        named.insert((*name).to_string(), cleaned);
-        named_nodes.insert((*name).to_string(), span);
+        // Names are stored canonically for pre-1.106.0 compatibility
+        // (sass/sass#4268): Dart uses `name.toCssIdentifier()`.
+        let name = to_css_identifier(name)?;
+        named.insert(name.clone(), cleaned);
+        named_nodes.insert(name, span);
     }
 
     let mut separator = ListSeparator::Undecided;
@@ -1702,8 +1722,9 @@ where
                 separator = arg_list.list.separator;
                 for (key, val) in arg_list.keywords().iter() {
                     let cleaned = without_slash(config, state, arena, *val, rest_span)?;
-                    named.insert((*key).to_string(), cleaned);
-                    named_nodes.insert((*key).to_string(), rest_span);
+                    let key = to_css_identifier(key)?;
+                    named.insert(key.clone(), cleaned);
+                    named_nodes.insert(key, rest_span);
                 }
             }
             ValueKind::List(l) => {
@@ -1811,8 +1832,13 @@ where
     }
 
     for param in parameters.iter().skip(positional.len()) {
-        if let Some(val) = named.get(param.name) {
-            let span = named_nodes.get(param.name).copied().unwrap_or(param.span);
+        // Named arguments are stored canonically (sass/sass#4268), so the
+        // parameter name is compared in its canonical form too. A name that
+        // can't be canonicalized (e.g. `$$`) simply won't match.
+        let name_ident = try_css_identifier(param.name);
+        let name_ident = name_ident.as_deref().unwrap_or(param.name);
+        if let Some(val) = named.get(name_ident) {
+            let span = named_nodes.get(name_ident).copied().unwrap_or(param.span);
             state.env.set_local_variable(param.name, *val, span);
         } else if let Some(ref default_val) = param.default_value {
             let val = evaluate_expression(config, state, arena, default_val).await?;
@@ -1842,7 +1868,11 @@ where
         };
         let unused_named: IndexMap<String, Value<'parse>> = named
             .iter()
-            .filter(|(k, _)| !parameters.iter().any(|p| p.name == *k))
+            .filter(|(k, _)| {
+                !parameters
+                    .iter()
+                    .any(|p| to_css_identifier(p.name).is_ok_and(|ident| ident == **k))
+            })
             .map(|(k, v)| (k.clone(), *v))
             .collect();
         let sep = if separator == ListSeparator::Undecided {

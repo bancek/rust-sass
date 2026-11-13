@@ -73,11 +73,36 @@ pub fn resolve_css_escapes(text: &str) -> SassResult<String> {
     })
 }
 
+/// If `text`'s value is in the canonical form of an escaped identifier,
+/// returns its semantic value, and returns `None` otherwise.
+///
+/// This exists for compatibility with the pre-1.106.0 behavior, in which
+/// identifiers were stored on AST nodes in canonical form and so lookups with
+/// Sass strings only worked if those Sass strings were in the same canonical
+/// form. See sass/sass#4268 for details and the path towards a better
+/// behavior.
+/// Matches Dart: `StringExtension.resolveCssEscapesIfCanonical`.
+pub fn resolve_css_escapes_if_canonical(text: &str) -> Option<String> {
+    if is_simple_identifier(text) {
+        return Some(text.to_string());
+    }
+
+    // This could obviously be more efficient, but we only get here when doing
+    // reflection on very unusual identifiers so it's not worth the extra code.
+    let ident = parse_identifier(text).ok()?;
+    if to_css_identifier(&ident).ok()? == text {
+        Some(ident)
+    } else {
+        None
+    }
+}
+
 /// Returns whether `text` is a valid CSS identifier that has the same semantic
 /// content as the string itself.
 ///
 /// This is a quick check used for optimization. It can return false negatives,
 /// but not false positives.
+/// Matches Dart: `StringExtension.isSimpleIdentifier`.
 fn is_simple_identifier(text: &str) -> bool {
     let mut chars = text.chars();
     let Some(first) = chars.next() else {
@@ -343,5 +368,44 @@ mod tests {
         assert_eq!(try_css_identifier("--foo").as_deref(), Some("--foo"));
         assert_eq!(try_css_identifier(""), None);
         assert_eq!(try_css_identifier("\0"), None);
+    }
+
+    // sass/sass#4268: reflection compatibility with pre-1.106.0 behavior.
+    #[test]
+    fn test_resolve_css_escapes_if_canonical() {
+        // Simple identifiers are already canonical.
+        assert_eq!(
+            resolve_css_escapes_if_canonical("foo").as_deref(),
+            Some("foo")
+        );
+        assert_eq!(
+            resolve_css_escapes_if_canonical("--foo").as_deref(),
+            Some("--foo")
+        );
+        assert_eq!(resolve_css_escapes_if_canonical("_").as_deref(), Some("_"));
+
+        // A canonical escaped identifier resolves to its semantic value.
+        // `"123".toCssIdentifier()` is `\31 23`, so this spelling is canonical.
+        assert_eq!(
+            resolve_css_escapes_if_canonical("\\31 23").as_deref(),
+            Some("123")
+        );
+        // `"-".toCssIdentifier()` is `\2d `, so that spelling is canonical too.
+        assert_eq!(
+            resolve_css_escapes_if_canonical("\\2d ").as_deref(),
+            Some("-")
+        );
+    }
+
+    #[test]
+    fn test_resolve_css_escapes_if_canonical_rejects_non_canonical() {
+        // These parse, but their semantic value re-escapes differently, so the
+        // text isn't canonical and must resolve to `None` (not the value).
+        assert_eq!(resolve_css_escapes_if_canonical("\\66 oo"), None);
+        assert_eq!(resolve_css_escapes_if_canonical("a\\62 c"), None);
+        assert_eq!(resolve_css_escapes_if_canonical("a\\62c"), None);
+        // Not a valid identifier at all.
+        assert_eq!(resolve_css_escapes_if_canonical("%%"), None);
+        assert_eq!(resolve_css_escapes_if_canonical(""), None);
     }
 }

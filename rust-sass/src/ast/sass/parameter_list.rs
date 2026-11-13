@@ -7,6 +7,7 @@
 // dart-source: lib/src/ast/sass/parameter_list.dart
 // go-source: go/value/sass_parameter_list.go
 
+use crate::util::css_identifier::try_css_identifier;
 use crate::util::utils::to_sentence;
 use std::collections::HashSet;
 use std::fmt;
@@ -123,8 +124,12 @@ impl<'parse> ParameterList<'parse> {
     ) -> SassResult<()> {
         let mut named_used = 0;
         for (i, param) in self.parameters.iter().enumerate() {
+            // Named arguments are matched in canonical form (sass/sass#4268).
+            // A name that can't be canonicalized (e.g. `$$`) never matches.
+            let name_ident = try_css_identifier(param.name);
+            let name_ident = name_ident.as_deref().unwrap_or(param.name);
             if i < positional {
-                if names.contains(param.name) {
+                if names.contains(name_ident) {
                     return Err(Box::new(SassError::Script {
                         message: format!(
                             "Argument ${} was passed both by position and by name.",
@@ -133,7 +138,7 @@ impl<'parse> ParameterList<'parse> {
                         argument_name: None,
                     }));
                 }
-            } else if names.contains(param.name) {
+            } else if names.contains(name_ident) {
                 named_used += 1;
             } else if param.default_value.is_none() {
                 // Script-level: the caller (`add_exception_span`) attaches the
@@ -178,10 +183,15 @@ impl<'parse> ParameterList<'parse> {
         }
 
         if named_used < names.len() {
+            let param_idents: Vec<String> = self
+                .parameters
+                .iter()
+                .map(|p| try_css_identifier(p.name).unwrap_or_else(|| p.name.to_string()))
+                .collect();
             let unknown_names: Vec<String> = names
                 .iter()
                 .copied()
-                .filter(|n| !self.parameters.iter().any(|p| p.name == *n))
+                .filter(|n| !param_idents.iter().any(|p| p == n))
                 .map(|n| format!("${n}"))
                 .collect();
             return Err(Box::new(SassError::MultiSpanScript {
