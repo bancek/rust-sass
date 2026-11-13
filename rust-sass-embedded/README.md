@@ -15,7 +15,7 @@ or programmatically via `rust_sass_embedded::run(args)`.
 ## Identity
 
 The server reports protocol version `3.4.0`, compiler/implementation version
-`1.107.1`, and implementation name `"dart-sass"` — the values the
+`1.108.2`, and implementation name `"dart-sass"` — the values the
 `sass-embedded` host requires.
 
 ## License

@@ -24,7 +24,7 @@ interference.
 
 ## Versioning
 
-Version tracks [dart-sass](https://github.com/sass/dart-sass) (`1.107.1`,
+Version tracks [dart-sass](https://github.com/sass/dart-sass) (`1.108.2`,
 protocol `3.4.0`).
 
 ## Links

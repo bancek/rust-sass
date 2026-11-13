@@ -315,7 +315,7 @@ mod tests {
 }
 
 /// Golden-value tests: `build_failure` output must match the Dart embedded
-/// compiler (1.107.1) byte-for-byte. Values captured by
+/// compiler (1.108.2) byte-for-byte. Values captured by
 /// `tests/collect_golden.rs` (`--ignored --nocapture`).
 #[cfg(test)]
 mod golden_tests {
