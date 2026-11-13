@@ -230,12 +230,12 @@ function __wbg_get_imports() {
             const ret = new Map();
             return ret;
         },
-        __wbg_new_af6aafec1e87c1c4: function() {
-            const ret = new Error();
-            return ret;
-        },
         __wbg_new_bebc3f4757acf305: function() {
             const ret = new Object();
+            return ret;
+        },
+        __wbg_new_e5774d51962a246c: function() {
+            const ret = new Error();
             return ret;
         },
         __wbg_new_ffa92086ea89f79c: function() {
@@ -267,7 +267,7 @@ function __wbg_get_imports() {
             const ret = arg0.set(arg1, arg2);
             return ret;
         },
-        __wbg_stack_711f6e6c394a6893: function(arg0, arg1) {
+        __wbg_stack_8830d386ab4640ea: function(arg0, arg1) {
             const ret = arg1.stack;
             const ptr1 = passStringToWasm0(ret, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
             const len1 = WASM_VECTOR_LEN;
