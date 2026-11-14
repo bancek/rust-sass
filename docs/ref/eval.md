@@ -125,10 +125,13 @@ RefCell<IndexMap>>`), so the
   (`keywordRestArgs.span`, not the resolved value node). `bind_arguments` then wraps
   the remaining positional and named args into a comma-separated
   `SassArgumentList`.
-- **Parameter verification** (`verify_parameter_list`) reports source spellings
-  (`Parameter::original_name`, e.g. `$foo_bar` not `$foo-bar`) for
-  missing/both-position errors, and includes `"positional "` in the over-arity
-  message when named arguments are present.
+- **Parameter verification** is `ParameterList::verify`, one implementation
+  shared by built-in and user-defined callables; `verify`, `matches`, and
+  `BuiltInCallable::callback_for` take the evaluated named-argument `IndexMap`
+  directly (Dart's ordered `MapKeySet`). Names match in canonical form and the
+  errors report source spellings (`$foo_bar`, not `$foo-bar`).
+- **Argument binding** drains consumed named arguments from that map
+  (`IndexMap::shift_remove`), as Dart's `Map.remove` does.
 - **Function calls without `@return`** throw a spanned `Runtime` at the
   declaration span (`run_user_defined_callable` builds it via `exception()`,
   not `Script`), so the declaration span and trace survive outer wrappers.

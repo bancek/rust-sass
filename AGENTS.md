@@ -19,7 +19,10 @@ Follow the reading map below before touching anything.
   (no `unsafe`, no `unwrap` except `write!` on `String`, error-variant
   discipline, sync+async parity). Violating one means revert.
 - **`docs/patterns.md`** — translation conventions (Dart → Rust) and the
-  `// dart-source:` annotation system.
+  `// dart-source:` annotation system (naming: §12).
+- **`docs/porting.md` → [Porting standard](docs/porting.md#porting-standard)** —
+  logic and naming fidelity: one Rust counterpart per Dart declaration, same
+  guards/order/errors, names preserved where Rust permits.
 - **The relevant `docs/ref/` page** for the module you are touching
   (index at `docs/ref/README.md`) — it documents the exact struct shapes,
   invariants, and gotchas. Doc snippets drift; verify signatures against
@@ -44,9 +47,10 @@ Follow the reading map below before touching anything.
   (use `SASS_SPEC=<subpath>` for a focused subset during development —
   it must be a real path under `sass-spec/spec/`).
 - **Match Dart's observable behavior exactly** — messages, spans, traces,
-  ordering, scope effects (see `docs/review.md` for the checklist). Never
-  "improve" Dart; record deliberate divergences in `docs/divergences.md`
-  using its entry template.
+  ordering, scope effects — and its logic and naming
+  ([`docs/porting.md`](docs/porting.md#porting-standard)). Never "improve"
+  Dart; record deliberate divergences in `docs/divergences.md` using its entry
+  template.
 - **Keep annotations honest.** Every ported file carries `// dart-source:` —
   update them when code moves; never leave a stale path.
 - **Verify per change, not at the end.** Repro first (differential A/B vs

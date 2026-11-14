@@ -237,3 +237,28 @@ All imports live at module tops as absolute paths; bodies never qualify:
   ungated position, and never move an import above another item's attributes.
 - Exempt: intra-doc links (`/// [`Io`]: crate::io::Io`), comments, and
   generated code (`rust-sass-embedded-pb`, rewritten by its generator).
+
+## 12. Naming
+
+Identifiers follow the Dart source wherever Rust permits. The conversion is
+mechanical; a rename beyond it is a finding (`porting.md` "Porting standard",
+`review.md` §4 step 2). The table uses placeholder names to show the
+conversion, not real declarations.
+
+| Dart                           | Rust                                                | Note                                   |
+| ------------------------------ | --------------------------------------------------- | -------------------------------------- |
+| `Value? visitFoo(Foo node)`    | `fn evaluate_foo(config, state, arena, node: &Foo)` | free fn; hoisted state; `throw`/`null` |
+| `void _checkThing(int count)`  | `fn check_thing(&self, count: usize)`               | `_` dropped; `&self` replaces `this`   |
+| `var nameIdent = ...`          | `let name_ident = ...`                              | locals keep their name                 |
+| `void visit(Foo nodeWithSpan)` | `fn visit(node_with_span: &Foo)`                    | arguments keep their name              |
+| `String type` (Rust keyword)   | `let type_ = ...`                                   | suffix `_`; never a semantic rename    |
+
+One systematic rename is applied repo-wide rather than case by case: `visitX`
+→ `evaluate_x` inside `eval/`, because the evaluator is free functions rather
+than a visitor. When a Dart `_runX` splits across several Rust functions, keep
+the primary part as `run_x` (`_runUserDefinedCallable` →
+`run_user_defined_callable`) and name extracted parts for what they do.
+
+Shape is a separate question from naming: extracting a block into a helper
+called in its place is allowed, while renaming an argument, inlining a Dart
+helper into several call sites, or folding a callback parameter is not.

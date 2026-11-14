@@ -58,6 +58,58 @@ Every commit—unit or release—stops for review first; see
   `async_import_cache→import_cache`). Read the async diff; ignore the sync
   twin's diff entirely.
 
+## Porting standard
+
+Ported code reproduces the Dart unit's algorithm. Rust's type system,
+ownership, and the sync/async macro force some reshaping — that is expected.
+The rules below are what stays fixed.
+
+### Logic fidelity
+
+For every Dart function or method the unit touches, the Rust counterpart makes
+the same decisions and performs the same effects, in the same order, on the
+same values:
+
+- every guard, branch, loop bound, early return, and error site has a Rust
+  counterpart producing the same outcome in the same order;
+- the same value and span reach each call — a fallback where Dart re-evaluates
+  an expression is a change;
+- a step that can fail or allocate observably runs the same number of times;
+- unreachable branches still match Dart's computation ("verify already
+  guarantees it" is not a reason to drop one);
+- a Dart callback parameter stays a Rust parameter; it is not folded into the
+  callee.
+
+### Naming fidelity
+
+Identifiers follow Dart wherever Rust permits:
+
+- **Functions/methods** convert mechanically (`lowerCamelCase` → `snake_case`)
+  and drop a leading `_` (Rust privacy replaces it). No semantic renames.
+  Systematic repo-wide renames are listed in `patterns.md` §12 (e.g.
+  `visitX` → `evaluate_x` in `eval/`).
+- **Arguments** keep their names after conversion (`nodeWithSpan` →
+  `node_with_span`). The only permitted additions are the hoisted receiver
+  state (`config`, `state`, `arena`) and lifetimes; `&self` replaces `this`.
+- **Locals** keep their names after conversion (`nameIdent` → `name_ident`).
+  Rename only for a Rust keyword (`type` → `type_`), a forced shadow, or a
+  binding introduced for the borrow checker.
+
+### Reshaping that is allowed
+
+Method → free function; block → helper or inner function called exactly where
+the block was, with the same inputs and the same result (pure extraction);
+merged tightly-coupled steps when each branch still has a 1:1 Dart
+counterpart. When one Dart method becomes several Rust functions, name the
+primary part after it and note the split in the file's `// dart-source:`
+header.
+
+Re-implementing a Dart helper, inlining one into several call sites, or
+extracting logic that changes what runs where is not reshaping — it is a port
+bug even when output matches. A green `sass-spec` run does not establish
+fidelity: the specs exercise behavior, and drift hides in paths they do not
+reach.
+
 ## Target discovery and pin resolution
 
 `TARGET` below is the upstream release tag, for example `1.106.1`. Run from
@@ -116,8 +168,9 @@ release tag.
 1. Check out the upstream commit and port only its `lib/` diff.
 2. For Dart sync/async twin files, read the async file only (the sync file is
    generated).
-3. Port line-by-line: same control flow, helpers, messages, ordering, spans,
-   and error paths. No behavioral or structural shortcuts.
+3. Port line-by-line against the [Porting standard](#porting-standard): same
+   logic, helpers, messages, ordering, spans, and error paths; same function,
+   argument, and local names where Rust permits.
 4. Add failing-first internal tests in the touched module as `#[maybe_test]`
    (sync and async legs), covering the new behavior and its exact messages and
    error spans.
@@ -251,7 +304,9 @@ Every unit commit and every release commit is reviewed before it is created.
    behavior is observable.
 3. Show the staged summary (`git diff --cached --stat`), the pins being moved,
    the new/changed internal tests, the focused spec results, and any
-   differential output.
+   differential output. For units that touch ported declarations, also list
+   each touched Dart function/method and its Rust counterpart — or the
+   `review.md` §3 adaptation that permits the difference.
 4. Stop and wait for approval. Do not `git commit` until the user approves.
 5. After the commit, continue with the next unit or the release steps.
 

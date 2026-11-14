@@ -12,13 +12,16 @@ warnings, import resolution, and evaluation order/scope effects.
 
 **Non-goals:**
 
-- No literal structural parity. Rust's type system forces more
-  restructuring than Go needed (see §3). Review _boundary behavior_,
-  not statement counts.
+- No structural parity required. Method→free function, extracted helpers, and
+  Rust's types are expected (§3). **Logic fidelity is required**: the same
+  guards, branches, loop bounds, early returns, and error sites in the same
+  order, and the same names where Rust permits (`porting.md` "Porting
+  standard"). Review boundary behavior _and_ algorithm; statement counts are
+  shape, not logic.
 - No Go cross-check. Read Dart in `dart-sass/` directly (`porting.md`).
   `// go-source:` annotations are provenance only.
-- No style review. If behavior matches, structure is fine even when it
-  looks nothing like Dart.
+- No style review beyond naming. Identifiers follow the mechanical conversion
+  in §4 step 2; a rename beyond it is a finding, not a style preference.
 
 **Scope:** the `rust-sass` library crate vs `dart-sass/lib/src`. Other
 crates map elsewhere: `rust-sass-embedded*` ↔ `lib/src/embedded/*` +
@@ -99,6 +102,7 @@ Check these first so review time goes to real bugs. Each is documented in
 | `Module`/`Callable` identity    | `Rc::ptr_eq` / address identity (`Callable::identity_eq/hash`), `CompileContext` by `==` on a `Copy` `u64`                                                                      | no ID counter in Dart; `patterns.md` §5, `architecture.md` §10                          |
 | `Importer`/`Module` interface   | closed enums (`ImporterKind`, `Module::{BuiltIn,Forwarded,Shadowed,Environment}`); only `Logger`/`UserImporter` stay `dyn`                                     | closed set; `patterns.md` §10                                                           |
 | float formatting edge           | `(m[i]*v) as f64` per-product casts (no FMA); `glibc-math` feature on wasm                                                                                      | bit parity; `critical-invariants.md` FMA rule, `ref/math.md`                            |
+| identifier names                | mechanical `lowerCamelCase` → `snake_case`, leading `_` dropped, `visitX` → `evaluate_x` in `eval/`, `_` suffix for Rust keywords                               | Rust conventions; `patterns.md` §12                                                     |
 
 If a difference is not in this table (or in `divergences.md`), treat it as
 a suspect, not an adaptation.
@@ -106,16 +110,18 @@ a suspect, not an adaptation.
 ## 4. Per-file review procedure
 
 Apply to each map row in §2, in §5 order. Keep the Dart file open beside
-the Rust file(s); judge behavior, not shape.
+the Rust file(s); judge logic and naming, not shape.
 
 1. **Locate and size.** Resolve Rust counterpart(s) via the `rg` recipe in
    §2. Note splits/merges/qualifiers. If Dart changed since `PORTED_FROM`
    with no Rust counterpart, file a missing-port finding and stop.
-2. **Entry points and names.** For each public Dart function/method, find
-   the Rust fn. Names convert mechanically (`isBogus` → `is_bogus`,
-   `toSpace` → `to_space`); any rename beyond case/shape, moved logic
-   between files, or dropped/added parameter is a finding unless §3 covers
-   it (e.g. added `config`/`state`/`arena` params are expected).
+2. **Entry points and names.** For each Dart function/method, find the Rust
+   fn. Names convert mechanically (`isBogus` → `is_bogus`, `toSpace` →
+   `to_space`, leading `_` dropped); arguments and locals follow the same
+   conversion (`nodeWithSpan` → `node_with_span`, `nameIdent` →
+   `name_ident`). Any rename beyond case/shape, moved logic between files, or
+   dropped/added parameter is a finding unless §3 covers it (e.g. added
+   `config`/`state`/`arena` params are expected). See `patterns.md` §12.
 3. **Control flow and guards.** Walk the Dart body in order: every guard,
    branch, loop bound, early return, and error site must have a Rust
    counterpart producing the same outcome in the same order. A missing
