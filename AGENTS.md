@@ -5,6 +5,21 @@ constrained: it must produce **byte-identical output to Dart Sass**, so most
 "obvious" simplifications are bugs. Do **not** dive into code head-first.
 Follow the reading map below before touching anything.
 
+## What "match Dart" means
+
+For ported code, a request to "match Dart" (or "be faithful to Dart") means
+port fidelity, not only output:
+
+- **Output** — byte-identical CSS, source maps, errors, warnings, spans,
+  traces.
+- **Logic** — the same guards, branches, loop bounds, order, and error sites;
+  see [`docs/porting.md` → Porting standard](docs/porting.md#porting-standard).
+- **Identifiers** — the same function, argument, and local names after the
+  mechanical conversion; see [`docs/patterns.md` §12](docs/patterns.md#12-naming).
+
+Evidence is the byte-identity gates *plus* the touched-declaration list from
+the Porting standard. A green `sass-spec` run on its own does not establish it.
+
 ## Mandatory starting reads (in order)
 
 1. **`docs/CONTRIBUTING.md`** — how to build, test, and verify. Non-negotiable.
@@ -46,11 +61,9 @@ Follow the reading map below before touching anything.
   `cargo test -p rust-sass-spec --test runner_test --release -- --ignored`
   (use `SASS_SPEC=<subpath>` for a focused subset during development —
   it must be a real path under `sass-spec/spec/`).
-- **Match Dart's observable behavior exactly** — messages, spans, traces,
-  ordering, scope effects — and its logic and naming
-  ([`docs/porting.md`](docs/porting.md#porting-standard)). Never "improve"
-  Dart; record deliberate divergences in `docs/divergences.md` using its entry
-  template.
+- **Match Dart** — behavior, logic, and naming (see *What "match Dart" means*
+  above). Never "improve" Dart; record deliberate divergences in
+  `docs/divergences.md` using its entry template.
 - **Keep annotations honest.** Every ported file carries `// dart-source:` —
   update them when code moves; never leave a stale path.
 - **Verify per change, not at the end.** Repro first (differential A/B vs
