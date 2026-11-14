@@ -42,12 +42,12 @@ use crate::eval::import_cache::ImportCache;
 use crate::eval::statement::evaluate_block;
 use crate::eval::warn::warn;
 use crate::eval::warn::warn_deprecation_span;
-use crate::util::css_identifier::{to_css_identifier, try_css_identifier};
+use crate::util::css_identifier::to_css_identifier;
+use crate::util::utils::{pluralize, to_sentence};
 use crate::value::color_names::color_name_for;
 use crate::value::ListSeparator;
 use crate::value::SassArgumentList;
 use crate::value::SassMap;
-use std::collections::HashSet;
 #[cfg(feature = "async")]
 use std::ops::AsyncFnOnce;
 
@@ -1010,155 +1010,6 @@ pub(crate) async fn serialize_value<'compile: 'parse, 'parse>(
 }
 
 // ===========================================================================
-// verifyParameterList — argument count + name validation
-// Go: evaluate_helpers.go:863
-// ===========================================================================
-// Matches Dart: `_verifyArguments` (evaluate.dart:3963) delegating to
-// `ParameterList.verify`. Reports source spellings (`original_name`, e.g.
-// `$foo_bar` not `$foo-bar`) for missing/both-position errors, and includes
-// `"positional "` in the over-arity message when named arguments are present.
-// Emits spanless `Script`/`MultiSpanScript` errors — the call site must wrap
-// with [`add_exception_span`] to attach span + trace, mirroring Dart's
-// `_addExceptionSpan(nodeWithSpan, () => parameters.verify(...))`. A rest
-// parameter accepts any arity; unknown names list `$`-prefixed candidates
-// joined with "or".
-
-pub(crate) fn verify_parameter_list<'compile, 'parse>(
-    positional_count: usize,
-    named: &HashSet<String>,
-    params: Option<&ParameterList<'parse>>,
-    _span: FileSpan<'parse>,
-) -> SassResult<()>
-where
-    'compile: 'parse,
-{
-    let params = match params {
-        Some(p) => p,
-        None => {
-            if positional_count > 0 || !named.is_empty() {
-                // SassError::Script (spanless) — add_exception_span at the
-                // call site converts this to SassError::Runtime with the
-                // call-site span + trace, matching Go/Dart addExceptionSpan.
-                return Err(Box::new(SassError::Script {
-                    message: format!("Expected 0 arguments, got {}.", positional_count),
-                    argument_name: None,
-                }));
-            }
-            return Ok(());
-        }
-    };
-
-    let params_span = params.span_with_name();
-    let mut named_used = 0;
-
-    for (i, param) in params.parameters.iter().enumerate() {
-        // Named arguments are stored canonically (sass/sass#4268), so the
-        // parameter name is compared in canonical form too. A name that can't
-        // be canonicalized (e.g. `$$`) simply won't match.
-        let name_ident = try_css_identifier(param.name);
-        let name_ident = name_ident.as_deref().unwrap_or(param.name);
-        if i < positional_count {
-            if named.contains(name_ident) {
-                return Err(Box::new(SassError::Script {
-                    message: format!(
-                        "Argument {} was passed both by position and by name.",
-                        param.original_name()
-                    ),
-                    argument_name: None,
-                }));
-            }
-        } else if named.contains(name_ident) {
-            named_used += 1;
-        } else if param.default_value.is_none() {
-            // Dart `ParameterList.verify` reports `_originalParameterName`
-            // (source spelling) rather than the normalized name.
-            return Err(Box::new(SassError::MultiSpanScript {
-                message: format!("Missing argument {}.", param.original_name()),
-                primary_label: Some("invocation".into()),
-                secondary: vec![(file_span_to_ctx(&params_span), "declaration".into())],
-                cause: None,
-                loaded_urls: vec![],
-            }));
-        }
-    }
-
-    if params.rest_parameter.is_some() {
-        return Ok(());
-    }
-
-    if positional_count > params.parameters.len() {
-        let plural = if params.parameters.len() != 1 {
-            "arguments"
-        } else {
-            "argument"
-        };
-        let was_plural = if positional_count != 1 { "were" } else { "was" };
-        // Dart `ParameterList.verify`: `"positional "` appears when named
-        // arguments are present.
-        let positional_prefix = if !named.is_empty() { "positional " } else { "" };
-        return Err(Box::new(SassError::MultiSpanScript {
-            message: format!(
-                "Only {} {positional_prefix}{plural} allowed, but {} {was_plural} passed.",
-                params.parameters.len(),
-                positional_count,
-            ),
-            primary_label: Some("invocation".into()),
-            secondary: vec![(file_span_to_ctx(&params_span), "declaration".into())],
-            cause: None,
-            loaded_urls: vec![],
-        }));
-    }
-
-    if named_used < named.len() {
-        let param_idents: Vec<Option<String>> = params
-            .parameters
-            .iter()
-            .map(|p| try_css_identifier(p.name))
-            .collect();
-        let unknown_names: Vec<String> = named
-            .iter()
-            .filter(|n| {
-                !params
-                    .parameters
-                    .iter()
-                    .enumerate()
-                    .any(|(i, p)| param_idents[i].as_deref().unwrap_or(p.name) == *n)
-            })
-            .cloned()
-            .collect();
-
-        if !unknown_names.is_empty() {
-            let parameter_word = if unknown_names.len() == 1 {
-                "parameter"
-            } else {
-                "parameters"
-            };
-            let dollar_names: Vec<String> = unknown_names.iter().map(|n| format!("${n}")).collect();
-            let parameter_names = match dollar_names.len() {
-                1 => dollar_names[0].clone(),
-                2 => format!("{} or {}", dollar_names[0], dollar_names[1]),
-                _ => {
-                    let last = dollar_names.last().unwrap();
-                    format!(
-                        "{}, or {last}",
-                        dollar_names[..dollar_names.len() - 1].join(", ")
-                    )
-                }
-            };
-            return Err(Box::new(SassError::MultiSpanScript {
-                message: format!("No {parameter_word} named {parameter_names}."),
-                primary_label: Some("invocation".into()),
-                secondary: vec![(file_span_to_ctx(&params_span), "declaration".into())],
-                cause: None,
-                loaded_urls: vec![],
-            }));
-        }
-    }
-
-    Ok(())
-}
-
-// ===========================================================================
 // expressionNode — resolves VariableExpression to its declaration node
 // Go: evaluate_helpers.go:50
 // ===========================================================================
@@ -1610,22 +1461,13 @@ pub(crate) fn unused_keywords_error<'compile: 'parse, 'parse>(
     params: &ParameterList<'parse>,
 ) -> SassError {
     let names: Vec<String> = kwargs.keys().map(|k| format!("${k}")).collect();
-    let parameter_word = if names.len() == 1 {
-        "parameter"
-    } else {
-        "parameters"
-    };
-    let parameter_names = match names.len() {
-        1 => names[0].clone(),
-        2 => format!("{} or {}", names[0], names[1]),
-        _ => {
-            let last = names.last().unwrap();
-            format!("{}, or {last}", names[..names.len() - 1].join(", "))
-        }
-    };
-    let params_span = params.span().unwrap_or(span);
+    let params_span = params.span_with_name();
     SassError::MultiSpan {
-        message: format!("No {parameter_word} named {parameter_names}."),
+        message: format!(
+            "No {} named {}.",
+            pluralize("parameter", names.len() as i32, None),
+            to_sentence(&names, "or")
+        ),
         span: file_span_to_ctx(&span),
         primary_label: Some("invocation".into()),
         secondary: vec![(file_span_to_ctx(&params_span), "declaration".into())],
@@ -1689,12 +1531,12 @@ where
     let mut named: IndexMap<String, Value<'parse>> = IndexMap::new();
     let mut named_nodes: IndexMap<String, FileSpan<'parse>> = IndexMap::new();
     for (name, expr) in args.named {
+        // Dart canonicalizes the name before evaluating the value
+        // (evaluate.dart:3860-3865), so a bad name fails first.
+        let name = to_css_identifier(name)?;
         let span = expression_node(config, state, expr)?;
         let val = evaluate_expression(config, state, arena, expr).await?;
         let cleaned = without_slash(config, state, arena, val, span)?;
-        // Names are stored canonically for pre-1.106.0 compatibility
-        // (sass/sass#4268): Dart uses `name.toCssIdentifier()`.
-        let name = to_css_identifier(name)?;
         named.insert(name.clone(), cleaned);
         named_nodes.insert(name, span);
     }
@@ -1722,9 +1564,13 @@ where
                 separator = arg_list.list.separator;
                 for (key, val) in arg_list.keywords().iter() {
                     let cleaned = without_slash(config, state, arena, *val, rest_span)?;
-                    let key = to_css_identifier(key)?;
-                    named.insert(key.clone(), cleaned);
-                    named_nodes.insert(key, rest_span);
+                    // Matches Dart `_evaluateArguments` (evaluate.dart:3894):
+                    // `named[key] = ...` inserts the keyword key as stored.
+                    // Keys are already canonical (they come from `named`),
+                    // and `toCssIdentifier` is *not* idempotent (`"\$"` ->
+                    // `"\\\\$"`), so canonicalizing again would unmatch them.
+                    named.insert((*key).to_string(), cleaned);
+                    named_nodes.insert((*key).to_string(), rest_span);
                 }
             }
             ValueKind::List(l) => {
@@ -1811,7 +1657,7 @@ pub(crate) async fn bind_arguments<'compile, 'parse>(
     params: &ParameterList<'parse>,
     positional: &[Value<'parse>],
     positional_nodes: &[FileSpan<'parse>],
-    named: &IndexMap<String, Value<'parse>>,
+    named: &mut IndexMap<String, Value<'parse>>,
     named_nodes: &IndexMap<String, FileSpan<'parse>>,
     separator: ListSeparator,
 ) -> SassResult<Option<Value<'parse>>>
@@ -1832,20 +1678,26 @@ where
     }
 
     for param in parameters.iter().skip(positional.len()) {
-        // Named arguments are stored canonically (sass/sass#4268), so the
-        // parameter name is compared in its canonical form too. A name that
-        // can't be canonicalized (e.g. `$$`) simply won't match.
-        let name_ident = try_css_identifier(param.name);
-        let name_ident = name_ident.as_deref().unwrap_or(param.name);
-        if let Some(val) = named.get(name_ident) {
-            let span = named_nodes.get(name_ident).copied().unwrap_or(param.span);
-            state.env.set_local_variable(param.name, *val, span);
+        // Matches Dart `_runUserDefinedCallable` (evaluate.dart:3624-3639):
+        // `evaluated.named.remove(parameter.name.toCssIdentifier())` drains the
+        // consumed key, so only genuinely unused names reach the rest argument
+        // (and the post-body unused-keyword check).
+        let name_ident = to_css_identifier(param.name)?;
+        if let Some(val) = named.shift_remove(&name_ident) {
+            let span = named_nodes.get(&name_ident).copied().unwrap_or(param.span);
+            state.env.set_local_variable(param.name, val, span);
         } else if let Some(ref default_val) = param.default_value {
+            // Dart: `... ?? _withoutSlash(parameter.defaultValue!.accept(this),
+            // _expressionNode(parameter.defaultValue!))` — the default is
+            // non-null because `verify` already required it.
             let val = evaluate_expression(config, state, arena, default_val).await?;
             let span = expression_node(config, state, default_val)?;
             let cleaned = without_slash(config, state, arena, val, span)?;
             state.env.set_local_variable(param.name, cleaned, span);
         } else {
+            // Unreachable: `verify` (which runs first) rejects a missing
+            // required parameter. Kept as an internal error because the crate
+            // forbids `unwrap`/panics where Dart uses `defaultValue!`.
             let params_span = params.span()?;
             return Err(Box::new(SassError::MultiSpan {
                 message: format!("Missing argument ${}.", param.name),
@@ -1866,21 +1718,14 @@ where
         } else {
             vec![]
         };
-        let unused_named: IndexMap<String, Value<'parse>> = named
-            .iter()
-            .filter(|(k, _)| {
-                !parameters
-                    .iter()
-                    .any(|p| to_css_identifier(p.name).is_ok_and(|ident| ident == **k))
-            })
-            .map(|(k, v)| (k.clone(), *v))
-            .collect();
+        // Dart (evaluate.dart:3647-3651) hands the *remaining* `evaluated.named`
+        // to `SassArgumentList`; consumed keys were already removed above.
         let sep = if separator == ListSeparator::Undecided {
             ListSeparator::Comma
         } else {
             separator
         };
-        let arg_list = SassArgumentList::new(arena, rest_values, unused_named, sep);
+        let arg_list = SassArgumentList::new(arena, rest_values, named.clone(), sep);
         let rc_val = Value::new_with_arena(arena, ValueKind::ArgumentList(arg_list));
         state
             .env
@@ -1925,9 +1770,7 @@ pub(crate) async fn run_user_defined_callable<'compile, 'parse>(
 where
     'compile: 'parse,
 {
-    let results = evaluate_arguments(config, state, arena, args).await?;
-
-    let named_keys: HashSet<String> = results.named.keys().cloned().collect();
+    let mut results = evaluate_arguments(config, state, arena, args).await?;
 
     let old_in_dependency = state.in_dependency;
     state.in_dependency = callable.in_dependency;
@@ -1964,14 +1807,13 @@ where
             let callable_env = callable.environment.closure(arena);
             with_environment(config, state, callable_env, async |config, state| {
                 // Dart `_verifyArguments` runs inside `_withStackFrame`, so the
-                // stack trace includes the `a()` frame.
+                // stack trace includes the `a()` frame. It delegates to
+                // `ParameterList.verify` — one implementation for built-ins and
+                // user-defined callables alike.
                 add_exception_span(config, state, span, Some(true), async |_, _| {
-                    verify_parameter_list(
-                        results.positional.len(),
-                        &named_keys,
-                        Some(callable.parameters()),
-                        span,
-                    )
+                    callable
+                        .parameters()
+                        .verify(results.positional.len(), &results.named)
                 })
                 .await?;
                 let env = state.env;
@@ -1985,7 +1827,7 @@ where
                             callable.parameters(),
                             &results.positional,
                             &results.positional_nodes,
-                            &results.named,
+                            &mut results.named,
                             &results.named_nodes,
                             results.separator,
                         )
@@ -2022,15 +1864,11 @@ where
 
                         let body_result = body_result?;
 
-                        if let Some(val) = body_result {
-                            return Ok(val);
-                        }
-
                         // Dart `_runFunctionCallable`: `_exception("Function
                         // finished without @return.", callable.declaration.span)`
                         // — a spanned `Runtime` (not `Script`) so the
                         // declaration span and trace survive outer wrappers.
-                        if !is_mixin {
+                        if body_result.is_none() && !is_mixin {
                             return Err(Box::new(exception(
                                 state,
                                 "Function finished without @return.".to_string(),
@@ -2038,8 +1876,10 @@ where
                             )));
                         }
 
-                        // Dart: check unused keyword arguments after body runs
-                        // (evaluate.dart:3577-3595)
+                        // Dart checks unused keyword arguments after the body
+                        // runs, including when it returned a value
+                        // (evaluate.dart:3673-3686) — the `@return` must not
+                        // short-circuit the check.
                         if let Some(ref rc_val) = bound_arg_list {
                             if !results.named.is_empty() {
                                 if let ValueKind::ArgumentList(ref arg_list) = **rc_val {
@@ -2058,7 +1898,10 @@ where
                             }
                         }
 
-                        Ok(Value::new_with_arena(arena, ValueKind::Null))
+                        match body_result {
+                            Some(val) => Ok(val),
+                            None => Ok(Value::new_with_arena(arena, ValueKind::Null)),
+                        }
                     },
                     false,
                     true,
@@ -2590,7 +2433,6 @@ mod tests {
     use crate::logger::Logger;
     use crate::value::SassNumber;
     use bumpalo::Bump;
-    use std::collections::HashSet;
     use std::rc::Rc;
 
     fn make_span<'compile, 'parse>(arena: &'compile Bump, text: &str) -> FileSpan<'parse>
@@ -2865,126 +2707,6 @@ mod tests {
         )
     }
 
-    // ── verifyParameterList ──
-
-    #[rust_sass_macros::maybe_test]
-    async fn test_verify_parameter_list_exact_match() {
-        let arena = Bump::new();
-        let span = make_span(&arena, "$x, $y");
-        let p = params_list(
-            &arena,
-            vec![
-                Parameter::new(arena.alloc_str("x"), span, None),
-                Parameter::new(arena.alloc_str("y"), span, None),
-            ],
-            span,
-            None,
-        );
-        let result = verify_parameter_list(2, &HashSet::new(), Some(&p), span);
-        assert!(result.is_ok());
-    }
-
-    #[rust_sass_macros::maybe_test]
-    async fn test_verify_parameter_list_too_many_positional() {
-        let arena = Bump::new();
-        let span = make_span(&arena, "$x");
-        let p = params_list(
-            &arena,
-            vec![Parameter::new(arena.alloc_str("x"), span, None)],
-            span,
-            None,
-        );
-        let err = verify_parameter_list(3, &HashSet::new(), Some(&p), span).unwrap_err();
-        assert!(err.message().contains("Only 1 argument allowed"));
-    }
-
-    #[rust_sass_macros::maybe_test]
-    async fn test_verify_parameter_list_missing_argument() {
-        let arena = Bump::new();
-        let span = make_span(&arena, "$x, $y");
-        let span_x = make_span(&arena, "$x");
-        let span_y = make_span(&arena, "$y");
-        let p = params_list(
-            &arena,
-            vec![
-                Parameter::new(arena.alloc_str("x"), span_x, None),
-                Parameter::new(arena.alloc_str("y"), span_y, None),
-            ],
-            span,
-            None,
-        );
-        let err = verify_parameter_list(1, &HashSet::new(), Some(&p), span).unwrap_err();
-        assert!(err.message().contains("Missing argument $y."));
-    }
-
-    #[rust_sass_macros::maybe_test]
-    async fn test_verify_parameter_list_both_positional_and_named() {
-        let arena = Bump::new();
-        let span = make_span(&arena, "$x");
-        let p = params_list(
-            &arena,
-            vec![Parameter::new(arena.alloc_str("x"), span, None)],
-            span,
-            None,
-        );
-        let mut names = HashSet::new();
-        names.insert("x".into());
-        let err = verify_parameter_list(1, &names, Some(&p), span).unwrap_err();
-        assert!(err
-            .message()
-            .contains("passed both by position and by name"));
-    }
-
-    #[rust_sass_macros::maybe_test]
-    async fn test_verify_parameter_list_unknown_named() {
-        let arena = Bump::new();
-        let span = make_span(&arena, "$x");
-        let p = params_list(
-            &arena,
-            vec![Parameter::new(arena.alloc_str("x"), span, None)],
-            span,
-            None,
-        );
-        let mut names = HashSet::new();
-        names.insert("z".into());
-        let err = verify_parameter_list(1, &names, Some(&p), span).unwrap_err();
-        assert!(
-            err.message().contains("No parameter named $z."),
-            "got: {}",
-            err.message()
-        );
-    }
-
-    #[rust_sass_macros::maybe_test]
-    async fn test_verify_parameter_list_rest_accepts_all() {
-        let arena = Bump::new();
-        let span = make_span(&arena, "$x...");
-        let p = params_list(
-            &arena,
-            vec![Parameter::new(arena.alloc_str("x"), span, None)],
-            span,
-            Some(arena.alloc_str("rest")),
-        );
-        let result = verify_parameter_list(10, &HashSet::new(), Some(&p), span);
-        assert!(result.is_ok());
-    }
-
-    #[rust_sass_macros::maybe_test]
-    async fn test_verify_parameter_list_nil_params_no_args() {
-        let arena = Bump::new();
-        let span = make_span(&arena, "");
-        let result = verify_parameter_list(0, &HashSet::new(), None, span);
-        assert!(result.is_ok());
-    }
-
-    #[rust_sass_macros::maybe_test]
-    async fn test_verify_parameter_list_nil_params_with_args() {
-        let arena = Bump::new();
-        let span = make_span(&arena, "");
-        let err = verify_parameter_list(1, &HashSet::new(), None, span).unwrap_err();
-        assert!(err.message().contains("Expected 0 arguments"));
-    }
-
     // ── mergeMediaQueries ──
 
     #[rust_sass_macros::maybe_test]
@@ -3090,7 +2812,7 @@ mod tests {
             None,
         );
         let positional = vec![Value::new_with_arena(&arena, ValueKind::Null)];
-        let named = IndexMap::new();
+        let mut named = IndexMap::new();
         let pos_nodes = vec![span];
         let named_nodes = IndexMap::new();
 
@@ -3101,7 +2823,7 @@ mod tests {
             &params,
             &positional,
             &pos_nodes,
-            &named,
+            &mut named,
             &named_nodes,
             ListSeparator::Undecided,
         )
@@ -3124,7 +2846,7 @@ mod tests {
             None,
         );
         let positional: Vec<Value> = vec![];
-        let named = IndexMap::new();
+        let mut named = IndexMap::new();
         let pos_nodes: Vec<FileSpan> = vec![];
         let named_nodes = IndexMap::new();
 
@@ -3135,7 +2857,7 @@ mod tests {
             &params,
             &positional,
             &pos_nodes,
-            &named,
+            &mut named,
             &named_nodes,
             ListSeparator::Undecided,
         )
@@ -3786,6 +3508,103 @@ mod tests {
                 assert_eq!((span.line(), span.column()), (2, 8));
             }
             other => panic!("expected Runtime error, got {other:?}"),
+        }
+    }
+
+    #[rust_sass_macros::maybe_test]
+    async fn test_mixin_rest_consumes_named_argument() {
+        // Dart removes consumed names from `evaluated.named` while binding
+        // (evaluate.dart:3626), so the unused-keyword check after the body
+        // (evaluate.dart:3673) only ever sees genuinely unconsumed names.
+        let arena = Bump::new();
+        let io: Rc<dyn Io> = Rc::new(VirtualIo::new());
+        let css = compile_string(
+            "@mixin m($x, $args...) { b: $x; }\na { @include m($x: 2); }\n",
+            io,
+            &mut CompileOptions::new(&arena),
+            &arena,
+        )
+        .await
+        .unwrap()
+        .css()
+        .to_string();
+        assert_eq!(css, "a {\n  b: 2;\n}");
+    }
+
+    #[rust_sass_macros::maybe_test]
+    async fn test_mixin_rest_reports_unconsumed_named_argument() {
+        // The complement of the test above: a name that really is unused must
+        // still be reported, named by its canonical key.
+        let arena = Bump::new();
+        let io: Rc<dyn Io> = Rc::new(VirtualIo::new());
+        let err = compile_string(
+            "@mixin m($x, $args...) { b: $x; }\na { @include m($x: 2, $y: 3); }\n",
+            io,
+            &mut CompileOptions::new(&arena),
+            &arena,
+        )
+        .await
+        .unwrap_err();
+        match *err {
+            SassError::MultiSpan { message, .. } => {
+                assert_eq!(message, "No parameter named $y.")
+            }
+            other => panic!("expected MultiSpan error, got {other:?}"),
+        }
+    }
+
+    #[rust_sass_macros::maybe_test]
+    async fn test_function_rest_reports_unconsumed_named_argument() {
+        // Dart checks unused keywords after `run()` returns, including when
+        // the body used `@return` (evaluate.dart:3673-3686); the check must not
+        // be short-circuited by the returned value.
+        let arena = Bump::new();
+        let io: Rc<dyn Io> = Rc::new(VirtualIo::new());
+        let err = compile_string(
+            "@function f($x: 1, $args...) { @return 1; }\na { b: f($y: 2); }\n",
+            io,
+            &mut CompileOptions::new(&arena),
+            &arena,
+        )
+        .await
+        .unwrap_err();
+        match *err {
+            SassError::MultiSpan {
+                message, secondary, ..
+            } => {
+                assert_eq!(message, "No parameter named $y.");
+                // Dart reports `parameters.spanWithName`, which includes the
+                // callable name printed before the parameter list.
+                assert!(
+                    secondary[0].0.text.starts_with("f("),
+                    "declaration span was {:?}",
+                    secondary[0].0.text
+                );
+            }
+            other => panic!("expected MultiSpan error, got {other:?}"),
+        }
+    }
+
+    #[rust_sass_macros::maybe_test]
+    async fn test_missing_required_argument_after_verify() {
+        // `verify` runs before binding, so binding never has to synthesize a
+        // "Missing argument" error; the message and variant stay those of
+        // `ParameterList.verify` (parameter_list.dart:97).
+        let arena = Bump::new();
+        let io: Rc<dyn Io> = Rc::new(VirtualIo::new());
+        let err = compile_string(
+            "@function f($x) { @return $x; }\na { b: f(); }\n",
+            io,
+            &mut CompileOptions::new(&arena),
+            &arena,
+        )
+        .await
+        .unwrap_err();
+        match *err {
+            SassError::MultiSpan { message, .. } => {
+                assert_eq!(message, "Missing argument $x.")
+            }
+            other => panic!("expected MultiSpan error, got {other:?}"),
         }
     }
 

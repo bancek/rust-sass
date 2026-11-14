@@ -7,9 +7,9 @@
 // dart-source: lib/src/ast/sass/parameter_list.dart
 // go-source: go/value/sass_parameter_list.go
 
-use crate::util::css_identifier::try_css_identifier;
+use crate::util::css_identifier::to_css_identifier;
 use crate::util::utils::to_sentence;
-use std::collections::HashSet;
+use indexmap::IndexMap;
 use std::fmt;
 use std::fmt::Write;
 
@@ -108,44 +108,45 @@ impl<'parse> ParameterList<'parse> {
     /// Throws an error if `positional` and `names` aren't valid for this
     /// parameter declaration.
     ///
-    /// Names in the messages are the normalized parameter names (Dart reports
-    /// `_originalParameterName` source spellings here; the evaluator's inline
-    /// copy in `eval/helpers.rs` does use `original_name` — split rule). The
-    /// declaration side of each multi-span error is
-    /// [`span_with_name`](Self::span_with_name) labeled `"declaration"`, with
-    /// the invocation labeled `"invocation"`.
+    /// `names` is the evaluated named-argument map, used as an ordered set —
+    /// Dart builds `MapKeySet(evaluated.named)` and passes it to `matches`,
+    /// `callbackFor`, and `verify`. The unknown-name list therefore follows
+    /// the order the arguments were passed.
+    ///
+    /// Both messages name parameters by
+    /// [`original_parameter_name`](Self::original_parameter_name), as Dart does
+    /// (`parameter_list.dart:90, :98`).
     ///
     /// Matches Dart: ParameterList.verify
-    pub fn verify(
-        &self,
-        positional: usize,
-        names: &HashSet<&str>,
-        _invocation_span: &FileSpan<'parse>,
-    ) -> SassResult<()> {
+    pub fn verify<V>(&self, positional: usize, names: &IndexMap<String, V>) -> SassResult<()> {
         let mut named_used = 0;
         for (i, param) in self.parameters.iter().enumerate() {
-            // Named arguments are matched in canonical form (sass/sass#4268).
-            // A name that can't be canonicalized (e.g. `$$`) never matches.
-            let name_ident = try_css_identifier(param.name);
-            let name_ident = name_ident.as_deref().unwrap_or(param.name);
+            // Names are matched in canonical form (sass/sass#4268); Dart calls
+            // `parameter.name.toCssIdentifier()` unconditionally at :88, :94
+            // and :122, so a name that can't be canonicalized propagates the
+            // error rather than falling back to the raw text.
+            let name_ident = to_css_identifier(param.name)?;
             if i < positional {
-                if names.contains(name_ident) {
+                if names.contains_key(&name_ident) {
                     return Err(Box::new(SassError::Script {
                         message: format!(
-                            "Argument ${} was passed both by position and by name.",
-                            param.name
+                            "Argument {} was passed both by position and by name.",
+                            self.original_parameter_name(param.name)?
                         ),
                         argument_name: None,
                     }));
                 }
-            } else if names.contains(name_ident) {
+            } else if names.contains_key(&name_ident) {
                 named_used += 1;
             } else if param.default_value.is_none() {
                 // Script-level: the caller (`add_exception_span`) attaches the
                 // invocation span + trace, matching Dart's `_verifyArguments`
                 // throwing a `MultiSpanSassScriptException`.
                 return Err(Box::new(SassError::MultiSpanScript {
-                    message: format!("Missing argument ${}.", param.name),
+                    message: format!(
+                        "Missing argument {}.",
+                        self.original_parameter_name(param.name)?
+                    ),
                     primary_label: Some("invocation".into()),
                     secondary: vec![(
                         SourceSpanWithContext::from_file_span(&self.span_with_name())?,
@@ -183,15 +184,16 @@ impl<'parse> ParameterList<'parse> {
         }
 
         if named_used < names.len() {
+            // Dart: `Set.of(names)..removeAll(parameters.map((p) =>
+            // p.name.toCssIdentifier()))` — insertion order is preserved.
             let param_idents: Vec<String> = self
                 .parameters
                 .iter()
-                .map(|p| try_css_identifier(p.name).unwrap_or_else(|| p.name.to_string()))
-                .collect();
+                .map(|p| to_css_identifier(p.name))
+                .collect::<SassResult<Vec<String>>>()?;
             let unknown_names: Vec<String> = names
-                .iter()
-                .copied()
-                .filter(|n| !param_idents.iter().any(|p| p == n))
+                .keys()
+                .filter(|n| !param_idents.iter().any(|p| p == *n))
                 .map(|n| format!("${n}"))
                 .collect();
             return Err(Box::new(SassError::MultiSpanScript {
@@ -213,18 +215,49 @@ impl<'parse> ParameterList<'parse> {
         Ok(())
     }
 
+    /// Returns the parameter named `name` with a leading `$` and its original
+    /// underscores (which are otherwise converted to hyphens).
+    ///
+    /// Matches Dart: ParameterList._originalParameterName
+    fn original_parameter_name(&self, name: &str) -> SassResult<String> {
+        if self.rest_parameter == Some(name) {
+            let text = self.span.text();
+            // Dart: `text.substring(text.lastIndexOf("\$"))` then
+            // `fromDollar.substring(0, text.indexOf("."))`. Unreachable from
+            // `verify` (the rest parameter is not in `parameters`); Dart would
+            // throw on a span without `$`/`.`, which the crate forbids, so the
+            // slicing is clamped here instead.
+            let from_dollar = &text[text.rfind('$').unwrap_or(0)..];
+            let end = text.find('.').unwrap_or(from_dollar.len());
+            return Ok(from_dollar[..end].to_string());
+        }
+
+        for parameter in self.parameters {
+            if parameter.name == name {
+                return Ok(parameter.original_name());
+            }
+        }
+
+        Err(Box::new(SassError::Script {
+            message: format!("This declaration has no parameter named \"${name}\"."),
+            argument_name: None,
+        }))
+    }
+
     /// Returns whether `positional` and `names` are valid for this parameter
     /// declaration (the non-throwing twin of [`verify`](Self::verify)).
     ///
     /// Matches Dart: ParameterList.matches
-    pub fn matches(&self, positional: usize, names: &HashSet<&str>) -> bool {
+    pub fn matches<V>(&self, positional: usize, names: &IndexMap<String, V>) -> bool {
         let mut named_used = 0;
         for (i, param) in self.parameters.iter().enumerate() {
+            // Dart compares the raw name here (`matches`, :155,:157), unlike
+            // `verify`'s canonical `toCssIdentifier` comparison.
             if i < positional {
-                if names.contains(param.name) {
+                if names.contains_key(param.name) {
                     return false;
                 }
-            } else if names.contains(param.name) {
+            } else if names.contains_key(param.name) {
                 named_used += 1;
             } else if param.default_value.is_none() {
                 return false;
@@ -260,11 +293,12 @@ impl<'parse> ParameterList<'parse> {
             }
             write!(buf, "${}", arg).unwrap();
         }
-        if let Some(ref rest) = self.rest_parameter {
+        if let Some(rest) = self.rest_parameter {
             if !first {
                 write!(buf, ", ").unwrap();
             }
-            write!(buf, "${rest}...").unwrap();
+            // Dart: `'\$${restParameter.toCssIdentifier()}...'`.
+            write!(buf, "${}...", to_css_identifier(rest)?).unwrap();
         }
         Ok(buf)
     }
@@ -320,6 +354,10 @@ mod tests {
         )
     }
 
+    fn named(items: &[&str]) -> IndexMap<String, ()> {
+        items.iter().map(|item| ((*item).to_string(), ())).collect()
+    }
+
     #[test]
     fn test_empty() {
         let arena = Bump::new();
@@ -370,12 +408,21 @@ mod tests {
     }
 
     #[test]
+    fn test_display_escapes_rest_parameter() {
+        // Dart's `toString` uses `restParameter.toCssIdentifier()`.
+        let arena = Bump::new();
+        let span = make_span(&arena, "($$)");
+        let pl = params_list(&arena, vec![], span, Some(arena.alloc_str("$")));
+        assert_eq!(format!("{pl}"), "$\\$...");
+    }
+
+    #[test]
     fn test_verify_exact_match() {
         let arena = Bump::new();
         let span = make_span(&arena, "($name)");
         let p = make_param(&arena, "name", "$name");
         let pl = params_list(&arena, vec![p], span, None);
-        assert!(pl.verify(1, &HashSet::new(), &span).is_ok());
+        assert!(pl.verify(1, &named(&[])).is_ok());
     }
 
     #[test]
@@ -385,7 +432,7 @@ mod tests {
         let span = FileSpan::new(Some(fs), 0, 7);
         let p = Parameter::new(arena.alloc_str("name"), FileSpan::new(Some(fs), 1, 6), None);
         let pl = params_list(&arena, vec![p], span, None);
-        assert!(pl.verify(2, &HashSet::new(), &span).is_err());
+        assert!(pl.verify(2, &named(&[])).is_err());
     }
 
     #[test]
@@ -395,7 +442,7 @@ mod tests {
         let span = FileSpan::new(Some(fs), 0, 7);
         let p = Parameter::new(arena.alloc_str("name"), FileSpan::new(Some(fs), 1, 6), None);
         let pl = params_list(&arena, vec![p], span, None);
-        assert!(pl.verify(0, &HashSet::new(), &span).is_err());
+        assert!(pl.verify(0, &named(&[])).is_err());
     }
 
     #[test]
@@ -405,9 +452,108 @@ mod tests {
         let span = FileSpan::new(Some(fs), 0, 7);
         let p = Parameter::new(arena.alloc_str("name"), FileSpan::new(Some(fs), 1, 6), None);
         let pl = params_list(&arena, vec![p], span, None);
-        let mut names = HashSet::new();
-        names.insert("name");
-        assert!(pl.verify(0, &names, &span).is_ok());
+        assert!(pl.verify(0, &named(&["name"])).is_ok());
+    }
+
+    // Dart `ParameterList.verify` reports `_originalParameterName` in both
+    // messages (parameter_list.dart:90, :98), so a parameter written with an
+    // underscore keeps its source spelling even though binding uses the
+    // normalized name.
+    #[test]
+    fn test_verify_missing_argument_uses_original_name() {
+        let arena = Bump::new();
+        let p = make_param(&arena, "foo-bar", "$foo_bar");
+        let span = make_span(&arena, "($foo_bar)");
+        let pl = params_list(&arena, vec![p], span, None);
+        let err = pl.verify(0, &named(&[])).unwrap_err();
+        assert_eq!(err.message(), "Missing argument $foo_bar.");
+    }
+
+    #[test]
+    fn test_verify_both_by_position_uses_original_name() {
+        let arena = Bump::new();
+        let p = make_param(&arena, "foo-bar", "$foo_bar");
+        let span = make_span(&arena, "($foo_bar)");
+        let pl = params_list(&arena, vec![p], span, None);
+        let err = pl.verify(1, &named(&["foo-bar"])).unwrap_err();
+        assert_eq!(
+            err.message(),
+            "Argument $foo_bar was passed both by position and by name."
+        );
+    }
+
+    // Named arguments are stored canonically (sass/sass#4268), so a parameter
+    // named `$` is matched through its canonical spelling `\$`.
+    #[test]
+    fn test_verify_matches_canonical_escaped_name() {
+        let arena = Bump::new();
+        let p = make_param(&arena, "$", "$\\$");
+        let span = make_span(&arena, "($\\$)");
+        let pl = params_list(&arena, vec![p], span, None);
+        assert!(pl.verify(0, &named(&["\\$"])).is_ok());
+    }
+
+    #[test]
+    fn test_verify_missing_argument_uses_escaped_source_spelling() {
+        let arena = Bump::new();
+        let p = make_param(&arena, "$", "$\\$");
+        let span = make_span(&arena, "($\\$)");
+        let pl = params_list(&arena, vec![p], span, None);
+        let err = pl.verify(0, &named(&[])).unwrap_err();
+        assert_eq!(err.message(), "Missing argument $\\$.");
+    }
+
+    // Dart calls `parameter.name.toCssIdentifier()` unconditionally
+    // (parameter_list.dart:88, :94, :122); `toCssIdentifier("")` throws rather
+    // than falling back to the raw name, so a bogus parameter can never match.
+    #[test]
+    fn test_verify_does_not_fall_back_to_raw_name() {
+        let arena = Bump::new();
+        let p = make_param(&arena, "", "$");
+        let span = make_span(&arena, "($)");
+        let pl = params_list(&arena, vec![p], span, None);
+        let err = pl.verify(0, &named(&[""])).unwrap_err();
+        assert_eq!(
+            err.message(),
+            "The empty string can't be represented as a CSS identifier."
+        );
+    }
+
+    #[test]
+    fn test_verify_unknown_named() {
+        let arena = Bump::new();
+        let span = make_span(&arena, "()");
+        let pl = params_list(&arena, vec![], span, None);
+        let err = pl.verify(0, &named(&["z"])).unwrap_err();
+        assert_eq!(err.message(), "No parameter named $z.");
+    }
+
+    #[test]
+    fn test_verify_lists_unknown_named_in_insertion_order() {
+        let arena = Bump::new();
+        let span = make_span(&arena, "()");
+        let pl = params_list(&arena, vec![], span, None);
+        let err = pl.verify(0, &named(&["z", "y"])).unwrap_err();
+        assert_eq!(err.message(), "No parameters named $z or $y.");
+    }
+
+    #[test]
+    fn test_verify_lists_three_unknown_named_without_oxford_comma() {
+        // Dart's `toSentence` is `a, b or c` (no comma before the conjunction).
+        let arena = Bump::new();
+        let span = make_span(&arena, "()");
+        let pl = params_list(&arena, vec![], span, None);
+        let err = pl.verify(0, &named(&["z", "y", "x"])).unwrap_err();
+        assert_eq!(err.message(), "No parameters named $z, $y or $x.");
+    }
+
+    #[test]
+    fn test_verify_rest_accepts_all() {
+        let arena = Bump::new();
+        let span = make_span(&arena, "($x...)");
+        let p = make_param(&arena, "x", "$x");
+        let pl = params_list(&arena, vec![p], span, Some(arena.alloc_str("rest")));
+        assert!(pl.verify(10, &named(&[])).is_ok());
     }
 
     #[test]
@@ -416,10 +562,8 @@ mod tests {
         let span = make_span(&arena, "($name)");
         let p = make_param(&arena, "name", "$name");
         let pl = params_list(&arena, vec![p], span, None);
-        assert!(pl.matches(1, &HashSet::new()));
-        let mut names = HashSet::new();
-        names.insert("name");
-        assert!(pl.matches(0, &names));
+        assert!(pl.matches(1, &named(&[])));
+        assert!(pl.matches(0, &named(&["name"])));
     }
 
     #[test]
@@ -428,10 +572,8 @@ mod tests {
         let span = make_span(&arena, "($name)");
         let p = make_param(&arena, "name", "$name");
         let pl = params_list(&arena, vec![p], span, None);
-        assert!(!pl.matches(2, &HashSet::new()));
-        let mut names = HashSet::new();
-        names.insert("unknown");
-        assert!(!pl.matches(0, &names));
+        assert!(!pl.matches(2, &named(&[])));
+        assert!(!pl.matches(0, &named(&["unknown"])));
     }
 
     #[test]

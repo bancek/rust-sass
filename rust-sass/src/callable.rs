@@ -22,7 +22,6 @@
 use crate::functions::helpers::warn_for_global_builtin_message;
 use crate::parse::stylesheet_parse::parse_parameter_list_with_url;
 use crate::url::ArenaUrl;
-use std::collections::HashSet;
 use std::fmt;
 use std::hash::{Hash, Hasher};
 
@@ -35,6 +34,7 @@ use crate::value::Value;
 use bumpalo::Bump;
 #[cfg(feature = "async")]
 use futures::future::LocalBoxFuture;
+use indexmap::IndexMap;
 
 /// The synchronous built-in callback: evaluated arguments in, return value
 /// out. Callables using this form work in both the sync and async builds, so
@@ -413,10 +413,10 @@ impl<'compile: 'parse, 'parse> BuiltInCallable<'compile, 'parse> {
     /// - Exact match: `params.matches(positional, names)` returns true → return immediately
     /// - Fuzzy match: pick smallest `|paramCount - positional|`
     /// - Tiebreak: same abs distance → prefer more parameters (positive distance)
-    fn find_overload(
+    fn find_overload<V>(
         &self,
         positional: usize,
-        names: &HashSet<&str>,
+        names: &IndexMap<String, V>,
     ) -> SassResult<&BuiltInOverload<'compile, 'parse>> {
         let mut fuzzy_match: Option<&BuiltInOverload<'compile, 'parse>> = None;
         let mut min_mismatch_distance: i32 = 0;
@@ -461,10 +461,10 @@ impl<'compile: 'parse, 'parse> BuiltInCallable<'compile, 'parse> {
     /// - Exact match: `params.matches(positional, names)` returns true → return immediately
     /// - Fuzzy match: pick smallest `|paramCount - positional|`
     /// - Tiebreak: same abs distance → prefer more parameters (positive distance)
-    pub fn callback_for(
+    pub fn callback_for<V>(
         &self,
         positional: usize,
-        names: &HashSet<&str>,
+        names: &IndexMap<String, V>,
     ) -> SassResult<&BuiltInOverload<'compile, 'parse>> {
         self.find_overload(positional, names)
     }
@@ -997,7 +997,7 @@ mod tests {
         let pl = empty_params(&arena);
         let fn_ = BuiltInCallable::new(&arena, "test", pl.clone(), noop_callback(&arena));
 
-        let result = fn_.callback_for(0, &HashSet::new()).unwrap();
+        let result = fn_.callback_for(0, &IndexMap::<String, ()>::new()).unwrap();
         assert_eq!(result.params.span, pl.span);
     }
 
@@ -1018,7 +1018,7 @@ mod tests {
         ];
         let fn_ = BuiltInCallable::new_overloaded(&arena, "test", overloads);
 
-        let result = fn_.callback_for(0, &HashSet::new()).unwrap();
+        let result = fn_.callback_for(0, &IndexMap::<String, ()>::new()).unwrap();
         assert_eq!(result.params.span, pl1.span);
     }
 
@@ -1039,7 +1039,7 @@ mod tests {
         ];
         let fn_ = BuiltInCallable::new_overloaded(&arena, "test", overloads);
 
-        let result = fn_.callback_for(0, &HashSet::new()).unwrap();
+        let result = fn_.callback_for(0, &IndexMap::<String, ()>::new()).unwrap();
         assert_eq!(result.params.span, pl2.span);
     }
 
@@ -1060,7 +1060,7 @@ mod tests {
         ];
         let fn_ = BuiltInCallable::new_overloaded(&arena, "test", overloads);
 
-        let result = fn_.callback_for(1, &HashSet::new()).unwrap();
+        let result = fn_.callback_for(1, &IndexMap::<String, ()>::new()).unwrap();
         assert_eq!(result.params.span, pl2.span);
     }
 
@@ -1082,7 +1082,7 @@ mod tests {
         let fn_ = BuiltInCallable::new_overloaded(&arena, "test", overloads);
 
         // positional=2: pl_fewer distance = 1-2 = -1 (abs=1), pl_more distance = 3-2 = 1 (abs=1)
-        let result = fn_.callback_for(2, &HashSet::new()).unwrap();
+        let result = fn_.callback_for(2, &IndexMap::<String, ()>::new()).unwrap();
         assert_eq!(result.params.span, pl_more.span);
     }
 
@@ -1091,7 +1091,10 @@ mod tests {
         let arena = Bump::new();
         let fn_ = BuiltInCallable::new_overloaded(&arena, "test", vec![]);
 
-        match *fn_.callback_for(0, &HashSet::new()).unwrap_err() {
+        match *fn_
+            .callback_for(0, &IndexMap::<String, ()>::new())
+            .unwrap_err()
+        {
             SassError::Script { message, .. } => {
                 assert_eq!(message, "BuiltInCallable test may not have empty overloads");
             }

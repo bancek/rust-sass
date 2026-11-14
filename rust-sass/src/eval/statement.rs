@@ -46,6 +46,7 @@ use crate::parse::keyframe_selector::KeyframeSelectorParser;
 use crate::parse::selector_parse::SelectorParser;
 use crate::unvendor::unvendor;
 use crate::url::{OwnedUrl, Url};
+use crate::util::css_identifier::to_css_identifier;
 use crate::util::trim_ascii::trim_ascii;
 use crate::util::utils::{pluralize, to_sentence};
 use bumpalo::Bump;
@@ -2064,8 +2065,7 @@ where
             // Go: evaluate_statement.go:1673-1700 — content-acceptance check
             if !b.accepts_content() && content.is_some() {
                 let results = evaluate_arguments(config, state, arena, arguments).await?;
-                let names: HashSet<&str> = results.named.keys().map(|s| s.as_str()).collect();
-                let overload = b.callback_for(results.positional.len(), &names)?;
+                let overload = b.callback_for(results.positional.len(), &results.named)?;
                 let decl_span = overload.params.span_with_name();
                 return Err(Box::new(SassError::MultiSpan {
                     message: "Mixin doesn't accept a content block.".into(),
@@ -2088,22 +2088,22 @@ where
             let mut named = results.named;
             let separator = results.separator;
 
-            // Go: evaluate_statement.go:1536-1539 — build names set
-            let names: HashSet<&str> = named.keys().map(|s| s.as_str()).collect();
-
             // Go: evaluate_statement.go:1540-1544 — find overload
-            let overload = b.callback_for(positional.len(), &names)?;
+            // Dart passes the same `MapKeySet(evaluated.named)` to
+            // `callbackFor` and `verify`, so both take the map directly.
+            let overload = b.callback_for(positional.len(), &named)?;
 
             // Go: evaluate_statement.go:1546-1553 — verify params
             add_exception_span(config, state, span, Some(true), async |_, _| {
-                overload.params.verify(positional.len(), &names, &span)
+                overload.params.verify(positional.len(), &named)
             })
             .await?;
 
             // Go: evaluate_statement.go:1554-1577 — fill in named/default params
             for i in positional.len()..overload.params.parameters.len() {
                 let param = &overload.params.parameters[i];
-                if let Some(val) = named.swap_remove(param.name) {
+                let name_ident = to_css_identifier(param.name)?;
+                if let Some(val) = named.shift_remove(&name_ident) {
                     positional.push(val);
                 } else if let Some(ref default_expr) = param.default_value {
                     let val = evaluate_expression(config, state, arena, default_expr).await?;

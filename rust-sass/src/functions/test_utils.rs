@@ -16,7 +16,7 @@ use crate::compile_context::new_compile_context;
 use crate::environment::Environment;
 use crate::io::VirtualIo;
 use crate::value::SassBoolean;
-use std::collections::HashSet;
+use indexmap::IndexMap;
 use std::rc::Rc;
 
 use bumpalo::Bump;
@@ -342,7 +342,7 @@ where
     'parse: 'compile,
 {
     let logger = Rc::new(RecordLogger::new());
-    let names = HashSet::new();
+    let names = IndexMap::<String, ()>::new();
     let overload = match bic.callback_for(args.len(), &names) {
         Ok(o) => o,
         Err(e) => return (Err(e), logger),

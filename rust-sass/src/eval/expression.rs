@@ -18,8 +18,6 @@
 //! restrictions (operator/paren bans, skipped environment lookups) mirror
 //! Dart's `_stylesheet.plainCss` gates at each visitor.
 
-use std::collections::HashSet;
-
 use bumpalo::Bump;
 
 use crate::ast::sass::argument_list::ArgumentList;
@@ -59,11 +57,12 @@ use crate::eval::calc::evaluate_css_math_function;
 use crate::eval::helpers::{
     add_error_span, add_exception_span, evaluate_arguments, evaluate_macro_arguments, exception,
     expression_node, file_span_to_ctx, perform_interpolation, run_user_defined_callable,
-    serialize_value, stack_trace, verify_parameter_list, without_slash,
+    serialize_value, stack_trace, without_slash,
 };
 use crate::eval::warn::warn_deprecation_span;
 use crate::eval::{EvalConfig, EvalState};
 use crate::parse::stylesheet_parse::parse_parameter_list;
+use crate::util::css_identifier::to_css_identifier;
 use crate::util::utils::{pluralize, to_sentence};
 use crate::value::{
     ListSeparator, SassArgumentList, SassBoolean, SassList, SassMap, SassNumber, SassString, Value,
@@ -1335,11 +1334,10 @@ where
     let (positional, named) =
         evaluate_macro_arguments(config, state, arena, &expr.arguments, span).await?;
 
-    let named_keys: HashSet<String> = named.keys().cloned().collect();
     let params =
         parse_parameter_list("@function if($condition, $if-true, $if-false) {", "", arena)?;
     add_exception_span(config, state, span, Some(true), async |_, _| {
-        verify_parameter_list(positional.len(), &named_keys, Some(&params), span)
+        params.verify(positional.len(), &named)
     })
     .await?;
 
@@ -1487,22 +1485,22 @@ where
             let mut named = results.named;
             let separator = results.separator;
 
-            // Go: evaluate_statement.go:1536-1539 — build names set
-            let names: HashSet<&str> = named.keys().map(|s| s.as_str()).collect();
-
             // Go: evaluate_statement.go:1540-1544 — find overload
-            let overload = b.callback_for(positional.len(), &names)?;
+            // Dart passes the same `MapKeySet(evaluated.named)` to
+            // `callbackFor` and `verify`, so both take the map directly.
+            let overload = b.callback_for(positional.len(), &named)?;
 
             // Go: evaluate_statement.go:1546-1553 — verify params
             add_exception_span(config, state, span, Some(true), async |_, _| {
-                overload.params.verify(positional.len(), &names, &span)
+                overload.params.verify(positional.len(), &named)
             })
             .await?;
 
             // Go: evaluate_statement.go:1554-1577 — fill in named/default params
             for i in positional.len()..overload.params.parameters.len() {
                 let param = &overload.params.parameters[i];
-                if let Some(val) = named.swap_remove(param.name) {
+                let name_ident = to_css_identifier(param.name)?;
+                if let Some(val) = named.shift_remove(&name_ident) {
                     positional.push(val);
                 } else if let Some(ref default_expr) = param.default_value {
                     let val = evaluate_expression(config, state, arena, default_expr).await?;

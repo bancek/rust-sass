@@ -728,8 +728,8 @@ mod tests {
     use crate::io::VirtualIo;
     use crate::serialize::serialize_value_inspect;
     use crate::value::SassNumber;
+    use indexmap::IndexMap;
     use std::cell::Cell;
-    use std::collections::HashSet;
     use std::rc::Rc;
 
     use crate::common::file_span::BOGUS_SPAN;
@@ -819,7 +819,8 @@ mod tests {
         'parse: 'compile,
     {
         let logger = Rc::new(RecordLogger::new());
-        let name_set: HashSet<&str> = names.iter().copied().collect();
+        let name_set: IndexMap<String, ()> =
+            names.iter().map(|name| ((*name).to_string(), ())).collect();
         let overload = match fn_.callback_for(positional, &name_set) {
             Ok(o) => o,
             Err(e) => return (Err(e), logger),
@@ -1295,7 +1296,7 @@ mod tests {
         let arena = Bump::new();
         let m = map_val(&arena, vec![(mk_str(&arena, "a"), mk_num(&arena, 1.0))]);
         let fn_ = set_function(&arena);
-        let overload = fn_.callback_for(4, &HashSet::new()).unwrap();
+        let overload = fn_.callback_for(4, &IndexMap::<String, ()>::new()).unwrap();
         let logger = Rc::new(RecordLogger::new());
         let mut state = EvalState::new(&arena, BOGUS_SPAN);
         let config = EvalConfig::new(
@@ -1665,7 +1666,7 @@ mod tests {
         let arena = Bump::new();
         let m = map_val(&arena, vec![(mk_str(&arena, "a"), mk_num(&arena, 1.0))]);
         let fn_ = map_merge_function(&arena);
-        let overload = fn_.callback_for(3, &HashSet::new()).unwrap();
+        let overload = fn_.callback_for(3, &IndexMap::<String, ()>::new()).unwrap();
         let logger = Rc::new(RecordLogger::new());
         let mut state = EvalState::new(&arena, BOGUS_SPAN);
         let config = EvalConfig::new(

@@ -96,17 +96,16 @@ pub fn pluralize(name: &str, number: i32, plural: Option<&str>) -> String {
 
 /// Converts `items` into a sentence, separating each word with `conjunction`
 /// (Dart defaults it to `"and"` — callers here always pass it explicitly):
-/// `[a]` → `"a"`, `[a, b]` → `"a or b"`, `[a, b, c]` → `"a, b, or c"`.
+/// `[a]` → `"a"`, `[a, b]` → `"a or b"`, `[a, b, c]` → `"a, b or c"`.
 ///
 /// Matches Dart: `toSentence`.
 pub fn to_sentence(items: &[String], conjunction: &str) -> String {
     match items.len() {
         0 => String::new(),
         1 => items[0].clone(),
-        2 => format!("{} {conjunction} {}", items[0], items[1]),
         _ => {
             let (last, rest) = items.split_last().unwrap();
-            format!("{}, {conjunction} {last}", rest.join(", "))
+            format!("{} {conjunction} {last}", rest.join(", "))
         }
     }
 }
@@ -143,5 +142,20 @@ mod tests {
     #[test]
     fn test_pluralize_custom() {
         assert_eq!(pluralize("thing", 3, Some("thingies")), "thingies");
+    }
+
+    #[test]
+    fn test_to_sentence() {
+        assert_eq!(to_sentence(&[], "or"), "");
+        assert_eq!(to_sentence(&["a".to_string()], "or"), "a");
+        assert_eq!(
+            to_sentence(&["a".to_string(), "b".to_string()], "or"),
+            "a or b"
+        );
+        // Dart's `toSentence` has no Oxford comma.
+        assert_eq!(
+            to_sentence(&["a".to_string(), "b".to_string(), "c".to_string()], "or"),
+            "a, b or c"
+        );
     }
 }

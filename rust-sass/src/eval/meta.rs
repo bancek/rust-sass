@@ -109,6 +109,29 @@ where
     BuiltInCallable::function(name, parameters, "sass:meta", arena, callback)
 }
 
+/// Returns the `$args...` value passed to `meta.call`/`meta.apply`.
+///
+/// Dart casts `arguments[1] as SassArgumentList` (evaluate.dart:573, :656).
+/// The built-in overload always supplies it, so a missing or non-list value is
+/// an internal invariant violation; the crate forbids panics where Dart would
+/// throw a `TypeError`, so surface it as a script error instead.
+fn rest_argument<'parse>(args: &[Value<'parse>], callable: &str) -> SassResult<Value<'parse>> {
+    match args.get(1) {
+        Some(v) if matches!(&**v, ValueKind::ArgumentList(_)) => Ok(*v),
+        Some(v) => Err(Box::new(SassError::Script {
+            message: format!(
+                "{callable}(): {} is not an argument list.",
+                v.to_display_string()?
+            ),
+            argument_name: None,
+        })),
+        None => Err(Box::new(SassError::Script {
+            message: format!("{callable}() is missing its rest argument list."),
+            argument_name: None,
+        })),
+    }
+}
+
 /// Reentrant body of `meta.call($function, $args...)`.
 ///
 /// Calls the given function reference with the rest-args as its arguments.
@@ -140,27 +163,49 @@ where
 {
     let function = &args[0];
 
-    // SassFunction path: assert function, assert compile context,
-    // then dispatch through the evaluator's callable runner.
-    match &**function {
+    // Dart builds the invocation once (`evaluate.dart:565-585`), then picks
+    // the callable from the function value; `keywordRest` is therefore passed
+    // on both the reference and the string path.
+    let span = state.callable_span.unwrap_or(BOGUS_SPAN);
+    // Dart: `arguments[1] as SassArgumentList` (evaluate.dart:573).
+    let rest_val = rest_argument(&args, "call")?;
+    // Read `args.keywords`, which marks them accessed so passing keywords
+    // through `call` doesn't trip the unused-keyword check afterwards.
+    let keyword_rest = match &*rest_val {
+        ValueKind::ArgumentList(al) if !al.keywords().is_empty() => {
+            let mut kw_entries: Vec<(Value<'parse>, Value<'parse>)> = Vec::new();
+            for (name, val) in al.keywords().iter() {
+                kw_entries.push((
+                    Value::new_with_arena(
+                        arena,
+                        ValueKind::String(SassString::new(arena.alloc_str(name), false)),
+                    ),
+                    *val,
+                ));
+            }
+            let kw_map = SassMap::from_entries(arena, kw_entries);
+            Some(Expression::Value(ValueExpression::new(
+                Value::new_with_arena(arena, ValueKind::Map(kw_map)),
+                span,
+            )))
+        }
+        _ => None,
+    };
+    let rest_expr = Expression::Value(ValueExpression::new(rest_val, span));
+    let arg_list = ArgumentList::new(
+        arena,
+        vec![],
+        IndexMap::new(),
+        IndexMap::new(),
+        span,
+        Some(rest_expr),
+        keyword_rest,
+    );
+
+    let callable = match &**function {
         ValueKind::Function(f) => {
             f.assert_compile_context(&cctx)?;
-            let span = state.callable_span.unwrap_or(BOGUS_SPAN);
-            let rest_val = args
-                .get(1)
-                .cloned()
-                .unwrap_or_else(|| Value::new_with_arena(arena, ValueKind::Null));
-            let rest_expr = Expression::Value(ValueExpression::new(rest_val, span));
-            let arg_list = ArgumentList::new(
-                arena,
-                vec![],
-                IndexMap::new(),
-                IndexMap::new(),
-                span,
-                Some(rest_expr),
-                None,
-            );
-            invoke_callable(config, state, arena, &f.callable, &arg_list, span).await
+            f.callable
         }
         ValueKind::String(s) => {
             let serialized = s.to_css_string(true)?;
@@ -176,7 +221,7 @@ where
             )?;
             // Dart resolves only a canonical name; anything else is treated as
             // a plain-CSS callable named with the original text.
-            let fn_callable = match resolve_css_escapes_if_canonical(s.text) {
+            match resolve_css_escapes_if_canonical(s.text) {
                 Some(name) => {
                     let normalized = name.replace("_", "-");
                     state
@@ -200,55 +245,20 @@ where
                     arena,
                     CallableKind::PlainCss(PlainCssCallable { name: s.text }),
                 ),
-            };
-            let span = state.callable_span.unwrap_or(BOGUS_SPAN);
-            let rest_val = args
-                .get(1)
-                .cloned()
-                .unwrap_or_else(|| Value::new_with_arena(arena, ValueKind::Null));
-
-            // Extract keywords from SassArgumentList (matching Go evaluate_meta.go:339-346)
-            let keyword_rest = match &*rest_val {
-                ValueKind::ArgumentList(al) if !al.keywords.is_empty() => {
-                    let mut kw_entries: Vec<(Value<'parse>, Value<'parse>)> = Vec::new();
-                    for (name, val) in al.keywords.iter() {
-                        kw_entries.push((
-                            Value::new_with_arena(
-                                arena,
-                                ValueKind::String(SassString::new(arena.alloc_str(name), false)),
-                            ),
-                            *val,
-                        ));
-                    }
-                    let kw_map = SassMap::from_entries(arena, kw_entries);
-                    Some(Expression::Value(ValueExpression::new(
-                        Value::new_with_arena(arena, ValueKind::Map(kw_map)),
-                        span,
-                    )))
-                }
-                _ => None,
-            };
-
-            let rest_expr = Expression::Value(ValueExpression::new(rest_val, span));
-            let arg_list = ArgumentList::new(
-                arena,
-                vec![],
-                IndexMap::new(),
-                IndexMap::new(),
-                span,
-                Some(rest_expr),
-                keyword_rest,
-            );
-            invoke_callable(config, state, arena, &fn_callable, &arg_list, span).await
+            }
         }
-        _ => Err(Box::new(SassError::Script {
-            message: format!(
-                "{} is not a function reference.",
-                function.to_display_string()?
-            ),
-            argument_name: Some("function".into()),
-        })),
-    }
+        _ => {
+            return Err(Box::new(SassError::Script {
+                message: format!(
+                    "{} is not a function reference.",
+                    function.to_display_string()?
+                ),
+                argument_name: Some("function".into()),
+            }))
+        }
+    };
+
+    invoke_callable(config, state, arena, &callable, &arg_list, span).await
 }
 
 // ===========================================================================
@@ -1160,10 +1170,8 @@ where
     let mixin = assert_mixin(&args[0], Some("mixin"))?;
     mixin.assert_compile_context(&cctx)?;
     let span = state.callable_span.unwrap_or(BOGUS_SPAN);
-    let rest_val = args
-        .get(1)
-        .cloned()
-        .unwrap_or_else(|| Value::new_with_arena(arena, ValueKind::Null));
+    // Dart: `arguments[1] as SassArgumentList` (evaluate.dart:656).
+    let rest_val = rest_argument(&args, "apply")?;
     let rest_expr = Expression::Value(ValueExpression::new(rest_val, span));
     let arg_list = ArgumentList::new(
         arena,
@@ -1351,11 +1359,9 @@ mod tests {
     use crate::io::Io;
     use crate::logger::test_utils::LogCall;
     use crate::serialize::serialize_value_inspect;
-    use std::collections::HashMap;
-    use std::collections::HashSet;
-    use std::rc::Rc;
-
     use indexmap::IndexMap;
+    use std::collections::HashMap;
+    use std::rc::Rc;
 
     use crate::common::file_span::{FileSpan, BOGUS_SPAN};
     use crate::compile_context::new_compile_context;
@@ -1457,7 +1463,9 @@ mod tests {
         let CallableKind::BuiltIn(bic) = c.kind() else {
             panic!("expected BuiltIn callable")
         };
-        let overload = bic.callback_for(args.len(), &HashSet::new()).unwrap();
+        let overload = bic
+            .callback_for(args.len(), &IndexMap::<String, ()>::new())
+            .unwrap();
         let mut padded = args.to_vec();
         while padded.len() < overload.params.parameters.len() {
             padded.push(Value::new_with_arena(arena, ValueKind::Null));
@@ -1555,7 +1563,9 @@ mod tests {
         let CallableKind::BuiltIn(bic) = c.kind() else {
             panic!("expected BuiltIn callable")
         };
-        let overload = bic.callback_for(args.len(), &HashSet::new()).unwrap();
+        let overload = bic
+            .callback_for(args.len(), &IndexMap::<String, ()>::new())
+            .unwrap();
         invoke_callback(&overload.callback, &v.config, &mut v.state, args, arena).await
     }
 
@@ -2350,6 +2360,32 @@ mod tests {
     }
 
     #[rust_sass_macros::maybe_test]
+    async fn test_call_plain_css_rejects_keyword_arguments() {
+        // Dart builds the invocation (including `keywordRest`) before picking
+        // the callable, so a plain-CSS reference rejects keywords
+        // (evaluate.dart:565-585, :3710).
+        let arena = Bump::new();
+        let io: Rc<dyn Io> = Rc::new(VirtualIo::new());
+        let err = compile_string(
+            "@use \"sass:meta\";\na { b: meta.call(meta.get-function(\"foo\", $css: true), $x: 1); }\n",
+            io,
+            &mut CompileOptions::new(&arena),
+            &arena,
+        )
+        .await
+        .unwrap_err();
+        match *err {
+            SassError::Runtime { message, .. } => {
+                assert_eq!(
+                    message,
+                    "Plain CSS functions don't support keyword arguments."
+                )
+            }
+            other => panic!("expected Runtime error, got {other:?}"),
+        }
+    }
+
+    #[rust_sass_macros::maybe_test]
     async fn test_call_compile_context_mismatch() {
         let arena = Bump::new();
         let mut v = new_visitor(&arena);
@@ -2667,6 +2703,92 @@ mod tests {
     //
     // The tests call `compile_string` inline (not via a helper) because
     // `maybe_test` rewrites `.await` in the *test body* only.
+    #[rust_sass_macros::maybe_test]
+    async fn test_call_escaped_named_argument() {
+        // `meta.call` forwards its keywords as a map (evaluate.dart:576-585),
+        // and re-evaluating that invocation must not canonicalize the key a
+        // second time: `toCssIdentifier("\\$")` is `"\\\\\\$"`, not `"\\$"`,
+        // so a second pass breaks the match against the parameter's `\\$`.
+        let arena = Bump::new();
+        let io: Rc<dyn Io> = Rc::new(VirtualIo::new());
+        let css = compile_string(
+            "@use \"sass:meta\";\n\
+             @function f($\\$) { @return $\\$; }\n\
+             a { b: meta.call(meta.get-function(\"f\"), $\\$: 2); }\n",
+            io,
+            &mut CompileOptions::new(&arena),
+            &arena,
+        )
+        .await
+        .unwrap()
+        .css()
+        .to_string();
+        assert_eq!(css, "a {\n  b: 2;\n}");
+    }
+
+    #[rust_sass_macros::maybe_test]
+    async fn test_call_marks_rest_keywords_accessed() {
+        // `call` reads `args.keywords` (evaluate.dart:577), which marks the
+        // keywords as accessed; without that, passing keywords through `call`
+        // raises a spurious unused-keyword error after the callback returns.
+        let arena = Bump::new();
+        let io: Rc<dyn Io> = Rc::new(VirtualIo::new());
+        let css = compile_string(
+            "@use \"sass:meta\";\n\
+             @function f($x: 1, $args...) { @return $x; }\n\
+             a { b: meta.call(meta.get-function(\"f\"), $x: 2); }\n",
+            io,
+            &mut CompileOptions::new(&arena),
+            &arena,
+        )
+        .await
+        .unwrap()
+        .css()
+        .to_string();
+        assert_eq!(css, "a {\n  b: 2;\n}");
+    }
+
+    #[rust_sass_macros::maybe_test]
+    async fn test_call_without_extra_arguments() {
+        // Dart casts `arguments[1] as SassArgumentList` (evaluate.dart:573);
+        // the built-in overload always supplies it, even when the caller
+        // passes nothing beyond `$function`.
+        let arena = Bump::new();
+        let io: Rc<dyn Io> = Rc::new(VirtualIo::new());
+        let css = compile_string(
+            "@use \"sass:meta\";\n\
+             @function f() { @return 7; }\n\
+             a { b: meta.call(meta.get-function(\"f\")); }\n",
+            io,
+            &mut CompileOptions::new(&arena),
+            &arena,
+        )
+        .await
+        .unwrap()
+        .css()
+        .to_string();
+        assert_eq!(css, "a {\n  b: 7;\n}");
+    }
+
+    #[rust_sass_macros::maybe_test]
+    async fn test_apply_without_extra_arguments() {
+        let arena = Bump::new();
+        let io: Rc<dyn Io> = Rc::new(VirtualIo::new());
+        let css = compile_string(
+            "@use \"sass:meta\";\n\
+             @mixin m() { b: 7; }\n\
+             a { @include meta.apply(meta.get-mixin(\"m\")); }\n",
+            io,
+            &mut CompileOptions::new(&arena),
+            &arena,
+        )
+        .await
+        .unwrap()
+        .css()
+        .to_string();
+        assert_eq!(css, "a {\n  b: 7;\n}");
+    }
+
     #[rust_sass_macros::maybe_test]
     async fn test_escaped_identifier_resolves_in_meta_reflection() {
         // `\61\62` is the canonical spelling of `ab`; `\61b` decodes to `a` +
